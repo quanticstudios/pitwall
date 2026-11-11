@@ -1,0 +1,15 @@
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Capture shell approval
+
+  $ printf '%s\n' first-probe > /tmp/pitwall-multiline-probe
+  printf '%s\n' 'tabbed probe' >> /tmp/pitwall-multiline-probe
+      printf '%s\n' 'indented probe' >> /tmp/pitwall-multiline-probe
+
+
+› 1. Yes, proceed (y)
+  2. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

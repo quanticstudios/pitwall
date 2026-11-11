@@ -1,0 +1,2 @@
+go test fuzz v1
+string("flowchart\n0-.0-.0&0==0\xb6\x84\xe2\n0\n0\n\xf00")

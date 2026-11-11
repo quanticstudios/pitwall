@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\xd4\n\x950\n\x820\n\xec0\n\xd00\n00\n\xf50\n00\n\xb50\n\xda")

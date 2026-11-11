@@ -1,0 +1,2 @@
+go test fuzz v1
+string("00\xd40\xd3 0")

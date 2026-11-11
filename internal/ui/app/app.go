@@ -37,6 +37,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/board"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -98,6 +99,7 @@ func Run(b Backend) error {
 	}
 	w.Option(app.Title("pitwall"), app.Size(unit.Dp(WindowSize.X), unit.Dp(WindowSize.Y)), app.MinSize(640, 360))
 	u := &ui{b: b, panes: map[string]*paneUI{}, invalidate: w.Invalidate}
+	u.reader.Invalidate, u.reader.OpenURL = w.Invalidate, openLink
 	defer u.panel.stop()
 	defer u.usage.prune(nil)
 	l := loadConfig()
@@ -376,6 +378,10 @@ type ui struct {
 	profile profileChoice // New tab's account picker
 
 	review reviewView // the review view, shown in place of the panes
+	// reader is a markdown file a pane linked to, shown in place of the
+	// panes of tab readerWS.
+	reader   mdview.View
+	readerWS string
 	// boardOn shows the board in place of the panes, opened over tab
 	// boardWS; showing another tab closes it.
 	boardOn bool
@@ -697,6 +703,9 @@ func (u *ui) layout(gtx gl.Context) {
 	// A peek covers the page, so its keys, Escape first, are the peek's.
 	if !u.sw.open && !u.pal.open && !u.browser.open && !dialog && !u.sidebar.Focused() && u.nav.peek == "" {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
+		if !u.settings.Shown() {
+			u.reader.Keys(gtx)
+		}
 		u.reviewKeys(gtx, &st)
 	}
 	for u.modal.kind == modalNone {
@@ -832,7 +841,7 @@ func (u *ui) layout(gtx gl.Context) {
 	fade := anim.At(gtx, u.switchAt, anim.Long)
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	u.keepFind(&st)
-	if u.settings.Shown() || u.review.on || u.boardOn || u.mon.on {
+	if u.settings.Shown() || u.reader.On() || u.review.on || u.boardOn || u.mon.on {
 		u.paneMenu.close()
 		if u.nav.peek != "" {
 			u.showPanes(map[string]bool{u.nav.peek: true}) // no pane under the page or the board
@@ -840,6 +849,8 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	if u.settings.Shown() {
 		u.layoutSettings(pgtx, &st)
+	} else if u.reader.On() {
+		u.layoutReader(pgtx, &st)
 	} else if u.review.on {
 		u.layoutReview(pgtx, &st)
 	} else if u.boardOn {
@@ -969,6 +980,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.SelectWorkspace:
 		u.settings.Hide()
 		u.review.hide()
+		u.reader.Close()
 		u.boardOn, u.mon.on = false, false
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.ForkPane:
@@ -1440,7 +1452,7 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 	}
 	u.paneCopy(gtx, p, id, rect)
 	u.panePaste(gtx, p, id, rect, m)
-	if l := p.view.OpenLink(); l != "" {
+	if l := p.view.OpenLink(); l != "" && !u.openReader(gtx, st, id, l, rect) {
 		openLink(l)
 	}
 	if len(input) > 0 {

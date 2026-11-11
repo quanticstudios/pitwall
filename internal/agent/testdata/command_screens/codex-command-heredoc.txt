@@ -1,0 +1,44 @@
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Capture this shell approval dialog
+
+  $ cat <<'PITWALL_EOF' > /tmp/pitwall-multiline-probe
+  probe line 01: multiline permission capture
+  probe line 02: multiline permission capture
+  probe line 03: multiline permission capture
+  probe line 04: multiline permission capture
+  probe line 05: multiline permission capture
+  probe line 06: multiline permission capture
+  probe line 07: multiline permission capture
+  probe line 08: multiline permission capture
+  probe line 09: multiline permission capture
+  probe line 10: multiline permission capture
+  probe line 11: multiline permission capture
+  probe line 12: multiline permission capture
+  probe line 13: multiline permission capture
+  probe line 14: multiline permission capture
+  probe line 15: multiline permission capture
+  probe line 16: multiline permission capture
+  probe line 17: multiline permission capture
+  probe line 18: multiline permission capture
+  probe line 19: multiline permission capture
+  probe line 20: multiline permission capture
+  probe line 21: multiline permission capture
+  probe line 22: multiline permission capture
+  probe line 23: multiline permission capture
+  probe line 24: multiline permission capture
+  probe line 25: multiline permission capture
+  probe line 26: multiline permission capture
+  probe line 27: multiline permission capture
+  probe line 28: multiline permission capture
+  probe line 29: multiline permission capture
+  probe line 30: multiline permission capture
+  PITWALL_EOF
+
+
+› 1. Yes, proceed (y)
+  2. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

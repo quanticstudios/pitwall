@@ -20,6 +20,11 @@ pushes the tag once, which starts the release build. Either step takes
 ## Unreleased
 
 - A model or effort pick on the phone changes only that Claude Code session. pitwall used to type `/model <name>` or `/effort <level>`, which Claude Code 2.1.322 also saves as the default for every new session. It now opens Claude Code's `/model` picker or `/effort` slider, moves to the pick and presses `s`, the key for this session only, and closes the menu with Esc if the pick is not there. The chips show what the session runs: a change made on the computer replaces the phone's pick, and a pick the session never reports gives way after 5 seconds.
+- Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
+- Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
+- Allow and Deny in the sidebar and phone match complete multi-line shell commands with their relative indentation, interior blank lines and wrapped rows. Claude commands may contain tabs; Codex commands with tabs and commands with missing or hidden text still require an answer in their tab.
+- Answer Claude Code and Codex terminal questions inline on the phone, including multiSelect, several questions and Other. Attach or paste a picture in the Android composer or phone page and send it through the desktop image delivery path.
+- Ctrl+click a markdown file a pane prints, such as `docs/plan.md`, to read it in pitwall over the panes: headings, lists, tables, code, local and web images, and mermaid flowcharts drawn as diagrams. Links to other markdown files open in the same reader with Back, and it redraws when the file changes. Esc closes it. See [Markdown reader](docs/usage.md#markdown-reader).
 
 ## v0.2.7
 

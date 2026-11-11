@@ -29,7 +29,7 @@ func TestHintOpenPath(t *testing.T) {
 	var opened []string
 	hintOpen = func(s string) error { opened = append(opened, s); return nil }
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a b.md"), nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "a b.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	b := NewFakeBackend()
@@ -37,21 +37,21 @@ func TestHintOpenPath(t *testing.T) {
 	st := model.State{Panes: []model.Pane{{ID: "p", WorkspaceID: "w", Cwd: dir}}}
 	var ops op.Ops
 	gtx := gl.Context{Ops: &ops}
-	path := hintTarget{"p", term.HintMatch{Kind: term.HintPath, Text: "a b.md:12:3"}}
+	path := hintTarget{"p", term.HintMatch{Kind: term.HintPath, Text: "a b.txt:12:3"}}
 	u.hintAct(gtx, &st, path, true)
-	if u.notice != "Opened a b.md:12:3" {
+	if u.notice != "Opened a b.txt:12:3" {
 		t.Fatalf("unset opener notice: %q", u.notice)
 	}
-	if !slices.Equal(opened, []string{fileURL(filepath.Join(dir, "a b.md"))}) || len(b.Sent()) != 0 {
+	if !slices.Equal(opened, []string{fileURL(filepath.Join(dir, "a b.txt"))}) || len(b.Sent()) != 0 {
 		t.Fatalf("unset: opener %q, messages %v", opened, b.Sent())
 	}
 	u.cfg.OpenPath = []string{"bat", "--paging=always"}
 	for _, host := range []string{"", "box"} {
 		Host = host
 		u.hintAct(gtx, &st, path, true)
-		wantPath := filepath.Join(dir, "a b.md")
+		wantPath := filepath.Join(dir, "a b.txt")
 		if host != "" {
-			wantPath = "a b.md"
+			wantPath = "a b.txt"
 		}
 		want := proto.OpenPopup{WorkspaceID: "w", Cmd: []string{"bat", "--paging=always"}, Dir: dir, Path: wantPath}
 		got := sentOf[proto.OpenPopup](b)
@@ -60,7 +60,18 @@ func TestHintOpenPath(t *testing.T) {
 		}
 	}
 	u.hintAct(gtx, &st, hintTarget{"p", term.HintMatch{Kind: term.HintURL, Text: "https://example.com"}}, true)
-	if !slices.Equal(opened, []string{fileURL(filepath.Join(dir, "a b.md")), "https://example.com"}) {
+	// With no opener set, a markdown file opens in the reader.
+	Host, u.cfg.OpenPath = "", nil
+	md := filepath.Join(dir, "plan.md")
+	if err := os.WriteFile(md, []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u.hintAct(gtx, &st, hintTarget{"p", term.HintMatch{Kind: term.HintPath, Text: "plan.md:3"}}, true)
+	defer u.reader.Close()
+	if !u.reader.On() || u.reader.Path() != md {
+		t.Fatalf("markdown hint: reader on %v at %q", u.reader.On(), u.reader.Path())
+	}
+	if !slices.Equal(opened, []string{fileURL(filepath.Join(dir, "a b.txt")), "https://example.com"}) {
 		t.Fatalf("opener %q", opened)
 	}
 }

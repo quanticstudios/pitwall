@@ -21,11 +21,12 @@ import (
 // activity. Clearing it here too keeps the ring and the sidebar from
 // flashing during the round trip. It also tells the daemon whenever the
 // pane shown that way changes, "" for none, so a bell there stays quiet.
-// The settings page, the board and the monitor (covered or not) and the
-// review view hide the panes; a peek's pane shows over all of them.
+// The settings page, the board and the monitor (covered or not), the
+// review view and the reader hide the panes; a peek's pane shows over
+// all of them.
 func (u *ui) markSeen(st *model.State) {
 	f := u.nav.focused()
-	if !u.winFocused || u.settings.Shown() || u.boardOn || u.mon.on || u.review.on {
+	if !u.winFocused || u.settings.Shown() || u.boardOn || u.mon.on || u.review.on || u.reader.On() {
 		f = ""
 	}
 	if u.nav.peek != "" && u.winFocused {

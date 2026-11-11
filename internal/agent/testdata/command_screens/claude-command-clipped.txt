@@ -1,0 +1,70 @@
+ │ probe line 092: multiline permission capture
+ │ probe line 093: multiline permission capture
+ │ probe line 094: multiline permission capture
+ │ probe line 095: multiline permission capture
+ │ probe line 096: multiline permission capture
+ │ probe line 097: multiline permission capture
+ │ probe line 098: multiline permission capture
+ │ probe line 099: multiline permission capture
+ │ probe line 100: multiline permission capture
+ │ probe line 101: multiline permission capture
+ │ probe line 102: multiline permission capture
+ │ probe line 103: multiline permission capture
+ │ probe line 104: multiline permission capture
+ │ probe line 105: multiline permission capture
+ │ probe line 106: multiline permission capture
+ │ probe line 107: multiline permission capture
+ │ probe line 108: multiline permission capture
+ │ probe line 109: multiline permission capture
+ │ probe line 110: multiline permission capture
+ │ probe line 111: multiline permission capture
+ │ probe line 112: multiline permission capture
+ │ probe line 113: multiline permission capture
+ │ probe line 114: multiline permission capture
+ │ probe line 115: multiline permission capture
+ │ probe line 116: multiline permission capture
+ │ probe line 117: multiline permission capture
+ │ probe line 118: multiline permission capture
+ │ probe line 119: multiline permission capture
+ │ probe line 120: multiline permission capture
+ │ probe line 121: multiline permission capture
+ │ probe line 122: multiline permission capture
+ │ probe line 123: multiline permission capture
+ │ probe line 124: multiline permission capture
+ │ probe line 125: multiline permission capture
+ │ probe line 126: multiline permission capture
+ │ probe line 127: multiline permission capture
+ │ probe line 128: multiline permission capture
+ │ probe line 129: multiline permission capture
+ │ probe line 130: multiline permission capture
+ │ probe line 131: multiline permission capture
+ │ probe line 132: multiline permission capture
+ │ probe line 133: multiline permission capture
+ │ probe line 134: multiline permission capture
+ │ probe line 135: multiline permission capture
+ │ probe line 136: multiline permission capture
+ │ probe line 137: multiline permission capture
+ │ probe line 138: multiline permission capture
+ │ probe line 139: multiline permission capture
+ │ probe line 140: multiline permission capture
+ │ probe line 141: multiline permission capture
+ │ probe line 142: multiline permission capture
+ │ probe line 143: multiline permission capture
+ │ probe line 144: multiline permission capture
+ │ probe line 145: multiline permission capture
+ │ probe line 146: multiline permission capture
+ │ probe line 147: multiline permission capture
+ │ probe line 148: multiline permission capture
+ │ probe line 149: multiline permission capture
+ │ probe line 150: multiline permission capture
+ │ PITWALL_EOF
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ A file redirect in this command can't be checked before it runs
+ Permission rule Bash requires confirmation for this command.
+ /permissions to update rules
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

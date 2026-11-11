@@ -1,0 +1,2 @@
+go test fuzz v1
+string("graph TD\n\x01 -- yes --> B\nB --o C\nC <--> A\nA --- A")
