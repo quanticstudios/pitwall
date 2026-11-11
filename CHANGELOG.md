@@ -19,6 +19,8 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- Phone model and effort chips retain terminal setting changes made while the phone is closed, after the acknowledgements scroll away.
+
 - Phone model and effort chips ignore mentions in transcript text. Esc protects a prompt Claude Code restores on interruption from queued phone and window messages.
 
 - Terminal draft tracking rejects Kitty key codes outside the Unicode range before converting them to runes.

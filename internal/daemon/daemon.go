@@ -2167,15 +2167,31 @@ func (d *Daemon) watch(id string, p Pane) {
 				}
 			}
 			last = time.Now()
-			if title, ok := d.pushFrame(id, p); ok {
+			title, shown := d.pushFrame(id, p)
+			if shown {
 				d.setTitle(id, p, title)
-			} else if titleDue == nil {
-				titleDue = time.After(titlePoll)
+			}
+			if titleDue == nil {
+				d.mu.Lock()
+				if !shown || d.paneProvider(id) == model.ProviderClaude {
+					titleDue = time.After(titlePoll)
+				}
+				d.mu.Unlock()
 			}
 		case <-titleDue:
 			titleDue = nil
 			g := p.Snapshot()
 			d.setTitle(id, p, g.Title)
+			d.mu.Lock()
+			claude := d.paneProvider(id) == model.ProviderClaude
+			d.mu.Unlock()
+			if claude {
+				// Keep settings while the phone is closed, outside the frame lock.
+				m, e := agent.ClaudeSettings(g)
+				d.mu.Lock()
+				d.keepClaudeSettings(id, p, m, e)
+				d.mu.Unlock()
+			}
 		case <-p.Done():
 			d.pushFrame(id, p)
 			d.exited(id, p)

@@ -148,6 +148,34 @@ func TestPhoneSettingsOutsideFrames(t *testing.T) {
 	}
 }
 
+func TestPhoneSettingsWhileClosed(t *testing.T) {
+	for _, gui := range []bool{false, true} {
+		t.Run(fmt.Sprintf("gui=%t", gui), func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			p := f.pane(0)
+			if gui {
+				d.mu.Lock()
+				d.clients[&client{frames: map[string]proto.Frame{}}] = struct{}{}
+				d.mu.Unlock()
+			}
+			setScreen(p, []string{"▝▜ Opus 5.5 with high effort", "────────", "❯ ", "────────"})
+			if tab := d.phoneTabs()[0]; tab.Model != "Opus 5.5" || tab.Effort != "high" {
+				t.Fatalf("initial settings: %+v", tab)
+			}
+			p.draw("⎿  Set model to Sonnet 5.5", "⎿  Set effort level to low", "────────", "❯ ", "────────")
+			waitUntil(t, "settings cached without a phone request", func() bool {
+				d.mu.Lock()
+				defer d.mu.Unlock()
+				return d.phoneSettings["a"] == (phoneSettings{model: "Sonnet 5.5", effort: "low"})
+			})
+			p.draw("reply after settings scroll away", "────────", "❯ ", "────────")
+			if tab := d.phoneTabs()[0]; tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+				t.Fatalf("reopened phone has stale settings: %+v", tab)
+			}
+		})
+	}
+}
+
 func TestPhoneEscapeRestoresDraft(t *testing.T) {
 	for _, wire := range []string{"\x1b", "\x1b[27u", "\x1b\x1b", "\x1b[27u\x1b[27u"} {
 		t.Run(fmt.Sprintf("%x", wire), func(t *testing.T) {
