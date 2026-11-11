@@ -19,6 +19,8 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
+
 - Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
 
 ## v0.2.7

@@ -1755,6 +1755,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	d.sawHook(p.ID)
 	ai := slices.IndexFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
+	if ai >= 0 && d.st.Activities[ai].Provider == model.ProviderTerminal {
+		// Startup hooks leave activity unchanged, so discard the detected wrapper first.
+		d.dropActivity(p.ID)
+		ai = -1
+	}
 	var prev *model.Activity
 	if ai >= 0 {
 		cp := d.st.Activities[ai]
