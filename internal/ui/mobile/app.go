@@ -113,7 +113,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			return e.Err
 		case app.ViewEvent:
 			setCameraView(e)
-			setImageView(e)
+			setImageView(e, func(b []byte, err error) { a.post(func() { a.insertImage(b, err) }) })
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {
@@ -344,6 +344,19 @@ func (a *App) tab() (remote.Tab, bool) {
 		return remote.Tab{}, false
 	}
 	return tabs[i], true
+}
+
+// insertImage puts a picture from the keyboard on the open chat's composer.
+func (a *App) insertImage(b []byte, err error) {
+	t, open := a.tab()
+	l := a.links[a.chatM]
+	switch {
+	case !open || l == nil || a.chat.cmp.sending:
+	case !l.hello.Upload || !t.Attach:
+		a.chat.cmp.notSent = "this tab takes no pictures from the phone"
+	default:
+		a.chat.setPicture(b, err)
+	}
 }
 
 // openChat opens the chat of the State tab or pane id.

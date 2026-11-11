@@ -56,6 +56,14 @@ Each change is marked `pitwall` in a comment:
   Upstream sent no event, so a pane could not tell an image from a slow
   read. On Wayland it also left `readClipClose` set, and every later read
   in the window returned before reading. A failed read clears it too.
+- `app/GioView.java`, `onCreateInputConnection` and `commitContent`: on
+  Android 12 and later, a view with an `OnReceiveContentListener` offers the
+  keyboard its MIME types, and a keyboard's image (from its clipboard, a
+  sticker or a GIF) goes to that listener as `TextView` sends it, after the
+  read grant. Upstream refused every `commitContent`. The view keeps the last
+  `InputContentInfo` so its grant outlives the app's read on another thread,
+  and releases it on the next insert. The phone app's `PhotoPick.java` sets
+  the listener.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would

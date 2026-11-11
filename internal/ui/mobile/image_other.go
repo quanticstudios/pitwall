@@ -10,7 +10,7 @@ import (
 
 const canPickImage = false
 
-func setImageView(app.ViewEvent) {}
+func setImageView(app.ViewEvent, func([]byte, error)) {}
 func pickImage(clipboard bool, done func([]byte, error)) {
 	done(nil, errors.New("photo picking requires Android"))
 }

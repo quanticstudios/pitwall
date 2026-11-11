@@ -11,6 +11,7 @@ import android.app.Activity;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.app.FragmentTransaction;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Canvas;
@@ -27,6 +28,7 @@ import android.text.SpannableStringBuilder;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.Choreographer;
+import android.view.ContentInfo;
 import android.view.Display;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -69,6 +71,8 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 	private int keyboardHint;
 
 	private long nhandle;
+	// pitwall: the last keyboard insert, kept so its read grant outlives the async read.
+	private InputContentInfo lastContent;
 
 	public GioView(Context context) {
 		this(context, null);
@@ -416,6 +420,10 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
 			editor.setInitialSurroundingSubText(snip.snippet, imeToUTF16(nhandle, snip.offset));
 		}
+		// pitwall: offer the keyboard the MIME types of the view's OnReceiveContentListener.
+		if (Build.VERSION.SDK_INT >= 31 && getReceiveContentMimeTypes() != null) {
+			editor.contentMimeTypes = getReceiveContentMimeTypes();
+		}
 		imeSetComposingRegion(nhandle, -1, -1);
 		return new GioInputConnection();
 	}
@@ -753,7 +761,25 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 		}
 
 		/*@Override*/ public boolean commitContent(InputContentInfo info, int flags, Bundle opts) {
-			return false;
+			// pitwall: hand a keyboard's image to the view's OnReceiveContentListener, as TextView does.
+			if (Build.VERSION.SDK_INT < 31 || getReceiveContentMimeTypes() == null) {
+				return false;
+			}
+			if ((flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+				try {
+					info.requestPermission();
+				} catch (Exception e) {
+					return false;
+				}
+				if (lastContent != null) {
+					lastContent.releasePermission();
+				}
+				lastContent = info;
+			}
+			ClipData clip = new ClipData(info.getDescription(), new ClipData.Item(info.getContentUri()));
+			ContentInfo payload = new ContentInfo.Builder(clip, ContentInfo.SOURCE_INPUT_METHOD)
+				.setLinkUri(info.getLinkUri()).setExtras(opts).build();
+			return performReceiveContent(payload) == null;
 		}
 
 		/*@Override*/ public boolean deleteSurroundingTextInCodePoints(int before, int after) {
