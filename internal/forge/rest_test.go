@@ -160,6 +160,8 @@ const pullsURL = "repos/example/widgets/pulls?state=open&per_page=100"
 
 func (f *restFake) details(number int, branch, sha, updated string) {
 	f.decision(number, "APPROVED")
+	f.set("repos/example/widgets/git/ref/heads/main", fakeResponse{Body: `{"object":{"sha":"base1"}}`, ETag: "base1"})
+	f.set("repos/example/widgets/git/ref/heads/release", fakeResponse{Body: `{"object":{"sha":"release1"}}`, ETag: "release1"})
 	f.set("repos/example/widgets/pulls/"+strconv.Itoa(number), fakeResponse{Body: pullJSON(number, branch, "example/widgets", sha, updated, "open"), ETag: updated + sha})
 	f.set("repos/example/widgets/pulls/"+strconv.Itoa(number)+"/reviews?per_page=100", fakeResponse{Body: `[{"id":1,"node_id":"review1","state":"APPROVED","user":{"login":"reviewer"},"submitted_at":"2026-01-02T00:00:00Z"}]`, ETag: "reviews"})
 	f.set("repos/example/widgets/git/commits/"+sha, fakeResponse{Body: `{"committer":{"date":"2026-01-01T00:00:00Z"}}`, ETag: sha})
@@ -205,7 +207,7 @@ func TestRESTBatchAndConditional(t *testing.T) {
 	if f.calls(pullsURL) != 1 {
 		t.Fatal("another tab caused another repo poll")
 	}
-	now = now.Add(time.Minute)
+	now = now.Add(QuietEvery)
 	got = p.Poll(context.Background(), dirs)
 	if got[dirs[0]].PR.Number != 1 || got[dirs[0]].Err != nil {
 		t.Fatalf("304 lost result: %+v", got[dirs[0]])
@@ -213,8 +215,8 @@ func TestRESTBatchAndConditional(t *testing.T) {
 	if f.calls(pullsURL) != 2 {
 		t.Fatal("repo did not revalidate")
 	}
-	if n := f.calls("repos/example/widgets/commits/"); n != before {
-		t.Fatalf("finished SHA fetched again: %d -> %d", before, n)
+	if n := f.calls("repos/example/widgets/commits/"); n != before+2*len(dirs) {
+		t.Fatalf("finished checks did not revalidate at QuietEvery: %d -> %d", before, n)
 	}
 	if n := f.calls("repos/example/widgets/pulls/1/reviews"); n != 1 {
 		t.Fatalf("unchanged reviews fetched %d times", n)
@@ -254,7 +256,7 @@ func TestRESTMovedAndPendingChecks(t *testing.T) {
 		t.Fatal("finished checks revalidated")
 	}
 	set("b", "u2")
-	now = now.Add(time.Minute)
+	now = now.Add(QuietEvery)
 	r = p.Poll(context.Background(), []string{dir})[dir]
 	if r.Err != nil || r.PR.Head != "b" {
 		t.Fatalf("moved head: %+v", r)
@@ -405,12 +407,14 @@ func TestRESTSidebarFields(t *testing.T) {
 	if r.Err != nil || r.PR.Review != model.ReviewRequired {
 		t.Fatalf("dismissed: %+v", r)
 	}
-	if f.calls("repos/example/widgets/commits/sha/check-runs") != 1 {
-		t.Fatal("review changes fetched finished checks")
+	if f.calls("repos/example/widgets/commits/sha/check-runs") != 4 {
+		t.Fatal("gh invalidations did not refresh finished checks")
 	}
 
 	// The base can introduce conflicts without a push or a PR timestamp change.
 	metadata("u4", false, true)
+	f.set("repos/example/widgets/git/ref/heads/release", fakeResponse{Body: `{"object":{"sha":"release2"}}`, ETag: "release2"})
+	p.now = func() time.Time { return time.Now().Add(OpenEvery) }
 	f.set("repos/example/widgets/pulls/7", fakeResponse{Body: strings.Replace(pullJSON(7, "feature", "example/widgets", "sha", "u4", "open"), `"mergeable":true`, `"mergeable":false`, 1), ETag: "base-moved"})
 	r = p.Poll(context.Background(), []string{dir})[dir]
 	if r.Err != nil || !r.PR.Conflicts {

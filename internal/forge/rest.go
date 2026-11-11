@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -31,12 +32,14 @@ type response struct {
 	etag string
 	body []byte
 	link string
+	at   time.Time
 }
 type pullCache struct {
-	updated, head string
-	decisionAt    string
-	data          ghPR
-	finished      bool
+	updated, head, base string
+	decisionAt          string
+	data                ghPR
+	finished            bool
+	checksAt            time.Time
 }
 type repoCache struct {
 	at    time.Time
@@ -115,6 +118,7 @@ func (p *Poller) budget(h http.Header) {
 
 // get reads headers even when gh exits nonzero for HTTP 304 or an error.
 func (p *Poller) get(ctx context.Context, dir, path string) (response, error) {
+	path = strings.TrimPrefix(path, "/")
 	if p.wait(p.now(), 0) > 0 {
 		return response{}, ErrRateLimited
 	}
@@ -146,6 +150,8 @@ func (p *Poller) get(ctx context.Context, dir, path string) (response, error) {
 		if cached.body == nil {
 			return response{}, errors.New("gh api: 304 without a cached response")
 		}
+		cached.at = p.now()
+		p.urls[path] = cached
 		return cached, nil
 	}
 	if res.StatusCode == 403 && p.wait(p.now(), 0) > 0 || res.StatusCode == 429 {
@@ -164,7 +170,7 @@ func (p *Poller) get(ctx context.Context, dir, path string) (response, error) {
 	if err != nil {
 		return response{}, err
 	}
-	got := response{res.Header.Get("ETag"), body, res.Header.Get("Link")}
+	got := response{res.Header.Get("ETag"), body, res.Header.Get("Link"), p.now()}
 	p.urls[path] = got
 	return got, nil
 }
@@ -205,43 +211,102 @@ type restPull struct {
 	Base struct{ Ref string } `json:"base"`
 }
 
-func repository(ctx context.Context, dir string) (string, string, error) {
-	out, err := gitstat.Command(ctx, dir, "config", "--get", "remote.origin.url").Output()
-	if err != nil {
-		return "", "", ErrNoGH
-	}
-	remote := strings.TrimSpace(string(out))
+func githubRepository(remote string) (string, error) {
 	if strings.HasPrefix(remote, "git@") && !strings.Contains(remote, "://") {
 		remote = "ssh://" + strings.Replace(remote, ":", "/", 1)
 	}
 	u, err := url.Parse(remote)
 	if err != nil {
-		return "", "", ErrNoGH
+		return "", ErrNoGH
 	}
 	host := strings.ToLower(u.Hostname())
 	// Account-specific SSH aliases keep the github.com- prefix.
 	if host != "github.com" && !(u.Scheme == "ssh" && strings.HasPrefix(host, "github.com-")) {
-		return "", "", ErrNoGH
+		return "", ErrNoGH
 	}
 	remote = strings.TrimSuffix(strings.TrimPrefix(u.Path, "/"), ".git")
 	if strings.Count(remote, "/") != 1 {
-		return "", "", ErrNoGH
+		return "", ErrNoGH
 	}
 	for _, part := range strings.Split(remote, "/") {
 		if part == "" || part == "." || part == ".." {
-			return "", "", ErrNoGH
+			return "", ErrNoGH
 		}
 		for _, r := range part {
 			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.", r)) {
-				return "", "", ErrNoGH
+				return "", ErrNoGH
 			}
 		}
 	}
+	return strings.ToLower(remote), nil
+}
+
+type branchRef struct {
+	dir, repo, head, name string
+	number                int // gh pr checkout can track refs/pull/{n}/head.
+}
+
+func repository(ctx context.Context, dir string) (branchRef, error) {
+	b := branchRef{dir: dir}
 	branch, err := gitstat.Command(ctx, dir, "symbolic-ref", "--short", "HEAD").Output()
 	if err != nil {
-		return "", "", err
+		return b, err
 	}
-	return strings.ToLower(remote), strings.TrimSpace(string(branch)), nil
+	b.name = strings.TrimSpace(string(branch))
+	out, err := gitstat.Command(ctx, dir, "config", "--get-regexp", `^(remote\..*\.(url|gh-resolved)|remote\.pushdefault|branch\..*\.(remote|pushremote|merge))$`).Output()
+	if err != nil {
+		return b, ErrNoGH
+	}
+	config := map[string]string{}
+	var remotes []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		key, value, _ := strings.Cut(line, " ")
+		config[key] = value
+		if strings.HasPrefix(key, "remote.") && strings.HasSuffix(key, ".url") {
+			remotes = append(remotes, strings.TrimSuffix(strings.TrimPrefix(key, "remote."), ".url"))
+		}
+	}
+	baseRemote := ""
+	for _, remote := range remotes {
+		if config["remote."+remote+".gh-resolved"] == "base" {
+			baseRemote = remote
+			break
+		}
+	}
+	for _, remote := range append([]string{baseRemote, "upstream", "origin"}, remotes...) {
+		if repo, e := githubRepository(config["remote."+remote+".url"]); e == nil {
+			b.repo, baseRemote = repo, remote
+			break
+		}
+	}
+	if b.repo == "" {
+		return b, ErrNoGH
+	}
+	prefix := "branch." + b.name + "."
+	remote := config[prefix+"pushremote"]
+	for _, candidate := range []string{config["remote.pushdefault"], config[prefix+"remote"], "origin", baseRemote} {
+		if remote == "" && (candidate != "origin" || config["remote.origin.url"] != "") {
+			remote = candidate
+		}
+	}
+	if raw := config["remote."+remote+".url"]; raw != "" {
+		remote = raw
+	}
+	b.head, err = githubRepository(remote)
+	if err != nil {
+		return b, err
+	}
+	merge := config[prefix+"merge"]
+	if strings.HasPrefix(merge, "refs/heads/") {
+		b.name = strings.TrimPrefix(merge, "refs/heads/")
+	} else if number, ok := strings.CutPrefix(merge, "refs/pull/"); ok {
+		number, ok = strings.CutSuffix(number, "/head")
+		if ok {
+			b.number, _ = strconv.Atoi(number)
+			b.name = merge
+		}
+	}
+	return b, nil
 }
 
 // View reads one branch through REST. Poll batches timer-driven reads.
@@ -250,32 +315,45 @@ func (p *Poller) View(ctx context.Context, dir string) (*model.PR, error) {
 	return r.PR, r.Err
 }
 
-// Poll lists open pulls once per remote, then maps only that remote's heads.
-// A fork with the same branch name cannot provide another repository's PR.
+// Poll shares open pulls by base repository and matches each branch's push
+// repository and upstream ref, or the PR ref recorded by gh pr checkout.
 func (p *Poller) Poll(ctx context.Context, dirs []string) map[string]Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	type branch struct{ dir, name string }
-	repos := map[string][]branch{}
+	repos := map[string][]branchRef{}
 	results := map[string]Result{}
 	for _, dir := range dirs {
-		repo, name, err := repository(ctx, dir)
+		b, err := repository(ctx, dir)
 		if err != nil {
 			results[dir] = Result{Err: err}
 			continue
 		}
+		key := b.repo + ":" + b.head + ":" + b.name
 		if _, invalid := p.invalid.LoadAndDelete(dir); invalid {
-			delete(p.repos, repo)
-			delete(p.branches, repo+":"+name)
+			delete(p.repos, b.repo)
+			if pr := p.branches[key]; pr != nil {
+				path := "repos/" + b.repo + "/pulls/" + strconv.Itoa(pr.Number)
+				cached := p.pulls[path]
+				cached.finished = false
+				p.pulls[path] = cached
+			}
+			delete(p.branches, key)
 		}
-		repos[repo] = append(repos[repo], branch{dir, name})
+		repos[b.repo] = append(repos[b.repo], b)
 	}
 	for repo, branches := range repos {
 		dir := branches[0].dir
 		cached := p.repos[repo]
 		pulls := cached.pulls
+		interval := QuietEvery
+		for _, pr := range pulls {
+			if c, ok := p.pulls["repos/"+repo+"/pulls/"+strconv.Itoa(pr.Number)]; ok && !c.finished {
+				interval = OpenEvery
+				break
+			}
+		}
 		var err error
-		if cached.at.IsZero() || !p.now().Before(cached.at.Add(p.wait(p.now(), OpenEvery))) {
+		if cached.at.IsZero() || !p.now().Before(cached.at.Add(p.wait(p.now(), interval))) {
 			pulls, err = restPages[restPull](ctx, p, dir, "repos/"+repo+"/pulls?state=open&per_page=100")
 			if err == nil {
 				p.repos[repo] = repoCache{p.now().Truncate(OpenEvery), pulls}
@@ -284,8 +362,9 @@ func (p *Poller) Poll(ctx context.Context, dirs []string) map[string]Result {
 		values := map[int]Result{}
 		open := map[string]restPull{}
 		for _, pr := range pulls {
-			if strings.EqualFold(pr.Head.Repo.FullName, repo) && pr.Number > open[pr.Head.Ref].Number {
-				open[pr.Head.Ref] = pr
+			key := strings.ToLower(pr.Head.Repo.FullName) + ":" + pr.Head.Ref
+			if pr.Number > open[key].Number {
+				open[key] = pr
 			}
 		}
 		for _, b := range branches {
@@ -293,22 +372,41 @@ func (p *Poller) Poll(ctx context.Context, dirs []string) map[string]Result {
 				results[b.dir] = Result{Err: err}
 				continue
 			}
-			key := repo + ":" + b.name
-			pr, ok := open[b.name]
+			key := repo + ":" + b.head + ":" + b.name
+			pr, ok := open[b.head+":"+b.name]
+			if b.number > 0 {
+				for _, c := range pulls {
+					if c.Number == b.number {
+						pr, ok = c, true
+						break
+					}
+				}
+			}
 			if !ok {
 				previous, known := p.branches[key]
 				if known && (previous == nil || previous.State != model.PROpen) {
 					results[b.dir] = Result{PR: previous}
 					continue
 				}
-				head := strings.Split(repo, "/")[0] + ":" + b.name
-				closed, e := restPages[restPull](ctx, p, b.dir, "repos/"+repo+"/pulls?state=all&head="+url.QueryEscape(head)+"&per_page=100")
+				var closed []restPull
+				var e error
+				if b.number > 0 {
+					var r response
+					r, e = p.get(ctx, b.dir, "repos/"+repo+"/pulls/"+strconv.Itoa(b.number))
+					if e == nil {
+						e = json.Unmarshal(r.body, &pr)
+						ok = e == nil
+					}
+				} else {
+					head := strings.Split(b.head, "/")[0] + ":" + b.name
+					closed, e = restPages[restPull](ctx, p, b.dir, "repos/"+repo+"/pulls?state=all&head="+url.QueryEscape(head)+"&per_page=100")
+				}
 				if e != nil {
 					results[b.dir] = Result{Err: e}
 					continue
 				}
 				for _, c := range closed {
-					if c.Head.Ref == b.name && strings.EqualFold(c.Head.Repo.FullName, repo) && (!ok || c.Number > pr.Number) {
+					if c.Head.Ref == b.name && strings.EqualFold(c.Head.Repo.FullName, b.head) && (!ok || c.Number > pr.Number) {
 						pr, ok = c, true
 					}
 				}
@@ -336,25 +434,42 @@ func (p *Poller) pull(ctx context.Context, dir, repo string, pr restPull) (*mode
 	path := "repos/" + repo + "/pulls/" + strconv.Itoa(pr.Number)
 	old := p.pulls[path]
 	g := old.data
-	// Base updates can change mergeability without changing the head or updated_at.
-	r, err := p.get(ctx, dir, path)
-	if err != nil {
-		return nil, err
+	var err error
+	var base struct{ Object struct{ SHA string } }
+	base.Object.SHA = old.base
+	if pr.State == "open" {
+		basePath := "repos/" + repo + "/git/ref/heads/" + url.PathEscape(pr.Base.Ref)
+		r := p.urls[basePath]
+		if r.at.IsZero() || !p.now().Before(r.at.Add(p.wait(p.now(), OpenEvery))) {
+			r, err = p.get(ctx, dir, basePath)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := json.Unmarshal(r.body, &base); err != nil {
+			return nil, err
+		}
 	}
-	if err := json.Unmarshal(r.body, &pr); err != nil {
-		return nil, err
+	if old.updated != pr.Updated || old.head != pr.Head.SHA || old.base != base.Object.SHA || g.Base != pr.Base.Ref || g.Mergeable == "UNKNOWN" || g.State != strings.ToUpper(pr.State) {
+		r, err := p.get(ctx, dir, path)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(r.body, &pr); err != nil {
+			return nil, err
+		}
+		g.Mergeable, g.MergeState = "UNKNOWN", strings.ToUpper(pr.MergeState)
+		if pr.Mergeable != nil {
+			if *pr.Mergeable {
+				g.Mergeable = "MERGEABLE"
+			} else {
+				g.Mergeable = "CONFLICTING"
+			}
+		}
 	}
 	g.Number, g.State, g.IsDraft, g.URL, g.Head, g.Base = pr.Number, strings.ToUpper(pr.State), pr.Draft, pr.URL, pr.Head.SHA, pr.Base.Ref
 	if pr.MergedAt != nil {
 		g.State = "MERGED"
-	}
-	g.Mergeable, g.MergeState = "UNKNOWN", strings.ToUpper(pr.MergeState)
-	if pr.Mergeable != nil {
-		if *pr.Mergeable {
-			g.Mergeable = "MERGEABLE"
-		} else {
-			g.Mergeable = "CONFLICTING"
-		}
 	}
 	if old.updated != pr.Updated || old.head != pr.Head.SHA {
 		if err := p.reviews(ctx, dir, path, &g); err != nil {
@@ -386,15 +501,21 @@ func (p *Poller) pull(ctx context.Context, dir, repo string, pr restPull) (*mode
 		}
 	}
 	finished := old.finished
-	if old.head != pr.Head.SHA || !finished {
+	if old.head != pr.Head.SHA || !finished || !p.now().Before(old.checksAt.Add(p.wait(p.now(), QuietEvery))) {
 		var err error
 		finished, err = p.checks(ctx, dir, repo, pr.Head.SHA, &g)
 		if err != nil {
 			return nil, err
 		}
+		old.checksAt = p.now()
+	}
+	if old.head != "" && old.head != pr.Head.SHA {
+		maps.DeleteFunc(p.urls, func(path string, _ response) bool {
+			return strings.HasPrefix(path, "repos/"+repo+"/commits/"+old.head+"/") || path == "repos/"+repo+"/git/commits/"+old.head
+		})
 	}
 	value := parse(g)
-	p.pulls[path] = pullCache{updated: pr.Updated, head: pr.Head.SHA, data: g, finished: finished, decisionAt: old.decisionAt}
+	p.pulls[path] = pullCache{updated: pr.Updated, head: pr.Head.SHA, base: base.Object.SHA, data: g, finished: finished, decisionAt: old.decisionAt, checksAt: old.checksAt}
 	return &value, nil
 }
 
