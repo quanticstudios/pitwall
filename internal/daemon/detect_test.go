@@ -113,6 +113,24 @@ func TestDetectedForm(t *testing.T) {
 	waitUntil(t, "cleared", func() bool { return d.stateOf(id) == "" })
 }
 
+// A wrapper can run through a detection poll before its first agent hook.
+func TestStartupHookClearsDetectedCommand(t *testing.T) {
+	d, _, id := openLive(t, 400, "peer")
+	useReportHooks(d)
+	waitUntil(t, "command detected", func() bool { return d.stateOf(id) == model.StateTerminalRunning })
+	must(t, d.agentEvent(t.Context(), proto.AgentEvent{Pane: id, Provider: model.ProviderClaude,
+		Payload: []byte(`{"hook_event_name":"SessionStart","session_id":"peer"}`)}))
+	if a := d.activityOf(id); a.State != "" {
+		t.Fatalf("idle agent retained detected command: %+v", a)
+	}
+	if p := reportedPane(d, id); p.Provider != model.ProviderClaude {
+		t.Fatalf("provider = %q, want claude", p.Provider)
+	}
+	if err := d.prompt(proto.Prompt{Pane: id, Text: "go"}); err != nil {
+		t.Fatalf("prompt into idle agent: %v", err)
+	}
+}
+
 func TestHookStopsDetection(t *testing.T) {
 	d, lp, id := openLive(t, 300)
 	lp.show(codexWorking, false)

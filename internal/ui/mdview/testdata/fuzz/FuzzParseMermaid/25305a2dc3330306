@@ -1,0 +1,2 @@
+go test fuzz v1
+string("flowchart \x7fa00000000000\xb100000")

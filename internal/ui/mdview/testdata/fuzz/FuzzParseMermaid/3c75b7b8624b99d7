@@ -1,0 +1,2 @@
+go test fuzz v1
+string("graph\n𠠠\xa0")

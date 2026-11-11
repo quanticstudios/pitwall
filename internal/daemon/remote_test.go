@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -414,8 +415,85 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 	}
 }
 
-// What cannot be compared is refused through the whole answer path: a command
-// with a newline or tab, and a screen with no row of the command left.
+// The sidebar and phone match complete multi-line commands and reject stale rows.
+func TestAnswerMultilineCommand(t *testing.T) {
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		t.Run(string(provider), func(t *testing.T) {
+			d, f, phone := remoteDaemon(t)
+			d.o.Derive = agent.Derive
+			ctx := context.Background()
+			command := "printf first\n\tprintf second\n\n    printf third"
+			if provider == model.ProviderCodex {
+				command = strings.ReplaceAll(command, "\t", "        ")
+			}
+			payload, err := json.Marshal(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "Bash", "tool_input": map[string]string{"command": command}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: provider, Payload: payload}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+			d.mu.Unlock()
+			show := func(second string) {
+				rows := commandForm(" │ printf first", " │         printf   "+second, " │", " │     printf third")
+				if provider == model.ProviderCodex {
+					rows = []string{"Would you like to run the following command?", "  $ printf first", "          printf   " + second, "", "      printf third", "", "› 1. Yes, proceed (y)", "  2. Yes, and don't ask again for this command (a)", "  3. No, and tell Codex what to do differently (esc)", "Press enter to confirm or esc to cancel"}
+				}
+				f.pane(0).mu.Lock()
+				f.pane(0).screen = rows
+				f.pane(0).mu.Unlock()
+			}
+			always := "2"
+			allow := "1"
+			if provider == model.ProviderCodex {
+				always, allow = "a", "y"
+			}
+			for _, answer := range []struct {
+				name, want string
+				run        func() error
+			}{
+				{"sidebar", allow, func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) }},
+				{"deny", "\x1b", func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) }},
+				{"always", always, func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) }},
+				{"phone", allow, func() error {
+					status, body := phone("POST", "/api/answer", fmt.Sprintf(`{"pane":"a","at":"%d","allow":true}`, at))
+					if status != http.StatusOK {
+						return fmt.Errorf("HTTP %d: %s", status, body)
+					}
+					return nil
+				}},
+			} {
+				t.Run(answer.name, func(t *testing.T) {
+					show("second")
+					before := len(f.pane(0).got())
+					if err := answer.run(); err != nil {
+						t.Fatal(err)
+					}
+					if got := gotAfter(t, f.pane(0), before, len(answer.want)); got != answer.want {
+						t.Fatalf("sent %q, want %q", got, answer.want)
+					}
+					show("different")
+					before = len(f.pane(0).got())
+					err := answer.run()
+					if answer.name == "deny" {
+						if err != nil {
+							t.Fatal(err)
+						}
+						if got := gotAfter(t, f.pane(0), before, len(answer.want)); got != answer.want {
+							t.Fatalf("deny on a different command sent %q", got)
+						}
+					} else if err == nil || len(f.pane(0).got()) != before {
+						t.Fatalf("answered a different command with the same first line: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+// Missing command text is refused through the whole answer path.
 func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
 	for _, tc := range []struct {
 		name, command string
@@ -424,14 +502,8 @@ func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
 	}{
 		{"only the count row", "echo safe", []string{" +3 lines, +2 above (ctrl+o to see more)"}, true},
 		{"a tab", "mkdir '/tmp/a\tb'", []string{" mkdir '/tmp/ab'"}, false},
-		{"a newline", "echo safe\nrm -rf /tmp/victim", []string{" echo safe", " rm -rf /tmp/victim"}, false},
-		{"spaces before a newline", "printf '%s' 'a  \nb'", []string{" printf '%s' 'a", " b'"}, false},
 		{"a newline off screen", "rm -rf /tmp/victim\necho safe", []string{" echo safe"}, true},
 		{"scrolled past the title, with several blocks", "echo safe", []string{" rm -rf /tmp/wrong", " ╌╌╌╌╌╌", " echo safe"}, true},
-		{"a trailing newline", "echo safe\n", []string{" echo safe"}, false},
-		{"a leading tab", "\techo safe", []string{" echo safe"}, false},
-		{"a trailing carriage return", "echo safe\r", []string{" echo safe"}, false},
-		{"a trailing nonbreaking space", "rm -- /tmp/keep\u00a0", []string{" rm -- /tmp/keep"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, f, _ := remoteDaemon(t)
@@ -907,23 +979,87 @@ func TestSnapshotCarriesTheCommand(t *testing.T) {
 	}
 }
 
-func TestDenyWithoutScreenConfirmation(t *testing.T) {
-	for _, screen := range [][]string{nil, {"different prompt"}, commandForm("echo different")} {
-		d, f, _ := remoteDaemon(t)
-		d.mu.Lock()
-		a := d.st.Activities[d.activityIndex("a")]
-		d.live.asked = map[string]askedCommand{"a": {"echo expected", a.UpdatedAt}}
-		d.mu.Unlock()
-		f.pane(0).mu.Lock()
-		f.pane(0).screen = screen
-		f.pane(0).input = nil
-		f.pane(0).mu.Unlock()
-		if err := d.remoteAnswer("a", a.UpdatedAt.UnixNano(), false); err != nil {
-			t.Fatal(err)
+func TestDenyNeedsPermissionPrompt(t *testing.T) {
+	for _, path := range []string{"phone", "desktop"} {
+		for _, tc := range []struct {
+			name   string
+			screen []string
+			want   bool
+		}{
+			{"no screen", nil, false},
+			{"another prompt", []string{"different prompt"}, false},
+			{"working", []string{"Running the approved command", "> "}, false},
+			{"another command", commandForm("echo different"), true},
+		} {
+			t.Run(path+"/"+tc.name, func(t *testing.T) {
+				d, f, do := remoteDaemon(t)
+				d.mu.Lock()
+				a := d.st.Activities[d.activityIndex("a")]
+				d.live.asked = map[string]askedCommand{"a": {"echo expected", a.UpdatedAt}}
+				d.mu.Unlock()
+				setScreen(f.pane(0), tc.screen)
+				var err error
+				if path == "phone" {
+					code, body := do("POST", "/api/answer", fmt.Sprintf(`{"pane":"a","at":"%d","allow":false}`, a.UpdatedAt.UnixNano()))
+					if code != http.StatusOK {
+						err = fmt.Errorf("HTTP %d: %s", code, body)
+					}
+				} else {
+					err = d.handle(context.Background(), proto.Answer{Pane: "a", At: a.UpdatedAt.UnixNano(), Allow: false})
+				}
+				if tc.want {
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := gotAfter(t, f.pane(0), 0, 1); got != "\x1b" {
+						t.Fatalf("deny sent %q", got)
+					}
+				} else {
+					if err == nil || !strings.Contains(err.Error(), "no permission prompt") {
+						t.Fatalf("deny without permission prompt: %v", err)
+					}
+					if got := f.pane(0).got(); got != "" {
+						t.Fatalf("refused deny sent %q", got)
+					}
+				}
+			})
 		}
-		if got := gotAfter(t, f.pane(0), 0, 1); got != "\x1b" {
-			t.Fatalf("deny sent %q", got)
-		}
+	}
+}
+
+func TestDenyAfterAllowRefusesWorkingScreen(t *testing.T) {
+	for _, path := range []string{"phone", "desktop"} {
+		t.Run(path, func(t *testing.T) {
+			d, f, do := remoteDaemon(t)
+			d.mu.Lock()
+			a := d.st.Activities[d.activityIndex("a")]
+			// Keep the approval activity stale while its screen moves on.
+			d.live.hookAt["a"] = time.Now().Add(time.Hour)
+			d.mu.Unlock()
+			answer := func(allow bool) error {
+				if path == "desktop" {
+					return d.handle(context.Background(), proto.Answer{Pane: "a", At: a.UpdatedAt.UnixNano(), Allow: allow})
+				}
+				code, body := do("POST", "/api/answer", fmt.Sprintf(`{"pane":"a","at":"%d","allow":%t}`, a.UpdatedAt.UnixNano(), allow))
+				if code != http.StatusOK {
+					return fmt.Errorf("HTTP %d: %s", code, body)
+				}
+				return nil
+			}
+			if err := answer(true); err != nil {
+				t.Fatal(err)
+			}
+			if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+				t.Fatalf("allow sent %q", got)
+			}
+			setScreen(f.pane(0), []string{"Running the approved command", "> "})
+			if err := answer(false); err == nil || !strings.Contains(err.Error(), "no permission prompt") {
+				t.Fatalf("deny after allow: %v", err)
+			}
+			if got := f.pane(0).got(); got != "1" {
+				t.Fatalf("deny interrupted the approved command: %q", got)
+			}
+		})
 	}
 }
 
@@ -938,8 +1074,18 @@ func TestPhoneApprovalPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setScreen(f.pane(0), strings.Split(string(screen), "\n"))
+	e := vt.New(120, 40, io.Discard)
+	e.Write([]byte(strings.ReplaceAll(string(screen), "\n", "\r\n")))
+	d.mu.Lock()
+	d.panes["a"] = &capturedPhonePane{fakePane: f.pane(0), grid: e.Snapshot()}
+	d.mu.Unlock()
 	tabs := d.phoneTabs()
+	if tabs[0].AllowBlocked != "" {
+		t.Fatalf("captured multiline prompt cannot be allowed: %s", tabs[0].AllowBlocked)
+	}
+	d.mu.Lock()
+	d.panes["a"] = f.pane(0)
+	d.mu.Unlock()
 	if !strings.Contains(tabs[0].Detail, "touch /tmp/qa-daemon-first.txt\ntouch /tmp/qa-daemon-second.txt") {
 		t.Fatalf("detail: %q", tabs[0].Detail)
 	}

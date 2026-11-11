@@ -32,6 +32,16 @@ func TestRowLinks(t *testing.T) {
 		{"https://a.test, https://b.test; ok", []string{"0-14 https://a.test", "16-30 https://b.test"}},
 		{"│https://a.test│", []string{"1-15 https://a.test"}},
 		{"ftp://a.test javascript:alert(1) https://", nil},
+		// Markdown files by path, which the window opens in its reader.
+		{"see docs/usage.md now", []string{"4-17 docs/usage.md"}},
+		{"Wrote ~/notes/PLAN.MD:12.", []string{"6-24 ~/notes/PLAN.MD:12"}},
+		{"`README.md` and ./a/b.markdown", []string{"1-10 README.md", "16-30 ./a/b.markdown"}},
+		{"(README.md) /abs/x.md", []string{"1-10 README.md", "12-21 /abs/x.md"}},
+		{"foo.mdx foo.md/bar x=a.md main.go", nil},
+		{"https://a.test/README.md", []string{"0-24 https://a.test/README.md"}},
+		{`C:\repo\README.md`, []string{`0-17 C:\repo\README.md`}},
+		{"see C:/repo/README.md:3.", []string{"4-23 C:/repo/README.md:3"}},
+		{`at .\docs\a.md and AC:\x.md`, []string{`3-14 .\docs\a.md`}},
 	} {
 		var got []string
 		ls, _ := rowLinks(nil, nil, grid(tc.line).Cells)

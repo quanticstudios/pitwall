@@ -133,16 +133,19 @@ drive safely.
 
 When the open tab waits on you, a card above the box says what for.
 Allow presses the first option of the agent's prompt, Yes: `1` for Claude
-Code and `y` for Codex. Deny presses Esc while the card is current, without
-checking the screen. Allow also needs a permission prompt on the screen.
+Code and `y` for Codex. Deny presses Esc. Both actions require the card to
+be current and a permission prompt to be on the screen. Deny does not
+compare the command on that prompt.
 The card keeps the tool and its full command or file. Long commands scroll
 inside the card, and expanding a tool row shows every command line.
 If pitwall cannot confirm the permission prompt, the card explains why and
 offers Deny and Open on desktop. Open on desktop focuses an existing
 pitwall window showing that session.
-When the agent's hook reported a shell command, the prompt must also show
-that command, as much of it as fits on screen, and a command with a line
-break or a tab is always refused; [Usage](usage.md) has the details. A
+When the agent's hook reported a shell command, Allow requires the prompt
+to show the complete command, including its lines and indentation. Claude
+commands may contain tabs; Codex commands with tabs require an answer on
+the desktop. Hidden or clipped command text prevents Allow;
+[Usage](usage.md) has the details. A
 plain-text question takes an answer through the composer. Other terminal
 forms take no typed answer through the composer, since Enter would select
 an option. Claude Code and Codex terminal questions appear inline in the

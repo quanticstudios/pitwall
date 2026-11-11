@@ -16,6 +16,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -191,7 +192,7 @@ func cardHead(th *theme.Theme, s string) layout.Widget {
 func pre(gtx C, th *theme.Theme, s string, lines int) D {
 	return box(gtx, th.Bg, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return widget.Label{MaxLines: lines, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.MonoFont, 13.5, detab(s), colorOp(gtx, th.Fg))
+		return widget.Label{MaxLines: lines, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.MonoFont, 13.5, mdview.Detab(s), colorOp(gtx, th.Fg))
 	})
 }
 

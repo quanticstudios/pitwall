@@ -1,0 +1,2 @@
+go test fuzz v1
+string("flowchart ķ\x88͟Τӫ\xdb\xdf֦\xa4Ǒ\xd3\xcaݙӶά\xbe\xb0ϣےɂپ߱\x9aƴШ՟۟ͮϕӮ\xbd")

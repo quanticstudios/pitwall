@@ -216,20 +216,18 @@ its sidebar row, or on the asking pane's own row when the tab lists its
 agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
 focused pane, else for the shown tab. They press the same keys the
 [phone page](phone.md) does, and only while the row is current and the pane
-shows a permission prompt for Allow. Deny presses Esc without reading the
-screen.
+shows a permission prompt. Deny presses Esc without comparing the command
+on that prompt.
 
 When the agent's hook reported a shell command, Allow and Always also
-need the prompt to show that command. pitwall allows for line wrapping and the
-prompt's own indent, and any other difference counts, spaces included. If the
-prompt shows only part of a long command, the part it shows is what pitwall
-compares, and the rest goes unchecked. pitwall cannot compare a command with a
-line break, which means any multi-line command, a tab, a space other than a
-plain one or a character that does not print, even at its very start or end, so
-it always refuses those. On a refusal, a mismatch or a prompt
-layout pitwall cannot read a command from, such as a form scrolled past its title
-with several blocks of text left on screen, nothing is pressed and a notice in the
-window says why, until you close it or an answer lands.
+need the prompt to show the complete command. pitwall compares the lines,
+relative indentation and interior blank lines, allowing for wrapped rows.
+Claude commands may contain tabs in indentation; Codex commands with tabs
+require an answer in their tab because Codex does not show the tabs.
+Clipped or hidden command text, unsupported whitespace and unknown prompt
+layouts prevent Allow and Always. Deny requires a permission prompt on
+screen but does not compare its command. On a refusal, nothing is pressed
+and a notice in the window says why, until you close it or an answer lands.
 
 An edit, a fetch or any other prompt with no reported command gets no such
 comparison, and neither does a row whose report came before a daemon restart.
@@ -922,7 +920,8 @@ still copies.
 
 Links in panes are underlined, both URLs in the text and OSC 8 hyperlinks.
 Ctrl+click one (Cmd+click on macOS) to open it in your browser, even inside
-Claude Code or Codex.
+Claude Code or Codex. Paths to markdown files (`.md`, `.markdown`) are links
+too, and they open in the [markdown reader](#markdown-reader).
 Set `links = false` under `[terminal]` to turn this off.
 
 In a pane running Claude Code or Codex, Ctrl+V and the paste key
@@ -1281,6 +1280,51 @@ blocks and reports when older blocks exceed that limit. Fullscreen apps
 have no command blocks. Close and reopen the browser to refresh its snapshot.
 The daemon keeps marks through an update handoff. Marks do not survive a
 restart that starts a new shell.
+
+### Markdown reader
+
+Ctrl+click (Cmd+click on macOS) a markdown file a pane prints, such as
+`docs/plan.md` or `~/notes/TODO.md:12`, an OSC 8 link to one, or a
+`file://` URL ending in `.md` or `.markdown`, and pitwall shows it in place
+of the tab's panes, as the board does. A relative path is read from the
+pane's folder. In [hints mode](#hints), opening a markdown path does the
+same unless `open_path` is set.
+
+The file is drawn in a column about 72 characters wide in your theme's
+fonts and colors: headings, lists, task lists, tables, block quotes,
+inline and fenced code, links and rules. Local images (PNG, JPEG, GIF's
+first frame, WebP and SVG) are read relative to the file and scaled down to
+the column. Images from `http` and `https` URLs are downloaded with a
+10-second timeout and a 5 MiB limit, from public addresses only: never
+from this machine, your local network, link-local addresses or the
+tailnet (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), after redirects too.
+Local ones may be up to 20 MiB. Two images load at a time, and the reader
+keeps up to 256 MiB of decoded images, dropping those of files read
+before first. An SVG with a `<use>` element, more than 64 levels deep,
+or more than 20,000 elements is not drawn. An image that does not load shows its alt text, address and the
+reason.
+
+A ` ```mermaid ` block with a flowchart (`graph` or `flowchart`, any
+direction) is drawn as a diagram: boxes, rounded boxes, stadiums, diamonds
+and circles, with arrow labels and dotted or thick arrows. Subgraphs are
+drawn as plain nodes and `style` lines are ignored. Other diagram types,
+and flowcharts of more than 200 nodes or 500 arrows, show as code with a
+note saying so.
+
+A click on a link to another markdown file opens it in the reader, and the
+back arrow or Backspace returns to the file before. Other links open as
+they do in a pane. The reader checks the file twice a second and draws it
+again when it changes, at the same scroll position.
+
+- j/k or Down/Up scroll a little, Space and PageDown/PageUp a screen
+  (Shift+Space back up), g or Home goes to the top, Shift+G or End to the
+  bottom. The mouse wheel and the scrollbar scroll too.
+- Escape or the × button closes the reader, and the pane has the keys
+  again. Switching tabs closes it as well.
+
+A markdown file printed in a pane of another machine (`pitwall --host`,
+or a tab of a `[[hosts]]` entry, peeked or not) is on that machine, and
+the reader says so instead of opening the file of that path here.
 
 ### Grouping
 

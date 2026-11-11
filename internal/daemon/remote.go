@@ -256,9 +256,13 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	if a.State != model.StatePendingApproval || !known {
 		return errors.New("that pane is not asking permission")
 	}
-	// why: a hook can leave the state behind the screen; the key goes only to a permission prompt on it, as 1 picks the first option of a plan or question too.
+	// A late hook can leave an approval card visible after its prompt closes.
+	g := p.Snapshot()
+	if agent.State(g) != model.StatePendingApproval {
+		return errors.New("the pane shows no permission prompt to answer")
+	}
 	if allow {
-		if err := confirmApproval(a, asked, p.Snapshot()); err != nil {
+		if err := sameCommand(a, asked, g); err != nil {
 			return err
 		}
 	}
