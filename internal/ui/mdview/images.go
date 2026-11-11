@@ -327,16 +327,56 @@ const (
 // on: deeper than maxSVGDepth, a <use> that reaches itself or points
 // outside the file, or more than maxSVGElems elements once each <use> is
 // replaced by what it copies. oksvg draws a <use> by drawing its target
-// again, with no check for a cycle.
+// again, with no check for a cycle, so svgSafe builds the table of
+// definitions the way oksvg's reader does: inside <defs>, every element
+// joins the definition of the last element with an id before it, even
+// after that element closed.
 func svgSafe(b []byte) error {
-	type scope struct {
-		id    string
-		elems int      // in the element, itself included
-		uses  []string // the ids its <use>s copy
+	type def struct{ id, tag, href string }
+	var (
+		defs           = map[string][]def{} // by the id of its first element
+		cur            []def                // the definition being read
+		costs          = map[string]int{}   // drawn elements per id, for defs as they are now
+		inDefs, inGrad bool
+		depth, n       int
+	)
+	// reading marks an id whose cost is being added up.
+	const reading = -1
+	var cost func(href string) (int, error)
+	cost = func(href string) (int, error) {
+		id, ok := strings.CutPrefix(href, "#")
+		if !ok {
+			return 0, nil // oksvg stops with an error
+		}
+		switch c, ok := costs[id]; {
+		case ok && c == reading:
+			return 0, errors.New("SVG <use> reaches itself")
+		case ok:
+			return c, nil
+		}
+		costs[id] = reading
+		c := 0
+		for _, d := range defs[id] {
+			if d.tag == "endg" {
+				continue
+			}
+			c++
+			if d.tag == "use" {
+				u, err := cost(d.href)
+				if err != nil {
+					return 0, err
+				}
+				c = min(c+u, maxSVGElems+1)
+			}
+		}
+		costs[id] = c
+		return c, nil
 	}
-	ids := map[string][]*scope{} // an id given twice is read as both
-	root := &scope{}
-	open := []*scope{root} // the elements being read, outermost first
+	flush := func() {
+		if len(cur) > 0 {
+			defs[cur[0].id], cur, costs = cur, nil, map[string]int{}
+		}
+	}
 	d := xml.NewDecoder(bytes.NewReader(b))
 	for {
 		tok, err := d.Token()
@@ -348,81 +388,60 @@ func svgSafe(b []byte) error {
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if len(open) > maxSVGDepth {
+			if depth >= maxSVGDepth {
 				return errors.New("SVG nested too deep")
 			}
-			sc := &scope{}
-			use := ""
+			depth++
+			name, id, href := t.Name.Local, "", ""
 			for _, a := range t.Attr {
-				switch {
-				case a.Name.Local == "id" && a.Value != "":
-					sc.id = a.Value
-				case a.Name.Local == "href" && t.Name.Local == "use":
-					if !strings.HasPrefix(a.Value, "#") {
-						return errors.New("SVG <use> outside the file")
-					}
-					use = a.Value[1:]
+				switch a.Name.Local {
+				case "id":
+					id = a.Value
+				case "href":
+					href = a.Value
 				}
 			}
-			if sc.id != "" {
-				ids[sc.id] = append(ids[sc.id], sc)
+			if name == "use" && !strings.HasPrefix(href, "#") {
+				return errors.New("SVG <use> outside the file")
 			}
-			open = append(open, sc)
-			for _, o := range open {
-				o.elems++
-				if use != "" && (o == root || o.id != "") {
-					o.uses = append(o.uses, use)
+			// Mirrors oksvg's readStartElement and draw functions.
+			grad := name == "radialGradient" || name == "linearGradient"
+			switch {
+			case inDefs && !grad && !inGrad:
+				if id != "" {
+					flush()
 				}
+				cur = append(cur, def{id, name, href})
+			case name == "defs":
+				inDefs = true
+			case grad:
+				inGrad = true
+			case name == "use":
+				c, err := cost(href)
+				if err != nil {
+					return err
+				}
+				n += c
 			}
-			if root.elems > maxSVGElems {
+			if n++; n > maxSVGElems {
 				return errors.New("SVG has too many elements")
 			}
 		case xml.EndElement:
-			if len(open) > 1 {
-				open = open[:len(open)-1]
+			depth--
+			switch t.Name.Local {
+			case "g":
+				if inDefs {
+					cur = append(cur, def{tag: "endg"})
+				}
+			case "defs":
+				flush()
+				inDefs = false
+			case "radialGradient", "linearGradient":
+				inGrad = false
 			}
 		}
 	}
-	// costs[id] is how many elements drawing id draws, capped at
-	// maxSVGElems+1; reading marks an id whose cost is being added up.
-	const reading = -1
-	costs := map[string]int{}
-	var total func(sc *scope) (int, error)
-	cost := func(id string) (int, error) {
-		switch c, ok := costs[id]; {
-		case c == reading:
-			return 0, errors.New("SVG <use> reaches itself")
-		case ok:
-			return c, nil
-		}
-		costs[id] = reading
-		n := 0
-		for _, sc := range ids[id] {
-			c, err := total(sc)
-			if err != nil {
-				return 0, err
-			}
-			n = max(n, c)
-		}
-		costs[id] = n
-		return n, nil
-	}
-	total = func(sc *scope) (int, error) {
-		n := sc.elems
-		for _, u := range sc.uses {
-			c, err := cost(u)
-			if err != nil {
-				return 0, err
-			}
-			n = min(n+c, maxSVGElems+1)
-		}
-		return n, nil
-	}
-	n, err := total(root)
-	if err == nil && n > maxSVGElems {
-		err = errors.New("SVG has too many elements")
-	}
-	return err
+	return nil
 }
 
 var svgDims = regexp.MustCompile(`(?s)<svg\b[^>]*`)

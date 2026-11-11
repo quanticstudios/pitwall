@@ -352,6 +352,88 @@ func TestReload(t *testing.T) {
 	}
 }
 
+// TestReloadDropsOldImages: saving a file while its gallery loads drops
+// the queued loads of the old images, and a remote image the file no
+// longer shows gives way to the one it shows now, which a full budget
+// refused before the save.
+func TestReloadDropsOldImages(t *testing.T) {
+	defer func(l func(context.Context, Where, int) (image.Image, error), h int) { loadImage, maxHeld = l, h }(loadImage, maxHeld)
+	var mu sync.Mutex
+	loads := 0
+	release := make(chan struct{})
+	loadImage = func(ctx context.Context, w Where, _ int) (image.Image, error) {
+		mu.Lock()
+		loads++
+		mu.Unlock()
+		<-release
+		return image.NewRGBA(image.Rect(0, 0, 100, 100)), nil // 40,000 bytes
+	}
+	maxHeld = 40000
+	f := filepath.Join(t.TempDir(), "a.md")
+	os.WriteFile(f, []byte("![x](x.png)\n"), 0o600)
+	v := View{ctx: context.Background(), path: f}
+	settle := func(k string) *picture {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			v.mu.Lock()
+			p := v.imgs[k]
+			done := p != nil && p.done
+			v.mu.Unlock()
+			if done {
+				return p
+			}
+		}
+		t.Fatalf("%s did not load", k)
+		return nil
+	}
+
+	for i := range 100 {
+		v.picture(Where{Path: fmt.Sprintf("/img/%d.png", i)}, 0)
+	}
+	if !v.reload(v.ctx, f) {
+		t.Fatal("did not reload")
+	}
+	v.mu.Lock()
+	queued := len(v.queue)
+	v.mu.Unlock()
+	if queued != 0 {
+		t.Errorf("%d old images still queued", queued)
+	}
+	v.picture(Where{Path: "/x.png"}, 0)
+	close(release)
+	settle("/x.png")
+	mu.Lock()
+	n := loads
+	mu.Unlock()
+	if n > maxLoads+1 {
+		t.Errorf("%d loads for one image after the save", n)
+	}
+
+	v.mu.Lock()
+	v.imgs, v.held = nil, 0
+	v.mu.Unlock()
+	old, cur := Where{URL: "https://example.com/1.png"}, Where{URL: "https://example.com/2.png"}
+	v.picture(old, 0)
+	settle(old.URL)
+	v.picture(cur, 0)
+	if p := settle(cur.URL); !strings.Contains(p.err, "at most") {
+		t.Fatalf("over budget: %q", p.err)
+	}
+	os.Chtimes(f, time.Now(), time.Now().Add(time.Second))
+	if !v.reload(v.ctx, f) {
+		t.Fatal("did not reload")
+	}
+	v.picture(cur, 0)
+	if p := settle(cur.URL); p.err != "" {
+		t.Errorf("after the save: %q", p.err)
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.imgs[old.URL] != nil || v.held != maxHeld {
+		t.Errorf("old image kept: %d bytes held", v.held)
+	}
+}
+
 func TestFitColumns(t *testing.T) {
 	if got := fitColumns([]int{50, 60}, 200, 40); got[0] != 50 || got[1] != 60 {
 		t.Errorf("fits: %v", got)
@@ -464,6 +546,7 @@ func TestSVGSafe(t *testing.T) {
 	laughs += `</defs><use href="#r11"/>`
 	for name, body := range map[string]string{
 		"self":     `<defs><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
+		"sibling":  `<defs><g id="a"></g><use href="#a"/></defs><use href="#a"/>`,
 		"cycle":    `<defs><g id="a"><use xlink:href="#b"/></g><g id="b"><use xlink:href="#a"/></g></defs><use xlink:href="#a"/>`,
 		"twice":    `<defs><g id="a"><rect width="1" height="1"/></g><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
 		"external": `<use href="other.svg#a"/>`,

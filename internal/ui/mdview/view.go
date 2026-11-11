@@ -243,7 +243,8 @@ func (v *View) watch(ctx context.Context, path string) {
 }
 
 // reload reads path again when its time or size changed since the last
-// read, keeping the scroll position. Local images are read again too.
+// read, keeping the scroll position. Local images are read again too,
+// and remote ones that failed get another try.
 // An editor that saves by renaming leaves no file for a moment; the next
 // poll finds the new one.
 func (v *View) reload(ctx context.Context, path string) bool {
@@ -269,12 +270,20 @@ func (v *View) reload(ctx context.Context, path string) bool {
 	}
 	v.doc, v.stamp = doc, st
 	v.gen++
+	v.visit++ // a remote image the file no longer shows can make room
 	for k, p := range v.imgs {
-		if !p.url {
+		if !p.url || p.err != "" {
 			v.held -= p.bytes
 			delete(v.imgs, k)
 		}
 	}
+	q := v.queue[:0]
+	for _, j := range v.queue {
+		if v.imgs[j.w.Path+j.w.URL] == j.p {
+			q = append(q, j)
+		}
+	}
+	v.queue = q
 	return true
 }
 
