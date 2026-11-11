@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -79,7 +80,15 @@ func Resolve(p, dir string) string { return resolve(p, dir, true) }
 
 // resolve is Resolve; without home, ~/ stays for the computer to read.
 func resolve(p, dir string, home bool) string {
-	if rest, ok := strings.CutPrefix(p, "~/"); ok && home {
+	if !home {
+		// why: the path is the computer's to read, so it keeps slashes
+		// whichever system draws the reader.
+		if !path.IsAbs(p) && !strings.HasPrefix(p, "~/") && p != "~" {
+			p = path.Join(filepath.ToSlash(dir), p)
+		}
+		return path.Clean(p)
+	}
+	if rest, ok := strings.CutPrefix(p, "~/"); ok {
 		if h, err := os.UserHomeDir(); err == nil {
 			return filepath.Join(h, rest)
 		}
