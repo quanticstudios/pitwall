@@ -17,6 +17,12 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
+
+- Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
+
 ## v0.2.7
 
 - Allow and Deny in the sidebar and phone match complete multi-line shell commands with their relative indentation, interior blank lines and wrapped rows. Claude commands may contain tabs; Codex commands with tabs and commands with missing or hidden text still require an answer in their tab.

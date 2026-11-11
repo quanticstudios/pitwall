@@ -291,6 +291,7 @@ func TestReviewLayout(t *testing.T) {
 	}
 	b := newAgentBackend(model.StateCompleted)
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: conventional}}
+	cleanupReview(t, &u.review)
 	var r input.Router
 	var ops op.Ops
 	frame := func() {
@@ -407,7 +408,7 @@ func TestReviewTurnScope(t *testing.T) {
 	u := &ui{b: b, th: theme.Dark()}
 	st := b.State()
 	u.openReview(&st, "w", "")
-	t.Cleanup(u.review.hide)
+	cleanupReview(t, &u.review)
 	if got := paths(u); got != "cw.go" {
 		t.Fatalf("a finished turn opened on %q", got)
 	}
@@ -440,7 +441,7 @@ func TestReviewTurnScope(t *testing.T) {
 	u = &ui{b: b, th: theme.Dark()}
 	st = b.State()
 	u.openReview(&st, "w", "")
-	t.Cleanup(u.review.hide)
+	cleanupReview(t, &u.review)
 	if got := paths(u); got != "branch.go" {
 		t.Errorf("a working agent's tab opened on %q", got)
 	}
@@ -483,7 +484,7 @@ func TestReviewStaging(t *testing.T) {
 	u := &ui{b: b, th: theme.Dark()}
 	st := b.State()
 	u.openReview(&st, "w", "")
-	t.Cleanup(u.review.hide)
+	cleanupReview(t, &u.review)
 	u.review.setScope(false, true)
 	var files []review.File
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
