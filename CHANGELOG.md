@@ -17,7 +17,7 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
-## Unreleased
+## v0.2.8
 
 - Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
 - Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
