@@ -1,0 +1,2 @@
+go test fuzz v1
+string("graph\n0&0\xb5\x9d\xa6\xae")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("graph\nA-.000-.0-.000Aaaaa00-.A0a0A00")

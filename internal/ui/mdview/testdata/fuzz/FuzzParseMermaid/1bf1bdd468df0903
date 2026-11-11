@@ -1,0 +1,2 @@
+go test fuzz v1
+string("graph \xd80000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000000000000")

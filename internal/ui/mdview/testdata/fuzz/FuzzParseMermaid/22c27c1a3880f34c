@@ -1,0 +1,2 @@
+go test fuzz v1
+string("graph\nA-.1\n0-.A\n2-.0")

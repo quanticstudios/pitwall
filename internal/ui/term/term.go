@@ -287,7 +287,8 @@ func (v *View) PromptDelta() int {
 }
 
 // OpenLink returns and clears the link the last Layout's Ctrl+click asked
-// to open, or "". Only http, https, file and mailto links get here.
+// to open, or "": an http, https, file or mailto link, or the path of a
+// markdown file as the pane printed it.
 func (v *View) OpenLink() string {
 	s := v.open
 	v.open = ""

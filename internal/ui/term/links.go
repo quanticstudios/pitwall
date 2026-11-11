@@ -19,6 +19,11 @@ type link struct {
 // urlEnd decides where each URL stops.
 var urlStart = regexp.MustCompile(`(?i)\b(?:https?://|file://|www\.)`)
 
+// mdPath is a path to a markdown file as programs print one: relative,
+// absolute, from ~ or from a Windows drive (C:\ or C:/), with / or \
+// between folders, with a :line or :line:col after it or not.
+var mdPath = regexp.MustCompile(`(?i)(?:[a-z]:|~|\.{1,2})?[/\\]?[\w.@%+~-]+(?:[/\\][\w.@%+~-]+)*\.(?:md|markdown)(?::\d+){0,2}`)
+
 // urlChar is what a text URL may contain: printable ASCII but quotes, angle
 // brackets and backticks. Anything else, box drawing included, ends it.
 func urlChar(c byte) bool {
@@ -96,9 +101,40 @@ func rowLinks(dst []link, buf []byte, cells []vt.Cell) ([]link, []byte) {
 		buf = append(buf, b)
 	}
 	s := string(buf)
-	if !strings.Contains(s, "://") && !strings.Contains(s, "www.") && !strings.Contains(s, "WWW.") {
-		return dst, buf
+	if strings.Contains(s, "://") || strings.Contains(s, "www.") || strings.Contains(s, "WWW.") {
+		dst = textURLs(dst, s)
 	}
+	if strings.Contains(s, ".md") || strings.Contains(s, ".MD") || strings.Contains(s, ".markdown") {
+		dst = mdPaths(dst, s)
+	}
+	return dst, buf
+}
+
+// mdPaths appends the markdown paths in s that no link in dst covers.
+// The link's url is the path as printed; the window resolves it from the
+// pane's folder.
+func mdPaths(dst []link, s string) []link {
+	n := len(dst)
+next:
+	for _, m := range mdPath.FindAllStringIndex(s, -1) {
+		if m[0] > 0 && (urlChar(s[m[0]-1]) && !strings.ContainsRune("([{'", rune(s[m[0]-1]))) {
+			continue // part of a longer word, such as a URL's path
+		}
+		if m[1] < len(s) && (s[m[1]] == '/' || s[m[1]] == '\\' || wordByte(s[m[1]])) {
+			continue // foo.md/bar, foo.mdx
+		}
+		for _, l := range dst[:n] {
+			if m[0] < l.x1 && m[1] > l.x0 {
+				continue next
+			}
+		}
+		dst = append(dst, link{x0: m[0], x1: m[1], url: s[m[0]:m[1]]})
+	}
+	return dst
+}
+
+// textURLs appends the URLs in the text s.
+func textURLs(dst []link, s string) []link {
 	for _, m := range urlStart.FindAllStringIndex(s, -1) {
 		if n := len(dst); n > 0 && !dst[n-1].osc && m[0] < dst[n-1].x1 {
 			continue // inside the previous URL
@@ -117,7 +153,7 @@ func rowLinks(dst []link, buf []byte, cells []vt.Cell) ([]link, []byte) {
 		}
 		dst = append(dst, link{x0: m[0], x1: m[0] + len(u), url: target})
 	}
-	return dst, buf
+	return dst
 }
 
 // linkAt is the link under cell p of g.
