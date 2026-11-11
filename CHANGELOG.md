@@ -19,11 +19,14 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- The Android app draws an agent's replies as the markdown reader draws a file: tables get a grid whose columns stay at least 112dp wide and that scrolls sideways when they do not fit, code blocks scroll sideways, and task lists, quotes, headings and mermaid flowcharts look as on the desktop. A markdown path or link in a reply, and Open on a file tool's row, show the file full screen, its images too, with Back through the links it followed. The computer serves the file only from the tab's repo or folder; with an older pitwall, paths stay plain text. In the desktop reader too, a long code line or a wide table scrolls sideways instead of wrapping or running past the column. See [Phone](docs/phone.md#markdown-files).
+
+## v0.2.8
+
 - Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
 - Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
 - Allow and Deny in the sidebar and phone match complete multi-line shell commands with their relative indentation, interior blank lines and wrapped rows. Claude commands may contain tabs; Codex commands with tabs and commands with missing or hidden text still require an answer in their tab.
 - Answer Claude Code and Codex terminal questions inline on the phone, including multiSelect, several questions and Other. Attach or paste a picture in the Android composer or phone page and send it through the desktop image delivery path.
-- The Android app draws an agent's replies as the markdown reader draws a file: tables get a grid whose columns stay at least 112dp wide and that scrolls sideways when they do not fit, code blocks scroll sideways, and task lists, quotes, headings and mermaid flowcharts look as on the desktop. A markdown path or link in a reply, and Open on a file tool's row, show the file full screen, its images too, with Back through the links it followed. The computer serves the file only from the tab's repo or folder; with an older pitwall, paths stay plain text. In the desktop reader too, a long code line or a wide table scrolls sideways instead of wrapping or running past the column. See [Phone](docs/phone.md#markdown-files).
 - Ctrl+click a markdown file a pane prints, such as `docs/plan.md`, to read it in pitwall over the panes: headings, lists, tables, code, local and web images, and mermaid flowcharts drawn as diagrams. Links to other markdown files open in the same reader with Back, and it redraws when the file changes. Esc closes it. See [Markdown reader](docs/usage.md#markdown-reader).
 
 ## v0.2.7
