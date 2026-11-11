@@ -35,6 +35,13 @@ type Tab struct {
 	// Dropped are the ids of phone messages the pane's agent left before
 	// they went in, which the page shows as not sent.
 	Dropped []uint64 `json:"dropped,omitempty"`
+	// Parent is the tab this one hangs under in the sidebar, its top
+	// ancestor (model.State.Root); "" for a tab the user opened.
+	Parent string `json:"parent,omitempty"`
+	// Icon is its repo's icon as GET /api/icon/{hash} serves it, NoIcon in
+	// a repo without one, "" outside a repo; Dir is the folder it is in now.
+	Icon string `json:"icon,omitempty"`
+	Dir  string `json:"-"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`
@@ -68,7 +75,7 @@ func Tabs(st model.State, queued map[string]int) []Tab {
 }
 
 func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
-	t, exited := Tab{ID: w.ID, Branch: w.Branch}, false
+	t, exited := Tab{ID: w.ID, Branch: w.Branch, Parent: st.Root(w), Dir: st.LivePath(w)}, false
 	t.Tab, t.Session = w.Label, s.Name
 	if w.RepoRoot != "" {
 		t.Repo = filepath.Base(w.RepoRoot)
@@ -199,7 +206,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 		fl.Flush()
 		return true
 	}
-	if !send("hello", map[string]any{"device": d.Name, "web": s.Web != nil, "models": Models, "efforts": Efforts}) {
+	if !send("hello", map[string]any{"device": d.Name, "version": s.Version, "web": s.Web != nil, "models": Models, "efforts": Efforts}) {
 		return
 	}
 	log.Printf("remote: %q opened the stream", d.Name)

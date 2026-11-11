@@ -137,6 +137,7 @@ func (d *Daemon) serveRemote(s phone) (stop func()) {
 func (d *Daemon) remoteServer() *remote.Server {
 	return &remote.Server{
 		Dir:         d.o.RemoteDir,
+		Version:     Build,
 		Items:       d.remoteItems,
 		Answer:      d.remoteAnswer,
 		Reply:       d.remoteReply,
@@ -147,6 +148,7 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatEntries: d.phoneChatEntries,
 		Send:        d.phoneSend,
 		Command:     d.phoneCommand,
+		Icons:       &d.phoneIcons,
 	}
 }
 

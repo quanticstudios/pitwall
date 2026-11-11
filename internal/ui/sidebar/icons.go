@@ -11,6 +11,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"golang.org/x/image/vector"
 )
 
 // Lucide icons (ISC, lucide-react 1.23.0, the set aide imports), as SVG path
@@ -206,18 +207,164 @@ func fillIcon(gtx layout.Context, d string, size int, col color.NRGBA) layout.Di
 }
 
 func paintIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot float32, fill bool) layout.Dimensions {
+	if size <= 0 {
+		return layout.Dimensions{}
+	}
 	if rot != 0 {
 		c := f32.Pt(float32(size)/2, float32(size)/2)
 		defer op.Affine(f32.AffineId().Rotate(c, rot)).Push(gtx.Ops).Pop()
 	}
-	s := float32(size) / 24
-	p := iconPath(gtx, d, size)
-	if fill {
-		paint.FillShape(gtx.Ops, col, clip.Outline{Path: p}.Op())
-	} else {
-		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p, Width: 2 * s}.Op())
+	k := iconKey{d, size, fill, col}
+	img, ok := iconImages[k]
+	if !ok {
+		if len(iconImages) >= 1024 {
+			clear(iconImages) // ponytail: drop all; an LRU if eased colors ever churn it
+		}
+		img = paint.NewImageOp(tint(iconMask(d, size, fill), col))
+		iconImages[k] = img
 	}
+	defer clip.Rect{Max: image.Pt(size, size)}.Push(gtx.Ops).Pop()
+	img.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
 	return layout.Dimensions{Size: image.Pt(size, size)}
+}
+
+// why: Gio's GPU path coverage sums in half floats, and under an icon's many
+// segments the rounding showed as faint columns below it; a CPU mask has none.
+type iconKey struct {
+	d    string
+	size int
+	fill bool
+	col  color.NRGBA
+}
+
+var iconImages = map[iconKey]paint.ImageOp{}
+
+// iconMask is icon d's coverage in a size px box: its nonzero fill, or its
+// stroke of width 2 in the 24 box with round caps and joins, as clip.Stroke.
+func iconMask(d string, size int, fill bool) *image.Alpha {
+	segs, ok := iconCache[d]
+	if !ok {
+		segs = parsePath(d)
+		iconCache[d] = segs
+	}
+	polys := flatten(segs, float32(size)/24)
+	m := image.NewAlpha(image.Rect(0, 0, size, size))
+	if fill {
+		var z vector.Rasterizer
+		z.Reset(size, size)
+		for _, p := range polys {
+			z.MoveTo(p[0].X, p[0].Y)
+			for _, q := range p[1:] {
+				z.LineTo(q.X, q.Y)
+			}
+			z.ClosePath()
+		}
+		z.Draw(m, m.Bounds(), image.Opaque, image.Point{})
+		return m
+	}
+	hw := float32(size) / 24 // half of the stroke's width 2
+	for _, p := range polys {
+		for i := range p {
+			a, b := p[i], p[min(i+1, len(p)-1)]
+			x0, x1 := max(int(min(a.X, b.X)-hw-1), 0), min(int(max(a.X, b.X)+hw+2), size)
+			y0, y1 := max(int(min(a.Y, b.Y)-hw-1), 0), min(int(max(a.Y, b.Y)+hw+2), size)
+			for y := y0; y < y1; y++ {
+				for x := x0; x < x1; x++ {
+					c := hw + 0.5 - segDist(f32.Pt(float32(x)+0.5, float32(y)+0.5), a, b)
+					if v := uint8(255 * min(max(c, 0), 1)); v > m.Pix[y*m.Stride+x] {
+						m.Pix[y*m.Stride+x] = v
+					}
+				}
+			}
+		}
+	}
+	return m
+}
+
+// flatten turns segs, scaled by s, into polylines, one per subpath; a
+// closed subpath ends on its first point.
+func flatten(segs []seg, s float32) [][]f32.Point {
+	var out [][]f32.Point
+	var pen f32.Point
+	add := func(p f32.Point) {
+		if len(out) == 0 {
+			out = append(out, []f32.Point{pen})
+		}
+		out[len(out)-1] = append(out[len(out)-1], p)
+		pen = p
+	}
+	for _, sg := range segs {
+		a, b, c := sg.pts[0].Mul(s), sg.pts[1].Mul(s), sg.pts[2].Mul(s)
+		switch sg.op {
+		case 'M':
+			pen = a
+			out = append(out, []f32.Point{a})
+		case 'L':
+			add(a)
+		case 'C':
+			p0 := pen
+			for i := 1; i <= 16; i++ {
+				t := float32(i) / 16
+				u := 1 - t
+				add(p0.Mul(u * u * u).Add(a.Mul(3 * u * u * t)).Add(b.Mul(3 * u * t * t)).Add(c.Mul(t * t * t)))
+			}
+		case 'A':
+			r := pen.Sub(a)
+			a0, rad := math.Atan2(float64(r.Y), float64(r.X)), math.Hypot(float64(r.X), float64(r.Y))
+			n := max(int(math.Ceil(math.Abs(float64(sg.angle))/(math.Pi/32))), 1)
+			for i := 1; i <= n; i++ {
+				t := a0 + float64(sg.angle)*float64(i)/float64(n)
+				add(a.Add(f32.Pt(float32(rad*math.Cos(t)), float32(rad*math.Sin(t)))))
+			}
+		case 'Z':
+			if len(out) > 0 {
+				add(out[len(out)-1][0])
+			}
+		}
+	}
+	return out
+}
+
+// segDist is the distance from p to the segment ab.
+func segDist(p, a, b f32.Point) float32 {
+	ab, ap := b.Sub(a), p.Sub(a)
+	t := float32(0)
+	if l := ab.X*ab.X + ab.Y*ab.Y; l > 0 {
+		t = min(max((ap.X*ab.X+ap.Y*ab.Y)/l, 0), 1)
+	}
+	q := ap.Sub(ab.Mul(t))
+	return float32(math.Hypot(float64(q.X), float64(q.Y)))
+}
+
+// tint is col through mask m, premultiplied so that Gio's sRGB texture
+// decodes to col's linear value times the coverage, as a path fill blends.
+func tint(m *image.Alpha, col color.NRGBA) *image.RGBA {
+	lin := func(v uint8) float64 {
+		c := float64(v) / 255
+		if c <= 0.04045 {
+			return c / 12.92
+		}
+		return math.Pow((c+0.055)/1.055, 2.4)
+	}
+	enc := func(c float64) uint8 {
+		if c <= 0.0031308 {
+			c *= 12.92
+		} else {
+			c = 1.055*math.Pow(c, 1/2.4) - 0.055
+		}
+		return uint8(math.Round(255 * min(max(c, 0), 1)))
+	}
+	r, g, b, a := lin(col.R), lin(col.G), lin(col.B), float64(col.A)/255
+	out := image.NewRGBA(m.Bounds())
+	for i, v := range m.Pix {
+		if v == 0 {
+			continue
+		}
+		k := a * float64(v) / 255
+		out.Pix[4*i], out.Pix[4*i+1], out.Pix[4*i+2], out.Pix[4*i+3] = enc(r*k), enc(g*k), enc(b*k), uint8(math.Round(255*k))
+	}
+	return out
 }
 
 // gradientIcon fills path d like fillIcon with a gradient from col1 at the

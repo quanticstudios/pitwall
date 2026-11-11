@@ -173,6 +173,18 @@ with a debug key the script makes on first use, `dist/android/debug.keystore`,
 which git ignores. Keep that file: Android installs an update only over an
 APK signed with the same key.
 
+The script stamps the APK with pitwall's version: the highest stable
+release tag the commit contains, and the commits since. A build 3 commits
+after tag v0.2.6 gets versionName `0.2.6.206003` and versionCode 206003:
+the tag's three numbers as two digits each after the first, then the
+commit count as three. Each release and each commit after it raises the
+code, so Android takes every newer build over the last. A maintenance tag
+merged in later, such as v0.2.10 into v0.3.x, does not lower it. The
+script refuses a shallow clone (`git fetch --unshallow --tags` first),
+since it would count too few commits, a tag whose minor or patch is 100 or
+more, and a build more than 999 commits after its tag. `sh scripts/apk.sh --version` prints the
+name, the code and the version the app shows without building.
+
 ### Install
 
 With USB debugging on, run `adb install dist/pitwall-phone.apk`. Or copy
@@ -195,20 +207,38 @@ storage.
 
 The app pairs with more than one computer. Add machine, in the session
 menu or under the gear, runs the same pairing again, and the sidebar then
-shows every machine's sessions, each row with its machine's chip as the
-window's sidebar shows another host's. Messages, picks and answers go to
-the machine the tab runs on. The gear lists the machines: tap a name to
-rename it, or Remove one, which forgets its token on the phone;
-`pitwall remote revoke` stops the token on the computer.
+shows every machine's sessions. Sessions with the same name on several
+machines are one session, as a shared session is in the window's sidebar:
+the first machine's tabs under a thin line with its name, then the next
+machine's line and tabs, in the order the gear lists the machines. A line
+says the machine's latency, or offline and when the app tries again, in
+red. Rows under a line carry no machine chip, and neither do the rows of a
+session on one machine. Messages, picks and answers go to the machine the
+tab runs on.
+
+The gear lists the machines, each with the pitwall version its daemon runs
+(a daemon of v0.2.6 or older shows none), and the app's own version at the
+bottom. Tap a name to rename it, or Remove one, which forgets its token on
+the phone; `pitwall remote revoke` stops the token on the computer.
 
 ### Use
 
 The sidebar is the home screen: Waiting on you lists the errors, approvals
-and questions of every session, and the tree below is the session's tabs as
-the window's sidebar draws them. Allow and Deny answer a permission prompt
-from its row; a tap on a row, or on Reply, opens the tab's chat. The
-session's name opens the other sessions, by machine, with a red count of
-what waits there.
+and questions of every session. Two or more fold into one row, the most
+pressing tab and how many more; a tap on it opens the list. The tree below
+is the session's tabs as the window's sidebar draws them. A row leads with
+its repo's own icon, its favicon or logo, as in the window, or a tile with
+the repo's first letter when it has none; the computer sends the icon's
+bytes, never its path. A daemon of v0.2.6 or older sends no icons, and its
+rows show the agent's mark alone. Allow and Deny answer a permission prompt
+from its row; a tap on a row, or on Reply, opens the tab's chat. Tabs an
+agent opened with `pitwall new` or `pitwall worktree new` hang under that
+agent's tab, as with `[sidebar] workers = "separate"`: the tab's row has a
+bar with a segment per worker in its state's color, and a tap on the bar
+shows their rows. A daemon of v0.2.6 or older sends no parents, and its
+tabs show as flat rows. The session's name opens the other sessions, by
+machine, with a red count of what waits there; a session on several
+machines is under each.
 
 | Where you are                | Back                      |
 | ---------------------------- | ------------------------- |
@@ -230,7 +260,8 @@ once.
 `-demo 1` pairs it with a server of made-up tabs in the same process, and
 `-demo 2` with two, as the machines box and laptop.
 `-serve-demo 0.0.0.0:7792` serves that demo alone and prints its pairing
-link, which an emulator reaches at `http://10.0.2.2:7792`.
+link, which an emulator reaches at `http://10.0.2.2:7792`; with `-demo 2`
+it serves box's.
 
 ## What pitwall logs
 

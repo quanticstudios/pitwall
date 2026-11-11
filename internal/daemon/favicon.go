@@ -1,8 +1,6 @@
 package daemon
 
 import (
-	"os"
-
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/repoicon"
 )
@@ -16,7 +14,7 @@ func favicon(m proto.Favicon) proto.FaviconResult {
 	}
 	n := 0
 	for _, f := range repoicon.Files(r.Root) {
-		b, err := os.ReadFile(f)
+		b, err := repoicon.Read(r.Root, f)
 		if err != nil || n+len(b) > repoicon.Max {
 			continue
 		}

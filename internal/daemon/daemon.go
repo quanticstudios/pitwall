@@ -264,16 +264,17 @@ type Daemon struct {
 	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed  bool
-	pushWake      chan struct{} // wakes pushLoop, nil when it is not running
-	phoneTick     chan struct{} // closed at the next change, nil while no phone stream waits
-	phoneSettings map[string]phoneSettings
+	pushWake      chan struct{}          // wakes pushLoop, nil when it is not running
+	phoneTick     chan struct{}          // closed at the next change, nil while no phone stream waits
 	phoneSeq      uint64                 // the last phone message's id
 	phoneDropped  map[string][]uint64    // pane: phone messages its agent left before they went in
+	phoneIcons    remote.Icons           // the repo icons the phone app's rows show
 	paneCmd       map[string]*sync.Mutex // pane: held while a phone slash command goes in
 	awakeWake     chan struct{}          // wakes keepAwakeLoop on activity changes
 	prs           prPoll                 // see pr.go
 	radar         radar                  // see radar.go
 	queue         taskQueue              // see task.go
+	phoneSettings map[string]phoneSettings
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
