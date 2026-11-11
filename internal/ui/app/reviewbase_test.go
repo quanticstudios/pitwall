@@ -103,7 +103,7 @@ func TestReviewDropsGonePick(t *testing.T) {
 	u := &ui{}
 	u.nav.reviewBase = map[string]reviewPick{"w": {Ref: "refs/heads/gone", Branch: "stacked"}}
 	u.review.show("w", t.TempDir(), "refs/heads/gone", false, func() {})
-	t.Cleanup(u.review.hide)
+	cleanupReview(t, &u.review)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, _, _, _, loaded := u.review.snapshot(); loaded || time.Now().After(deadline) {
@@ -139,6 +139,8 @@ func TestGonePickHoldsDiscard(t *testing.T) {
 	}
 	u := &ui{}
 	fallback, release := make(chan bool, 1), make(chan struct{})
+	releaseReader := sync.OnceFunc(func() { close(release) })
+	defer releaseReader()
 	readDiff = func(_ context.Context, _, base string) (gitstat.Patch, error) {
 		if base == "" {
 			_, _, _, _, loaded := u.review.snapshot()
@@ -154,7 +156,7 @@ func TestGonePickHoldsDiscard(t *testing.T) {
 		return nil
 	}
 	u.review.show("w", t.TempDir(), "refs/heads/feature", false, func() {})
-	t.Cleanup(u.review.hide)
+	cleanupReview(t, &u.review)
 	waitLoaded(t, &u.review)
 	files, _, _, _, _ := u.review.snapshot()
 	u.review.askDiscard(&files[0])
@@ -172,7 +174,7 @@ func TestGonePickHoldsDiscard(t *testing.T) {
 	if got := <-discarded; got != "refs/heads/feature" {
 		t.Errorf("Discard restored from %q, not the base the dialog named", got)
 	}
-	close(release)
+	releaseReader()
 	waitLoaded(t, &u.review) // the reader is idle again before the stubs go
 }
 
@@ -182,6 +184,8 @@ func TestStaleReaderKeepsPick(t *testing.T) {
 	oldDiff, oldRef, oldTurn := readDiff, branchRef, readTurn
 	t.Cleanup(func() { readDiff, branchRef, readTurn = oldDiff, oldRef, oldTurn })
 	first, release, stale := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	releaseReader := sync.OnceFunc(func() { close(release) })
+	defer releaseReader()
 	var calls atomic.Int32
 	branchRef = func(_ context.Context, _, ref string) string {
 		if calls.Add(1) == 1 {
@@ -207,9 +211,9 @@ func TestStaleReaderKeepsPick(t *testing.T) {
 	r.show("w", dir, "refs/heads/feature", false, func() {})
 	<-first
 	r.show("w", dir, "refs/heads/feature", false, func() {})
-	t.Cleanup(r.hide)
+	cleanupReview(t, &r)
 	waitLoaded(t, &r)
-	close(release)
+	releaseReader()
 	select {
 	case <-stale:
 	case <-time.After(5 * time.Second):
@@ -232,4 +236,13 @@ func waitLoaded(t *testing.T, r *reviewView) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// cleanupReview must be registered after hook restoration so it runs first.
+func cleanupReview(t *testing.T, r *reviewView) {
+	t.Helper()
+	t.Cleanup(func() {
+		r.hide()
+		r.readers.Wait()
+	})
 }

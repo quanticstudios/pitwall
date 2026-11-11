@@ -57,6 +57,7 @@ jobs:
           sh -n scripts/get.sh
           sh scripts/get_test.sh
           sh scripts/release_test.sh
+          sh scripts/apk_test.sh
 
   changelog:
     if: github.event_name == 'pull_request'

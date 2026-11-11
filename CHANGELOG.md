@@ -20,8 +20,23 @@ pushes the tag once, which starts the release build. Either step takes
 ## Unreleased
 
 - Ctrl+click a markdown file a pane prints, such as `docs/plan.md`, to read it in pitwall over the panes: headings, lists, tables, code, local and web images, and mermaid flowcharts drawn as diagrams. Links to other markdown files open in the same reader with Back, and it redraws when the file changes. Esc closes it. See [Markdown reader](docs/usage.md#markdown-reader).
+- Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
+- Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
+- Allow and Deny in the sidebar and phone match complete multi-line shell commands with their relative indentation, interior blank lines and wrapped rows. Claude commands may contain tabs; Codex commands with tabs and commands with missing or hidden text still require an answer in their tab.
+- Answer Claude Code and Codex terminal questions inline on the phone, including multiSelect, several questions and Other. Attach or paste a picture in the Android composer or phone page and send it through the desktop image delivery path.
+
+## v0.2.7
+
+- The Android app's list draws a session with the same name on several machines as one, as the window's sidebar draws a shared session: each machine's tabs under a thin line with its name and latency, or offline in red, and no machine chip on any row. Tabs an agent opened hang under its tab behind a bar of their states. The gear shows the app's version and each machine's pitwall version, and `scripts/apk.sh` stamps the APK with a version from the highest release tag in its history, whose code grows with each commit, so each build installs over the last. Waiting on you folds two or more tabs into one row until tapped. Rows lead with their repo's icon, or its letter tile, as in the window's sidebar.
+- Phone model and effort chips retain terminal setting changes made while the phone is closed, after the acknowledgements scroll away.
+- Phone model and effort chips ignore mentions in transcript text. Esc protects a prompt Claude Code restores on interruption from queued phone and window messages.
+- Terminal draft tracking rejects Kitty key codes outside the Unicode range before converting them to runes.
 - The Android app pairs by scanning the QR code `pitwall remote pair` or Settings, Phone shows: Scan QR code on the pairing screen and on Add machine opens the camera, which the app asks for on that first tap. Paste and the address and code stay.
+- The phone app and web page name the current Claude model families, including Fable 5.2. Versioned model ids supply their own family and version, hide date suffixes and show `[1m]` as 1M.
+- The Android app loads Claude Code's current model and effort and stops retrying refused picks. Phone messages go into Claude Code and Codex during a turn, holding for drafts, forms and approvals. Focus and mouse reports, empty paste markers and cursor movement leave draft tracking alone. Return followed by a focus report still releases a submitted draft. Ctrl+A leaves an untouched Claude Code suggestion out of draft tracking, including with NO_COLOR. Delayed submission hooks release sent drafts.
 - Scrolling tabs and chat in the Android app reuses GPU path buffers across frames. Long chats no longer allocate a widget closure for every entry on each frame.
+- Pull request status uses one conditional REST list per GitHub repository across its worktrees. Unrelated branch pushes do not re-read each pull request. Fork checkouts retain their pull request status, and finished checks refresh conditionally to detect reruns. Branches that track a base or local branch match their own pull requests. Low REST headroom slows polling, and exhausted headroom pauses requests until GitHub resets the budget.
+
 - An Android app, built with `sh scripts/apk.sh` and installed by hand: pitwall's sidebar as the home screen, with Waiting on you across sessions and Allow and Deny on a row, and each agent tab's chat with model, effort and send on the message box. It pairs with the link `pitwall remote pair` prints, with as many computers as you like in one sidebar, and reconnects to each on its own; see [Phone](docs/phone.md#android-app). The phone page's model list gains `opus[1m]`.
 - The phone page names models as people say them, Opus 5.5 or GPT-6.1 Sol, in a chat's header, its model button and the model list, instead of ids such as opus-5-5.
 - The sidebar's header has a monitor button, a chip icon between the board and new tab buttons, that shows or hides the monitor as Ctrl+Alt+M does and stays pressed while it shows.

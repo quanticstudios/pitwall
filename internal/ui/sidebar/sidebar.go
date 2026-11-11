@@ -95,6 +95,17 @@ type Sidebar struct {
 	// TabNumber is a tab's number on its host ("box:3"), for a hover card;
 	// nil for none.
 	TabNumber func(id string) string
+	// Rev, when not zero, is the state's revision, which the caller
+	// raises whenever the state it passes changes. Until Rev, the
+	// session, the active tab or SeparateWorkers changes, the tree keeps
+	// the session's state and indexes from the last frame instead of
+	// building them again. Zero builds them every frame.
+	Rev uint64
+	// AllHosts is a sidebar where no machine is this one, the phone app's:
+	// HostOf names a host for every tab and group, rows and group headers
+	// never show a host chip, and a session draws its machines' lines only
+	// when its tabs are on more than one, for those machines alone.
+	AllHosts bool
 	// HostSections draws a shared session's machines in the tree as
 	// headers that fold, not divider lines (machines.go).
 	HostSections bool
@@ -135,6 +146,7 @@ type Sidebar struct {
 	hostFold   map[string]bool
 	foldFollow string
 	preview    sessionPreview
+	cache      *viewCache // the last view built while Rev was set
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -220,6 +232,7 @@ type Sidebar struct {
 	elems   []elem
 	scroll  int
 	slides  map[string]*slide
+	sliding bool // some row still slid in the last frame
 	prevTop map[string]int
 	landing map[string]float32
 	now     time.Time
@@ -374,9 +387,8 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 		name = ss.Name
 	}
 	all := st
-	view := st.View(session)
-	st = &view
-	v := s.viewOf(gtx, th, st, session, activeWorkspace)
+	v := s.sessionView(gtx, th, st, session, activeWorkspace)
+	st = v.st
 	for _, id := range []string{s.renaming, s.replying} {
 		_, ok := v.activity[id]
 		if id != "" && !ok && !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == id }) {
@@ -542,6 +554,44 @@ func (s *Sidebar) viewOf(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 	s.sectionView(v)
 	return v
+}
+
+// sessionView is viewOf over session's part of all. With Rev set it
+// reuses the last frame's state and indexes while they still hold.
+func (s *Sidebar) sessionView(gtx layout.Context, th *theme.Theme, all *model.State, session, active string) *view {
+	key := viewKey{s.Rev, session, active, s.SeparateWorkers}
+	// invariant: toInbox writes into the indexes, so the inbox's are never cached.
+	if s.Rev == 0 || s.Inbox && !s.TreeOnly {
+		s.cache = nil
+		st := all.View(session)
+		return s.viewOf(gtx, th, &st, session, active)
+	}
+	if c := s.cache; c == nil || c.key != key {
+		st := all.View(session)
+		s.cache = &viewCache{key: key, v: buildView(gtx, th, &st, session, active, s.SeparateWorkers)}
+	}
+	// why: sectionView replaces top, hosts and parts, so a copy keeps the cached ones.
+	v := *s.cache.v
+	v.th, v.now = th, gtx.Now
+	if v.now.IsZero() {
+		v.now = time.Now()
+	}
+	s.sectionView(&v)
+	return &v
+}
+
+// viewKey is what a cached view was built for.
+type viewKey struct {
+	rev      uint64
+	session  string
+	active   string
+	separate bool
+}
+
+// viewCache is the last view built while Rev was set, before sectionView.
+type viewCache struct {
+	key viewKey
+	v   *view
 }
 
 // newView is st indexed with workers folded into their parents' rows.

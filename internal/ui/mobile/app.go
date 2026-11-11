@@ -24,6 +24,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
+// Version is the app's build, as git describe names it; scripts/apk.sh
+// sets it, and a build without it says dev.
+var Version = "dev"
+
 // zoom scales the desktop's sizes for a finger: its 32dp controls come out
 // at 44dp. ponytail: one scale for every phone; tune it here.
 const zoom = 1.375
@@ -72,6 +76,8 @@ type App struct {
 	mach  machinesView
 	chat  chatView
 	chatM string // the machine the open chat's tab is on
+
+	icons map[string]*iconFetch // by machine and hash, for the rows' repo icons
 }
 
 // link is one paired machine's stream and how it is going.
@@ -89,6 +95,9 @@ type link struct {
 func Run(w *app.Window, th *theme.Theme, dir string) error {
 	a := &App{w: w, th: th, dir: dir, ui: make(chan func(), 256)}
 	a.sb.TreeOnly, a.sb.Fill, a.sb.Touch, a.sb.ExpandAll, a.sb.Answers = true, true, true, true, true
+	// why: no machine is the phone's own; a worker's state shows on its parent's strip, a tap opens its row.
+	a.sb.AllHosts, a.sb.SeparateWorkers, a.sb.Rev = true, true, 1
+	a.sb.RepoIcons = a.repoIcon
 	a.pair.init()
 	if ms, err := phone.LoadMachines(dir); err != nil {
 		a.pair.note = sentence(err.Error())
@@ -104,6 +113,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			return e.Err
 		case app.ViewEvent:
 			setCameraView(e)
+			setImageView(e)
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {
@@ -190,6 +200,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 	a.fleet, a.links = nil, map[string]*link{}
 	if len(ms) == 0 {
 		a.st, a.session = model.State{}, ""
+		a.sb.Rev++
 		a.chat, a.chatM, a.machines = chatView{}, "", false
 		return
 	}
@@ -285,6 +296,7 @@ func (a *App) renameMachine(id, name string) {
 // refresh takes the fleet's merged list and keeps the session shown.
 func (a *App) refresh() {
 	a.st = a.fleet.State()
+	a.sb.Rev++ // why: the sidebar keeps its indexes until the state changes
 	if !a.picked || a.st.Session(a.session) == nil {
 		a.session, a.picked = "", false
 		if len(a.st.Sessions) > 0 {
@@ -359,16 +371,36 @@ func (a *App) hosts() []sidebar.HostInfo {
 	var out []sidebar.HostInfo
 	for _, m := range a.fleet.Machines {
 		l := a.links[m.ID]
-		h := sidebar.HostInfo{Name: m.Name, Up: l.online, Note: l.offline, Retry: l.retryAt}
+		h := sidebar.HostInfo{Name: m.Name, Up: l.online, Note: l.offline, Retry: l.retryAt, Latency: l.hello.Latency}
 		if !l.online {
 			h.Since = l.since
 		}
 		for _, s := range a.st.Sessions {
-			if o, _ := a.fleet.Owner(s.ID); o.ID == m.ID {
+			if a.on(s.ID, m.ID) {
 				h.Sessions = append(h.Sessions, s.ID)
 			}
 		}
 		out = append(out, h)
+	}
+	return out
+}
+
+// on reports whether machine has tabs in State session id.
+func (a *App) on(session, machine string) bool {
+	return slices.ContainsFunc(a.fleet.MachinesOf(session), func(m phone.Machine) bool { return m.ID == machine })
+}
+
+// sessionLinks is the links of the machines with tabs in the session the
+// list shows, in Machines order.
+func (a *App) sessionLinks() []*link {
+	if a.fleet == nil {
+		return nil
+	}
+	var out []*link
+	for _, m := range a.fleet.MachinesOf(a.session) {
+		if l := a.links[m.ID]; l != nil {
+			out = append(out, l)
+		}
 	}
 	return out
 }
@@ -392,7 +424,10 @@ func (a *App) chatLayout(gtx C) {
 	gtx.Metric.PxPerSp /= zoom
 	t, open := a.tab()
 	l := a.links[a.chatM]
-	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts,
+	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts, Attach: l.hello.Upload && t.Attach && canPickImage,
+		PickImage: func(clip bool, done func([]byte, error)) {
+			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
+		},
 		Retry: l.conn.Retry,
 		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
 			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)

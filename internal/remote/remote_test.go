@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/web"
@@ -60,6 +61,22 @@ func pairDevice(t *testing.T, s *Server, h http.Handler, name string) (token str
 		t.Fatalf("pair reply %s", body)
 	}
 	return r.Token
+}
+
+func TestTabSettings(t *testing.T) {
+	st := model.State{
+		Sessions:   []model.Session{{ID: "s", Name: "main"}},
+		Workspaces: []model.Workspace{{ID: "w", SessionID: "s", Chat: "c"}},
+		Chats:      []model.Chat{{ID: "c", Provider: model.ProviderClaude, Model: "opus[1m]", Effort: "high"}},
+	}
+	tab, ok := tabOf(st, st.Sessions[0], st.Workspaces[0])
+	if !ok || tab.Model != "opus[1m]" || tab.Effort != "high" {
+		t.Fatalf("tab %+v, ok %v", tab, ok)
+	}
+	b, err := json.Marshal(tab)
+	if err != nil || !strings.Contains(string(b), `"model":"opus[1m]"`) {
+		t.Fatalf("wire %s, %v", b, err)
+	}
 }
 
 func TestPairThenToken(t *testing.T) {
@@ -408,5 +425,26 @@ func TestChatAnswers(t *testing.T) {
 	want := []string{"r1 deny not now", "r1 allow ", "i1 Continue"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("answers %q, want %q", got, want)
+	}
+}
+
+// TestTabsParent sends each tab's sidebar root as its parent: a worker of
+// a worker names the top tab, and a tab the user opened names none.
+func TestTabsParent(t *testing.T) {
+	st := model.State{
+		Sessions: []model.Session{{ID: "s", Name: "main"}},
+		Workspaces: []model.Workspace{
+			{ID: "lead", SessionID: "s", Tabs: []model.Tab{{Layout: &layout.Node{Pane: "p1"}}}},
+			{ID: "w1", SessionID: "s", Parent: "lead", Tabs: []model.Tab{{Layout: &layout.Node{Pane: "p2"}}}},
+			{ID: "w2", SessionID: "s", Parent: "w1", Tabs: []model.Tab{{Layout: &layout.Node{Pane: "p3"}}}},
+		},
+		Panes: []model.Pane{{ID: "p1", WorkspaceID: "lead"}, {ID: "p2", WorkspaceID: "w1"}, {ID: "p3", WorkspaceID: "w2"}},
+	}
+	var got []string
+	for _, tb := range Tabs(st, nil) {
+		got = append(got, tb.ID+"<"+tb.Parent)
+	}
+	if want := []string{"lead<", "w1<lead", "w2<lead"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tabs %v; want %v", got, want)
 	}
 }
