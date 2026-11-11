@@ -112,8 +112,8 @@ func csiKey(seq string) (pressed, edited, enter bool) {
 
 func editsControl(code int) bool {
 	switch code {
-	case 0, 4, 7, 8, 9, 10, 11, 13, 14, 16, 18, 19, 20, 21, 22, 23, 24, 25, 31, 127:
-		return true // Completion, deletion, newline, history, search, paste and undo.
+	case 0, 4, 7, 8, 9, 10, 11, 13, 14, 16, 18, 19, 20, 21, 22, 23, 24, 25, 27, 31, 127:
+		return true // Esc can restore interrupted prompts; other keys edit the box.
 	}
 	return false
 }

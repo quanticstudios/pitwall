@@ -18,7 +18,6 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
-	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // The phone page's chat: every tab in the sidebar's order, each agent's
@@ -50,6 +49,9 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	for i, p := range panes {
 		if p != nil {
 			m, e := agent.ClaudeSettings(p.Snapshot())
+			d.mu.Lock()
+			d.keepClaudeSettings(tabs[i].Pane, p, m, e)
+			d.mu.Unlock()
 			if m != "" {
 				tabs[i].Model = m
 			}
@@ -301,17 +303,6 @@ func (d *Daemon) paneCommandLock(pane string) func() {
 var switchWait = newTiming(1500 * time.Millisecond)
 
 type phoneSettings struct{ model, effort string }
-
-// rememberClaudeSettings keeps settings that a later redraw can hide.
-func (d *Daemon) rememberClaudeSettings(id string, p Pane, g vt.Grid) {
-	m, e := agent.ClaudeSettings(g)
-	if m == "" && e == "" {
-		return
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.keepClaudeSettings(id, p, m, e)
-}
 
 // keepClaudeSettings updates the phone's settings cache. Callers hold d.mu.
 func (d *Daemon) keepClaudeSettings(id string, p Pane, m, e string) {

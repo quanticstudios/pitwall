@@ -105,11 +105,82 @@ func TestPhoneCurrentSettings(t *testing.T) {
 	if tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
 		t.Fatalf("external change: %+v", tab)
 	}
-	d.rememberClaudeSettings("a", f.pane(0), f.pane(0).Snapshot())
 	setScreen(f.pane(0), []string{"────────", "❯ ", "────────"})
 	tab = d.phoneTabs()[0]
 	if tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
 		t.Fatalf("settings lost off screen: %+v", tab)
+	}
+}
+
+func TestPhoneSettingsOutsideFrames(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	p := f.pane(0)
+	setScreen(p, []string{"────────", "❯ ", "────────", "Sonnet 5.5 · low · project"})
+	c := &client{frames: map[string]proto.Frame{}}
+	d.mu.Lock()
+	d.clients[c] = struct{}{}
+	d.mu.Unlock()
+	if _, ok := d.pushFrame("a", p); !ok {
+		t.Fatal("GUI receives no frame")
+	}
+	d.mu.Lock()
+	settings := d.phoneSettings["a"]
+	d.mu.Unlock()
+	if settings != (phoneSettings{}) {
+		t.Fatalf("frame parses phone settings: %+v", settings)
+	}
+	if tab := d.phoneTabs()[0]; tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+		t.Fatalf("phone request misses settings: %+v", tab)
+	}
+	d.mu.Lock()
+	delete(d.clients, c)
+	d.mu.Unlock()
+	changed := d.phoneChanged()
+	setScreen(p, []string{"────────", "❯ ", "────────", "Sonnet 5.5 · high · project"})
+	d.pushFrame("a", p)
+	select {
+	case <-changed:
+	default:
+		t.Fatal("terminal output does not wake the phone stream")
+	}
+	if tab := d.phoneTabs()[0]; tab.Effort != "high" {
+		t.Fatalf("phone request misses redrawn settings: %+v", tab)
+	}
+}
+
+func TestPhoneEscapeRestoresDraft(t *testing.T) {
+	for _, wire := range []string{"\x1b", "\x1b[27u", "\x1b\x1b", "\x1b[27u\x1b[27u"} {
+		t.Run(fmt.Sprintf("%x", wire), func(t *testing.T) {
+			d, p := draftDaemon(t)
+			d.noteUserKey("a", []byte("refactor X\r"))
+			claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"refactor X"}`)
+			d.mu.Lock()
+			drafting := d.mail.drafting["a"]
+			d.mu.Unlock()
+			if drafting {
+				t.Fatal("submission leaves draft tracking set")
+			}
+			d.noteUserKey("a", []byte(wire))
+			setScreen(p, []string{"────────", "❯ refactor X", "────────"})
+			claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"interrupted"}`)
+			if _, err := d.readyWindow("a", false); err != errDraft {
+				t.Fatalf("window message ignores restored draft: %v", err)
+			}
+			if _, err := d.phoneSend("a", "phone text"); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(2 * sendQuiet.get())
+			if got := p.got(); got != "" {
+				t.Fatalf("phone text enters restored draft: %q", got)
+			}
+			if !draftHeld(d, "a") {
+				t.Fatal("restored draft has no hold")
+			}
+			setScreen(p, []string{"────────", "❯ ", "────────"})
+			if got := gotAfter(t, p, 0, len("phone text\r")); got != "phone text\r" {
+				t.Fatalf("cleared draft keeps phone message: %q", got)
+			}
+		})
 	}
 }
 

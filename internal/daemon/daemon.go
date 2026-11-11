@@ -2176,7 +2176,6 @@ func (d *Daemon) watch(id string, p Pane) {
 			titleDue = nil
 			g := p.Snapshot()
 			d.setTitle(id, p, g.Title)
-			d.rememberClaudeSettings(id, p, g)
 		case <-p.Done():
 			d.pushFrame(id, p)
 			d.exited(id, p)
@@ -2192,6 +2191,10 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	defer d.mu.Unlock()
 	if d.panes[id] != p {
 		return "", false
+	}
+	if d.phoneTick != nil {
+		close(d.phoneTick) // phoneTabs reads settings outside the frame lock.
+		d.phoneTick = nil
 	}
 	var f, lf *proto.Frame // the shared scroll's frame and the live one, built once each
 	for c := range d.clients {
@@ -2214,16 +2217,6 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	}
 	if f == nil {
 		return "", false
-	}
-	if d.paneProvider(id) == model.ProviderClaude {
-		g := f.Grid
-		if lf != nil {
-			g = lf.Grid
-		} else if f.ScrollOffset > 0 {
-			g = p.Snapshot()
-		}
-		m, e := agent.ClaudeSettings(g)
-		d.keepClaudeSettings(id, p, m, e)
 	}
 	return f.Grid.Title, true
 }

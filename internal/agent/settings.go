@@ -41,6 +41,9 @@ func ClaudeSettings(g vt.Grid) (model, effort string) {
 		if effort == "" && strings.HasPrefix(row, "⎿  Set effort level to ") {
 			effort = strings.Fields(strings.TrimPrefix(row, "⎿  Set effort level to "))[0]
 		}
+		if !strings.HasPrefix(row, "▝▜") && !strings.HasPrefix(row, "▐▛") {
+			continue
+		}
 		if name, tail, ok := strings.Cut(row, " with "); ok {
 			words := strings.Fields(tail)
 			if len(words) < 2 || words[1] != "effort" {
