@@ -25,17 +25,22 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// pairView is the first screen, in three steps: paste the link pitwall
-// remote pair prints, or type the address and the code, then, for a
-// server with pitwall's own certificate, compare its SHA-256. Nothing is
-// saved until pairing works.
+// pairView is the first screen, in three steps: scan the QR code pitwall
+// remote pair shows, paste the link it prints, or type the address and
+// the code, then, for a server with pitwall's own certificate, compare
+// its SHA-256. Nothing is saved until pairing works.
 type pairView struct {
 	link, addr, code               widget.Editor
 	paste, go_, swap, back, cancel widget.Clickable
+	scan, cancelScan               widget.Clickable
 	// manual shows the address and code in place of the link.
 	manual bool
-	busy   bool
-	note   string // the last attempt's error, shown under its field
+	// scanning shows the camera; shown is the frame img holds.
+	scanning bool
+	shown    *frame
+	img      paint.ImageOp
+	busy     bool
+	note     string // the last attempt's error, shown under its field
 	// untrusted is the certificate pitwall made for itself, which the
 	// user can trust once its SHA-256 matches what pair printed; server
 	// and code are the attempt it answered.
@@ -53,6 +58,12 @@ func (p *pairView) init() {
 
 func (a *App) pairLayout(gtx C) {
 	p, th := &a.pair, a.th
+	if p.scanning && a.scanEvents(gtx) {
+		return
+	}
+	if p.scan.Clicked(gtx) && !p.busy {
+		a.startScan()
+	}
 	submit := false
 	for _, ed := range []*widget.Editor{&p.link, &p.addr, &p.code} {
 		for {
@@ -82,7 +93,7 @@ func (a *App) pairLayout(gtx C) {
 		a.adding, p.note, p.untrusted, p.manual = false, "", "", false
 		return
 	}
-	if p.untrusted != "" || p.manual || a.adding {
+	if !p.scanning && (p.untrusted != "" || p.manual || a.adding) {
 		// Back steps back: the certificate to the step before, the
 		// address and code to the link, the link to the sidebar while
 		// adding a machine. On a first pairing's link it goes unread, so
@@ -124,6 +135,8 @@ func (a *App) pairLayout(gtx C) {
 	fillMax(gtx, th.Bg)
 	var w []layout.Widget
 	switch {
+	case p.scanning:
+		w = a.scanStep()
 	case p.untrusted != "":
 		w = a.certStep()
 	case p.manual:
@@ -175,6 +188,12 @@ func (a *App) linkStep() []layout.Widget {
 		title = "Add a machine"
 	}
 	w := a.pairHead(title, "On the computer, run ", "pitwall remote pair", " and paste the link it prints.")
+	if canScan {
+		w = a.pairHead(title, "On the computer, run ", "pitwall remote pair", ", then scan the QR code it shows or paste the link it prints.")
+		w = append(w, func(gtx C) D {
+			return kit.WideButton(gtx, th, &p.scan, kit.Secondary.When(!p.busy), kit.Large, "Scan QR code")
+		}, gap(18))
+	}
 	w = append(w,
 		fieldLabel(th, "Pairing link"),
 		func(gtx C) D {
