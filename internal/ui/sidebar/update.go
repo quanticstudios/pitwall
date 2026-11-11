@@ -606,13 +606,13 @@ func (s *Sidebar) tabOptions(v *view, id string, set func(*SetTabOptions)) {
 
 // nearRows is the tabs whose rows, or sub-rows, were within a screen of
 // the tree's view in the last frame, which alone can have taken input
-// since: nil, for every tab, before the first frame and during a drag.
+// since: nil, for every tab, before the first frame, during a drag, while
+// rows slide (elems hold where they land, not where they were drawn) and
+// while the Detached tabs menu, whose tabs have no elems, is open.
 func (s *Sidebar) nearRows() map[string]bool {
-	if len(s.elems) == 0 || s.drag.active || s.height <= 0 {
+	if len(s.elems) == 0 || s.drag.active || s.sliding || s.detachedOpen || s.height <= 0 {
 		return nil
 	}
-	// ponytail: a screen of slack either way covers rows mid-slide; the
-	// rows far away are what the polling costs.
 	lo, hi := s.list.Position.Offset-s.height, s.list.Position.Offset+2*s.height
 	near := map[string]bool{}
 	for _, e := range s.elems {

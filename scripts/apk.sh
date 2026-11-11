@@ -5,17 +5,22 @@ set -eu
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
-# why: Android updates only over a lower versionCode; vX.Y.Z-N-g... becomes XYYZZNNN, which every commit raises.
-describe=$(git describe --tags --long --dirty --match 'v[0-9]*' --exclude '*-beta*' 2>/dev/null) ||
-    { echo "apk.sh: no vX.Y.Z tag in reach; run git fetch --tags" >&2; exit 1; }
-tag=${describe%%-*}
+# why: Android updates only over a lower versionCode; vX.Y.Z plus N commits becomes XYYZZNNN, which every commit raises.
+# warn: a shallow clone counts only the commits it has, which can lower the code.
+[ "$(git rev-parse --is-shallow-repository)" = false ] ||
+    { echo "apk.sh: a shallow clone counts too few commits; run git fetch --unshallow --tags" >&2; exit 1; }
+# why: the highest stable tag, not the nearest: a merged maintenance tag (v0.2.10 into v0.3.x) would lower the code.
+tag=$(git tag --merged HEAD --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1) || true
+[ -n "$tag" ] || { echo "apk.sh: no vX.Y.Z tag in reach; run git fetch --tags" >&2; exit 1; }
+# warn: git describe --match miscounts across merges; rev-list counts exactly.
+n=$(git rev-list --count "refs/tags/$tag..HEAD")
+describe=$tag-$n-g$(git rev-parse --short HEAD)
+git diff --quiet HEAD -- || describe=$describe-dirty
 v=${tag#v}
 major=${v%%.*}
 minor=${v#*.}
 patch=${minor#*.}
 minor=${minor%%.*}
-n=${describe#"$tag"-}
-n=${n%%-*}
 case "$major.$minor.$patch.$n" in
 *[!0-9.]* | .* | *..* | *.) echo "apk.sh: cannot read a version from $describe" >&2; exit 1 ;;
 esac

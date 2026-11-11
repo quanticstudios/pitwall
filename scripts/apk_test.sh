@@ -64,9 +64,28 @@ echo dirty >>.gitignore
 set -- $(ver)
 [ "$2" = 10000000 ] && [ "${3%-dirty}" != "$3" ] || bad "a dirty tree: $*"
 git checkout --quiet .gitignore
+last=10000000
+
+# A maintenance release merged later is nearer than v1.0.0 but lower.
+git checkout --quiet -b maint v0.2.10
+commit m
+git tag -a v0.2.11 -m v0.2.11
+git checkout --quiet main
+commit e1
+commit e2
+git merge --quiet --no-ff -m "merge maint" maint
+set -- $(ver)
+[ "$1 $2" = "1.0.0 10000004" ] && [ "$2" -gt "$last" ] || bad "after merging v0.2.11 into v1.0.0: $* after $last"
+
+# A shallow clone can reach v1.0.0 and still miss commits after it.
+git clone --quiet --depth 4 "file://$tmp/repo" "$tmp/shallow"
+if out=$(cd "$tmp/shallow" && sh scripts/apk.sh --version 2>&1); then
+    bad "a shallow clone: printed $out, want a refusal"
+fi
+case $out in *--unshallow*) ;; *) bad "a shallow clone's refusal does not say to fetch the history: $out" ;; esac
 
 commit e
-git tag -a v0.100.0 -m v0.100.0
+git tag -a v1.100.0 -m v1.100.0
 if out=$(ver 2>&1); then
     bad "minor 100 fits no code: printed $out, want a refusal"
 fi

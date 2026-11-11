@@ -128,3 +128,73 @@ func TestNearRows(t *testing.T) {
 		t.Fatalf("scrolled to the end, near rows %v lack w59", near)
 	}
 }
+
+// TestNearRowsSliding takes a tap on a row mid-slide where it is drawn:
+// the first row, moved to the end, still sits at the top while it slides
+// down, though its destination is far below the view.
+func TestNearRowsSliding(t *testing.T) {
+	st := manyTabs(60)
+	s := Sidebar{TreeOnly: true, Touch: true, Rev: 1}
+	var r input.Router
+	var ops op.Ops
+	var evs []Event
+	now := time.Now()
+	frame := func() {
+		ops.Reset()
+		now = now.Add(16 * time.Millisecond)
+		gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(288, 300)), Now: now}
+		_, e := s.Layout(gtx, theme.Dark(), &st, "s", "")
+		evs = append(evs, e...)
+		r.Frame(&ops)
+	}
+	frame()
+	st.Workspaces = append(st.Workspaces[1:], st.Workspaces[0])
+	s.Rev++
+	frame()
+	at := f32.Pt(100, 20)
+	r.Queue(
+		pointer.Event{Kind: pointer.Press, Position: at, Buttons: pointer.ButtonPrimary, Source: pointer.Touch},
+		pointer.Event{Kind: pointer.Release, Position: at, Source: pointer.Touch},
+	)
+	frame()
+	frame()
+	if !slices.ContainsFunc(evs, func(e Event) bool { sw, ok := e.(SelectWorkspace); return ok && sw.WorkspaceID == "w0" }) {
+		t.Fatalf("a tap on the sliding first row gave %v", evs)
+	}
+}
+
+// TestNearRowsDetached keeps the Detached tabs menu's Attach and Kill
+// working: its tabs have no rows in the tree for nearRows to find.
+func TestNearRowsDetached(t *testing.T) {
+	st := manyTabs(2)
+	st.Workspaces = append(st.Workspaces, model.Workspace{ID: "d", SessionID: "s", Name: "d", Detached: true})
+	s := Sidebar{Rev: 1}
+	var r input.Router
+	var ops op.Ops
+	var evs []Event
+	now := time.Now()
+	frame := func() {
+		ops.Reset()
+		now = now.Add(16 * time.Millisecond)
+		gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(288, 600)), Now: now}
+		_, e := s.Layout(gtx, theme.Dark(), &st, "s", "")
+		evs = append(evs, e...)
+		r.Frame(&ops)
+	}
+	frame()
+	s.detachedOpen = true
+	frame()
+	if s.attachBtn["d"] == nil || s.killBtn["d"] == nil {
+		t.Fatal("the Detached tabs menu drew no buttons for d")
+	}
+	s.killBtn["d"].Click()
+	frame()
+	if s.killArmed != "d" {
+		t.Fatalf("Kill's first click armed %q, want d", s.killArmed)
+	}
+	s.attachBtn["d"].Click()
+	frame()
+	if !slices.ContainsFunc(evs, func(e Event) bool { a, ok := e.(AttachSession); return ok && a.WorkspaceID == "d" }) {
+		t.Fatalf("Attach gave %v", evs)
+	}
+}

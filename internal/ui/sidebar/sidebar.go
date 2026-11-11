@@ -232,6 +232,7 @@ type Sidebar struct {
 	elems   []elem
 	scroll  int
 	slides  map[string]*slide
+	sliding bool // some row still slid in the last frame
 	prevTop map[string]int
 	landing map[string]float32
 	now     time.Time
