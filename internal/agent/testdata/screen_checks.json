@@ -47,5 +47,14 @@
   {"file": "aider-idle.txt", "provider": "aider", "state": ""},
   {"file": "claude-spinner.txt", "provider": "codex", "state": "working"},
   {"file": "claude-spinner.txt", "provider": "pi", "state": "working"},
-  {"file": "claude-spinner.txt", "provider": "amp", "state": ""}
+  {"file": "claude-spinner.txt", "provider": "amp", "state": ""},
+  {"file": "claude-ask-multi.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-other.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-review.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-second.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-several.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-single.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "codex-ask-single.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
+  {"file": "codex-ask-notes.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
+  {"file": "codex-ask-several.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"}
 ]

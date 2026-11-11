@@ -1,0 +1,17 @@
+────────────────────────────────────────────────────────────────────────────────
+←  ☐ Toppings  ✔ Submit  →
+
+Which toppings?
+
+❯ 1. [ ] Cheese (dairy)
+         A dairy topping
+  2. [ ] Olives (fruit)
+         A fruit topping
+  3. [ ] Onion (vegetable)
+         A vegetable topping
+  4. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

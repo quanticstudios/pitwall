@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────────────────────────
+←  ☐ Drink  ☐ Size  ✔ Submit  →
+
+Which drink?
+
+❯ 1. Tea
+     Tea
+  2. Coffee
+     Coffee
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
