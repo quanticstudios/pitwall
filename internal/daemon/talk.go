@@ -438,11 +438,10 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	}
 }
 
-// notePrompt ends the user's typing in pane when a prompt goes in right after
-// they pressed Return with no key since: what they typed went with it. Any
-// other turn leaves their draft in place. Callers hold d.mu.
-func (d *Daemon) notePrompt(pane string, now time.Time) {
-	if t, ok := d.mail.returnAt[pane]; ok && now.Sub(t) < sendQuiet.get() {
+// notePrompt ends typing after Return with no later key, even when a hook
+// takes longer than sendQuiet. Any later key keeps the draft. Callers hold d.mu.
+func (d *Daemon) notePrompt(pane string, _ time.Time) {
+	if _, ok := d.mail.returnAt[pane]; ok {
 		delete(d.mail.returnAt, pane)
 		delete(d.mail.drafting, pane)
 		d.changed()

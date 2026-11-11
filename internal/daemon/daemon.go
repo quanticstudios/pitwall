@@ -259,16 +259,17 @@ type Daemon struct {
 	clipAt      time.Time             // when it came
 	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
-	olderNoticed bool
-	pushWake     chan struct{}          // wakes pushLoop, nil when it is not running
-	phoneTick    chan struct{}          // closed at the next change, nil while no phone stream waits
-	phoneSeq     uint64                 // the last phone message's id
-	phoneDropped map[string][]uint64    // pane: phone messages its agent left before they went in
-	paneCmd      map[string]*sync.Mutex // pane: held while a phone slash command goes in
-	awakeWake    chan struct{}          // wakes keepAwakeLoop on activity changes
-	prs          prPoll                 // see pr.go
-	radar        radar                  // see radar.go
-	queue        taskQueue              // see task.go
+	olderNoticed  bool
+	pushWake      chan struct{} // wakes pushLoop, nil when it is not running
+	phoneTick     chan struct{} // closed at the next change, nil while no phone stream waits
+	phoneSettings map[string]phoneSettings
+	phoneSeq      uint64                 // the last phone message's id
+	phoneDropped  map[string][]uint64    // pane: phone messages its agent left before they went in
+	paneCmd       map[string]*sync.Mutex // pane: held while a phone slash command goes in
+	awakeWake     chan struct{}          // wakes keepAwakeLoop on activity changes
+	prs           prPoll                 // see pr.go
+	radar         radar                  // see radar.go
+	queue         taskQueue              // see task.go
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
@@ -1609,6 +1610,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.attn, id)
 	delete(d.prog, id)
 	delete(d.replies, id)
+	delete(d.phoneSettings, id)
 	delete(d.reviews, id)
 	if t := d.mail.wake[id]; t != nil {
 		t.Stop()
@@ -1839,6 +1841,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if p.Provider != "" {
 			p.AgentMode = "" // a permission mode belongs to the agent that reported it
 		}
+		delete(d.phoneSettings, p.ID)
 		p.Provider, changed = m.Provider, true
 	}
 	prevMode := p.AgentMode
@@ -1849,6 +1852,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	sid := d.o.SessionID(m.Provider, m.Payload)
 	forkSource := sid != "" && sid == store.ForkSource(*p)
 	if sid != "" && sid != p.SessionID && !forkSource {
+		delete(d.phoneSettings, p.ID)
 		p.SessionID, p.Prompt, p.Transcript, changed = sid, "", "", true // a new session reports its own file
 		if !keepMode {
 			p.AgentMode = "" // and its own mode
@@ -2170,7 +2174,9 @@ func (d *Daemon) watch(id string, p Pane) {
 			}
 		case <-titleDue:
 			titleDue = nil
-			d.setTitle(id, p, p.Snapshot().Title)
+			g := p.Snapshot()
+			d.setTitle(id, p, g.Title)
+			d.rememberClaudeSettings(id, p, g)
 		case <-p.Done():
 			d.pushFrame(id, p)
 			d.exited(id, p)
@@ -2208,6 +2214,16 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	}
 	if f == nil {
 		return "", false
+	}
+	if d.paneProvider(id) == model.ProviderClaude {
+		g := f.Grid
+		if lf != nil {
+			g = lf.Grid
+		} else if f.ScrollOffset > 0 {
+			g = p.Snapshot()
+		}
+		m, e := agent.ClaudeSettings(g)
+		d.keepClaudeSettings(id, p, m, e)
 	}
 	return f.Grid.Title, true
 }
@@ -2311,6 +2327,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		}
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
 		sp.ResumeCmd = nil
+		delete(d.phoneSettings, id)
 		err := d.startVT(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID), sp.Env, newVT)
 		if err == nil {
 			if history.history != nil {

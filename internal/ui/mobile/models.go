@@ -3,6 +3,8 @@ package mobile
 import (
 	"slices"
 	"strings"
+
+	"github.com/quanticstudios/pitwall/internal/remote"
 )
 
 // modelNames names the models a turn reports and the picks the model menu
@@ -52,3 +54,20 @@ var efforts = []string{"low", "medium", "high", "xhigh", "max"}
 // effortLevel is how many of the glyph's five bars e lights: 0 for none
 // known.
 func effortLevel(e string) int { return slices.Index(efforts, e) + 1 }
+
+func (c *chatView) currentModel(t remote.Tab) string {
+	if t.Model != "" {
+		return t.Model
+	}
+	return c.data.Model
+}
+
+func (k *composer) effortShown(current string) string {
+	if k.effort != "" && current == k.effortAt {
+		return k.effort
+	}
+	if current != "" {
+		return current
+	}
+	return k.effort
+}

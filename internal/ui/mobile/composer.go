@@ -39,7 +39,7 @@ type composer struct {
 	picks              []*pick // picks waiting for the agent to sit idle, one per setting, oldest first
 	picking            bool    // the first pick is on its way
 	model, modelAt     string  // the last model picked, and the turn's model then
-	effort             string  // the last effort picked
+	effort, effortAt   string  // the last effort picked, and the server's effort then
 	note               string  // a pick that failed
 	chipX              [2]int  // the chips' left edges, which the menus open above
 	chipW              [2]int
@@ -247,9 +247,9 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 							return layout.Inset{Left: 6, Right: 4, Bottom: 2}.Layout(gtx, func(gtx C) D {
 								gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(50))
 								return midFlex(gtx,
-									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 0) }),
+									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 0, t) }),
 									layout.Rigid(layout.Spacer{Width: 8}.Layout),
-									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 1) }),
+									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 1, t) }),
 									layout.Flexed(1, func(gtx C) D { return D{Size: image.Pt(gtx.Constraints.Min.X, 0)} }),
 									layout.Rigid(sendW),
 								)
@@ -447,7 +447,7 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 
 // chip is the model chip (0) or the effort chip (1): 36dp in a 48dp hit
 // area, its name capped at 132dp so the send button never moves.
-func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
+func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 	k := &c.cmp
 	btn, what := &k.modelChip, "model"
 	if which == 1 {
@@ -458,7 +458,7 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 	open := k.menu == what
 	name := ""
 	if which == 0 {
-		name = k.modelShown(c.data.Model)
+		name = k.modelShown(c.currentModel(t))
 		if name == "" {
 			name = "Model"
 		}
@@ -466,7 +466,7 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 			name = modelName(pk.value)
 		}
 	} else {
-		name = k.effort
+		name = k.effortShown(t.Effort)
 		if pend {
 			name = pk.value
 		}
@@ -604,9 +604,6 @@ func (c *chatView) firePick(env chatEnv) {
 			return
 		}
 		k.picking = false
-		if phone.IsBusy(err) {
-			return // a turn began first: the pick waits for the next idle
-		}
 		k.picks = slices.DeleteFunc(k.picks, func(q *pick) bool { return q == p })
 		if err != nil {
 			k.note = sentence(err.Error())
@@ -614,9 +611,9 @@ func (c *chatView) firePick(env chatEnv) {
 		}
 		k.note = ""
 		if p.what == "model" {
-			k.model, k.modelAt = p.value, c.data.Model
+			k.model, k.modelAt = p.value, c.currentModel(env.Tab)
 		} else {
-			k.effort = p.value
+			k.effort, k.effortAt = p.value, env.Tab.Effort
 		}
 	})
 }
@@ -637,12 +634,12 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	which := 0
 	current := ""
 	if k.menu == "model" {
-		values, width, current = env.Models, 268, k.modelShown(c.data.Model)
+		values, width, current = env.Models, 268, k.modelShown(c.currentModel(env.Tab))
 		if p := k.pending("model"); p != nil {
 			current = modelName(p.value)
 		}
 	} else {
-		values, width, which, current = env.Efforts, 236, 1, k.effort
+		values, width, which, current = env.Efforts, 236, 1, k.effortShown(env.Tab.Effort)
 		if p := k.pending("effort"); p != nil {
 			current = p.value
 		}
@@ -658,6 +655,7 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 				k.note = ""
 			}
 			k.menu = ""
+			gtx.Execute(op.InvalidateCmd{})
 			return
 		}
 	}
@@ -685,7 +683,7 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 			on := false
 			name, note := v, ""
 			if which == 0 {
-				name, note = modelName(v), modelNote(v, c.data.Model)
+				name, note = modelName(v), modelNote(v, c.currentModel(env.Tab))
 				on = v != "default" && name == current
 			} else {
 				on = v == current

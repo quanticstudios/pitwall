@@ -91,6 +91,53 @@ func TestPhoneTabs(t *testing.T) {
 	}
 }
 
+func TestPhoneCurrentSettings(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────", "Opus 5.5 · high · project · 8% 83k/1.0M"})
+	tab := d.phoneTabs()[0]
+	if tab.Model != "Opus 5.5 1M" || tab.Effort != "high" {
+		t.Fatalf("current terminal settings: %+v", tab)
+	}
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────", "Sonnet 5.5 · low · project"})
+	tab = d.phoneTabs()[0]
+	if tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+		t.Fatalf("external change: %+v", tab)
+	}
+	d.rememberClaudeSettings("a", f.pane(0), f.pane(0).Snapshot())
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────"})
+	tab = d.phoneTabs()[0]
+	if tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+		t.Fatalf("settings lost off screen: %+v", tab)
+	}
+}
+
+func TestPhoneDelayedSubmissionReleasesDraft(t *testing.T) {
+	d, f, do := phoneDaemon(t)
+	d.o.Derive = agent.Derive
+	p := f.pane(0)
+	setScreen(p, []string{"────────", "❯ Try a test", "────────"})
+	d.noteUserKey("a", []byte("\r"))
+	d.mu.Lock()
+	d.mail.returnAt["a"] = time.Now().Add(-5 * time.Second)
+	d.mu.Unlock()
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"write a function"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"done"}`)
+	if st, body := do("POST", "/api/command", `{"pane":"a","what":"effort","value":"high"}`); st != 200 {
+		t.Fatalf("empty box refused: %d %s", st, body)
+	}
+	gotAfter(t, p, 0, len("/effort high\r"))
+	d.mu.Lock()
+	d.mail.keyAt["a"] = time.Now().Add(-5 * time.Second)
+	d.mu.Unlock()
+	n := len(p.got())
+	if st, body := do("POST", "/api/send", `{"pane":"a","text":"next"}`); st != 200 {
+		t.Fatalf("send: %d %s", st, body)
+	}
+	if got := gotAfter(t, p, n, len("next\r")); got != "next\r" {
+		t.Fatalf("queue did not drain: %q", got)
+	}
+}
+
 func TestPhoneSend(t *testing.T) {
 	d, f, do := phoneDaemon(t)
 	send := func(pane, text string) int {

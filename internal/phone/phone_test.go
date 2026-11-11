@@ -389,6 +389,27 @@ func TestState(t *testing.T) {
 	}
 }
 
+func TestWorkerParents(t *testing.T) {
+	for _, machine := range []string{"", "box", "laptop"} {
+		tabs := []remote.Tab{
+			{ID: "parent", Item: remote.Item{Pane: "p", Session: "main"}},
+			{ID: "child", Parent: "parent", Item: remote.Item{Pane: "c", Session: "main", State: "working"}},
+			{ID: "grandchild", Parent: "child", Item: remote.Item{Pane: "g", Session: "main"}},
+			{ID: "orphan", Parent: "missing", Item: remote.Item{Pane: "o", Session: "main"}},
+		}
+		st := stateOf(machine, tabs)
+		for _, id := range []string{"child", "grandchild"} {
+			w := st.Workspace(NS(machine, id))
+			if root := st.Root(*w); root != NS(machine, "parent") {
+				t.Fatalf("%s: %s root %q", machine, id, root)
+			}
+		}
+		if st.Workspaces[0].Parent != "" || st.Root(st.Workspaces[3]) != "" {
+			t.Fatal("old daemon or missing parent no longer gets a top-level row")
+		}
+	}
+}
+
 func configFor(url string) config.RemoteSettings { return config.RemoteSettings{URL: url} }
 
 // TestFleet merges two machines' lists, each with a session named main and

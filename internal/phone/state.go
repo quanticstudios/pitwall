@@ -54,6 +54,9 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 			ID: t.ID, SessionID: sid, ProjectID: gid, Name: t.Tab, Label: t.Tab, Branch: t.Branch, UpdatedAt: at,
 			Tabs: []model.Tab{{Layout: &pwlayout.Node{Pane: t.Pane}}},
 		}
+		if t.Parent != "" {
+			w.Parent = NS(machine, t.Parent)
+		}
 		if t.Chat {
 			// why: the sidebar then offers no Allow or Deny, which answer a terminal's
 			// prompt; a chat's approvals carry a request id, which its chat answers.

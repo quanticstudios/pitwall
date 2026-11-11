@@ -265,7 +265,7 @@ func (c *chatView) agentLine(t remote.Tab) string {
 	if n := agentName(t.Agent); n != "" {
 		parts = append(parts, n)
 	}
-	if m := c.cmp.modelShown(c.data.Model); m != "" {
+	if m := c.cmp.modelShown(c.currentModel(t)); m != "" {
 		parts = append(parts, m)
 	}
 	return strings.Join(parts, " · ")

@@ -165,6 +165,49 @@ func (f *fakeAPI) Command(ctx context.Context, pane, what, value string) error {
 	return f.err
 }
 
+func TestCurrentSettings(t *testing.T) {
+	c := newChat("p1")
+	c.data.Model = "claude-haiku-5-5"
+	tab := remote.Tab{Model: "opus[1m]", Effort: "high"}
+	if c.cmp.modelShown(c.currentModel(tab)) != "Opus 5.5 1M" || c.cmp.effortShown(tab.Effort) != "high" {
+		t.Fatal("fresh app did not load settings")
+	}
+	c.cmp.model, c.cmp.modelAt = "sonnet", tab.Model
+	c.cmp.effort, c.cmp.effortAt = "max", tab.Effort
+	if c.cmp.modelShown(c.currentModel(tab)) != "Sonnet 5.5" || c.cmp.effortShown(tab.Effort) != "max" {
+		t.Fatal("pick did not update while the server redraws")
+	}
+	tab.Model, tab.Effort = "haiku", "low"
+	if c.cmp.modelShown(c.currentModel(tab)) != "Haiku 5.5" || c.cmp.effortShown(tab.Effort) != "low" {
+		t.Fatal("external settings did not update")
+	}
+	if c.currentModel(remote.Tab{}) != c.data.Model || c.cmp.effortShown("") != "max" {
+		t.Fatal("old daemon fallback failed")
+	}
+}
+
+func TestRefusedPickStops(t *testing.T) {
+	api := &fakeAPI{err: errors.New("the user has a draft in the agent's input box; try again when it waits at its input box")}
+	c := newChat("p1")
+	env := chatEnv{Online: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1", State: "completed"}},
+		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			done(call(context.Background(), api))
+		}}
+	c.cmp.choose(&pick{"effort", "max"})
+	for range 100 {
+		c.firePick(env)
+	}
+	if len(api.commands) != 1 || len(c.cmp.picks) != 0 || c.cmp.picking || c.cmp.note == "" {
+		t.Fatalf("commands %d, pending %d, picking %v, note %q", len(api.commands), len(c.cmp.picks), c.cmp.picking, c.cmp.note)
+	}
+	api.err = nil
+	c.cmp.choose(&pick{"effort", "max"})
+	c.firePick(env)
+	if len(api.commands) != 2 || c.cmp.effort != "max" || c.cmp.note != "" {
+		t.Fatal("manual retry failed")
+	}
+}
+
 func TestPickWaitsForIdle(t *testing.T) {
 	api := &fakeAPI{}
 	c := newChat("p1")
@@ -198,12 +241,12 @@ func TestPickWaitsForIdle(t *testing.T) {
 		t.Errorf("after a turn, the chip says %q", got)
 	}
 
-	// A turn that began before the pick went in leaves it waiting.
+	// A refused pick stops until the user picks it again.
 	api.err = errors.New("Claude Code is working; try again when it waits at its input box")
 	c.cmp.choose(&pick{"model", "haiku"})
 	c.firePick(env)
 	later[len(later)-1]()
-	if c.cmp.pending("model") == nil || c.cmp.picking || c.cmp.note != "" {
+	if c.cmp.pending("model") != nil || c.cmp.picking || c.cmp.note == "" {
 		t.Errorf("busy refusal: picks %v, picking %v, note %q", c.cmp.picks, c.cmp.picking, c.cmp.note)
 	}
 	c.cmp.picks = nil

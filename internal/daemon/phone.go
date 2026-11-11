@@ -18,6 +18,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // The phone page's chat: every tab in the sidebar's order, each agent's
@@ -33,13 +34,30 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	}
 	tabs := remote.Tabs(d.st, queued)
 	chats := make([]*chat, len(tabs))
+	panes := make([]Pane, len(tabs))
 	for i, t := range tabs {
 		if t.Chat {
 			chats[i] = d.chats[t.Pane]
+		} else if t.Provider == model.ProviderClaude {
+			panes[i] = d.panes[t.Pane]
+		}
+		if settings, ok := d.phoneSettings[t.Pane]; ok && !t.Chat {
+			tabs[i].Model, tabs[i].Effort = settings.model, settings.effort
 		}
 		tabs[i].Dropped = slices.Clone(d.phoneDropped[t.Pane])
 	}
 	d.mu.Unlock()
+	for i, p := range panes {
+		if p != nil {
+			m, e := agent.ClaudeSettings(p.Snapshot())
+			if m != "" {
+				tabs[i].Model = m
+			}
+			if e != "" {
+				tabs[i].Effort = e
+			}
+		}
+	}
 	for i, c := range chats {
 		if c != nil {
 			c.run(func() { tabs[i].Requests = remote.Requests(c.snap, logs.Redact) })
@@ -281,3 +299,39 @@ func (d *Daemon) paneCommandLock(pane string) func() {
 
 // switchWait is how long after /model the confirm dialog may take to show.
 var switchWait = newTiming(1500 * time.Millisecond)
+
+type phoneSettings struct{ model, effort string }
+
+// rememberClaudeSettings keeps settings that a later redraw can hide.
+func (d *Daemon) rememberClaudeSettings(id string, p Pane, g vt.Grid) {
+	m, e := agent.ClaudeSettings(g)
+	if m == "" && e == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.keepClaudeSettings(id, p, m, e)
+}
+
+// keepClaudeSettings updates the phone's settings cache. Callers hold d.mu.
+func (d *Daemon) keepClaudeSettings(id string, p Pane, m, e string) {
+	if d.panes[id] != p || d.paneProvider(id) != model.ProviderClaude {
+		return
+	}
+	settings := d.phoneSettings[id]
+	before := settings
+	if m != "" {
+		settings.model = m
+	}
+	if e != "" {
+		settings.effort = e
+	}
+	if settings == before {
+		return
+	}
+	if d.phoneSettings == nil {
+		d.phoneSettings = map[string]phoneSettings{}
+	}
+	d.phoneSettings[id] = settings
+	d.changed()
+}
