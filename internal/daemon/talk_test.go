@@ -529,6 +529,150 @@ func TestDraftSurvivesOtherTurn(t *testing.T) {
 	otherTurn()
 }
 
+func TestCSIKeyRejectsNegativeCode(t *testing.T) {
+	if key, edit, enter := csiKey("\x1b[-4294967199u"); key || edit || enter {
+		t.Fatalf("negative key code: pressed=%v edited=%v enter=%v", key, edit, enter)
+	}
+}
+
+func TestDraftInputReports(t *testing.T) {
+	for _, tt := range []struct {
+		name, data string
+		key        bool
+	}{
+		{"focus in", "\x1b[I", false},
+		{"focus out", "\x1b[O", false},
+		{"focus batch", "\x1b[I\x1b[O", false},
+		{"SGR wheel", "\x1b[<64;2;3M", false},
+		{"classic wheel", "\x1b[M`#%", false},
+		{"focus and wheel", "\x1b[O\x1b[<65;2;3M", false},
+		{"empty paste", "\x1b[200~\x1b[201~", false},
+		{"key release", "\x1b[97;1:3u", false},
+		{"arrow release", "\x1b[1;1:3A", false},
+		{"OSC response", "\x1b]11;rgb:0000/0000/0000\x1b\\", false},
+		{"resize report", "\x1b[8;36;120t", false},
+		{"device attributes", "\x1b[?1;2c", false},
+		{"cursor position", "\x1b[33;2R", false},
+		{"Kitty above Unicode", "\x1b[1114112u", false},
+		{"Kitty overflowing text", "\x1b[4294967393u", false},
+		{"Kitty overflowing Ctrl U", "\x1b[4294967413;5u", false},
+		{"Kitty overflowing Alt B", "\x1b[4294967394;3u", false},
+		{"Kitty Unicode limit", "\x1b[1114111u", true},
+		{"home", "\x1b[H", true},
+		{"end", "\x1bOF", true},
+		{"left", "\x1b[D", true},
+		{"function key", "\x1bOP", true},
+		{"Ctrl A", "\x01", true},
+		{"Kitty Ctrl A", "\x1b[97;5u", true},
+		{"Ctrl E", "\x05", true},
+		{"Alt B", "\x1bb", true},
+		{"Alt F", "\x1bF", true},
+		{"Kitty Alt B", "\x1b[98;3u", true},
+		{"Kitty Alt F", "\x1b[102;3u", true},
+		{"Ctrl function key", "\x1b[1;5P", true},
+		{"Kitty private control key", "\x1b[57358;5u", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d, _ := talkDaemon(t)
+			claudeHook(t, d, "a", `{"hook_event_name":"Stop"}`)
+			d.noteUserKey("a", []byte(tt.data))
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			if d.mail.drafting["a"] || !d.mail.returnAt["a"].IsZero() {
+				t.Fatal("non-editing input starts a draft")
+			}
+			if got := !d.mail.keyAt["a"].IsZero(); got != tt.key {
+				t.Fatalf("counts as a key = %v, want %v", got, tt.key)
+			}
+		})
+	}
+}
+
+func TestDraftInputEdits(t *testing.T) {
+	for _, tt := range []struct {
+		name, data string
+		enter      bool
+	}{
+		{"text after focus", "\x1b[Ix", false},
+		{"text after SGR wheel", "\x1b[<64;2;3Mx", false},
+		{"text after classic wheel", "\x1b[M`#%x", false},
+		{"unicode", "\u4e16\u754c", false},
+		{"combining mark", "\u0301", false},
+		{"paste", "\x1b[200~some text\x1b[201~", false},
+		{"paste newline", "\x1b[200~\r\n\x1b[201~", false},
+		{"backspace", "\x7f", false},
+		{"escape", "\x1b", false},
+		{"Kitty escape", "\x1b[27u", false},
+		{"double escape", "\x1b\x1b", false},
+		{"Kitty double escape", "\x1b[27u\x1b[27u", false},
+		{"delete", "\x1b[3~", false},
+		{"completion", "\t", false},
+		{"history", "\x1bOA", false},
+		{"accept suggestion", "\x1b[C", false},
+		{"delete line", "\x15", false},
+		{"Kitty text", "\x1b[97u", false},
+		{"Kitty emoji", "\x1b[128512u", false},
+		{"Kitty delete line", "\x1b[117;5u", false},
+		{"shift enter", "\x1b[13;2u", false},
+		{"enter", "\r", true},
+		{"Kitty enter", "\x1b[13u", true},
+		{"keypad enter", "\x1b[57414u", true},
+		{"enter and focus", "x\r\x1b[O", true},
+		{"enter and release", "\x1b[13u\x1b[13;1:3u", true},
+		{"edit after enter", "\r\x1b[Oy", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d, _ := talkDaemon(t)
+			d.noteUserKey("a", []byte(tt.data))
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			if !d.mail.drafting["a"] {
+				t.Fatal("editing input leaves the draft unprotected")
+			}
+			if got := !d.mail.returnAt["a"].IsZero(); got != tt.enter {
+				t.Fatalf("pending Return = %v, want %v", got, tt.enter)
+			}
+		})
+	}
+}
+
+func TestDraftReturnSurvivesReports(t *testing.T) {
+	d, _ := talkDaemon(t)
+	d.noteUserKey("a", []byte("\r"))
+	d.noteUserKey("a", []byte("\x1b[I\x1b[O\x1b[200~\x1b[201~\x1b[97;1:3u"))
+	d.noteUserKey("a", []byte("\x1b[H"))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.notePrompt("a", time.Now())
+	if d.mail.drafting["a"] {
+		t.Fatal("reports or cursor movement stop the prompt hook clearing a submitted draft")
+	}
+}
+
+func TestDraftIgnoresWindowMetadata(t *testing.T) {
+	_, f := talkDaemon(t)
+	d, sock, stop := runDaemon(t, f, func(*Options) {})
+	defer stop()
+	for range 2 {
+		c := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Session: "work"})
+		c.send(proto.Resize{Pane: "a", Cols: 120, Rows: 36})
+		c.send(proto.View{Panes: []string{"a"}})
+		c.send(proto.SeePane{Pane: "a"})
+		c.send(proto.Sync{})
+		c.waitState("window metadata handled", func(model.State) bool { return true })
+		// A second Sync puts the barrier after any initial state from Hello.
+		c.send(proto.Sync{})
+		c.waitState("window metadata barrier", func(model.State) bool { return true })
+		d.mu.Lock()
+		draft, key, enter := d.mail.drafting["a"], d.mail.keyAt["a"], d.mail.returnAt["a"]
+		d.mu.Unlock()
+		if draft || !key.IsZero() || !enter.IsZero() {
+			t.Fatalf("attach, resize or focus metadata counts as typing: draft=%v, key=%v, enter=%v", draft, key, enter)
+		}
+		c.conn.Close()
+	}
+}
+
 // The window's deliveries pass the same check at typing time, from the live
 // screen, and show on the row.
 func TestWindowDeliverWaitsForDraft(t *testing.T) {

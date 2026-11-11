@@ -33,13 +33,33 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	}
 	tabs := remote.Tabs(d.st, queued)
 	chats := make([]*chat, len(tabs))
+	panes := make([]Pane, len(tabs))
 	for i, t := range tabs {
 		if t.Chat {
 			chats[i] = d.chats[t.Pane]
+		} else if t.Provider == model.ProviderClaude {
+			panes[i] = d.panes[t.Pane]
+		}
+		if settings, ok := d.phoneSettings[t.Pane]; ok && !t.Chat {
+			tabs[i].Model, tabs[i].Effort = settings.model, settings.effort
 		}
 		tabs[i].Dropped = slices.Clone(d.phoneDropped[t.Pane])
 	}
 	d.mu.Unlock()
+	for i, p := range panes {
+		if p != nil {
+			m, e := agent.ClaudeSettings(p.Snapshot())
+			d.mu.Lock()
+			d.keepClaudeSettings(tabs[i].Pane, p, m, e)
+			d.mu.Unlock()
+			if m != "" {
+				tabs[i].Model = m
+			}
+			if e != "" {
+				tabs[i].Effort = e
+			}
+		}
+	}
 	for i, c := range chats {
 		if c != nil {
 			c.run(func() { tabs[i].Requests = remote.Requests(c.snap, logs.Redact) })
@@ -104,9 +124,9 @@ func cutOut(s string) string {
 	return s
 }
 
-// phoneSend queues text for pane's agent as the window's send does: typed
-// once the agent sits at its input box with no form on screen and no draft
-// of the user's in it. It returns the message's id, which a tab lists in
+// phoneSend types text into Claude Code or Codex even during a turn, holding
+// for the user's draft, forms and approvals. Other agents wait for idle.
+// It returns the message's id, which a tab lists in
 // Dropped if the agent leaves the pane before the message goes in. A chat
 // tab gets it as a turn, or queued behind one, with id 0. A shell never
 // gets it.
@@ -281,3 +301,28 @@ func (d *Daemon) paneCommandLock(pane string) func() {
 
 // switchWait is how long after /model the confirm dialog may take to show.
 var switchWait = newTiming(1500 * time.Millisecond)
+
+type phoneSettings struct{ model, effort string }
+
+// keepClaudeSettings updates the phone's settings cache. Callers hold d.mu.
+func (d *Daemon) keepClaudeSettings(id string, p Pane, m, e string) {
+	if d.panes[id] != p || d.paneProvider(id) != model.ProviderClaude {
+		return
+	}
+	settings := d.phoneSettings[id]
+	before := settings
+	if m != "" {
+		settings.model = m
+	}
+	if e != "" {
+		settings.effort = e
+	}
+	if settings == before {
+		return
+	}
+	if d.phoneSettings == nil {
+		d.phoneSettings = map[string]phoneSettings{}
+	}
+	d.phoneSettings[id] = settings
+	d.changed()
+}
