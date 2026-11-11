@@ -220,15 +220,19 @@ the phone; `pitwall remote revoke` stops the token on the computer.
 The sidebar is the home screen: Waiting on you lists the errors, approvals
 and questions of every session. Two or more fold into one row, the most
 pressing tab and how many more; a tap on it opens the list. The tree below
-is the session's tabs as the window's sidebar draws them. Allow and Deny
-answer a permission prompt from its row; a tap on a row, or on Reply, opens
-the tab's chat. Tabs an agent opened with `pitwall new` or `pitwall
-worktree new` hang under that agent's tab, as with `[sidebar] workers =
-"separate"`: the tab's row has a bar with a segment per worker in its
-state's color, and a tap on the bar shows their rows. A daemon of v0.2.6 or
-older sends no parents, and its tabs show as flat rows. The session's name
-opens the other sessions, by machine, with a red count of what waits there;
-a session on several machines is under each.
+is the session's tabs as the window's sidebar draws them. A row leads with
+its repo's own icon, its favicon or logo, as in the window, or a tile with
+the repo's first letter when it has none; the computer sends the icon's
+bytes, never its path. A daemon of v0.2.6 or older sends no icons, and its
+rows show the agent's mark alone. Allow and Deny answer a permission prompt
+from its row; a tap on a row, or on Reply, opens the tab's chat. Tabs an
+agent opened with `pitwall new` or `pitwall worktree new` hang under that
+agent's tab, as with `[sidebar] workers = "separate"`: the tab's row has a
+bar with a segment per worker in its state's color, and a tap on the bar
+shows their rows. A daemon of v0.2.6 or older sends no parents, and its
+tabs show as flat rows. The session's name opens the other sessions, by
+machine, with a red count of what waits there; a session on several
+machines is under each.
 
 | Where you are                | Back                      |
 | ---------------------------- | ------------------------- |

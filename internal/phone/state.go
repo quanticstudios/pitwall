@@ -1,7 +1,9 @@
 package phone
 
 import (
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	pwlayout "github.com/quanticstudios/pitwall/internal/layout"
@@ -63,14 +65,39 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 			// prompt; a chat's approvals carry a request id, which its chat answers.
 			w.Chat = t.Pane
 		}
+		pane := model.Pane{ID: t.Pane, WorkspaceID: t.ID, Provider: prov}
+		if t.Icon != "" {
+			// why: the sidebar finds a row's repo by its folder, which the list never sends.
+			pane.Cwd = IconDir(machine, t.Icon, t.Repo)
+			w.RepoRoot = pane.Cwd
+		}
 		st.Workspaces = append(st.Workspaces, w)
-		st.Panes = append(st.Panes, model.Pane{ID: t.Pane, WorkspaceID: t.ID, Provider: prov})
+		st.Panes = append(st.Panes, pane)
 		if t.State != "" {
 			st.Activities = append(st.Activities, model.Activity{PaneID: t.Pane, WorkspaceID: t.ID, Provider: prov,
 				State: model.AgentState(t.State), Detail: t.Detail, UpdatedAt: at})
 		}
 	}
 	return st
+}
+
+// IconDir is the folder State gives a tab in a repo, in place of its real
+// one: machine, the icon's hash (remote.NoIcon for none) and the repo's
+// name, which the sidebar's letter tile takes as the folder's base name.
+// No real folder starts "icon:/".
+func IconDir(machine, hash, repo string) string {
+	return "icon:/" + url.PathEscape(machine) + "/" + hash + "/" + url.PathEscape(repo)
+}
+
+// ParseIconDir is IconDir's machine and hash; ok is false for another folder.
+func ParseIconDir(dir string) (machine, hash string, ok bool) {
+	rest, ok := strings.CutPrefix(dir, "icon:/")
+	parts := strings.Split(rest, "/")
+	if !ok || len(parts) != 3 || parts[1] == "" {
+		return "", "", false
+	}
+	machine, err := url.PathUnescape(parts[0])
+	return machine, parts[1], err == nil
 }
 
 // NS is id as the fleet's State names it: with machine's id in front, or

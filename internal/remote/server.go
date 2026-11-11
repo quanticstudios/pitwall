@@ -162,6 +162,8 @@ type Server struct {
 	// keys, refused unless the agent waits at its input box.
 	Send    func(pane, text string) (id uint64, err error)
 	Command func(pane, command string) error
+	// Icons, when set, serves the repo icons Tab.Icon names.
+	Icons *Icons
 
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
@@ -209,6 +211,9 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
 		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
 		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+	}
+	if s.Icons != nil {
+		mux.Handle("GET /api/icon/{hash}", sameOrigin(s.authed(s.Icons.serve)))
 	}
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})

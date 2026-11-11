@@ -264,6 +264,7 @@ type Daemon struct {
 	phoneTick    chan struct{}          // closed at the next change, nil while no phone stream waits
 	phoneSeq     uint64                 // the last phone message's id
 	phoneDropped map[string][]uint64    // pane: phone messages its agent left before they went in
+	phoneIcons   remote.Icons           // the repo icons the phone app's rows show
 	paneCmd      map[string]*sync.Mutex // pane: held while a phone slash command goes in
 	awakeWake    chan struct{}          // wakes keepAwakeLoop on activity changes
 	prs          prPoll                 // see pr.go

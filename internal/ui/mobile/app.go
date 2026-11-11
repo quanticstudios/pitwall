@@ -75,6 +75,8 @@ type App struct {
 	mach  machinesView
 	chat  chatView
 	chatM string // the machine the open chat's tab is on
+
+	icons map[string]*iconFetch // by machine and hash, for the rows' repo icons
 }
 
 // link is one paired machine's stream and how it is going.
@@ -94,6 +96,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 	a.sb.TreeOnly, a.sb.Fill, a.sb.Touch, a.sb.ExpandAll, a.sb.Answers = true, true, true, true, true
 	// why: no machine is the phone's own; a worker's state shows on its parent's strip, a tap opens its row.
 	a.sb.AllHosts, a.sb.SeparateWorkers, a.sb.Rev = true, true, 1
+	a.sb.RepoIcons = a.repoIcon
 	a.pair.init()
 	if ms, err := phone.LoadMachines(dir); err != nil {
 		a.pair.note = sentence(err.Error())

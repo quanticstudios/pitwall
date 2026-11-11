@@ -36,6 +36,10 @@ type Tab struct {
 	// Parent is the tab this one hangs under in the sidebar, its top
 	// ancestor (model.State.Root); "" for a tab the user opened.
 	Parent string `json:"parent,omitempty"`
+	// Icon is its repo's icon as GET /api/icon/{hash} serves it, NoIcon in
+	// a repo without one, "" outside a repo; Dir is the folder it is in now.
+	Icon string `json:"icon,omitempty"`
+	Dir  string `json:"-"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`
@@ -69,7 +73,7 @@ func Tabs(st model.State, queued map[string]int) []Tab {
 }
 
 func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
-	t, exited := Tab{ID: w.ID, Branch: w.Branch, Parent: st.Root(w)}, false
+	t, exited := Tab{ID: w.ID, Branch: w.Branch, Parent: st.Root(w), Dir: st.LivePath(w)}, false
 	t.Tab, t.Session = w.Label, s.Name
 	if w.RepoRoot != "" {
 		t.Repo = filepath.Base(w.RepoRoot)

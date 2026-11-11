@@ -570,3 +570,23 @@ func TestChatReplay(t *testing.T) {
 		t.Fatal("a new prompt did not settle the message on its way")
 	}
 }
+
+// TestStateIcon gives a tab with an icon the folder IconDir names, which
+// ParseIconDir reads back, and a tab from an old daemon, with none, no
+// folder: its row stays as it was.
+func TestStateIcon(t *testing.T) {
+	st := stateOf("m/1", []remote.Tab{
+		{Item: remote.Item{Pane: "p1", Tab: "a", Session: "main"}, ID: "w1", Repo: "api", Icon: "abc"},
+		{Item: remote.Item{Pane: "p2", Tab: "b", Session: "main"}, ID: "w2", Repo: "api"},
+	})
+	dir := st.LivePath(st.Workspaces[0])
+	if m, hash, ok := ParseIconDir(dir); !ok || m != "m/1" || hash != "abc" || filepath.Base(dir) != "api" || st.Workspaces[0].RepoRoot != dir {
+		t.Fatalf("tab with an icon: folder %q (%q %q %v), repo root %q", dir, m, hash, ok, st.Workspaces[0].RepoRoot)
+	}
+	if dir := st.LivePath(st.Workspaces[1]); dir != "" || st.Workspaces[1].RepoRoot != "" {
+		t.Fatalf("tab from an old daemon: folder %q, repo root %q; want none", dir, st.Workspaces[1].RepoRoot)
+	}
+	if _, _, ok := ParseIconDir("/srv/src/api"); ok {
+		t.Fatal("a real folder parsed as an icon folder")
+	}
+}

@@ -45,6 +45,9 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 			c.run(func() { tabs[i].Requests = remote.Requests(c.snap, logs.Redact) })
 		}
 	}
+	for i := range tabs {
+		tabs[i].Icon = d.phoneIcons.Of(tabs[i].Dir) // why: off d.mu, since it reads the disk
+	}
 	return tabs
 }
 
