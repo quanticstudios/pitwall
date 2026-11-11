@@ -95,7 +95,14 @@ func newServer(t *testing.T) (*server, *httptest.Server) {
 		},
 		Send: func(pane, text string) (uint64, error) { return 7, nil },
 	}
-	ts := httptest.NewServer(s.Handler())
+	h := s.Handler()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/stream" {
+			// why: Windows' clock can tick as rarely as every 15.6 ms, so a loopback answer measures no latency.
+			time.Sleep(20 * time.Millisecond)
+		}
+		h.ServeHTTP(w, r)
+	}))
 	t.Cleanup(ts.Close)
 	return s, ts
 }
@@ -147,7 +154,7 @@ func TestPairStreamSend(t *testing.T) {
 		}
 		return Event{}
 	}
-	if e := next(); e.Name != "hello" || e.Hello.Device != "pixel" || e.Hello.Version != "v9.9.9" || e.Hello.Latency <= 0 || len(e.Hello.Models) == 0 {
+	if e := next(); e.Name != "hello" || e.Hello.Device != "pixel" || e.Hello.Version != "v9.9.9" || e.Hello.Latency < 15*time.Millisecond || len(e.Hello.Models) == 0 {
 		t.Fatalf("first event %+v", e)
 	}
 	if e := next(); e.Name != "tabs" || len(e.Tabs) != 1 || e.Tabs[0].Tab != "Fix the build" {
