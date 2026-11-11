@@ -288,18 +288,18 @@ func optionText(rows []string, opts []formOption, i int) (text string, ok bool) 
 // count as full: the agent's right margin.
 const wrapSlack = 4
 
-// CommandShown reports whether the permission prompt on g's screen asks to run
-// command, as far as the screen shows it. Rows must match it byte for byte, apart
-// from the prompt's indent and a row end where wrapping could have split it. A
-// prompt that shows part of a long command is compared on that part. A layout it
-// does not know has no command to compare, so that is false too.
+// CommandShown reports whether the permission prompt on g's screen shows all of
+// command, preserving line breaks and relative indentation while joining wraps.
+// An incomplete command or an unknown layout does not identify the hook's command.
 func CommandShown(p model.Provider, g vt.Grid, command string) bool {
-	// why: a newline, tab or other space has no one way to look on screen, and
-	// part of the command may be off screen. A refusal costs one trip to the tab.
-	if strings.ContainsFunc(command, func(r rune) bool { return r != ' ' && (unicode.IsSpace(r) || !unicode.IsGraphic(r)) }) {
+	if p != model.ProviderClaude && p != model.ProviderCodex || p == model.ProviderCodex && strings.Contains(command, "\t") {
 		return false
 	}
-	want := strings.Trim(command, " ")
+	if strings.ContainsFunc(command, func(r rune) bool {
+		return r != ' ' && r != '\t' && r != '\n' && (unicode.IsSpace(r) || !unicode.IsGraphic(r))
+	}) {
+		return false
+	}
 	rows := screenRows(g)
 	opts := formOptions(rows)
 	if len(opts) == 0 {
@@ -318,7 +318,7 @@ func CommandShown(p model.Provider, g vt.Grid, command string) bool {
 	for c.from < c.to && rows[c.from] == "" {
 		c.from++
 	}
-	return commandFits(g, c.from, rows[c.from:c.to], c.start, want)
+	return commandFits(g, c.from, rows[c.from:c.to], c.start, command)
 }
 
 // commandSpan is the rows from up to to that hold a command. start is false when
@@ -376,91 +376,133 @@ func nextRule(rows []string, y int) int {
 func ruleOf(row, dash string) bool { return row != "" && strings.Trim(row, " "+dash) == "" }
 
 // codexCommand is where a Codex prompt's command is in the rows above its
-// options: from the row that starts with "$ ", which it blanks in above. With no
+// options: from the row that starts with "$ ", which it removes in above. With no
 // such row, it has scrolled off or this is not a command.
 func codexCommand(above []string) commandSpan {
 	for y := len(above) - 1; y >= 0; y-- {
 		t := strings.TrimLeft(above[y], " ")
 		if s, ok := strings.CutPrefix(t, "$ "); ok {
-			above[y] = strings.Repeat(" ", len(above[y])-len(t)+2) + s
+			above[y] = strings.Repeat(" ", len(above[y])-len(t)) + s
 			return commandSpan{y, len(above), true}
 		}
 	}
 	return commandSpan{0, len(above), false}
 }
 
-// commandFits reports whether rows, which start at row y of g, show want. Without
-// start its first rows may be off screen, and a count row or a final ellipsis
-// says its last ones are hidden.
+// commandFits reports whether rows, which start at row y of g, show all of want.
 func commandFits(g vt.Grid, y int, rows []string, start bool, want string) bool {
+	if !start || want == "" || len(rows) == 0 {
+		return false
+	}
 	rows = slices.Clone(rows)
-	end := true
-	if n := len(rows) - 1; n >= 0 {
-		if last := strings.TrimLeft(rows[n], " "); hiddenRows.MatchString(last) {
-			start = start && !strings.Contains(last, "above")
-			rows, end = rows[:n], false
-		} else if t, ok := strings.CutSuffix(rows[n], "…"); ok {
-			rows[n], end = strings.TrimRight(t, " "), false
-		}
+	last := strings.TrimSpace(rows[len(rows)-1])
+	// A prefix of any length also fits a command that differs only in hidden text.
+	if hiddenRows.MatchString(last) || strings.HasSuffix(last, "…") {
+		return false
 	}
 	gutters := 0
+	nonempty := 0
 	for i, r := range rows {
+		if strings.TrimSpace(r) == "" {
+			continue
+		}
+		nonempty++
 		if t, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok {
 			rows[i] = strings.TrimPrefix(t, " ")
 			gutters++
 		}
 	}
-	// Some rows with a gutter means a │ of the command's own may be among them,
-	// and a blank row is no part of a wrapped line.
-	if len(rows) == 0 || gutters != 0 && gutters != len(rows) || slices.Contains(rows, "") {
+	// Some rows with a gutter means a │ of the command's own may be among them.
+	if gutters != 0 && gutters != nonempty {
 		return false
 	}
-	indent := len(rows[0])
-	for _, r := range rows {
-		indent = min(indent, len(r)-len(strings.TrimLeft(r, " ")))
-	}
-	for i, r := range rows {
-		rows[i] = r[indent:]
-	}
-	rows[0] = strings.TrimLeft(rows[0], " ")
-	for i := 0; i < len(want); i++ {
-		if e, ok := rowsFollow(g, y, rows, want, i); ok && (!end || e == len(want)) {
-			return true
-		}
-		if start {
-			return false
-		}
-	}
-	return false
+	return rowsFollow(g, y, rows, want, gutters != 0)
 }
 
-// rowsFollow matches rows, which start at row y of g, against want from byte i
-// and returns where they end. Wrapping moves a word down only if it would not
-// fit, and cuts one only on a full row, so any other row end is not in the
-// command.
-func rowsFollow(g vt.Grid, y int, rows []string, want string, i int) (end int, ok bool) {
+// commandLine collapses spaces and tabs within a line and measures its indent.
+func commandLine(s string) (text string, indent int) {
+	for _, r := range s {
+		switch r {
+		case ' ':
+			indent++
+		case '\t':
+			indent += 8 - indent%8
+		default:
+			return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return r == ' ' || r == '\t' }), " "), indent
+		}
+	}
+	return "", indent
+}
+
+// rowsFollow matches each command line's text, relative indent and blank lines.
+// A wrap moves a word only when it would not fit, and cuts a word only on a full row.
+func rowsFollow(g vt.Grid, y int, rows []string, command string, gutter bool) bool {
+	lines := strings.Split(command, "\n")
+	for len(lines) > 0 {
+		if text, _ := commandLine(lines[0]); text != "" {
+			break
+		}
+		lines = lines[1:]
+	}
+	for len(lines) > 0 {
+		if text, _ := commandLine(lines[len(lines)-1]); text != "" {
+			break
+		}
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return false
+	}
+	_, base := commandLine(lines[0])
 	full := g.Cols - wrapSlack
-	for k, r := range rows {
-		if k > 0 {
-			switch used := rowCells(g, y+k-1); {
-			case i == len(want):
-				return 0, false
+	line, i, prev, screenBase := 0, 0, -1, 0
+	for k, row := range rows {
+		r, indent := commandLine(row)
+		if r == "" {
+			if i != 0 {
+				return false
+			}
+			if prev >= 0 && line < len(lines) {
+				if text, _ := commandLine(lines[line]); text != "" {
+					return false
+				}
+				line++
+			}
+			continue
+		}
+		if line == len(lines) {
+			return false
+		}
+		want, wantIndent := commandLine(lines[line])
+		if prev < 0 {
+			screenBase = indent
+		}
+		if i == 0 {
+			if indent-screenBase != wantIndent-base {
+				return false
+			}
+		} else {
+			switch used := rowCells(g, y+prev); {
 			case want[i] == ' ':
-				if used+1+wordCells(g, y+k) <= full {
-					return 0, false
+				if used+1+wordCells(g, y+k, gutter) <= full {
+					return false
 				}
 				i++
-				r = strings.TrimPrefix(r, " ")
 			case used < full:
-				return 0, false
+				return false
 			}
 		}
 		if !strings.HasPrefix(want[i:], r) {
-			return 0, false
+			return false
 		}
 		i += len(r)
+		if i == len(want) {
+			line++
+			i = 0
+		}
+		prev = k
 	}
-	return i, true
+	return line == len(lines)
 }
 
 // blankCell reports a cell with nothing drawn in it. A wide character's second
@@ -477,12 +519,19 @@ func rowCells(g vt.Grid, y int) int {
 	return 0
 }
 
-// wordCells is how many cells the first word of row y of g takes.
-func wordCells(g vt.Grid, y int) int {
+// wordCells measures the first word after the row's indent and optional gutter.
+func wordCells(g vt.Grid, y int, gutter bool) int {
 	n := 0
 	for x := 0; x < g.Cols; x++ {
+		c := g.At(x, y)
+		if gutter {
+			if c.Content == "│" {
+				gutter = false
+			}
+			continue
+		}
 		switch {
-		case !blankCell(g.At(x, y)):
+		case !blankCell(c):
 			n++
 		case n > 0:
 			return n
