@@ -811,6 +811,7 @@ func (u *ui) openReview(st *model.State, id, file string) {
 		return
 	}
 	u.settings.Hide()
+	u.reader.Close()
 	invalidate := u.invalidate
 	if invalidate == nil {
 		invalidate = func() {}

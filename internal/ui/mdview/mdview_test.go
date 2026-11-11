@@ -4,16 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -266,6 +272,8 @@ func TestDecodeCaps(t *testing.T) {
 }
 
 func TestFetchCaps(t *testing.T) {
+	defer func(d func(netip.Addr) bool) { dialable = d }(dialable)
+	dialable = func(netip.Addr) bool { return true } // the server is on loopback
 	ok := pngBytes(t, 2, 2)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -377,5 +385,233 @@ func TestLayoutDraws(t *testing.T) {
 	}
 	if len(v.heights) != len(v.doc) || v.heights[0] == 0 {
 		t.Errorf("heights %v for %d blocks", v.heights, len(v.doc))
+	}
+}
+
+// TestMermaidCaps: a body with no diagram type is a note, not a panic,
+// and a fanout or a long chart over the caps shows as code before its
+// edges are made.
+func TestMermaidCaps(t *testing.T) {
+	for _, src := range []string{";", " ; ", "---\n---\n;"} {
+		if g, note := ParseMermaid(src); g != nil || note == "" {
+			t.Errorf("%q: graph %v, note %q", src, g, note)
+		}
+	}
+	group := "A" + strings.Repeat(" & A", 999)
+	start := time.Now()
+	if g, note := ParseMermaid("graph TD\n" + group + " --> " + group); g != nil || !strings.Contains(note, "edges") {
+		t.Errorf("fanout: graph %v, note %q", g != nil, note)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("fanout took %v", d)
+	}
+	var b strings.Builder
+	b.WriteString("graph TD\n")
+	for i := range MaxNodes {
+		fmt.Fprintf(&b, "n%d --> n%d\n", i, i+1)
+	}
+	if g, note := ParseMermaid(b.String()); g != nil || !strings.Contains(note, "nodes") {
+		t.Errorf("long chain: graph %v, note %q", g != nil, note)
+	}
+	b.Reset()
+	b.WriteString("graph TD\n")
+	for range MaxEdges + 1 {
+		b.WriteString("A --> B\n")
+	}
+	if g, note := ParseMermaid(b.String()); g != nil || !strings.Contains(note, "edges") {
+		t.Errorf("repeated edge: graph %v, note %q", g != nil, note)
+	}
+}
+
+// FuzzParseMermaid: no input panics the parser or the layout, and a
+// drawn chart stays inside the caps.
+func FuzzParseMermaid(f *testing.F) {
+	for _, s := range []string{";", "", "graph", "graph LR\nA --> B", "flowchart TD\nA[x] -->|y| B{z} -.-> C((w))\nC ==> A & B",
+		"graph TD\nA -- yes --> B\nB --o C\nC <--> A\nA --- A", "---\ntitle: x\n---\ngraph RL\nA([s]) & B[(d)] --> C>e]\nsubgraph s\nD\nend",
+		"graph BT\nA[\"q\"] -.- B;C:::k --x D"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, src string) {
+		g, note := ParseMermaid(src)
+		if g == nil {
+			if note == "" {
+				t.Fatal("no graph and no note")
+			}
+			return
+		}
+		if len(g.Nodes) > MaxNodes || len(g.Edges) > MaxEdges {
+			t.Fatalf("%d nodes, %d edges", len(g.Nodes), len(g.Edges))
+		}
+		sizes := make([]image.Point, len(g.Nodes))
+		for i := range sizes {
+			sizes[i] = image.Pt(40, 20)
+		}
+		g.Layout(sizes, 10, 20)
+	})
+}
+
+// TestSVGSafe: an SVG oksvg would recurse in forever, or that copies
+// itself out to millions of elements, is not drawn, and does not crash
+// the process; a <use> of a defined shape still draws, and a tall SVG is
+// drawn no larger than MaxSide.
+func TestSVGSafe(t *testing.T) {
+	defer debug.SetMaxStack(debug.SetMaxStack(64 << 20)) // a regression fails fast
+	head := `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10" viewBox="0 0 10 10">`
+	laughs := `<defs><rect id="r0" width="1" height="1"/>`
+	for i := 1; i < 12; i++ {
+		laughs += fmt.Sprintf(`<g id="r%d">`, i) + strings.Repeat(fmt.Sprintf(`<use href="#r%d"/>`, i-1), 10) + `</g>`
+	}
+	laughs += `</defs><use href="#r11"/>`
+	for name, body := range map[string]string{
+		"self":     `<defs><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
+		"cycle":    `<defs><g id="a"><use xlink:href="#b"/></g><g id="b"><use xlink:href="#a"/></g></defs><use xlink:href="#a"/>`,
+		"twice":    `<defs><g id="a"><rect width="1" height="1"/></g><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
+		"external": `<use href="other.svg#a"/>`,
+		"deep":     strings.Repeat("<g>", maxSVGDepth+1) + strings.Repeat("</g>", maxSVGDepth+1),
+		"laughs":   laughs,
+	} {
+		if img, err := Decode([]byte(head+body+"</svg>"), 100); err == nil {
+			t.Errorf("%s: drawn %v", name, img.Bounds())
+		}
+	}
+	ok := head + `<defs><rect id="r" width="5" height="5" fill="red"/></defs><use href="#r"/><use href="#r" x="5" y="5"/></svg>`
+	if _, err := Decode([]byte(ok), 100); err != nil {
+		t.Errorf("a plain <use>: %v", err)
+	}
+	tall := `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="40000" viewBox="0 0 400 40000"><rect width="400" height="40000"/></svg>`
+	if img, err := Decode([]byte(tall), 800); err != nil || img.Bounds().Dy() > MaxSide || img.Bounds().Dx() > MaxSide {
+		t.Errorf("tall SVG: %v, %v", img, err)
+	}
+}
+
+// TestRemoteImagesStayPublic: a download reaches only public addresses,
+// checked on the address dialed, so a name that resolves to loopback and
+// a redirect to another address are refused too.
+func TestRemoteImagesStayPublic(t *testing.T) {
+	for a, want := range map[string]bool{
+		"93.184.215.14": true, "2606:4700::1": true,
+		"127.0.0.1": false, "::1": false, "10.1.2.3": false, "172.16.0.1": false, "192.168.1.1": false,
+		"100.64.0.1": false, "100.101.102.103": false, "fd7a:115c:a1e0::1": false, "169.254.169.254": false,
+		"fe80::1": false, "0.0.0.0": false, "::": false, "::ffff:127.0.0.1": false, "64:ff9b::a00:1": false,
+		"fd00:ec2::254": false, "224.0.0.1": false, "255.255.255.255": false,
+	} {
+		if got := publicAddr(netip.MustParseAddr(a)); got != want {
+			t.Errorf("publicAddr(%s) = %v", a, got)
+		}
+	}
+
+	png := pngBytes(t, 2, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(png) }))
+	defer srv.Close()
+	ctx := context.Background()
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	for _, u := range []string{srv.URL, "http://localhost:" + port + "/"} {
+		if _, err := LoadImage(ctx, Where{URL: u}, 0); err == nil || !strings.Contains(err.Error(), "not a public address") {
+			t.Errorf("%s: %v", u, err)
+		}
+	}
+
+	// Allow 127.0.0.1 alone: a redirect to 127.0.0.2 is refused when
+	// dialed, and a redirect loop stops.
+	defer func(d func(netip.Addr) bool) { dialable = d }(dialable)
+	dialable = func(a netip.Addr) bool { return a == netip.MustParseAddr("127.0.0.1") }
+	other, err := net.Listen("tcp", "127.0.0.2:0")
+	if err != nil {
+		t.Skip("no 127.0.0.2:", err)
+	}
+	var hits atomic.Int32
+	go http.Serve(other, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); w.Write(png) }))
+	defer other.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/loop" {
+			http.Redirect(w, r, "/loop", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "http://"+other.Addr().String()+"/x.png", http.StatusFound)
+	}))
+	defer redir.Close()
+	if _, err := LoadImage(ctx, Where{URL: redir.URL + "/go"}, 0); err == nil || !strings.Contains(err.Error(), "not a public address") || hits.Load() != 0 {
+		t.Errorf("redirect: %v, %d requests reached it", err, hits.Load())
+	}
+	if _, err := LoadImage(ctx, Where{URL: redir.URL + "/loop"}, 0); err == nil || !strings.Contains(err.Error(), "too many redirects") {
+		t.Errorf("loop: %v", err)
+	}
+}
+
+// TestImageLoadsBounded: however many images a file has, at most
+// maxLoads load at once, and the decoded images kept stay under maxHeld:
+// a file shown before gives its images up first, and one of the file
+// shown that does not fit is not shown.
+func TestImageLoadsBounded(t *testing.T) {
+	defer func(l func(context.Context, Where, int) (image.Image, error), h int) { loadImage, maxHeld = l, h }(loadImage, maxHeld)
+	var mu sync.Mutex
+	running, most := 0, 0
+	release := make(chan struct{})
+	loadImage = func(ctx context.Context, w Where, _ int) (image.Image, error) {
+		mu.Lock()
+		running++
+		most = max(most, running)
+		mu.Unlock()
+		<-release
+		mu.Lock()
+		running--
+		mu.Unlock()
+		return image.NewRGBA(image.Rect(0, 0, 100, 100)), nil // 40,000 bytes
+	}
+	maxHeld = 3 * 40000
+	v := View{ctx: context.Background()}
+	settle := func(keys ...string) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); ; {
+			v.mu.Lock()
+			done := true
+			for _, k := range keys {
+				done = done && v.imgs[k] != nil && v.imgs[k].done
+			}
+			v.mu.Unlock()
+			if done {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%v did not load", keys)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	var keys []string
+	for i := range 20 {
+		k := fmt.Sprintf("/img/%d.png", i)
+		keys = append(keys, k)
+		v.picture(Where{Path: k}, 0)
+	}
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	n := running
+	mu.Unlock()
+	if n > maxLoads {
+		t.Errorf("%d images loading at once", n)
+	}
+	close(release)
+	settle(keys...)
+	v.mu.Lock()
+	shown := 0
+	for _, k := range keys {
+		if v.imgs[k].err == "" {
+			shown++
+		} else if !strings.Contains(v.imgs[k].err, "at most") {
+			t.Errorf("%s: %s", k, v.imgs[k].err)
+		}
+	}
+	if shown != 3 || v.held != maxHeld || most > maxLoads {
+		t.Errorf("first file: %d shown, %d bytes held, %d at once", shown, v.held, most)
+	}
+	v.visit++ // another file is shown
+	v.mu.Unlock()
+	v.picture(Where{Path: "/next.png"}, 0)
+	settle("/next.png")
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if p := v.imgs["/next.png"]; p.err != "" || v.held != maxHeld || len(v.imgs) != 20 {
+		t.Errorf("next file: %q, %d bytes held, %d images", p.err, v.held, len(v.imgs))
 	}
 }

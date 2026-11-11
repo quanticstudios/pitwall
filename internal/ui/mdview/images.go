@@ -3,6 +3,7 @@ package mdview
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"image"
@@ -11,12 +12,15 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/srwiley/oksvg"
@@ -95,8 +99,17 @@ func LoadImage(ctx context.Context, w Where, svgWidth int) (image.Image, error) 
 	return Decode(b, svgWidth)
 }
 
+// readCapped reads the regular file at path, up to limit bytes. A FIFO
+// or a device is refused before it is opened, as os.Open would wait for
+// a FIFO's writer; the open does not wait either, and the type is checked
+// again on what it opened, in case the path changed in between.
 func readCapped(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
+	if fi, err := os.Stat(path); err != nil {
+		return nil, err
+	} else if !fi.Mode().IsRegular() {
+		return nil, errors.New("not a file")
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -111,12 +124,76 @@ func readCapped(path string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, limit))
 }
 
-// client fetches remote images: no cookies, a timeout, http(s) only on
+// maxRedirects is how many redirects a download follows.
+const maxRedirects = 3
+
+// dialable reports whether a download may connect to addr. Tests let
+// loopback through.
+var dialable = publicAddr
+
+// notPublic are ranges publicAddr refuses beyond the ones netip names:
+// shared address space, which holds the tailnet's 100.x addresses, this
+// network, IETF protocol assignments, benchmarking, the reserved block,
+// and the tailnet's IPv6 range.
+var notPublic = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("fd7a:115c:a1e0::/48"),
+}
+
+// nat64 is the well-known NAT64 prefix; its last 32 bits are an IPv4
+// address, checked as one.
+var nat64 = netip.MustParsePrefix("64:ff9b::/96")
+
+// publicAddr reports whether a is an address on the internet: not
+// loopback, private, link-local (cloud metadata services among them),
+// multicast, unspecified, or in notPublic.
+func publicAddr(a netip.Addr) bool {
+	a = a.Unmap()
+	if nat64.Contains(a) {
+		b := a.As16()
+		a = netip.AddrFrom4([4]byte(b[12:]))
+	}
+	if !a.IsValid() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
+		a.IsInterfaceLocalMulticast() || a.IsMulticast() || a.IsUnspecified() {
+		return false
+	}
+	for _, p := range notPublic {
+		if p.Contains(a) {
+			return false
+		}
+	}
+	return true
+}
+
+// dialer checks the address it connects to after DNS has answered, so a
+// name that resolves to a private address, a rebinding name, or a
+// redirect to one does not get through.
+var dialer = &net.Dialer{
+	Timeout: RemoteTimeout,
+	Control: func(network, address string, _ syscall.RawConn) error {
+		ap, err := netip.ParseAddrPort(address)
+		if err != nil {
+			return err
+		}
+		if !dialable(ap.Addr()) {
+			return fmt.Errorf("%s is not a public address", ap.Addr())
+		}
+		return nil
+	},
+}
+
+// client fetches remote images: no proxy, which would connect for it,
+// no cookies, a timeout, public addresses only, http(s) only on
 // redirects too.
 var client = &http.Client{
-	Timeout: RemoteTimeout,
+	Timeout:   RemoteTimeout,
+	Transport: &http.Transport{Proxy: nil, DialContext: dialer.DialContext, TLSHandshakeTimeout: RemoteTimeout, MaxIdleConns: 4, IdleConnTimeout: 30 * time.Second},
 	CheckRedirect: func(r *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
+		if len(via) > maxRedirects {
 			return errors.New("too many redirects")
 		}
 		if r.URL.Scheme != "http" && r.URL.Scheme != "https" {
@@ -208,6 +285,9 @@ func rasterSVG(b []byte, width int) (img image.Image) {
 			img = nil
 		}
 	}()
+	if svgSafe(b) != nil {
+		return nil
+	}
 	// workaround(oksvg be6e8873101c): it reads scale(s) as scale(s, 0).
 	b = oneScale.ReplaceAll(b, []byte("scale(${1} ${1})"))
 	icon, err := oksvg.ReadIconStream(bytes.NewReader(b), oksvg.IgnoreErrorMode)
@@ -222,6 +302,9 @@ func rasterSVG(b []byte, width int) (img image.Image) {
 	if width > 0 && w > float64(width) {
 		w, h = float64(width), h*float64(width)/w
 	}
+	if s := float64(MaxSide) / max(w, h); s < 1 {
+		w, h = w*s, h*s
+	}
 	if w*h > MaxPixels || w < 1 || h < 1 {
 		return nil
 	}
@@ -232,6 +315,114 @@ func rasterSVG(b []byte, width int) (img image.Image) {
 	dst := image.NewRGBA(image.Rect(0, 0, iw, ih))
 	icon.Draw(rasterx.NewDasher(iw, ih, rasterx.NewScannerGV(iw, ih, dst, dst.Bounds())), 1)
 	return dst
+}
+
+// Caps on an SVG before oksvg reads it.
+const (
+	maxSVGDepth = 64    // nested elements
+	maxSVGElems = 20000 // elements, each <use> counted as what it copies
+)
+
+// svgSafe refuses an SVG oksvg could recurse forever in or spend too long
+// on: deeper than maxSVGDepth, a <use> that reaches itself or points
+// outside the file, or more than maxSVGElems elements once each <use> is
+// replaced by what it copies. oksvg draws a <use> by drawing its target
+// again, with no check for a cycle.
+func svgSafe(b []byte) error {
+	type scope struct {
+		id    string
+		elems int      // in the element, itself included
+		uses  []string // the ids its <use>s copy
+	}
+	ids := map[string][]*scope{} // an id given twice is read as both
+	root := &scope{}
+	open := []*scope{root} // the elements being read, outermost first
+	d := xml.NewDecoder(bytes.NewReader(b))
+	for {
+		tok, err := d.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if len(open) > maxSVGDepth {
+				return errors.New("SVG nested too deep")
+			}
+			sc := &scope{}
+			use := ""
+			for _, a := range t.Attr {
+				switch {
+				case a.Name.Local == "id" && a.Value != "":
+					sc.id = a.Value
+				case a.Name.Local == "href" && t.Name.Local == "use":
+					if !strings.HasPrefix(a.Value, "#") {
+						return errors.New("SVG <use> outside the file")
+					}
+					use = a.Value[1:]
+				}
+			}
+			if sc.id != "" {
+				ids[sc.id] = append(ids[sc.id], sc)
+			}
+			open = append(open, sc)
+			for _, o := range open {
+				o.elems++
+				if use != "" && (o == root || o.id != "") {
+					o.uses = append(o.uses, use)
+				}
+			}
+			if root.elems > maxSVGElems {
+				return errors.New("SVG has too many elements")
+			}
+		case xml.EndElement:
+			if len(open) > 1 {
+				open = open[:len(open)-1]
+			}
+		}
+	}
+	// costs[id] is how many elements drawing id draws, capped at
+	// maxSVGElems+1; reading marks an id whose cost is being added up.
+	const reading = -1
+	costs := map[string]int{}
+	var total func(sc *scope) (int, error)
+	cost := func(id string) (int, error) {
+		switch c, ok := costs[id]; {
+		case c == reading:
+			return 0, errors.New("SVG <use> reaches itself")
+		case ok:
+			return c, nil
+		}
+		costs[id] = reading
+		n := 0
+		for _, sc := range ids[id] {
+			c, err := total(sc)
+			if err != nil {
+				return 0, err
+			}
+			n = max(n, c)
+		}
+		costs[id] = n
+		return n, nil
+	}
+	total = func(sc *scope) (int, error) {
+		n := sc.elems
+		for _, u := range sc.uses {
+			c, err := cost(u)
+			if err != nil {
+				return 0, err
+			}
+			n = min(n+c, maxSVGElems+1)
+		}
+		return n, nil
+	}
+	n, err := total(root)
+	if err == nil && n > maxSVGElems {
+		err = errors.New("SVG has too many elements")
+	}
+	return err
 }
 
 var svgDims = regexp.MustCompile(`(?s)<svg\b[^>]*`)

@@ -39,6 +39,18 @@ const MaxDocBytes = 10 << 20
 // pollEvery is how often an open file is checked for changes.
 const pollEvery = 500 * time.Millisecond
 
+// maxLoads is how many images load at once. Each may hold MaxPixels
+// decoded while it loads.
+const maxLoads = 2
+
+// maxHeld is how many bytes of decoded images the reader keeps. Images of
+// files read before go first, least recently shown first; an image of
+// the file shown that does not fit is not shown.
+var maxHeld = 256 << 20
+
+// loadImage loads an image for the reader; tests replace it.
+var loadImage = LoadImage
+
 // View is the reader: one markdown file over the panes, with Back
 // through the files its links opened.
 type View struct {
@@ -64,6 +76,10 @@ type View struct {
 	stop   context.CancelFunc
 	imgs   map[string]*picture
 	imgGen int
+	held   int       // bytes of decoded images in imgs
+	visit  int       // counts the files shown, for picture.used
+	queue  []loadJob // images waiting for a loader
+	loads  int       // loader goroutines running
 
 	// The UI goroutine's alone.
 	heights  []int
@@ -100,11 +116,20 @@ type measure struct {
 }
 
 type picture struct {
-	img  paint.ImageOp
-	size image.Point
-	err  string
-	done bool
-	url  bool
+	img   paint.ImageOp
+	size  image.Point
+	err   string
+	done  bool
+	url   bool
+	bytes int // decoded, counted in View.held
+	used  int // the View.visit it was last asked for in
+}
+
+type loadJob struct {
+	ctx      context.Context
+	w        Where
+	svgWidth int
+	p        *picture
 }
 
 // On reports whether the reader is open.
@@ -133,7 +158,7 @@ func (v *View) Close() {
 	if v.stop != nil {
 		v.stop()
 	}
-	v.doc, v.imgs, v.stop = nil, nil, nil
+	v.doc, v.imgs, v.stop, v.queue, v.held = nil, nil, nil, nil, 0
 	v.mu.Unlock()
 }
 
@@ -178,12 +203,14 @@ func (v *View) load(path string, b []byte, st stamp) {
 	}
 	v.path, v.doc, v.stamp, v.ctx, v.stop = path, doc, st, ctx, stop
 	v.gen++
+	v.visit++
 	v.moved = true
 	for k, p := range v.imgs {
-		if !p.done {
-			delete(v.imgs, k) // its load was cancelled
+		if !p.done || p.err != "" {
+			delete(v.imgs, k) // its load was cancelled, or it gets another try
 		}
 	}
+	v.queue = nil
 	v.mu.Unlock()
 	go v.watch(ctx, path)
 }
@@ -244,6 +271,7 @@ func (v *View) reload(ctx context.Context, path string) bool {
 	v.gen++
 	for k, p := range v.imgs {
 		if !p.url {
+			v.held -= p.bytes
 			delete(v.imgs, k)
 		}
 	}
@@ -256,21 +284,50 @@ func (v *View) picture(w Where, svgWidth int) *picture {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if p := v.imgs[key]; p != nil {
+		p.used = v.visit
 		return p
 	}
 	if v.imgs == nil {
 		v.imgs = map[string]*picture{}
 	}
-	p := &picture{url: w.URL != ""}
+	p := &picture{url: w.URL != "", used: v.visit}
 	v.imgs[key] = p
-	ctx := v.ctx
-	go func() {
-		img, err := LoadImage(ctx, w, svgWidth)
+	v.queue = append(v.queue, loadJob{v.ctx, w, svgWidth, p})
+	if v.loads < maxLoads {
+		v.loads++
+		go v.loader()
+	}
+	return p
+}
+
+// loader loads the queued images, one at a time, until none is left.
+func (v *View) loader() {
+	for {
 		v.mu.Lock()
+		if len(v.queue) == 0 {
+			v.loads--
+			v.mu.Unlock()
+			return
+		}
+		j := v.queue[0]
+		v.queue = v.queue[1:]
+		v.mu.Unlock()
+		if j.ctx.Err() != nil {
+			continue // another file is shown
+		}
+		img, err := loadImage(j.ctx, j.w, j.svgWidth)
+		v.mu.Lock()
+		if v.imgs[j.w.Path+j.w.URL] != j.p { // Close, load or reload dropped it meanwhile
+			v.mu.Unlock()
+			continue
+		}
+		p := j.p
 		if err != nil {
 			p.err = plainErr(err)
+		} else if n := img.Bounds().Dx() * img.Bounds().Dy() * 4; !v.hold(n) {
+			p.err = fmt.Sprintf("the reader keeps at most %d MiB of images", maxHeld>>20)
 		} else {
-			p.img, p.size = paint.NewImageOp(img), img.Bounds().Size()
+			p.img, p.size, p.bytes = paint.NewImageOp(img), img.Bounds().Size(), n
 		}
 		p.done = true
 		v.imgGen++
@@ -278,8 +335,28 @@ func (v *View) picture(w Where, svgWidth int) *picture {
 		if v.Invalidate != nil {
 			v.Invalidate()
 		}
-	}()
-	return p
+	}
+}
+
+// hold makes room for n more bytes of images, dropping images of files
+// shown before, least recently shown first, and reports whether n fits.
+// v.mu is held.
+func (v *View) hold(n int) bool {
+	for v.held+n > maxHeld {
+		old, oldest := "", v.visit
+		for k, p := range v.imgs {
+			if p.bytes > 0 && p.used < oldest {
+				old, oldest = k, p.used
+			}
+		}
+		if old == "" {
+			return false
+		}
+		v.held -= v.imgs[old].bytes
+		delete(v.imgs, old)
+	}
+	v.held += n
+	return true
 }
 
 // plainErr is err without the path an os error repeats.

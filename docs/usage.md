@@ -1266,14 +1266,22 @@ fonts and colors: headings, lists, task lists, tables, block quotes,
 inline and fenced code, links and rules. Local images (PNG, JPEG, GIF's
 first frame, WebP and SVG) are read relative to the file and scaled down to
 the column. Images from `http` and `https` URLs are downloaded with a
-10-second timeout and a 5 MiB limit; local ones may be up to 20 MiB. An
-image that does not load shows its alt text, address and the reason.
+10-second timeout and a 5 MiB limit, from public addresses only: never
+from this machine, your local network, link-local addresses or the
+tailnet (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), after redirects too.
+Local ones may be up to 20 MiB. Two images load at a time, and the reader
+keeps up to 256 MiB of decoded images, dropping those of files read
+before first. An SVG with a `<use>` that refers to itself or outside the
+file, more than 64 levels deep, or more than 20,000 elements is not
+drawn. An image that does not load shows its alt text, address and the
+reason.
 
 A ` ```mermaid ` block with a flowchart (`graph` or `flowchart`, any
 direction) is drawn as a diagram: boxes, rounded boxes, stadiums, diamonds
 and circles, with arrow labels and dotted or thick arrows. Subgraphs are
 drawn as plain nodes and `style` lines are ignored. Other diagram types,
-and flowcharts of more than 200 nodes, show as code with a note saying so.
+and flowcharts of more than 200 nodes or 500 arrows, show as code with a
+note saying so.
 
 A click on a link to another markdown file opens it in the reader, and the
 back arrow or Backspace returns to the file before. Other links open as
@@ -1286,8 +1294,9 @@ again when it changes, at the same scroll position.
 - Escape or the × button closes the reader, and the pane has the keys
   again. Switching tabs closes it as well.
 
-On a window for another machine (`pitwall --host`), markdown files are on
-that machine, and the reader says so instead of opening them.
+A markdown file printed in a pane of another machine (`pitwall --host`,
+or a tab of a `[[hosts]]` entry, peeked or not) is on that machine, and
+the reader says so instead of opening the file of that path here.
 
 ### Grouping
 

@@ -260,6 +260,7 @@ func (u *ui) toggleMonitor() {
 	}
 	u.settings.Hide()
 	u.review.hide()
+	u.reader.Close()
 	u.boardOn = false
 	u.mon.on, u.mon.ws, u.mon.focus = true, u.nav.workspace, true
 }

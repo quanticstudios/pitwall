@@ -980,6 +980,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.SelectWorkspace:
 		u.settings.Hide()
 		u.review.hide()
+		u.reader.Close()
 		u.boardOn, u.mon.on = false, false
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.ForkPane:

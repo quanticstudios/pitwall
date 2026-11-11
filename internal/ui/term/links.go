@@ -20,8 +20,9 @@ type link struct {
 var urlStart = regexp.MustCompile(`(?i)\b(?:https?://|file://|www\.)`)
 
 // mdPath is a path to a markdown file as programs print one: relative,
-// absolute or from ~, with a :line or :line:col after it or not.
-var mdPath = regexp.MustCompile(`(?i)(?:~|\.{1,2})?/?[\w.@%+~-]+(?:/[\w.@%+~-]+)*\.(?:md|markdown)(?::\d+){0,2}`)
+// absolute, from ~ or from a Windows drive (C:\ or C:/), with / or \
+// between folders, with a :line or :line:col after it or not.
+var mdPath = regexp.MustCompile(`(?i)(?:[a-z]:|~|\.{1,2})?[/\\]?[\w.@%+~-]+(?:[/\\][\w.@%+~-]+)*\.(?:md|markdown)(?::\d+){0,2}`)
 
 // urlChar is what a text URL may contain: printable ASCII but quotes, angle
 // brackets and backticks. Anything else, box drawing included, ends it.
@@ -119,7 +120,7 @@ next:
 		if m[0] > 0 && (urlChar(s[m[0]-1]) && !strings.ContainsRune("([{'", rune(s[m[0]-1]))) {
 			continue // part of a longer word, such as a URL's path
 		}
-		if m[1] < len(s) && (s[m[1]] == '/' || wordByte(s[m[1]])) {
+		if m[1] < len(s) && (s[m[1]] == '/' || s[m[1]] == '\\' || wordByte(s[m[1]])) {
 			continue // foo.md/bar, foo.mdx
 		}
 		for _, l := range dst[:n] {

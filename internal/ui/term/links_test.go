@@ -39,6 +39,9 @@ func TestRowLinks(t *testing.T) {
 		{"(README.md) /abs/x.md", []string{"1-10 README.md", "12-21 /abs/x.md"}},
 		{"foo.mdx foo.md/bar x=a.md main.go", nil},
 		{"https://a.test/README.md", []string{"0-24 https://a.test/README.md"}},
+		{`C:\repo\README.md`, []string{`0-17 C:\repo\README.md`}},
+		{"see C:/repo/README.md:3.", []string{"4-23 C:/repo/README.md:3"}},
+		{`at .\docs\a.md and AC:\x.md`, []string{`3-14 .\docs\a.md`}},
 	} {
 		var got []string
 		ls, _ := rowLinks(nil, nil, grid(tc.line).Cells)

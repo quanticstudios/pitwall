@@ -5,6 +5,7 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -47,6 +48,10 @@ type Graph struct {
 // over every edge once per layer.
 const MaxNodes = 200
 
+// MaxEdges caps a flowchart's edges the same way. "A & B --> C & D" is
+// four edges; the cap is checked before a group's edges are added.
+const MaxEdges = 500
+
 // ParseMermaid parses a ```mermaid block. A flowchart (graph or
 // flowchart) gives its Graph; anything else gives a note on why it shows
 // as code.
@@ -71,6 +76,9 @@ func ParseMermaid(src string) (*Graph, string) {
 		return nil, "Empty mermaid block"
 	}
 	head := strings.Fields(strings.TrimSuffix(lines[0], ";"))
+	if len(head) == 0 {
+		return nil, "Mermaid block with no diagram type"
+	}
 	if head[0] != "graph" && head[0] != "flowchart" {
 		return nil, "Mermaid " + head[0] + " is not drawn, only flowcharts"
 	}
@@ -91,9 +99,6 @@ func ParseMermaid(src string) (*Graph, string) {
 	}
 	if len(g.Nodes) == 0 {
 		return nil, "Flowchart not drawn: no nodes"
-	}
-	if len(g.Nodes) > MaxNodes {
-		return nil, "Flowchart not drawn: more than 200 nodes"
 	}
 	return g, ""
 }
@@ -141,6 +146,9 @@ func (g *Graph) statement(s string) string {
 		next, r, err := g.nodes(strings.TrimSpace(rest))
 		if err != "" {
 			return err
+		}
+		if len(prev)*len(next) > MaxEdges-len(g.Edges) {
+			return "more than " + strconv.Itoa(MaxEdges) + " edges"
 		}
 		for _, a := range prev {
 			for _, b := range next {
@@ -219,6 +227,9 @@ func (g *Graph) node(s string) (int, string, string) {
 			g.Nodes[i].Label, g.Nodes[i].Shape = label, shape
 		}
 		return i, rest, ""
+	}
+	if len(g.Nodes) >= MaxNodes {
+		return 0, "", "more than " + strconv.Itoa(MaxNodes) + " nodes"
 	}
 	g.ids[id] = len(g.Nodes)
 	g.Nodes = append(g.Nodes, Node{ID: id, Label: label, Shape: shape})
