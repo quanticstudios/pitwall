@@ -86,3 +86,70 @@ func TestFile(t *testing.T) {
 		t.Errorf("bad token: %d", code)
 	}
 }
+
+// A link is no way to another file: a symlink named like markdown that
+// ends at another kind of file, a hard link of a file outside the
+// folder, markdown or image, and a folder replaced after the first read
+// are all refused, and an SVG oksvg could not draw safely is never sent.
+func TestFileLinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "home", "repo")
+	other := filepath.Join(dir, "other", "repo")
+	os.MkdirAll(root, 0o700)
+	os.MkdirAll(other, 0o700)
+	os.WriteFile(filepath.Join(root, "a.md"), []byte("# A"), 0o600)
+	os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# agents"), 0o600)
+	os.WriteFile(filepath.Join(root, "secret.txt"), []byte("token"), 0o600)
+	os.Symlink("secret.txt", filepath.Join(root, "alias.md"))
+	os.Symlink("AGENTS.md", filepath.Join(root, "CLAUDE.md"))
+	os.WriteFile(filepath.Join(dir, "id_key"), []byte("key"), 0o600)
+	os.WriteFile(filepath.Join(dir, "id.png"), []byte("\x89PNG\r\n\x1a\nkey"), 0o600)
+	if err := os.Link(filepath.Join(dir, "id_key"), filepath.Join(root, "hard.md")); err != nil {
+		t.Fatal(err)
+	}
+	os.Link(filepath.Join(dir, "id.png"), filepath.Join(root, "hard.png"))
+	os.WriteFile(filepath.Join(root, "use.svg"), []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><use href="#x"/></svg>`), 0o600)
+	os.WriteFile(filepath.Join(other, "a.md"), []byte("# other"), 0o600)
+
+	s, _ := newServer(t)
+	s.Tabs = func() []Tab { return nil }
+	s.Folder = func(tab string) (string, string, bool) { return root, root, tab == "w1" }
+	h := s.Handler()
+	token := pairDevice(t, s, h, "phone")
+	get := func(p string) (int, string) {
+		t.Helper()
+		return call(t, h, "GET", "/api/file?"+url.Values{"tab": {"w1"}, "path": {p}}.Encode(), token, "")
+	}
+	for _, c := range []struct {
+		path string
+		code int
+		body string // a prefix
+	}{
+		{"a.md", 200, "# A"},
+		{"alias.md", 403, errKind.Error()},
+		{"CLAUDE.md", 200, "# agents"},
+		{"hard.md", 403, errLinked.Error()},
+		{"hard.png", 403, errLinked.Error()},
+		{"use.svg", 403, "SVG has a <use>"},
+	} {
+		if code, body := get(c.path); code != c.code || !strings.HasPrefix(body, c.body) {
+			t.Errorf("%s: %d %q", c.path, code, body)
+		}
+	}
+
+	// The repo's parent moves away and a symlink to another folder with
+	// a repo/a.md takes its place.
+	home := filepath.Dir(root)
+	if err := os.Rename(home, home+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Dir(other), home); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := get("a.md"); code != 403 || !strings.HasPrefix(body, errMoved.Error()) {
+		t.Errorf("replaced folder: %d %q", code, body)
+	}
+}

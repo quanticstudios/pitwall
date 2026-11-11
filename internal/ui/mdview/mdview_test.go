@@ -31,6 +31,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/repoicon"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -555,14 +556,14 @@ func TestSVGSafe(t *testing.T) {
 		"twice":     `<defs><g id="a"><rect width="1" height="1"/></g><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
 		"external":  `<use href="other.svg#a"/>`,
 		"plain use": `<defs><rect id="r" width="5" height="5"/></defs><use href="#r"/>`,
-		"deep":      strings.Repeat("<g>", maxSVGDepth+1) + strings.Repeat("</g>", maxSVGDepth+1),
-		"many":      strings.Repeat(`<rect width="1" height="1"/>`, maxSVGElems+1),
+		"deep":      strings.Repeat("<g>", repoicon.MaxSVGDepth+1) + strings.Repeat("</g>", repoicon.MaxSVGDepth+1),
+		"many":      strings.Repeat(`<rect width="1" height="1"/>`, repoicon.MaxSVGElems+1),
 		"laughs":    laughs,
 	} {
 		if img, err := Decode([]byte(head+body+"</svg>"), 100); err == nil {
 			t.Errorf("%s: drawn %v", name, img.Bounds())
 		}
-		if err := svgSafe([]byte(head + body + "</svg>")); strings.Contains(body, "<use") && (err == nil || !strings.Contains(err.Error(), "<use>")) {
+		if err := repoicon.SVGSafe([]byte(head + body + "</svg>")); strings.Contains(body, "<use") && (err == nil || !strings.Contains(err.Error(), "<use>")) {
 			t.Errorf("%s: refused for %v, not its <use>", name, err)
 		}
 	}
@@ -850,5 +851,51 @@ func TestFetch(t *testing.T) {
 	slices.Sort(asked)
 	if want := []string{"b.md", "b.md", "docs/a.md", "docs/a.md", "docs/i.png", "~/c.md"}; !slices.Equal(asked, want) {
 		t.Errorf("fetched %q, want %q", asked, want)
+	}
+}
+
+// A table's cells never share a text's styles or click state with the
+// blocks after it, however many rows it has.
+func TestTableCellKeys(t *testing.T) {
+	src := "| a | b |\n|-|-|\n" + strings.Repeat("| cell | cell |\n", 512) + "\nAFTER TABLE\n"
+	var d Doc
+	d.Set(Parse([]byte(src)))
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 1<<24)}}
+	d.Layout(gtx, theme.Dark())
+	for _, ss := range d.styles {
+		for _, s := range ss {
+			if s.Content == "AFTER" {
+				return
+			}
+		}
+	}
+	t.Error("the paragraph after the table was drawn with a cell's text")
+}
+
+// A flowchart is placed once, not again on every frame, and again when
+// the scale changes the sizes of its nodes.
+func TestGraphPlacedOnce(t *testing.T) {
+	var d Doc
+	d.Set(Parse([]byte("```mermaid\nflowchart TD\n  A[start] --> B{ok?}\n  B -->|yes| C[done]\n  B --> A\n```\n")))
+	g := d.blocks[0].Graph
+	if g == nil {
+		t.Fatal("no graph")
+	}
+	th := theme.Dark()
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 1<<20)}}
+	nodes := func() *image.Rectangle {
+		ops.Reset()
+		d.Layout(gtx, th)
+		return &d.graphs[g].pl.Nodes[0]
+	}
+	first := nodes()
+	if nodes() != first {
+		t.Error("the second frame placed the chart again")
+	}
+	gtx.Metric = unit.Metric{PxPerDp: 2, PxPerSp: 2}
+	if nodes() == first {
+		t.Error("a new scale kept the old placement")
 	}
 }

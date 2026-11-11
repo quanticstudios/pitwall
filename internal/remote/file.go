@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+
+	"github.com/quanticstudios/pitwall/internal/repoicon"
 )
 
 // MaxFileBytes is the largest file the phone reads, markdown or image.
@@ -25,17 +27,33 @@ var (
 	errNotFile = errors.New("not a file")
 	errLarge   = fmt.Errorf("larger than %d MiB", MaxFileBytes>>20)
 	errImage   = errors.New("not a PNG, JPEG, GIF, WebP or SVG image")
+	errLinked  = errors.New("that file has another hard link, which can be a file outside the tab's folder")
+	errChanged = errors.New("that file changed while it was opened")
+	errMoved   = errors.New("the tab's folder was moved or replaced since the phone first read from it")
 )
 
 var svgStart = regexp.MustCompile(`(?s)^\s*(<\?xml[^>]*>\s*)?(<!--.*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg\b`)
 
+// kind is "md" for a markdown file's name, "image" for an image's, else "".
+func kind(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".md", ".markdown":
+		return "md"
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+		return "image"
+	}
+	return ""
+}
+
 // ReadFile reads name for the phone: a markdown file, or an image one
-// shows, in the folder root. A relative name is cwd's, and ~/ is the home
-// folder. The file opens through os.OpenRoot, so neither a symlink nor
-// .. leaves root; it must be a regular file of at most MaxFileBytes, and
-// an image must be one by its content. It returns the bytes and their
-// Content-Type.
-func ReadFile(root, cwd, name string) ([]byte, string, error) {
+// shows, in the folder r, opened at root. A relative name is cwd's, and
+// ~/ is the home folder. The file opens through r, so neither a symlink
+// nor .. leaves it. A symlink is followed one link at a time, and the
+// file it ends at must be the same kind by its name, so alias.md ->
+// secret.txt is refused. That file must be a regular file with one link
+// and at most MaxFileBytes, and an image must be one by its content. It
+// returns the bytes and their Content-Type.
+func ReadFile(r *os.Root, root, cwd, name string) ([]byte, string, error) {
 	if root == "" || name == "" {
 		return nil, "", errOutside
 	}
@@ -54,25 +72,36 @@ func ReadFile(root, cwd, name string) ([]byte, string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return nil, "", errOutside
 	}
-	var ctype string
-	switch strings.ToLower(filepath.Ext(rel)) {
-	case ".md", ".markdown":
-		ctype = "text/markdown; charset=utf-8"
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
-	default:
+	want := kind(rel)
+	if want == "" {
 		return nil, "", errKind
 	}
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, "", err
+	// why: the file is checked before it is opened, as opening a FIFO
+	// waits for a writer, and again once open, in case the path changed
+	// in between.
+	var fi fs.FileInfo
+	for hops := 0; ; hops++ {
+		if fi, err = r.Lstat(rel); err != nil {
+			return nil, "", rootErr(err)
+		}
+		if fi.Mode()&fs.ModeSymlink == 0 {
+			break
+		}
+		t, err := r.Readlink(rel)
+		if err != nil {
+			return nil, "", rootErr(err)
+		}
+		if filepath.IsAbs(t) || hops == 40 {
+			return nil, "", errOutside
+		}
+		// why: not filepath.Join, which drops dir/.. by name; r resolves
+		// a .. after a symlinked folder as the kernel does.
+		rel = filepath.Dir(rel) + string(filepath.Separator) + t
 	}
-	defer r.Close()
-	// why: a FIFO is refused before it is opened, as opening one waits
-	// for a writer; the open does not wait either, and what it opened is
-	// checked again, in case the path changed in between.
-	if fi, err := r.Stat(rel); err != nil {
-		return nil, "", rootErr(err)
-	} else if !fi.Mode().IsRegular() {
+	if kind(rel) != want {
+		return nil, "", errKind
+	}
+	if !fi.Mode().IsRegular() {
 		return nil, "", errNotFile
 	}
 	f, err := r.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
@@ -80,11 +109,19 @@ func ReadFile(root, cwd, name string) ([]byte, string, error) {
 		return nil, "", rootErr(err)
 	}
 	defer f.Close()
-	if fi, err := f.Stat(); err != nil {
+	got, err := f.Stat()
+	if err != nil {
 		return nil, "", err
-	} else if !fi.Mode().IsRegular() {
-		return nil, "", errNotFile
-	} else if fi.Size() > MaxFileBytes {
+	}
+	if !os.SameFile(fi, got) {
+		return nil, "", errChanged
+	}
+	if n, err := links(f); err != nil {
+		return nil, "", err
+	} else if n > 1 {
+		return nil, "", errLinked
+	}
+	if got.Size() > MaxFileBytes {
 		return nil, "", errLarge
 	}
 	b, err := io.ReadAll(io.LimitReader(f, MaxFileBytes+1))
@@ -94,17 +131,74 @@ func ReadFile(root, cwd, name string) ([]byte, string, error) {
 	if len(b) > MaxFileBytes {
 		return nil, "", errLarge
 	}
-	if ctype == "" {
-		ctype = http.DetectContentType(b)
-		switch {
-		case ctype == "image/png" || ctype == "image/jpeg" || ctype == "image/gif" || ctype == "image/webp":
-		case strings.EqualFold(filepath.Ext(rel), ".svg") && svgStart.Match(b):
-			ctype = "image/svg+xml"
-		default:
-			return nil, "", errImage
+	if want == "md" {
+		return b, "text/markdown; charset=utf-8", nil
+	}
+	ctype := http.DetectContentType(b)
+	switch {
+	case ctype == "image/png" || ctype == "image/jpeg" || ctype == "image/gif" || ctype == "image/webp":
+	case strings.EqualFold(filepath.Ext(rel), ".svg") && svgStart.Match(b):
+		if err := repoicon.SVGSafe(b); err != nil {
+			return nil, "", err
 		}
+		ctype = "image/svg+xml"
+	default:
+		return nil, "", errImage
 	}
 	return b, ctype, nil
+}
+
+// pin is a tab's folder, opened at the phone's first read from it.
+type pin struct {
+	path string
+	root *os.Root
+}
+
+// folder is tab's folder at path, opened once and kept, so that when
+// the folder or one above it is replaced later, path now leading
+// elsewhere, reads are refused instead of following it. A folder that
+// was deleted, or a tab now in another folder, is opened again; a
+// closed tab's is closed.
+func (s *Server) folder(tab, path string) (*os.Root, error) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	for t, p := range s.pins {
+		if _, root, ok := s.Folder(t); !ok || root != p.path || gone(p.root) {
+			p.root.Close()
+			delete(s.pins, t)
+		}
+	}
+	p, ok := s.pins[tab]
+	if !ok {
+		r, err := os.OpenRoot(path)
+		if err != nil {
+			return nil, err
+		}
+		p = pin{path, r}
+		if s.pins == nil {
+			s.pins = map[string]pin{}
+		}
+		s.pins[tab] = p
+	}
+	now, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if was, err := p.root.Stat("."); err != nil || !os.SameFile(now, was) {
+		return nil, errMoved
+	}
+	return p.root, nil
+}
+
+// gone is whether r's folder was deleted.
+func gone(r *os.Root) bool {
+	f, err := r.Open(".")
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	n, err := links(f)
+	return err != nil || n == 0
 }
 
 // rootErr is err from os.Root without the path it repeats, and an escape
@@ -133,7 +227,12 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request, d Device) {
 		http.Error(w, "that tab is not open, or has no folder", http.StatusNotFound)
 		return
 	}
-	b, ctype, err := ReadFile(root, cwd, name)
+	fr, err := s.folder(tab, root)
+	var b []byte
+	var ctype string
+	if err == nil {
+		b, ctype, err = ReadFile(fr, root, cwd, name)
+	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		http.Error(w, "no such file", http.StatusNotFound)

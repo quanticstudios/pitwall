@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"path/filepath"
+	"slices"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -41,13 +42,26 @@ type Doc struct {
 	th      *theme.Theme
 	metric  unit.Metric
 	mono    float32
-	texts   map[int]*richtext.InteractiveText
-	styles  map[int][]richtext.SpanStyle // texts' spans styled, by the same key
-	clicks  map[int]*widget.Clickable    // image links
+	texts   map[part]*richtext.InteractiveText
+	styles  map[part][]richtext.SpanStyle // texts' spans styled, by the same key
+	clicks  map[part]*widget.Clickable    // image links
+	graphs  map[*Graph]placed
 	wide    map[int]*sideways
 	natural map[int][]int // a table's columns, unwrapped
 	cellOps op.Ops
 	cellTxt richtext.InteractiveText
+}
+
+// part is a text or image link in block Block: N 0 is the block's own
+// text, a table's cell N-1 counting by rows, an image block's image N.
+type part struct{ Block, N int }
+
+// placed is a flowchart's layout, for the node sizes, gap and rank it
+// was placed with.
+type placed struct {
+	sizes     []image.Point
+	gap, rank int
+	pl        Placed
 }
 
 // Pic is an image as a block shows it: Img at Size once loaded, else the
@@ -69,7 +83,7 @@ type sideways struct {
 // Set makes b the blocks drawn, dropping the old ones' state.
 func (d *Doc) Set(b []Block) {
 	d.blocks = b
-	d.texts, d.styles, d.clicks, d.wide, d.natural = nil, nil, nil, nil, nil
+	d.texts, d.styles, d.clicks, d.wide, d.natural, d.graphs = nil, nil, nil, nil, nil, nil
 }
 
 // Blocks are the blocks drawn.
@@ -163,7 +177,7 @@ func (d *Doc) Block(gtx gl.Context, th *theme.Theme, i int) gl.Dimensions {
 	var dims gl.Dimensions
 	switch b.Kind {
 	case Para:
-		dims = d.text(gtx, th, i*1024, b.Spans, body, fg, false)
+		dims = d.text(gtx, th, part{i, 0}, b.Spans, body, fg, false)
 		d.marker(gtx, th, b)
 	case Heading:
 		scale := map[int]float32{1: 1.75, 2: 1.45, 3: 1.2, 4: 1.05}[b.Level]
@@ -174,7 +188,7 @@ func (d *Doc) Block(gtx gl.Context, th *theme.Theme, i int) gl.Dimensions {
 				c = th.Muted
 			}
 		}
-		dims = d.text(gtx, th, i*1024, b.Spans, body*unit.Sp(scale), c, true)
+		dims = d.text(gtx, th, part{i, 0}, b.Spans, body*unit.Sp(scale), c, true)
 		if b.Level <= 2 {
 			y := dims.Size.Y + gtx.Dp(theme.SpaceS)
 			paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(w, y+1)}.Op())
@@ -235,11 +249,11 @@ func (d *Doc) marker(gtx gl.Context, th *theme.Theme, b *Block) {
 }
 
 // state is the click state of the text key names.
-func (d *Doc) state(key int) *richtext.InteractiveText {
+func (d *Doc) state(key part) *richtext.InteractiveText {
 	st := d.texts[key]
 	if st == nil {
 		if d.texts == nil {
-			d.texts = map[int]*richtext.InteractiveText{}
+			d.texts = map[part]*richtext.InteractiveText{}
 		}
 		st = &richtext.InteractiveText{}
 		d.texts[key] = st
@@ -262,7 +276,7 @@ func (d *Doc) clicked(gtx gl.Context, st *richtext.InteractiveText) {
 
 // text draws spans wrapped to the width, taking link clicks; key names
 // its click state.
-func (d *Doc) text(gtx gl.Context, th *theme.Theme, key int, spans []Span, size unit.Sp, c color.NRGBA, heading bool) gl.Dimensions {
+func (d *Doc) text(gtx gl.Context, th *theme.Theme, key part, spans []Span, size unit.Sp, c color.NRGBA, heading bool) gl.Dimensions {
 	st := d.state(key)
 	d.clicked(gtx, st)
 	return richtext.TextStyle{State: st, Styles: d.styled(key, th, spans, size, c, heading), Shaper: th.Shaper, LineHeightScale: 1.4}.Layout(gtx)
@@ -270,12 +284,12 @@ func (d *Doc) text(gtx gl.Context, th *theme.Theme, key int, spans []Span, size 
 
 // styled is d.rich of the text key names, styled once for its blocks
 // and theme.
-func (d *Doc) styled(key int, th *theme.Theme, spans []Span, size unit.Sp, c color.NRGBA, heading bool) []richtext.SpanStyle {
+func (d *Doc) styled(key part, th *theme.Theme, spans []Span, size unit.Sp, c color.NRGBA, heading bool) []richtext.SpanStyle {
 	if s, ok := d.styles[key]; ok {
 		return s
 	}
 	if d.styles == nil {
-		d.styles = map[int][]richtext.SpanStyle{}
+		d.styles = map[part][]richtext.SpanStyle{}
 	}
 	s := d.rich(th, spans, size, c, heading)
 	d.styles[key] = s
@@ -441,7 +455,7 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 				al = map[byte]text.Alignment{'c': text.Middle, 'r': text.End}[b.Align[c]]
 			}
 			cm := op.Record(gtx.Ops)
-			key := i*1024 + 1 + ri*cols + c
+			key := part{i, 1 + ri*cols + c}
 			st := d.state(key)
 			d.clicked(gtx, st)
 			dm := richtext.TextStyle{State: st, Styles: d.styled(key, th, cell, size, th.Fg, ri == 0), Shaper: th.Shaper, Alignment: al, LineHeightScale: 1.2}.Layout(cg)
@@ -563,13 +577,13 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 		at := image.Pt(x, y)
 		draw(at)
 		if im.Link != "" {
-			c := d.clicks[i*1024+k]
+			c := d.clicks[part{i, k}]
 			if c == nil {
 				if d.clicks == nil {
-					d.clicks = map[int]*widget.Clickable{}
+					d.clicks = map[part]*widget.Clickable{}
 				}
 				c = &widget.Clickable{}
-				d.clicks[i*1024+k] = c
+				d.clicks[part{i, k}] = c
 			}
 			for c.Clicked(gtx) {
 				if d.Follow != nil {
@@ -644,7 +658,18 @@ func (d *Doc) graph(gtx gl.Context, th *theme.Theme, g *Graph) gl.Dimensions {
 			rank = max(rank, 3*gtx.Sp(th.Sp(theme.Small))+gtx.Dp(24))
 		}
 	}
-	pl := g.Layout(sizes, gtx.Dp(28), rank)
+	// why: placing a big chart takes milliseconds, too long for each
+	// frame; the nodes' sizes follow the theme and scale.
+	gap := gtx.Dp(28)
+	c, ok := d.graphs[g]
+	if !ok || c.gap != gap || c.rank != rank || !slices.Equal(c.sizes, sizes) {
+		c = placed{sizes, gap, rank, g.Layout(sizes, gap, rank)}
+		if d.graphs == nil {
+			d.graphs = map[*Graph]placed{}
+		}
+		d.graphs[g] = c
+	}
+	pl := c.pl
 	scale := min(float32(1), float32(w-2*pad)/float32(max(pl.Size.X, 1)))
 	dw, dh := int(float32(pl.Size.X)*scale), int(float32(pl.Size.Y)*scale)
 	r := image.Rect(0, 0, w, dh+2*pad)

@@ -178,6 +178,9 @@ type Server struct {
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
 
+	pmu  sync.Mutex
+	pins map[string]pin // by tab, the folder its files are read from
+
 	mu    sync.Mutex
 	fails []time.Time // failed pairings and tokens in the last failWindow
 	now   func() time.Time

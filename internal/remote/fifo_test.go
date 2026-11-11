@@ -4,6 +4,7 @@ package remote
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -17,9 +18,14 @@ func TestFileRefusesFIFO(t *testing.T) {
 	if err := syscall.Mkfifo(filepath.Join(root, "pipe.md"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := ReadFile(root, root, "pipe.md")
+		_, _, err := ReadFile(r, root, root, "pipe.md")
 		done <- err
 	}()
 	select {

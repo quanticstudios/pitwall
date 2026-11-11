@@ -326,7 +326,14 @@ inside the tab's repo, or the tab's folder outside a repo. It serves
 checked by their content, up to 10 MiB each. It opens them through
 [`os.OpenRoot`](https://pkg.go.dev/os#OpenRoot), so neither `..` nor a
 symlink, including an absolute one inside the repo, reaches a file
-outside it, and it refuses anything but a regular file. Images from the
+outside it, and it refuses anything but a regular file. A symlink must
+end at a file of the same kind, so `notes.md -> secret.txt` is refused
+and `CLAUDE.md -> AGENTS.md` reads `AGENTS.md`. A file with a second hard
+link is refused, as that link can be outside the repo. pitwall opens the
+tab's folder at the phone's first read and keeps it open; if the folder,
+or one above it, is replaced by another one after that, reads fail until
+the tab is closed. An SVG gets the reader's checks before it is sent: no
+`<use>`, at most 64 levels deep and 20,000 elements. Images from the
 web load on the phone, by the reader's rules. A computer running an older
 pitwall serves no files, and the app leaves paths as plain text.
 

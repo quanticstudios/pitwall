@@ -3,7 +3,6 @@ package mdview
 import (
 	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"image"
@@ -27,6 +26,8 @@ import (
 	"github.com/srwiley/rasterx"
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
+
+	"github.com/quanticstudios/pitwall/internal/repoicon"
 )
 
 // Caps on what an image may cost.
@@ -295,7 +296,7 @@ func rasterSVG(b []byte, width int) (img image.Image) {
 			img = nil
 		}
 	}()
-	if svgSafe(b) != nil {
+	if repoicon.SVGSafe(b) != nil {
 		return nil
 	}
 	// workaround(oksvg be6e8873101c): it reads scale(s) as scale(s, 0).
@@ -325,45 +326,6 @@ func rasterSVG(b []byte, width int) (img image.Image) {
 	dst := image.NewRGBA(image.Rect(0, 0, iw, ih))
 	icon.Draw(rasterx.NewDasher(iw, ih, rasterx.NewScannerGV(iw, ih, dst, dst.Bounds())), 1)
 	return dst
-}
-
-// Caps on an SVG before oksvg reads it.
-const (
-	maxSVGDepth = 64    // nested elements
-	maxSVGElems = 20000 // elements
-)
-
-// svgSafe refuses an SVG oksvg could recurse forever in or spend too long
-// on: one with a <use>, deeper than maxSVGDepth, or with more than
-// maxSVGElems elements. oksvg draws a <use> by drawing its target again,
-// with no check for a cycle, and a Go stack overflow cannot be recovered.
-func svgSafe(b []byte) error {
-	depth, n := 0, 0
-	d := xml.NewDecoder(bytes.NewReader(b))
-	for {
-		tok, err := d.Token()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			switch {
-			case t.Name.Local == "use":
-				return errors.New("SVG has a <use>")
-			case depth >= maxSVGDepth:
-				return errors.New("SVG nested too deep")
-			}
-			depth++
-			if n++; n > maxSVGElems {
-				return errors.New("SVG has too many elements")
-			}
-		case xml.EndElement:
-			depth--
-		}
-	}
 }
 
 var svgDims = regexp.MustCompile(`(?s)<svg\b[^>]*`)
