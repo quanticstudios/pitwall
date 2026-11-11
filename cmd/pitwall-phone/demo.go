@@ -42,7 +42,7 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 	if err := d.fill(variant); err != nil {
 		return "", "", err
 	}
-	s := &remote.Server{Dir: dir,
+	s := &remote.Server{Dir: dir, Version: "demo",
 		Items:   func() []remote.Item { return nil },
 		Tabs:    d.list,
 		Changed: d.wait,
@@ -198,12 +198,20 @@ func (d *demo) fill(variant int) error {
 		deps := tab("deps", "main", "", "Bump the deps", "codex", "working", "Working", "chore/deps", ago(0))
 		notes := tab("notes", "main", "", "Write the release notes", "claude", "awaiting-input", "Input", "docs/release", ago(3))
 		notes.Detail, notes.Reply = "Should the notes name the contributors?", true
-		d.tabs = []remote.Tab{deps, notes}
+		lead := tab("lead", "demo", "", "Ship the v1.4 release", "claude", "working", "Working", "release/1.4", ago(0))
+		tests := tab("tests", "demo", "", "Port the flaky tests", "codex", "working", "Working", "fix/flaky", ago(1))
+		tests.Parent = "lead"
+		lint := tab("lint", "demo", "", "Fix the lint errors", "claude", "pending-approval", "Approval", "fix/lint", ago(2))
+		lint.Parent, lint.Detail, lint.Answer = "lead", "golangci-lint run ./...", true
+		d.tabs = []remote.Tab{lead, tests, lint, deps, notes}
 	}
 	// why: every daemon's ids are its own random ones; two demo servers in one app must not share any.
 	tag := hex.EncodeToString(binary.BigEndian.AppendUint64(nil, rand.Uint64()))[:6]
 	for i := range d.tabs {
 		d.tabs[i].ID, d.tabs[i].Pane = tag+d.tabs[i].ID, tag+d.tabs[i].Pane
+		if d.tabs[i].Parent != "" {
+			d.tabs[i].Parent = tag + d.tabs[i].Parent
+		}
 	}
 	return nil
 }

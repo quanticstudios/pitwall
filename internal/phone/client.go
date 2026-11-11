@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -222,8 +223,13 @@ func (c *Client) Older(ctx context.Context, pane string, before int64) ([]flow.E
 // Hello is the stream's first event.
 type Hello struct {
 	Device  string   `json:"device"`
+	Version string   `json:"version"` // the daemon's build; "" from an older daemon
 	Models  []string `json:"models"`
 	Efforts []string `json:"efforts"`
+	// Latency is how long the stream's request took to get its answer's
+	// first byte over an open connection: a round trip and the server's
+	// check of the token.
+	Latency time.Duration `json:"-"`
 }
 
 // Entries is a "reset" or "entries" event of the open chat.
@@ -266,6 +272,11 @@ func (c *Client) Stream(ctx context.Context, pane string, on func(Event)) error 
 	}
 	idle := time.AfterFunc(streamIdle, cancel)
 	defer idle.Stop()
+	var conn, first time.Time
+	r = r.WithContext(httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn:              func(httptrace.GotConnInfo) { conn = time.Now() },
+		GotFirstResponseByte: func() { first = time.Now() },
+	}))
 	resp, err := c.http.Do(r)
 	if err != nil {
 		return untrusted(err)
@@ -284,6 +295,9 @@ func (c *Client) Stream(ctx context.Context, pane string, on func(Event)) error 
 		case line == "":
 			if e, ok := decodeEvent(name, data); ok {
 				e.Pane = pane
+				if e.Name == "hello" && !conn.IsZero() && first.After(conn) {
+					e.Hello.Latency = first.Sub(conn)
+				}
 				on(e)
 			}
 			name, data = "", data[:0]

@@ -147,6 +147,10 @@ type Server struct {
 	Web *web.Client
 	WS  http.Handler
 
+	// Version is the daemon's build, as pitwall version prints it; the
+	// stream's hello names it.
+	Version string
+
 	// Tabs lists every tab for the chat page, and Changed is closed at the
 	// daemon's next change. ChatEntries is a chat tab's transcript, and the
 	// model its latest turn used; ok is false for no such chat.

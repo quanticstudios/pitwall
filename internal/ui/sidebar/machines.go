@@ -60,21 +60,24 @@ func (s *Sidebar) machine(host string) *machineState {
 // of folded sections. The active tab's section unfolds when the active
 // tab moves into it.
 func (s *Sidebar) sectionView(v *view) {
-	if v.inbox || s.TreeOnly || s.HostOf == nil || len(s.Hosts) < 2 {
+	if v.inbox || s.HostOf == nil || len(s.Hosts) < 2 {
 		return
 	}
-	of := map[string]string{}
-	shared := false
+	of, on := map[string]string{}, map[string]bool{}
 	for _, id := range v.top {
 		of[id] = s.hostOf(id)
-		shared = shared || of[id] != ""
+		on[of[id]] = true
 	}
-	if !shared {
+	// A tab on another host shares the session; with AllHosts, where every
+	// tab is on one, a second host does.
+	if s.AllHosts && len(on) < 2 || !s.AllHosts && len(on) == 1 && on[""] || len(on) == 0 {
 		return
 	}
 	v.sectioned, v.parts = true, map[string][]string{}
 	for _, h := range s.Hosts {
-		v.hosts = append(v.hosts, h.Name)
+		if on[h.Name] || !s.AllHosts {
+			v.hosts = append(v.hosts, h.Name)
+		}
 	}
 	for _, id := range v.top {
 		h := of[id]
@@ -186,7 +189,7 @@ func (s *Sidebar) machineHeader(gtx layout.Context, v *view, host string) {
 		acted = true
 		if s.HostSections {
 			s.toggleSection(v, host)
-		} else if host != "" {
+		} else if host != "" && !s.Touch {
 			s.toggleHostColor(host)
 		}
 	}
@@ -228,7 +231,7 @@ func (s *Sidebar) machineHeader(gtx layout.Context, v *view, host string) {
 	btn := gtx.Dp(20)
 	bx := w - btn - gtx.Dp(4)
 	end := bx - gtx.Dp(4)
-	plus := hovered && !down // a down host takes no new tab
+	plus := hovered && !down && !s.Touch // a down host takes no new tab, nor does a phone
 	hg := gtx
 	hg.Constraints = layout.Exact(image.Pt(w, h))
 	clickable(hg, &ms.head, func(gtx layout.Context) layout.Dimensions {

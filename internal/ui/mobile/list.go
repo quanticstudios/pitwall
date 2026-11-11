@@ -97,8 +97,9 @@ func (a *App) listLayout(gtx C) {
 				}
 				return layout.Center.Layout(gtx, func(gtx C) D { return body(gtx, th, th.Muted, msg) })
 			}
-			if shown != nil && !shown.online {
-				// The last list, dimmed, until the stream is back.
+			if shown != nil && !shown.online && len(a.sessionLinks()) == 1 {
+				// The last list, dimmed, until the stream is back. A
+				// session on several machines dims a down machine's rows.
 				defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
 			}
 			_, evs := a.sb.Layout(gtx, th, &a.st, a.session, "")
@@ -118,8 +119,21 @@ func (a *App) listLayout(gtx C) {
 	}
 }
 
-// shown is the link of the machine whose session the list shows.
-func (a *App) shown() *link { return a.linkOf(a.session) }
+// shown is the link of the machine whose session the list shows: in a
+// session on several machines the first that is not online, else the
+// first.
+func (a *App) shown() *link {
+	ls := a.sessionLinks()
+	for _, l := range ls {
+		if !l.online {
+			return l
+		}
+	}
+	if len(ls) == 0 {
+		return nil
+	}
+	return ls[0]
+}
 
 // answerRow presses Allow or Deny for a row's permission prompt.
 func (a *App) answerRow(ev sidebar.Answer) {
@@ -227,7 +241,7 @@ func badge(gtx C, th *theme.Theme, n int) D {
 func (a *App) hostTag(gtx C) D {
 	th := a.th
 	l := a.shown()
-	if l == nil {
+	if l == nil || len(a.sessionLinks()) > 1 { // the tree's machine lines name them
 		return D{}
 	}
 	name, col := l.m.Name, linkColor(th, l)
@@ -518,15 +532,15 @@ func (a *App) sessionMenu(gtx C) {
 		}
 		rows = append(rows, menuHeading(th, head))
 		for _, s := range a.st.Sessions {
-			if o, _ := a.fleet.Owner(s.ID); o.ID != m.ID {
+			if !a.on(s.ID, m.ID) {
 				continue
 			}
-			c := l.btn("s:" + s.ID)
+			c := l.btn("s:" + m.ID + "/" + s.ID)
 			if c.Clicked(gtx) {
 				a.session, a.picked, l.menu = s.ID, true, ""
 				return
 			}
-			rows = append(rows, a.sessionRow(c, s))
+			rows = append(rows, a.sessionRow(c, s, m.ID))
 		}
 	}
 	rows = append(rows, func(gtx C) D {
@@ -544,17 +558,23 @@ func (a *App) sessionMenu(gtx C) {
 	a.menuPanel(gtx, true, rows)
 }
 
-// sessionRow is a session in the menu: its name over its tabs and what
-// waits there, with a check on the one shown and a count on the others.
-func (a *App) sessionRow(c *widget.Clickable, s model.Session) layout.Widget {
+// sessionRow is a session in the menu under machine: its name over its
+// tabs there and what waits there, with a check on the one shown and a
+// count on the others. A session on several machines is under each.
+func (a *App) sessionRow(c *widget.Clickable, s model.Session, machine string) layout.Widget {
 	th := a.th
-	tabs := 0
+	tabs, waits := 0, 0
 	for _, w := range a.st.Workspaces {
-		if w.SessionID == s.ID {
+		if o, _ := a.fleet.Owner(w.ID); w.SessionID == s.ID && o.ID == machine {
 			tabs++
 		}
 	}
-	waits := phone.NeedsYou(&a.st, s.ID)
+	for _, act := range sidebar.Blocked(&a.st) {
+		w := a.st.Workspace(act.WorkspaceID)
+		if o, _ := a.fleet.Owner(act.WorkspaceID); w != nil && w.SessionID == s.ID && o.ID == machine {
+			waits++
+		}
+	}
 	sub := strconv.Itoa(tabs) + map[bool]string{true: " tab", false: " tabs"}[tabs == 1]
 	if waits > 0 {
 		sub += " · " + strconv.Itoa(waits) + " waiting"

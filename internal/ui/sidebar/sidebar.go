@@ -95,6 +95,11 @@ type Sidebar struct {
 	// TabNumber is a tab's number on its host ("box:3"), for a hover card;
 	// nil for none.
 	TabNumber func(id string) string
+	// AllHosts is a sidebar where no machine is this one, the phone app's:
+	// HostOf names a host for every tab and group, rows and group headers
+	// never show a host chip, and a session draws its machines' lines only
+	// when its tabs are on more than one, for those machines alone.
+	AllHosts bool
 	// HostSections draws a shared session's machines in the tree as
 	// headers that fold, not divider lines (machines.go).
 	HostSections bool

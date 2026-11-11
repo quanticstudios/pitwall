@@ -19,15 +19,16 @@ import (
 // redacts it, so the app needs no endpoint of its own.
 func State(tabs []remote.Tab) model.State { return stateOf("", tabs) }
 
-// stateOf is State with machine's id in every id, as NS makes them, so
-// two machines' sessions of one name stay two sessions and their tabs and
-// panes of one id stay two.
+// stateOf is State with machine's id in every tab, pane and group id, as
+// NS makes them, so two machines' tabs and panes of one id stay two, and
+// so do their groups of one name. A session's id is its name alone: two
+// machines' sessions of one name are one session, as a shared session is
+// in the window's sidebar.
 func stateOf(machine string, tabs []remote.Tab) model.State {
 	var st model.State
-	prefix := "s:" + NS(machine, "")
 	for _, t := range tabs {
 		t.ID, t.Pane = NS(machine, t.ID), NS(machine, t.Pane)
-		sid := prefix + t.Session
+		sid := "s:" + t.Session
 		s := st.Session(sid)
 		if s == nil {
 			st.Sessions = append(st.Sessions, model.Session{ID: sid, Name: t.Session})
@@ -36,7 +37,7 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 		top := t.ID
 		gid := ""
 		if t.Group != "" {
-			gid = sid + "/g:" + t.Group
+			gid = "s:" + NS(machine, "") + t.Session + "/g:" + t.Group
 			top = gid
 			if !slices.ContainsFunc(st.Projects, func(p model.Project) bool { return p.ID == gid }) {
 				st.Projects = append(st.Projects, model.Project{ID: gid, SessionID: sid, Name: t.Group, Kind: model.ProjectGroup})
@@ -53,6 +54,9 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 		w := model.Workspace{
 			ID: t.ID, SessionID: sid, ProjectID: gid, Name: t.Tab, Label: t.Tab, Branch: t.Branch, UpdatedAt: at,
 			Tabs: []model.Tab{{Layout: &pwlayout.Node{Pane: t.Pane}}},
+		}
+		if t.Parent != "" {
+			w.Parent = NS(machine, t.Parent)
 		}
 		if t.Chat {
 			// why: the sidebar then offers no Allow or Deny, which answer a terminal's
