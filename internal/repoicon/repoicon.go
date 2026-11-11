@@ -4,6 +4,8 @@
 package repoicon
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -38,6 +40,38 @@ func Files(root string) []string {
 		}
 	}
 	return files
+}
+
+// Read is the bytes of file, one of root's Files, opened through root so
+// that neither file nor a folder above it can be a symlink out of the repo,
+// and read only while it stays a regular file of at most Max bytes. It
+// checks again what Files checked, since the file may have been swapped.
+func Read(root, file string) ([]byte, error) {
+	rel, err := filepath.Rel(root, file)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return nil, errors.New("repoicon: not a regular file: " + file)
+	}
+	b, err := io.ReadAll(io.LimitReader(f, Max+1))
+	if err == nil && len(b) > Max {
+		err = errors.New("repoicon: over Max bytes: " + file)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // Root is the folder at or above dir that holds .git, a worktree's own

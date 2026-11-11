@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -42,9 +46,16 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 	if err := d.fill(variant); err != nil {
 		return "", "", err
 	}
-	s := &remote.Server{Dir: dir,
-		Items:   func() []remote.Item { return nil },
-		Tabs:    d.list,
+	icons := &remote.Icons{}
+	s := &remote.Server{Dir: dir, Version: "demo", Icons: icons,
+		Items: func() []remote.Item { return nil },
+		Tabs: func() []remote.Tab {
+			tabs := d.list()
+			for i := range tabs {
+				tabs[i].Icon = icons.Of(tabs[i].Dir)
+			}
+			return tabs
+		},
 		Changed: d.wait,
 		Send:    d.send,
 		Command: d.command,
@@ -181,6 +192,14 @@ func (d *demo) fill(variant int) error {
 		t.Picker = agent == "claude"
 		return t
 	}
+	repos, err := d.repos()
+	if err != nil {
+		return err
+	}
+	in := func(t remote.Tab, repo string) remote.Tab {
+		t.Repo, t.Dir = repo, repos[repo]
+		return t
+	}
 	rate := tab("rate", "demo", "api", "Add rate limits", "codex", "pending-approval", "Approval", "feat/rate-limit", ago(1))
 	rate.Detail, rate.Answer = "go test ./internal/limiter/...", true
 	pr := tab("pr", "demo", "api", "Review the PR", "pi", "awaiting-input", "Input", "review/1.4", ago(2))
@@ -193,17 +212,27 @@ func (d *demo) fill(variant int) error {
 	logs := tab("logs", "demo", "", "server logs", "terminal", "", "", "main", ago(180))
 	certs := tab("certs", "infra", "", "Rotate the certs", "claude", "error", "Error", "ops/certs", ago(4))
 	certs.Detail = "x509: certificate has expired"
+	rate, pr, fix, doc, site, certs = in(rate, "api"), in(pr, "api"), in(fix, "shop"), in(doc, "docs"), in(site, "docs"), in(certs, "infra")
 	d.tabs = []remote.Tab{rate, pr, fix, doc, site, logs, certs}
 	if variant == 1 {
 		deps := tab("deps", "main", "", "Bump the deps", "codex", "working", "Working", "chore/deps", ago(0))
 		notes := tab("notes", "main", "", "Write the release notes", "claude", "awaiting-input", "Input", "docs/release", ago(3))
 		notes.Detail, notes.Reply = "Should the notes name the contributors?", true
-		d.tabs = []remote.Tab{deps, notes}
+		lead := tab("lead", "demo", "", "Ship the v1.4 release", "claude", "working", "Working", "release/1.4", ago(0))
+		tests := tab("tests", "demo", "", "Port the flaky tests", "codex", "working", "Working", "fix/flaky", ago(1))
+		tests.Parent = "lead"
+		lint := tab("lint", "demo", "", "Fix the lint errors", "claude", "pending-approval", "Approval", "fix/lint", ago(2))
+		lint.Parent, lint.Detail, lint.Answer = "lead", "golangci-lint run ./...", true
+		lead, tests, lint, deps, notes = in(lead, "shop"), in(tests, "shop"), in(lint, "shop"), in(deps, "api"), in(notes, "docs")
+		d.tabs = []remote.Tab{lead, tests, lint, deps, notes}
 	}
 	// why: every daemon's ids are its own random ones; two demo servers in one app must not share any.
 	tag := hex.EncodeToString(binary.BigEndian.AppendUint64(nil, rand.Uint64()))[:6]
 	for i := range d.tabs {
 		d.tabs[i].ID, d.tabs[i].Pane = tag+d.tabs[i].ID, tag+d.tabs[i].Pane
+		if d.tabs[i].Parent != "" {
+			d.tabs[i].Parent = tag + d.tabs[i].Parent
+		}
 	}
 	return nil
 }
@@ -275,4 +304,45 @@ var raceTranscript = []string{
 var readmeTranscript = []string{
 	userLine("Update the README's install steps for the new installer."),
 	assistantLine(opus, "Done. The README now starts with `curl -fsSL https://example.com/get.sh | sh`, and the old manual steps moved under **Build from source**."),
+}
+
+// repos makes the demo's repos under d.dir, by name: api and shop with an
+// SVG favicon, infra with a PNG one, docs with none, for its letter tile.
+func (d *demo) repos() (map[string]string, error) {
+	tile := image.NewNRGBA(image.Rect(0, 0, 32, 32))
+	for i := range 32 * 32 {
+		x, y := i%32, i/32
+		c := color.NRGBA{R: 0x16, G: 0xa3, B: 0x4a, A: 0xff}
+		if x >= 10 && x < 22 && y >= 10 && y < 22 {
+			c = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+		}
+		tile.SetNRGBA(x, y, c)
+	}
+	var infra bytes.Buffer
+	if err := png.Encode(&infra, tile); err != nil {
+		return nil, err
+	}
+	files := map[string]map[string][]byte{
+		"api": {"public/favicon.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0ea5e9"/>` +
+			`<path d="M12 9l-5 7 5 7M20 9l5 7-5 7" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`)},
+		"shop": {"favicon.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#f59e0b"/>` +
+			`<path d="M8 11h16l-2.5 11h-11z" fill="#fff"/></svg>`)},
+		"infra": {"favicon.png": infra.Bytes()},
+		"docs":  {},
+	}
+	out := map[string]string{}
+	for name, fs := range files {
+		root := filepath.Join(d.dir, "repos", name)
+		fs[".git/HEAD"] = []byte("ref: refs/heads/main\n")
+		for f, b := range fs {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o700); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(filepath.Join(root, f), b, 0o600); err != nil {
+				return nil, err
+			}
+		}
+		out[name] = root
+	}
+	return out, nil
 }

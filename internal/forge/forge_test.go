@@ -167,28 +167,6 @@ func TestFailed(t *testing.T) {
 	}
 }
 
-// TestView runs a fake gh from PATH: it must ask for the fields with no
-// prompt, in the branch's folder.
-func TestView(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh is a shell script")
-	}
-	bin, dir := t.TempDir(), t.TempDir()
-	script := "#!/bin/sh\n[ \"$*\" = 'pr view --json " + Fields + "' ] && [ \"$GH_PROMPT_DISABLED\" = 1 ] && [ \"$(pwd -P)\" = '" + must(filepath.EvalSymlinks(dir)) + "' ] || { echo \"bad call: $*\" >&2; exit 2; }\ncat '" + filepath.Join(must(filepath.Abs("testdata")), "merged.json") + "'\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	pr, err := View(context.Background(), dir)
-	if err != nil || pr == nil || pr.Number != 118 || pr.State != model.PRMerged {
-		t.Fatalf("View = %+v, %v", pr, err)
-	}
-	t.Setenv("PATH", t.TempDir())
-	if _, err := View(context.Background(), dir); !errors.Is(err, ErrNoGH) {
-		t.Errorf("without gh: %v", err)
-	}
-}
-
 // TestIssues reads gh issue list --json output newest first, and runs a
 // fake gh that must be asked for open issues with the fields and the cap.
 func TestIssues(t *testing.T) {

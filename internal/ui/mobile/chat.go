@@ -62,7 +62,9 @@ type chatEnv struct {
 	// Do runs call off the window's goroutine and done on it after.
 	Do func(call func(ctx context.Context, api chatAPI) error, done func(error))
 	// Now is the clock, for tests and the demo; zero means time.Now.
-	Now time.Time
+	Attach    bool
+	PickImage func(clipboard bool, done func([]byte, error))
+	Now       time.Time
 	// OpenFile opens a markdown file the tab names in the reader, by its
 	// path and #fragment; nil when the computer serves no files, and then
 	// a path in a reply is plain text.
@@ -78,14 +80,16 @@ func (e *chatEnv) now() time.Time {
 
 // chatView is an open tab's chat.
 type chatView struct {
-	pane    string
-	data    phone.Chat
-	list    layout.List
-	rows    map[int64]*entryRow
-	loading bool   // a page of older entries is on its way
-	fresh   bool   // new entries came while scrolled up
-	files   bool   // replies link markdown paths: OpenFile is set
-	tapped  string // a link tapped in a reply this frame
+	pane       string
+	data       phone.Chat
+	tab        remote.Tab
+	tabUpdates uint64
+	list       layout.List
+	rows       map[int64]*entryRow
+	loading    bool   // a page of older entries is on its way
+	fresh      bool   // new entries came while scrolled up
+	files      bool   // replies link markdown paths: OpenFile is set
+	tapped     string // a link tapped in a reply this frame
 
 	backBtn, newBtn, retry widget.Clickable
 	card                   cardState
@@ -130,7 +134,10 @@ func (c *chatView) add(e phone.Entries) {
 }
 
 // update moves the sent messages along with t, from a new tab list.
-func (c *chatView) update(t remote.Tab, now time.Time) { c.data.Update(t, now) }
+func (c *chatView) update(t remote.Tab, now time.Time) {
+	c.tab, c.tabUpdates = t, c.tabUpdates+1
+	c.data.Update(t, now)
+}
 
 // handleBack is Back on the chat: it closes a menu, and false means
 // there was none, so Back goes to the sidebar. A focused field is not a
@@ -199,7 +206,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 			)
 		}),
 		layout.Rigid(func(gtx C) D {
-			if !env.Open || !asks(t) {
+			if !env.Open || !asks(t) || t.Question != nil {
 				return D{}
 			}
 			return c.askCard(gtx, th, env)
@@ -291,7 +298,7 @@ func (c *chatView) agentLine(t remote.Tab) string {
 	if n := agentName(t.Agent); n != "" {
 		parts = append(parts, n)
 	}
-	if m := c.cmp.modelShown(c.data.Model); m != "" {
+	if m := c.cmp.modelShown(c.currentModel(t)); m != "" {
 		parts = append(parts, m)
 	}
 	return strings.Join(parts, " · ")
@@ -452,13 +459,22 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 	} else {
 		working = ""
 	}
+	hasQuestion := env.Open && env.Tab.Question != nil
+	if hasQuestion {
+		n++
+	}
 	return c.list.Layout(gtx, n, func(gtx C, i int) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		in := layout.Inset{Left: 16, Right: 16, Bottom: 10}
 		if i == 0 {
 			in.Bottom = 0
 		}
-		return in.Layout(gtx, func(gtx C) D { return c.logItem(gtx, th, i, working) })
+		return in.Layout(gtx, func(gtx C) D {
+			if hasQuestion && i == n-1 {
+				return c.askCard(gtx, th, env)
+			}
+			return c.logItem(gtx, th, i, working)
+		})
 	})
 }
 
@@ -491,7 +507,7 @@ func (c *chatView) logItem(gtx C, th *theme.Theme, i int, working string) D {
 			continue
 		}
 		if i == 0 {
-			return prompt(gtx, th, p.Text, 0.6)
+			return prompt(gtx, th, p.Message(), 0.6)
 		}
 		i--
 	}
@@ -680,7 +696,7 @@ var toolOut = color.NRGBA{R: 0xcf, G: 0xd2, B: 0xd8, A: 0xff}
 
 // asks reports whether t waits on the user, for the card above the box.
 func asks(t remote.Tab) bool {
-	return t.Answer || len(t.Requests) > 0 || slices.Contains([]string{"pending-approval", "plan-ready", "awaiting-input"}, t.State)
+	return t.Question != nil || t.Answer || len(t.Requests) > 0 || slices.Contains([]string{"pending-approval", "plan-ready", "awaiting-input"}, t.State)
 }
 
 // The sidebar.Icon glyphs the chat draws.

@@ -160,3 +160,48 @@ func TestDownHostCard(t *testing.T) {
 		t.Errorf("allow_prompt answered a down host's card: %+v", ev)
 	}
 }
+
+// TestAllHosts draws the phone's tree, where every tab names its machine:
+// a session on laptop and box gets a line for each, in Hosts order, with
+// box's latency and no line for gpu, which has no tab there; a session on
+// box alone gets no line and no chip.
+func TestAllHosts(t *testing.T) {
+	now := time.Now()
+	st := model.State{
+		Sessions: []model.Session{{ID: "main", Name: "main"}, {ID: "solo", Name: "solo"}},
+		Workspaces: []model.Workspace{
+			{ID: "b1", SessionID: "main", Name: "box-tab"},
+			{ID: "l1", SessionID: "main", Name: "laptop-tab"},
+			{ID: "b2", SessionID: "solo", Name: "solo-tab"},
+		},
+	}
+	hosts := []HostInfo{{Name: "laptop", Up: true}, {Name: "gpu", Up: true}, {Name: "box", Up: true, Latency: 38 * time.Millisecond}}
+	on := map[string]string{"b1": "box", "l1": "laptop", "b2": "box"}
+	s := Sidebar{TreeOnly: true, AllHosts: true, Hosts: hosts, HostOf: func(id string) string { return on[id] }}
+	count := func(got []string, want string) int {
+		n := 0
+		for _, l := range got {
+			if l == want {
+				n++
+			}
+		}
+		return n
+	}
+	got := labels(func(gtx layout.Context) { s.Layout(gtx, theme.Dark(), &st, "main", "") }, 288, now)
+	l, b := slices.Index(got, "laptop"), slices.Index(got, "box")
+	// The semantic tree repeats a label at each level; a line's name comes
+	// with its health each time, a chip's alone.
+	if count(got, "laptop") != count(got, "connecting") || count(got, "box") != count(got, "38 ms") || l > b || l < 0 {
+		t.Fatalf("shared session %q; want a laptop line, then a box line, no chips", got)
+	}
+	if slices.Index(got, "laptop-tab") > b || slices.Index(got, "box-tab") < b {
+		t.Fatalf("shared session %q; want each tab under its machine's line", got)
+	}
+	if !slices.Contains(got, "38 ms") || slices.Contains(got, "gpu") || slices.Contains(got, "This machine") {
+		t.Fatalf("shared session %q; want box's latency, no gpu, no This machine", got)
+	}
+	got = labels(func(gtx layout.Context) { s.Layout(gtx, theme.Dark(), &st, "solo", "") }, 288, now)
+	if count(got, "box") != 0 || !slices.Contains(got, "solo-tab") {
+		t.Fatalf("one-machine session %q; want its tab with no line and no chip", got)
+	}
+}

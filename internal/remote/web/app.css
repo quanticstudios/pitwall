@@ -155,3 +155,5 @@ footer.compose {
 .sheet h2:first-child { margin-top: 0; }
 .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .choices .btn.on { border-color: var(--primary); color: var(--primary); }
+
+.question-option { display: block; width: 100%; min-height: 48px; margin: 8px 0; text-align: left; }

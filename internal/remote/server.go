@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -37,7 +38,8 @@ type Item struct {
 	Reply   bool   `json:"reply"`  // a reply works
 	// Requests are a chat's pending approvals and input requests, which
 	// the page answers by id; the daemon fills them from the snapshot.
-	Requests []Request `json:"requests,omitempty"`
+	Requests []Request       `json:"requests,omitempty"`
+	Question *agent.Question `json:"question,omitempty"`
 }
 
 // Request is one of a chat's pending approvals or input requests.
@@ -147,6 +149,10 @@ type Server struct {
 	Web *web.Client
 	WS  http.Handler
 
+	// Version is the daemon's build, as pitwall version prints it; the
+	// stream's hello names it.
+	Version string
+
 	// Tabs lists every tab for the chat page, and Changed is closed at the
 	// daemon's next change. ChatEntries is a chat tab's transcript, and the
 	// model its latest turn used; ok is false for no such chat.
@@ -156,12 +162,17 @@ type Server struct {
 	// Send types text into pane's agent once it sits at its input box,
 	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.
-	Send    func(pane, text string) (id uint64, err error)
-	Command func(pane, command string) error
+	Send      func(pane, text string) (id uint64, err error)
+	Command   func(pane, command string) error
+	Question  func(pane, id string, option int, text string) error
+	Upload    func(pane string, data []byte) (string, error)
+	SendImage func(pane, text, image string) (uint64, error)
 	// Folder is tab's working directory and the folder, its repo's or
 	// the one it runs in, that the files the phone reads for it must be
 	// in; ok is false for no such tab. Nil serves no files.
 	Folder func(tab string) (cwd, root string, ok bool)
+	// Icons, when set, serves the repo icons Tab.Icon names.
+	Icons *Icons
 
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
@@ -209,6 +220,15 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
 		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
 		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+		if s.Question != nil {
+			mux.Handle("POST /api/question", sameOrigin(s.authed(s.question)))
+		}
+		if s.Upload != nil {
+			mux.Handle("POST /api/upload", sameOrigin(s.authed(s.upload)))
+		}
+	}
+	if s.Icons != nil {
+		mux.Handle("GET /api/icon/{hash}", sameOrigin(s.authed(s.Icons.serve)))
 	}
 	if s.Folder != nil {
 		mux.Handle("GET /api/file", sameOrigin(s.authed(s.file)))

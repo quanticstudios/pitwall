@@ -138,6 +138,7 @@ func (d *Daemon) serveRemote(s phone) (stop func()) {
 func (d *Daemon) remoteServer() *remote.Server {
 	return &remote.Server{
 		Dir:         d.o.RemoteDir,
+		Version:     Build,
 		Items:       d.remoteItems,
 		Answer:      d.remoteAnswer,
 		Reply:       d.remoteReply,
@@ -148,6 +149,10 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatEntries: d.phoneChatEntries,
 		Send:        d.phoneSend,
 		Command:     d.phoneCommand,
+		Question:    d.phoneQuestion,
+		Upload:      d.phoneUpload,
+		SendImage:   d.phoneSendImage,
+		Icons:       &d.phoneIcons,
 		Folder:      d.phoneFolder,
 	}
 }
@@ -466,6 +471,9 @@ func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string) e
 func press(k key.Name, m vt.Modes) []byte {
 	if b := input.Key(key.Event{Name: k, State: key.Press}, m); b != nil {
 		return b
+	}
+	if k == key.NameSpace {
+		return input.Text(" ")
 	}
 	return input.Text(strings.ToLower(string(k)))
 }

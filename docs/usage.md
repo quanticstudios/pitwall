@@ -734,10 +734,40 @@ review is older than the last commit), checks still run, or it is a draft,
 has no approving review or is blocked by branch protection. Under that it
 lists the checks by name. Click the chip to open the pull request in your
 browser.
-The daemon asks `gh pr view` about each branch: at once for a new branch,
-every minute for an open pull request and every five for a branch without
-one, five times slower while no pitwall window has focus, and not at all
-for 15 minutes after GitHub says its rate limit is hit. It never asks you to
+The daemon reads each GitHub repository's open pull requests through `gh api`
+REST requests. Worktrees with the same base repository share one list, including
+all pages past 100 pull requests. The base repository comes from `gh`'s resolved
+remote, then `upstream`, then `origin`, or another GitHub remote. Each branch
+matches its push repository and local branch name. With `push.default` set to
+`upstream` or `tracking`, it uses the configured upstream branch name instead.
+Fork checkouts made with `gh pr checkout` also match a configured
+`refs/pull/<number>/head`.
+
+The daemon schedules open branches every minute and branches without a pull
+request every five minutes. An unfocused window makes these waits five times
+longer. The shared list refreshes at most once a minute while a tracked pull
+request has unfinished checks, or every five minutes when all tracked checks
+are finished. A completed `gh` command requests an immediate list and checks
+refresh for its branch.
+
+Each URL keeps an ETag; unchanged responses return 304 and do not consume
+GitHub's primary rate limit. Pull request details refresh when their timestamp,
+head commit or base branch changes, or mergeability is unknown. One conditional
+base-ref request per repository and base branch detects base changes without
+re-reading every pull request after unrelated pushes. Finished checks revalidate
+every five minutes; unfinished checks revalidate on each branch poll. Bodies
+cached for an old head commit are discarded when the head changes.
+
+Reviews refresh when the pull request's `updated_at` changes. GitHub's exact
+review decision needs one small GraphQL query at that timestamp change; routine
+polls reuse its answer. If GraphQL is unavailable, REST status still updates and
+the aggregate review chip stays empty until the next timestamp change. A pull
+request that leaves the open list gets one branch lookup for its closed or
+merged state. A merged pull request waits 24 hours unless a branch change or a
+completed `gh` command asks sooner.
+Below 20% of the REST budget, polling intervals become five times longer.
+At zero, requests pause until the reset time from GitHub's response headers.
+The daemon logs each budget mode change once. It never asks you to
 log in: without `gh`, or logged out, the row shows nothing. When `origin`
 is not on GitHub, such as GitLab, Gitea or Forgejo, and the branch has
 commits pushed there, the "…" menu has Open compare page in place of

@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -37,7 +36,7 @@ import (
 // findFavicon is the first of root's icon files that decodes, or nil.
 func findFavicon(root string) image.Image {
 	for _, f := range repoicon.Files(root) {
-		if b, err := os.ReadFile(f); err == nil {
+		if b, err := repoicon.Read(root, f); err == nil {
 			if img := decodeFavicon(f, b); img != nil {
 				return img
 			}
