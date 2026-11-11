@@ -65,7 +65,7 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 			// prompt; a chat's approvals carry a request id, which its chat answers.
 			w.Chat = t.Pane
 		}
-		pane := model.Pane{ID: t.Pane, WorkspaceID: t.ID, Provider: prov}
+		pane := model.Pane{ID: t.Pane, WorkspaceID: t.ID, Provider: prov, Exited: t.Exited, ExitCode: t.ExitCode, ExitUnknown: t.ExitUnknown}
 		if t.Icon != "" {
 			// why: the sidebar finds a row's repo by its folder, which the list never sends.
 			pane.Cwd = IconDir(machine, t.Icon, t.Repo)

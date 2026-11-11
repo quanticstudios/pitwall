@@ -416,6 +416,13 @@ func TestPhoneMidTurnHolds(t *testing.T) {
 			if got := p.got(); got != "" || d.phoneTabs()[0].Queued != 1 {
 				t.Fatalf("hold: typed %q, queue %d", got, d.phoneTabs()[0].Queued)
 			}
+			tabs := d.phoneTabs()
+			if tabs[0].Hold == "" {
+				t.Fatal("missing reason for held message")
+			}
+			if tc.draft && tabs[0].Hold != "you are typing in this tab on the desktop" {
+				t.Fatalf("draft hold: %q", tabs[0].Hold)
+			}
 			setScreen(p, []string{"────────", "❯ ", "────────"})
 			event(t, d, "a", "working")
 			if got := gotAfter(t, p, 0, len("held\r")); got != "held\r" {
@@ -542,7 +549,7 @@ func TestPhoneRoutesNeedAuth(t *testing.T) {
 	d, _, _ := phoneDaemon(t)
 	h := d.remoteServer().Handler()
 	for _, rt := range []struct{ method, path string }{
-		{"GET", "/api/stream"}, {"GET", "/api/chat?pane=a&before=9"}, {"POST", "/api/send"}, {"POST", "/api/command"}, {"POST", "/api/upload?pane=a"}, {"POST", "/api/question"},
+		{"GET", "/api/stream"}, {"GET", "/api/chat?pane=a&before=9"}, {"POST", "/api/send"}, {"POST", "/api/open"}, {"POST", "/api/command"}, {"POST", "/api/upload?pane=a"}, {"POST", "/api/question"},
 	} {
 		r := httptest.NewRequest(rt.method, rt.path, strings.NewReader(`{"pane":"a","text":"x","what":"model","value":"opus"}`))
 		w := httptest.NewRecorder()

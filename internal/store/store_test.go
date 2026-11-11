@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -832,5 +833,41 @@ func TestKeepFailsOnBadFolder(t *testing.T) {
 	tabs := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
 	if err := Save(path, tabs); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSaveClaudeWithoutTranscriptStartsFresh(t *testing.T) {
+	for _, contents := range []string{"missing", "", "conversation"} {
+		t.Run(contents, func(t *testing.T) {
+			dir := t.TempDir()
+			transcript := filepath.Join(dir, "session.jsonl")
+			if contents != "missing" {
+				if err := os.WriteFile(transcript, []byte(contents), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pane := model.Pane{Provider: model.ProviderClaude, SessionID: "s", Transcript: transcript, Held: true,
+				Cmd: []string{"claude", "--model", "sonnet", "--effort", "low", "--resume", "old"}}
+			st := model.State{Panes: []model.Pane{pane}}
+			path := filepath.Join(dir, "state.json")
+			if err := Save(path, st); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := RestoreCmd(got.Panes[0])
+			resumes := slices.Contains(cmd, "--resume")
+			if resumes != (contents == "conversation") {
+				t.Fatalf("command: %q", cmd)
+			}
+			if contents != "conversation" && (got.Panes[0].Held || !slices.Equal(cmd, []string{"claude", "--model", "sonnet", "--effort", "low"})) {
+				t.Fatalf("fresh pane: %#v", got.Panes[0])
+			}
+			if st.Panes[0].SessionID != "s" || !st.Panes[0].Held {
+				t.Fatal("save mutated caller")
+			}
+		})
 	}
 }

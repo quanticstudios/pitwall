@@ -143,8 +143,10 @@ func (c *codex) line(b *builder, line []byte) {
 		switch p.Name {
 		case "apply_patch":
 			a = patchFile(p.Input)
-		case "exec", "exec_command", "shell":
-			a = firstLine(p.Input)
+		case "exec":
+			a = execCommand(p.Input)
+		case "exec_command", "shell":
+			a = p.Input
 		}
 		b.call(ts, p.CallID, p.Name, a)
 	case "response_item/local_shell_call":

@@ -358,6 +358,7 @@ function entryEl(e) {
       if (!e.done) s.append(el('i', 'dot'));
       else if (e.failed) s.append(el('span', 'tstate', 'failed'));
       d.append(s);
+      if (e.arg) d.append(el('pre', 'out', e.arg));
       d.append(e.out ? el('pre', 'out', e.out) : el('p', 'note', e.done ? 'No output.' : 'Running.'));
       return d;
     }
@@ -464,7 +465,7 @@ function renderChatState() {
   $("attach").hidden = !(t && t.attach && hello.upload);
   cnote.hidden = !!(t && t.send);
   if (!t) cnote.textContent = 'This tab is not open now.';
-  else if (!t.send) cnote.textContent = 'This tab runs no agent, so it takes no messages from here.';
+  else if (!t.send) cnote.textContent = t.exited ? t.label + '. Open on desktop to restart the agent.' : 'This tab runs no agent, so it takes no messages from here.';
   text.placeholder = !t ? '' : running || t.state === 'pending-approval' ? 'Queue a message' : t.state === 'awaiting-input' ? 'Answer' : 'Message ' + agentName(t.agent);
   updatePending(t);
 }
@@ -500,7 +501,7 @@ function prettyModel(m) {
 function renderAsks(t) {
   const want = [];
   if (t && (t.question || t.answer || (t.requests && t.requests.length) || ['pending-approval', 'plan-ready', 'awaiting-input'].includes(t.state))) {
-    const k = [t.pane, t.at, t.question && t.question.id, (t.requests || []).map((r) => r.id)].join('|');
+    const k = [t.pane, t.at, t.allowBlocked, t.question && t.question.id, (t.requests || []).map((r) => r.id)].join('|');
     const c = cards.get(k) || askCard(t);
     cards.clear();
     cards.set(k, c);
@@ -550,7 +551,7 @@ function askCard(t) {
     if (t.detail) c.append(el('p', 'detail', t.detail));
     if (t.answer) {
       const row = el('div', 'opts');
-      const allow = el('button', 'btn primary', 'Allow');
+      const allow = el('button', 'btn primary', t.allowBlocked ? 'Open on desktop' : 'Allow');
       const deny = el('button', 'btn', 'Deny');
       const send = (yes) => {
         allow.disabled = deny.disabled = true;
@@ -558,7 +559,8 @@ function askCard(t) {
           .then(() => done(yes ? 'Allowed.' : 'Denied.'))
           .catch((e) => { allow.disabled = deny.disabled = false; failed(e); });
       };
-      allow.onclick = () => send(true);
+      allow.onclick = () => t.allowBlocked ? api('/api/open', { pane: t.pane }).then(() => done('Opened on desktop.')).catch(failed) : send(true);
+      if (t.allowBlocked) c.append(el('p', 'note', t.allowBlocked));
       deny.onclick = () => send(false);
       row.append(allow, deny);
       c.append(row);
@@ -724,7 +726,7 @@ function updatePending(t) {
       continue;
     }
     if (p.queued && !(t && t.queued > 0)) p.queued = false;
-    p.label.textContent = p.queued ? 'Queued' : 'Sent';
+    p.label.textContent = p.queued ? t && t.hold ? 'waiting: ' + t.hold : 'Queued' : 'Sent';
     // A tab without a transcript never shows the message; let it go after a while.
     if (!p.queued && !shown.size && Date.now() - p.at > 8000) { p.node.remove(); p.gone = true; }
   }

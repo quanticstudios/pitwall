@@ -102,8 +102,8 @@ func TestAgentTalk(t *testing.T) {
 
 	// prompt waits for the turn it typed, here into a permission prompt,
 	// and never types into one.
-	run(2, "blocked: Run make\n", "prompt", "1.2", "--wait", "--timeout", "30s", "block please")
-	run(2, "blocked: Run make\n", "prompt", "1.2", "--", "anything")
+	run(2, "blocked: Bash\nRun make\n", "prompt", "1.2", "--wait", "--timeout", "30s", "block please")
+	run(2, "blocked: Bash\nRun make\n", "prompt", "1.2", "--", "anything")
 	run(0, "block please", "read", "1.2", "--screen") // the terminal echoes what was typed
 
 	// A Codex sends its first hook with its first prompt, so pitwall types
@@ -184,7 +184,7 @@ func TestAgentSend(t *testing.T) {
 	// a script needs no pane, and one to its own pane is refused.
 	run(0, "#1.4\n", "split", "lead", "--", filepath.Join(bin, "claude"))
 	run(0, "idle\n", "wait", "1.4", "--until", "idle", "--timeout", "10s")
-	run(2, "blocked: Run make\n", "prompt", "1.4", "--wait", "--timeout", "10s", "block please")
+	run(2, "blocked: Bash\nRun make\n", "prompt", "1.4", "--wait", "--timeout", "10s", "block please")
 	run(0, "", "send", "1.4", "later")
 	run(0, `"queued":1,`, "ls", "--json")
 	t.Setenv("PITWALL_PANE", a)
