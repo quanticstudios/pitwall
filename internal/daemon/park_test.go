@@ -92,6 +92,8 @@ func TestParkIdleTimer(t *testing.T) {
 	if text := screenText(g); !strings.HasSuffix(text, "\nParked after 1h idle. Press Enter to resume.") || len(strings.Split(text, "\n")) != g.Rows {
 		t.Fatalf("the pane shows %q, want the notice alone on its last row", text)
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.saved.Activities == nil || !slices.ContainsFunc(f.saved.Activities, func(a model.Activity) bool { return a.State == model.StateParked }) {
 		t.Fatal("the parked state was not saved")
 	}

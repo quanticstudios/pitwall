@@ -140,7 +140,11 @@ type Options struct {
 	// PR is the pull request of the branch checked out at dir, nil for
 	// none (forge.View); nil never asks. ArchiveOnMerge reads [git]
 	// archive_on_merge; nil means off.
-	PR             func(ctx context.Context, dir string) (*model.PR, error)
+	PR func(ctx context.Context, dir string) (*model.PR, error)
+	// PRs batches timer reads by GitHub remote. PRWait reserves REST headroom.
+	PRs            func(context.Context, []string) map[string]forge.Result
+	PRWait         func(time.Time, time.Duration) time.Duration
+	PRInvalidate   func(string)
 	ArchiveOnMerge func() bool
 	// Settle reads [sidebar]: settle_after_days for settleLoop and
 	// settle_on_merge for pollPRs. nil settles nothing on its own.
@@ -327,6 +331,7 @@ func Defaults() Options {
 		log.Printf("timing log: %q", err)
 	}
 	awake := setting(config.Path(), func(s config.Settings) config.Settings { return s })
+	prs := forge.NewPoller()
 	return Options{
 		KeepAwake: func() (bool, time.Duration) {
 			s := awake()
@@ -354,7 +359,10 @@ func Defaults() Options {
 		Stats:             gitstat.Stats,
 		AddWorktree:       gitstat.AddWorktree,
 		RemoveWorktree:    gitstat.RemoveWorktree,
-		PR:                forge.View,
+		PR:                prs.View,
+		PRs:               prs.Poll,
+		PRWait:            prs.Wait,
+		PRInvalidate:      prs.Invalidate,
 		ArchiveOnMerge:    func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
 		Settle:            func() config.SidebarSettings { s, _ := config.Load(); return s.Sidebar },
 		AutoSendFailures:  func() bool { s, _ := config.Load(); return s.AutoSendFailures },

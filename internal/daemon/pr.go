@@ -75,6 +75,9 @@ func (d *Daemon) pokePR(id string) {
 	if s := d.prs.seen[prKey(d.st.LivePath(*w), w.Branch)]; s != nil {
 		s.at = time.Time{}
 	}
+	if d.o.PRInvalidate != nil {
+		d.o.PRInvalidate(d.st.LivePath(*w))
+	}
 	select {
 	case d.prs.wake <- struct{}{}:
 	default:
@@ -91,7 +94,8 @@ func (d *Daemon) hidden() bool {
 	return true
 }
 
-// pollPRs asks gh, one branch at a time, about every branch a tab is on
+// pollPRs batches due branches by GitHub remote when o.PRs is set. The
+// individual PR reader remains the test and embedding seam. It reads branches
 // whose answer forge.Next says is due at now, then sets State.PRs. A tab
 // whose PR it sees go from open to merged is archived, as the delete dialog
 // does with its branch box ticked, when [git] archive_on_merge is on and
@@ -120,7 +124,17 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		}
 		live[k] = true
 		s := d.prs.seen[k]
-		if s != nil && now.Before(s.at.Add(forge.Next(s.pr, s.err, s.fails, hidden))) || now.Before(d.prs.pause) {
+		interval := time.Duration(0)
+		if s != nil {
+			interval = forge.Next(s.pr, s.err, s.fails, hidden)
+		}
+		if d.o.PRWait != nil {
+			if d.o.PRWait(now, 0) > 0 {
+				continue
+			}
+			interval = d.o.PRWait(now, interval)
+		}
+		if s != nil && now.Before(s.at.Add(interval)) || now.Before(d.prs.pause) {
 			continue
 		}
 		jobs = append(jobs, job{k, dir})
@@ -142,16 +156,32 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		err error
 	}
 	answers := map[string]got{}
-	for _, j := range jobs {
-		cctx, cancel := context.WithTimeout(ctx, prTimeout)
-		pr, err := d.o.PR(cctx, j.dir)
-		cancel()
+	if d.o.PRs != nil && len(jobs) > 0 {
+		dirs := make([]string, 0, len(jobs))
+		for _, j := range jobs {
+			dirs = append(dirs, j.dir)
+		}
+		// Each REST request has its own timeout; a repo can need many pages.
+		batch := d.o.PRs(ctx, dirs)
 		if ctx.Err() != nil {
 			return
 		}
-		answers[j.key] = got{pr, err}
-		if errors.Is(err, forge.ErrRateLimited) {
-			break
+		for _, j := range jobs {
+			r := batch[j.dir]
+			answers[j.key] = got{r.PR, r.Err}
+		}
+	} else {
+		for _, j := range jobs {
+			cctx, cancel := context.WithTimeout(ctx, prTimeout)
+			pr, err := d.o.PR(cctx, j.dir)
+			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			answers[j.key] = got{pr, err}
+			if errors.Is(err, forge.ErrRateLimited) {
+				break
+			}
 		}
 	}
 
@@ -176,8 +206,10 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		case errors.Is(a.err, forge.ErrNoGH):
 			s.pr, s.fails = nil, 0
 		case errors.Is(a.err, forge.ErrRateLimited):
-			d.prs.pause = now.Add(forge.RateLimitPause)
-			log.Printf("pull requests: %q; pausing", a.err)
+			if d.o.PRWait == nil {
+				d.prs.pause = now.Add(forge.RateLimitPause)
+				log.Printf("pull requests: %q; pausing", a.err)
+			}
 		default:
 			s.fails++
 			log.Printf("pull requests: %q", a.err)

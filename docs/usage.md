@@ -734,10 +734,23 @@ review is older than the last commit), checks still run, or it is a draft,
 has no approving review or is blocked by branch protection. Under that it
 lists the checks by name. Click the chip to open the pull request in your
 browser.
-The daemon asks `gh pr view` about each branch: at once for a new branch,
-every minute for an open pull request and every five for a branch without
-one, five times slower while no pitwall window has focus, and not at all
-for 15 minutes after GitHub says its rate limit is hit. It never asks you to
+The daemon reads each GitHub repository's open pull requests through `gh api`
+REST requests. Worktrees with the same remote share one list, including every
+page past 100 pull requests. It checks open pull requests every minute and
+branches without one every five minutes, five times slower while no pitwall
+window has focus. Each URL keeps an ETag; unchanged responses return 304 and
+do not consume GitHub's primary rate limit. Checks run again only while they
+are unfinished or the head commit changes. Reviews refresh when the pull
+request's `updated_at` changes. GitHub's exact review decision needs one
+small GraphQL query at that timestamp change; routine polls reuse its answer.
+If GraphQL is unavailable, REST status still updates and the aggregate review
+chip stays empty until the next timestamp change. A pull request that leaves
+the open list gets
+one branch lookup for its closed or merged state. A merged pull request waits
+24 hours unless a branch change or a completed `gh` command asks sooner.
+Below 20% of the REST budget, polling intervals become five times longer.
+At zero, requests pause until the reset time from GitHub's response headers.
+The daemon logs each budget mode change once. It never asks you to
 log in: without `gh`, or logged out, the row shows nothing. When `origin`
 is not on GitHub, such as GitLab, Gitea or Forgejo, and the branch has
 commits pushed there, the "…" menu has Open compare page in place of

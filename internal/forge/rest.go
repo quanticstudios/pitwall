@@ -1,0 +1,518 @@
+package forge
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/quanticstudios/pitwall/internal/gitstat"
+	"github.com/quanticstudios/pitwall/internal/model"
+)
+
+// Result is one directory's pull request, or the error that kept it unread.
+type Result struct {
+	PR  *model.PR
+	Err error
+}
+
+type response struct {
+	etag string
+	body []byte
+	link string
+}
+type pullCache struct {
+	updated, head string
+	decisionAt    string
+	data          ghPR
+	finished      bool
+}
+type repoCache struct {
+	at    time.Time
+	pulls []restPull
+}
+
+// Poller shares conditional REST responses across a daemon's worktrees.
+// All requests use gh's authentication without reading credentials.
+type Poller struct {
+	mu               sync.Mutex
+	budgetMu         sync.Mutex
+	urls             map[string]response
+	repos            map[string]repoCache
+	invalid          sync.Map
+	now              func() time.Time
+	pulls            map[string]pullCache
+	branches         map[string]*model.PR
+	remaining, limit int
+	reset            time.Time
+	mode             string
+}
+
+func NewPoller() *Poller {
+	return &Poller{urls: map[string]response{}, repos: map[string]repoCache{}, pulls: map[string]pullCache{}, branches: map[string]*model.PR{}, now: time.Now}
+}
+
+// Invalidate makes the next poll refresh repository lists after a gh command.
+func (p *Poller) Invalidate(dir string) { p.invalid.Store(dir, true) }
+
+// Wait stretches intervals below 20% of the REST budget and stops at zero.
+// A zero interval asks only whether all requests must pause.
+func (p *Poller) Wait(now time.Time, interval time.Duration) time.Duration {
+	return p.wait(now, interval)
+}
+func (p *Poller) wait(now time.Time, interval time.Duration) time.Duration {
+	p.budgetMu.Lock()
+	defer p.budgetMu.Unlock()
+	if p.limit > 0 && now.Before(p.reset) {
+		if p.remaining == 0 {
+			return p.reset.Sub(now)
+		}
+		if p.remaining*5 < p.limit {
+			return interval * 5
+		}
+	}
+	// Replace Next's fallback pause with the reset supplied by GitHub.
+	if p.mode == "paused until reset" && interval == RateLimitPause {
+		return 0
+	}
+	return interval
+}
+
+func (p *Poller) budget(h http.Header) {
+	p.budgetMu.Lock()
+	defer p.budgetMu.Unlock()
+	limit, e1 := strconv.Atoi(h.Get("X-RateLimit-Limit"))
+	left, e2 := strconv.Atoi(h.Get("X-RateLimit-Remaining"))
+	reset, e3 := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64)
+	if e1 != nil || e2 != nil || e3 != nil || limit <= 0 {
+		return
+	}
+	p.limit, p.remaining, p.reset = limit, left, time.Unix(reset, 0)
+	mode := "normal"
+	if left == 0 {
+		mode = "paused until reset"
+	} else if left*5 < limit {
+		mode = "slow (5x intervals)"
+	}
+	if mode != p.mode {
+		if p.mode != "" || mode != "normal" {
+			log.Printf("pull requests: REST budget %s (%d/%d remaining)", mode, left, limit)
+		}
+		p.mode = mode
+	}
+}
+
+// get reads headers even when gh exits nonzero for HTTP 304 or an error.
+func (p *Poller) get(ctx context.Context, dir, path string) (response, error) {
+	if p.wait(p.now(), 0) > 0 {
+		return response{}, ErrRateLimited
+	}
+	cached := p.urls[path]
+	args := []string{"api", "--include", "--method", "GET", path}
+	if cached.etag != "" {
+		args = append(args, "-H", "If-None-Match: "+cached.etag)
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, runerr := ghRaw(cctx, dir, args...)
+	if cctx.Err() != nil {
+		return response{}, cctx.Err()
+	}
+	res, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(out)), nil)
+	if err != nil {
+		if runerr != nil {
+			var exit *exec.ExitError
+			if errors.As(runerr, &exit) && exit.ExitCode() == 4 || strings.Contains(runerr.Error(), "gh auth login") {
+				return response{}, ErrNoGH
+			}
+			return response{}, runerr
+		}
+		return response{}, fmt.Errorf("gh api response: %w", err)
+	}
+	defer res.Body.Close()
+	p.budget(res.Header)
+	if res.StatusCode == http.StatusNotModified {
+		if cached.body == nil {
+			return response{}, errors.New("gh api: 304 without a cached response")
+		}
+		return cached, nil
+	}
+	if res.StatusCode == 403 && p.wait(p.now(), 0) > 0 || res.StatusCode == 429 {
+		return response{}, ErrRateLimited
+	}
+	if res.StatusCode == 401 {
+		return response{}, ErrNoGH
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return response{}, fmt.Errorf("gh api: HTTP %d", res.StatusCode)
+	}
+	if runerr != nil {
+		return response{}, runerr
+	}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return response{}, err
+	}
+	got := response{res.Header.Get("ETag"), body, res.Header.Get("Link")}
+	p.urls[path] = got
+	return got, nil
+}
+
+// restPages follows Link on cached pages too, so a 304 cannot hide page two.
+func restPages[T any](ctx context.Context, p *Poller, dir, path string) ([]T, error) {
+	var all []T
+	for path != "" {
+		r, err := p.get(ctx, dir, path)
+		if err != nil {
+			return nil, err
+		}
+		var items []T
+		if err := json.Unmarshal(r.body, &items); err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		path = nextPage(r.link)
+	}
+	return all, nil
+}
+
+type restPull struct {
+	Number     int        `json:"number"`
+	State      string     `json:"state"`
+	Draft      bool       `json:"draft"`
+	URL        string     `json:"html_url"`
+	Updated    string     `json:"updated_at"`
+	MergedAt   *time.Time `json:"merged_at"`
+	Mergeable  *bool      `json:"mergeable"`
+	MergeState string     `json:"mergeable_state"`
+	Head       struct {
+		Ref, SHA string
+		Repo     struct {
+			FullName string `json:"full_name"`
+		}
+	} `json:"head"`
+	Base struct{ Ref string } `json:"base"`
+}
+
+func repository(ctx context.Context, dir string) (string, string, error) {
+	out, err := gitstat.Command(ctx, dir, "config", "--get", "remote.origin.url").Output()
+	if err != nil {
+		return "", "", ErrNoGH
+	}
+	remote := strings.TrimSpace(string(out))
+	if strings.HasPrefix(remote, "git@") && !strings.Contains(remote, "://") {
+		remote = "ssh://" + strings.Replace(remote, ":", "/", 1)
+	}
+	u, err := url.Parse(remote)
+	if err != nil {
+		return "", "", ErrNoGH
+	}
+	host := strings.ToLower(u.Hostname())
+	// Account-specific SSH aliases keep the github.com- prefix.
+	if host != "github.com" && !(u.Scheme == "ssh" && strings.HasPrefix(host, "github.com-")) {
+		return "", "", ErrNoGH
+	}
+	remote = strings.TrimSuffix(strings.TrimPrefix(u.Path, "/"), ".git")
+	if strings.Count(remote, "/") != 1 {
+		return "", "", ErrNoGH
+	}
+	for _, part := range strings.Split(remote, "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", "", ErrNoGH
+		}
+		for _, r := range part {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.", r)) {
+				return "", "", ErrNoGH
+			}
+		}
+	}
+	branch, err := gitstat.Command(ctx, dir, "symbolic-ref", "--short", "HEAD").Output()
+	if err != nil {
+		return "", "", err
+	}
+	return strings.ToLower(remote), strings.TrimSpace(string(branch)), nil
+}
+
+// View reads one branch through REST. Poll batches timer-driven reads.
+func (p *Poller) View(ctx context.Context, dir string) (*model.PR, error) {
+	r := p.Poll(ctx, []string{dir})[dir]
+	return r.PR, r.Err
+}
+
+// Poll lists open pulls once per remote, then maps only that remote's heads.
+// A fork with the same branch name cannot provide another repository's PR.
+func (p *Poller) Poll(ctx context.Context, dirs []string) map[string]Result {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	type branch struct{ dir, name string }
+	repos := map[string][]branch{}
+	results := map[string]Result{}
+	for _, dir := range dirs {
+		repo, name, err := repository(ctx, dir)
+		if err != nil {
+			results[dir] = Result{Err: err}
+			continue
+		}
+		if _, invalid := p.invalid.LoadAndDelete(dir); invalid {
+			delete(p.repos, repo)
+			delete(p.branches, repo+":"+name)
+		}
+		repos[repo] = append(repos[repo], branch{dir, name})
+	}
+	for repo, branches := range repos {
+		dir := branches[0].dir
+		cached := p.repos[repo]
+		pulls := cached.pulls
+		var err error
+		if cached.at.IsZero() || !p.now().Before(cached.at.Add(p.wait(p.now(), OpenEvery))) {
+			pulls, err = restPages[restPull](ctx, p, dir, "repos/"+repo+"/pulls?state=open&per_page=100")
+			if err == nil {
+				p.repos[repo] = repoCache{p.now().Truncate(OpenEvery), pulls}
+			}
+		}
+		values := map[int]Result{}
+		open := map[string]restPull{}
+		for _, pr := range pulls {
+			if strings.EqualFold(pr.Head.Repo.FullName, repo) && pr.Number > open[pr.Head.Ref].Number {
+				open[pr.Head.Ref] = pr
+			}
+		}
+		for _, b := range branches {
+			if err != nil {
+				results[b.dir] = Result{Err: err}
+				continue
+			}
+			key := repo + ":" + b.name
+			pr, ok := open[b.name]
+			if !ok {
+				previous, known := p.branches[key]
+				if known && (previous == nil || previous.State != model.PROpen) {
+					results[b.dir] = Result{PR: previous}
+					continue
+				}
+				head := strings.Split(repo, "/")[0] + ":" + b.name
+				closed, e := restPages[restPull](ctx, p, b.dir, "repos/"+repo+"/pulls?state=all&head="+url.QueryEscape(head)+"&per_page=100")
+				if e != nil {
+					results[b.dir] = Result{Err: e}
+					continue
+				}
+				for _, c := range closed {
+					if c.Head.Ref == b.name && strings.EqualFold(c.Head.Repo.FullName, repo) && (!ok || c.Number > pr.Number) {
+						pr, ok = c, true
+					}
+				}
+				if !ok {
+					p.branches[key] = nil
+					results[b.dir] = Result{}
+					continue
+				}
+			}
+			value, done := values[pr.Number]
+			if !done {
+				value.PR, value.Err = p.pull(ctx, b.dir, repo, pr)
+				values[pr.Number] = value
+			}
+			results[b.dir] = value
+			if value.Err == nil {
+				p.branches[key] = value.PR
+			}
+		}
+	}
+	return results
+}
+
+func (p *Poller) pull(ctx context.Context, dir, repo string, pr restPull) (*model.PR, error) {
+	path := "repos/" + repo + "/pulls/" + strconv.Itoa(pr.Number)
+	old := p.pulls[path]
+	g := old.data
+	// Base updates can change mergeability without changing the head or updated_at.
+	r, err := p.get(ctx, dir, path)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(r.body, &pr); err != nil {
+		return nil, err
+	}
+	g.Number, g.State, g.IsDraft, g.URL, g.Head, g.Base = pr.Number, strings.ToUpper(pr.State), pr.Draft, pr.URL, pr.Head.SHA, pr.Base.Ref
+	if pr.MergedAt != nil {
+		g.State = "MERGED"
+	}
+	g.Mergeable, g.MergeState = "UNKNOWN", strings.ToUpper(pr.MergeState)
+	if pr.Mergeable != nil {
+		if *pr.Mergeable {
+			g.Mergeable = "MERGEABLE"
+		} else {
+			g.Mergeable = "CONFLICTING"
+		}
+	}
+	if old.updated != pr.Updated || old.head != pr.Head.SHA {
+		if err := p.reviews(ctx, dir, path, &g); err != nil {
+			return nil, err
+		}
+		if old.decisionAt != pr.Updated {
+			old.data.ReviewDecision, err = reviewDecision(ctx, dir, repo, pr.Number)
+			old.decisionAt = pr.Updated
+			p.pulls[path] = old
+			if err != nil {
+				log.Printf("pull requests: #%d review decision unavailable: %q", pr.Number, err)
+			}
+		}
+		g.ReviewDecision = old.data.ReviewDecision
+
+		if old.head != pr.Head.SHA || len(g.Commits) == 0 {
+			r, err := p.get(ctx, dir, "repos/"+repo+"/git/commits/"+pr.Head.SHA)
+			if err != nil {
+				return nil, err
+			}
+			var commit struct {
+				Committer struct{ Date time.Time }
+			}
+			if err := json.Unmarshal(r.body, &commit); err != nil {
+				return nil, err
+			}
+			g.Commits = nil
+			g.Commits = append(g.Commits, ghCommit{commit.Committer.Date})
+		}
+	}
+	finished := old.finished
+	if old.head != pr.Head.SHA || !finished {
+		var err error
+		finished, err = p.checks(ctx, dir, repo, pr.Head.SHA, &g)
+		if err != nil {
+			return nil, err
+		}
+	}
+	value := parse(g)
+	p.pulls[path] = pullCache{updated: pr.Updated, head: pr.Head.SHA, data: g, finished: finished, decisionAt: old.decisionAt}
+	return &value, nil
+}
+
+func (p *Poller) reviews(ctx context.Context, dir, path string, g *ghPR) error {
+	type review struct {
+		ID        int64
+		NodeID    string `json:"node_id"`
+		User      struct{ Login string }
+		State     string
+		Submitted time.Time `json:"submitted_at"`
+	}
+	reviews, err := restPages[review](ctx, p, dir, path+"/reviews?per_page=100")
+	if err != nil {
+		return err
+	}
+	latest := map[string]review{}
+	var authors []string
+	for _, r := range reviews {
+		if r.State == "PENDING" || r.State == "COMMENTED" {
+			continue
+		}
+		if _, ok := latest[r.User.Login]; !ok {
+			authors = append(authors, r.User.Login)
+		}
+		latest[r.User.Login] = r
+	}
+	g.Reviews = nil
+	for _, author := range authors {
+		r := latest[author]
+		item := ghReview{ID: r.NodeID, State: r.State, SubmittedAt: r.Submitted}
+		if item.ID == "" {
+			item.ID = strconv.FormatInt(r.ID, 10)
+		}
+		item.Author.Login = author
+		g.Reviews = append(g.Reviews, item)
+	}
+	return nil
+}
+
+func (p *Poller) checks(ctx context.Context, dir, repo, sha string, g *ghPR) (bool, error) {
+	path := "repos/" + repo + "/commits/" + sha
+	g.Checks = nil
+	finished := true
+	page := path + "/check-runs?per_page=100"
+	for page != "" {
+		r, err := p.get(ctx, dir, page)
+		if err != nil {
+			return false, err
+		}
+		var runs struct {
+			Runs []struct{ Name, Status, Conclusion string } `json:"check_runs"`
+		}
+		if err := json.Unmarshal(r.body, &runs); err != nil {
+			return false, err
+		}
+		for _, c := range runs.Runs {
+			status := strings.ToUpper(c.Status)
+			finished = finished && status == "COMPLETED"
+			g.Checks = append(g.Checks, ghCheck{Type: "CheckRun", Name: c.Name, Status: status, Conclusion: strings.ToUpper(c.Conclusion)})
+		}
+		page = nextPage(r.link)
+	}
+	page = path + "/status?per_page=100"
+	for page != "" {
+		r, err := p.get(ctx, dir, page)
+		if err != nil {
+			return false, err
+		}
+		var statuses struct {
+			Statuses []struct{ Context, State string }
+		}
+		if err := json.Unmarshal(r.body, &statuses); err != nil {
+			return false, err
+		}
+		for _, c := range statuses.Statuses {
+			state := strings.ToUpper(c.State)
+			finished = finished && state != "PENDING" && state != "EXPECTED"
+			g.Checks = append(g.Checks, ghCheck{Type: "StatusContext", Context: c.Context, State: state})
+		}
+		page = nextPage(r.link)
+	}
+	// No checks can mean GitHub has not created the runs yet.
+	return finished && len(g.Checks) > 0, nil
+}
+
+func nextPage(link string) string {
+	for _, part := range strings.Split(link, ",") {
+		if strings.Contains(part, `rel="next"`) {
+			raw, _, _ := strings.Cut(strings.TrimSpace(part), ">")
+			u, err := url.Parse(strings.TrimPrefix(raw, "<"))
+			if err == nil && u.Host == "api.github.com" {
+				return u.RequestURI()
+			}
+		}
+	}
+	return ""
+}
+
+// GitHub exposes aggregate review rules only through GraphQL. The caller
+// requests this field once per updated_at, including a failed attempt.
+func reviewDecision(ctx context.Context, dir, repo string, number int) (string, error) {
+	const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewDecision}}}`
+	owner, name, _ := strings.Cut(repo, "/")
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := gh(cctx, dir, "api", "graphql", "-f", "query="+query, "-f", "owner="+owner, "-f", "name="+name, "-F", "number="+strconv.Itoa(number))
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct{ ReviewDecision string }
+			}
+		}
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return "", err
+	}
+	return result.Data.Repository.PullRequest.ReviewDecision, nil
+}
