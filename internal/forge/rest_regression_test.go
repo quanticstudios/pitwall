@@ -98,11 +98,15 @@ func TestRESTForkRemotes(t *testing.T) {
 		name, head, ref string
 		config          [][2]string
 	}{
-		{"origin fork upstream base", "fork/widgets", "feature", [][2]string{{"remote.origin.url", "https://github.com/fork/widgets.git"}, {"remote.upstream.url", "https://github.com/example/widgets.git"}, {"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/feature"}}},
-		{"checkout writable fork", "fork/widgets", "feature", [][2]string{{"branch.local.remote", "https://github.com/fork/widgets.git"}, {"branch.local.pushRemote", "https://github.com/fork/widgets.git"}, {"branch.local.merge", "refs/heads/feature"}}},
+		{"origin fork upstream base", "fork/widgets", "feature", [][2]string{{"remote.origin.url", "https://github.com/fork/widgets.git"}, {"remote.upstream.url", "https://github.com/example/widgets.git"}, {"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/feature"}, {"push.default", "upstream"}}},
+		{"checkout writable fork", "fork/widgets", "feature", [][2]string{{"branch.local.remote", "https://github.com/fork/widgets.git"}, {"branch.local.pushRemote", "https://github.com/fork/widgets.git"}, {"branch.local.merge", "refs/heads/feature"}, {"push.default", "tracking"}}},
 		{"checkout read-only fork", "fork/widgets", "feature", [][2]string{{"branch.local.remote", "origin"}, {"branch.local.merge", "refs/pull/1/head"}}},
-		{"push remote wins", "fork/widgets", "feature", [][2]string{{"remote.fork.url", "git@github.com:fork/widgets.git"}, {"remote.pushDefault", "origin"}, {"branch.local.remote", "origin"}, {"branch.local.pushRemote", "fork"}, {"branch.local.merge", "refs/heads/feature"}}},
-		{"push default wins", "fork/widgets", "feature", [][2]string{{"remote.fork.url", "git@github.com:fork/widgets.git"}, {"remote.pushDefault", "fork"}, {"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/feature"}}},
+		{"push remote wins", "fork/widgets", "local", [][2]string{{"remote.fork.url", "git@github.com:fork/widgets.git"}, {"remote.pushDefault", "origin"}, {"branch.local.remote", "origin"}, {"branch.local.pushRemote", "fork"}, {"branch.local.merge", "refs/heads/feature"}}},
+		{"push default wins", "fork/widgets", "local", [][2]string{{"remote.fork.url", "git@github.com:fork/widgets.git"}, {"remote.pushDefault", "fork"}, {"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/feature"}}},
+		{"tracks base branch", "example/widgets", "local", [][2]string{{"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/main"}}},
+		{"tracks base branch simple", "example/widgets", "local", [][2]string{{"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/main"}, {"push.default", "simple"}}},
+		{"tracks base branch current", "example/widgets", "local", [][2]string{{"branch.local.remote", "origin"}, {"branch.local.merge", "refs/heads/main"}, {"push.default", "current"}}},
+		{"tracks local branch", "example/widgets", "local", [][2]string{{"branch.local.remote", "."}, {"branch.local.merge", "refs/heads/main"}}},
 		{"resolved base wins", "example/widgets", "local", [][2]string{{"remote.upstream.url", "https://github.com/other/widgets.git"}, {"remote.origin.gh-resolved", "base"}}},
 		{"only custom remote", "example/widgets", "local", nil},
 	} {

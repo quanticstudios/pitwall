@@ -253,7 +253,7 @@ func repository(ctx context.Context, dir string) (branchRef, error) {
 		return b, err
 	}
 	b.name = strings.TrimSpace(string(branch))
-	out, err := gitstat.Command(ctx, dir, "config", "--get-regexp", `^(remote\..*\.(url|gh-resolved)|remote\.pushdefault|branch\..*\.(remote|pushremote|merge))$`).Output()
+	out, err := gitstat.Command(ctx, dir, "config", "--get-regexp", `^(remote\..*\.(url|gh-resolved)|remote\.pushdefault|push\.default|branch\..*\.(remote|pushremote|merge))$`).Output()
 	if err != nil {
 		return b, ErrNoGH
 	}
@@ -285,7 +285,7 @@ func repository(ctx context.Context, dir string) (branchRef, error) {
 	prefix := "branch." + b.name + "."
 	remote := config[prefix+"pushremote"]
 	for _, candidate := range []string{config["remote.pushdefault"], config[prefix+"remote"], "origin", baseRemote} {
-		if remote == "" && (candidate != "origin" || config["remote.origin.url"] != "") {
+		if remote == "" && candidate != "." && (candidate != "origin" || config["remote.origin.url"] != "") {
 			remote = candidate
 		}
 	}
@@ -297,7 +297,8 @@ func repository(ctx context.Context, dir string) (branchRef, error) {
 		return b, err
 	}
 	merge := config[prefix+"merge"]
-	if strings.HasPrefix(merge, "refs/heads/") {
+	pushDefault := config["push.default"]
+	if (pushDefault == "upstream" || pushDefault == "tracking") && strings.HasPrefix(merge, "refs/heads/") {
 		b.name = strings.TrimPrefix(merge, "refs/heads/")
 	} else if number, ok := strings.CutPrefix(merge, "refs/pull/"); ok {
 		number, ok = strings.CutSuffix(number, "/head")
@@ -316,7 +317,7 @@ func (p *Poller) View(ctx context.Context, dir string) (*model.PR, error) {
 }
 
 // Poll shares open pulls by base repository and matches each branch's push
-// repository and upstream ref, or the PR ref recorded by gh pr checkout.
+// repository and head branch, or the PR ref recorded by gh pr checkout.
 func (p *Poller) Poll(ctx context.Context, dirs []string) map[string]Result {
 	p.mu.Lock()
 	defer p.mu.Unlock()
