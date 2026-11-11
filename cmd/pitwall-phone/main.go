@@ -5,7 +5,7 @@
 //	-dir path          keep the pairing here (default: the app's data folder)
 //	-size WxH          window size in dp (default 412x915, a common phone)
 //	-demo n            pair with n demo servers of made-up tabs (box, laptop), in this process
-//	-serve-demo addr   serve that demo at addr and print its pairing link, no window
+//	-serve-demo addr   serve that demo at addr and print its pairing link, no window; with -demo 2, box's
 package main
 
 import (
@@ -35,7 +35,7 @@ func main() {
 		log.Fatalf("-size %q: want WxH", *size)
 	}
 	if *demoAddr != "" {
-		url, code, err := serveDemo(*demoAddr, 0)
+		url, code, err := serveDemo(*demoAddr, max(*demoApp-1, 0))
 		if err != nil {
 			log.Fatal(err)
 		}

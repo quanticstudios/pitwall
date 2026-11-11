@@ -173,6 +173,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 	s.cardAt = ""
 	s.cursorFrame(gtx, v, elems, total)
 	offs, moving := s.animate(gtx, elems, total)
+	s.sliding = moving
 	animating := false
 	byID := map[string]model.Workspace{}
 	for _, ws := range v.st.Workspaces {

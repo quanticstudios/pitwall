@@ -123,6 +123,9 @@ func Choosing(g vt.Grid) bool {
 // them, so it does not count. pasted is text just typed: a numbered list of
 // its own, echoed at the prompt from its first row, is not a menu.
 func FormUp(g vt.Grid, pasted string) bool {
+	if ReadQuestion(model.ProviderClaude, g) != nil || ReadQuestion(model.ProviderCodex, g) != nil {
+		return true
+	}
 	if s := State(g); s == model.StatePendingApproval || s == model.StatePlanReady || MenuHint(g) {
 		return true
 	}

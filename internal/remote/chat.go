@@ -26,20 +26,30 @@ type Tab struct {
 	Group  string `json:"group,omitempty"` // its group's name
 	Repo   string `json:"repo,omitempty"`  // its repo's or folder's base name
 	Branch string `json:"branch,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
 	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
 	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
-	Picker bool   `json:"picker"`         // model and effort: Claude Code in a terminal
+	Attach bool   `json:"attach,omitempty"`
+	Picker bool   `json:"picker"` // model and effort: Claude Code in a terminal
 	Queued int    `json:"queued,omitempty"`
 	// Dropped are the ids of phone messages the pane's agent left before
 	// they went in, which the page shows as not sent.
 	Dropped []uint64 `json:"dropped,omitempty"`
+	// Parent is the tab this one hangs under in the sidebar, its top
+	// ancestor (model.State.Root); "" for a tab the user opened.
+	Parent string `json:"parent,omitempty"`
+	// Icon is its repo's icon as GET /api/icon/{hash} serves it, NoIcon in
+	// a repo without one, "" outside a repo; Dir is the folder it is in now.
+	Icon string `json:"icon,omitempty"`
+	Dir  string `json:"-"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`
 }
 
-// Models and Efforts are what the model picker offers Claude Code, as
-// claude --model and --effort take them.
+// Models keeps Claude Code's family aliases so picks follow current releases.
+// Models and Efforts are accepted by Claude Code 2.1.322's slash commands and flags.
 var (
 	Models  = []string{"default", "fable", "opus", "opus[1m]", "sonnet", "haiku"}
 	Efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -66,7 +76,7 @@ func Tabs(st model.State, queued map[string]int) []Tab {
 }
 
 func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
-	t, exited := Tab{ID: w.ID, Branch: w.Branch}, false
+	t, exited := Tab{ID: w.ID, Branch: w.Branch, Parent: st.Root(w), Dir: st.LivePath(w)}, false
 	t.Tab, t.Session = w.Label, s.Name
 	if w.RepoRoot != "" {
 		t.Repo = filepath.Base(w.RepoRoot)
@@ -80,6 +90,7 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 			return t, false
 		}
 		t.Pane, t.Chat, t.Provider, t.Send = w.Chat, true, st.Chats[i].Provider, true
+		t.Model, t.Effort = st.Chats[i].Model, st.Chats[i].Effort
 	} else {
 		var p *model.Pane
 		if aps := st.AgentPanes(w); len(aps) > 0 {
@@ -196,7 +207,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 		fl.Flush()
 		return true
 	}
-	if !send("hello", map[string]any{"device": d.Name, "web": s.Web != nil, "models": Models, "efforts": Efforts}) {
+	if !send("hello", map[string]any{"device": d.Name, "version": s.Version, "web": s.Web != nil, "models": Models, "efforts": Efforts, "upload": s.Upload != nil}) {
 		return
 	}
 	log.Printf("remote: %q opened the stream", d.Name)
@@ -237,6 +248,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 			time.Sleep(tabsSettle)
 			fresh = true
 		case <-poll.C:
+			fresh = true // question pages can change without another activity hook
 		case <-ping.C:
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
@@ -359,13 +371,24 @@ func (s *Server) older(w http.ResponseWriter, r *http.Request, _ Device) {
 // sendText types or queues the phone's message for a tab's agent.
 func (s *Server) sendText(w http.ResponseWriter, r *http.Request, d Device) {
 	var req struct {
-		Pane string `json:"pane"`
-		Text string `json:"text"`
+		Pane  string `json:"pane"`
+		Text  string `json:"text"`
+		Image string `json:"image"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	id, err := s.Send(req.Pane, req.Text)
+	var id uint64
+	var err error
+	if req.Image != "" {
+		if s.SendImage == nil {
+			http.Error(w, "images are unavailable", http.StatusNotFound)
+			return
+		}
+		id, err = s.SendImage(req.Pane, req.Text, req.Image)
+	} else {
+		id, err = s.Send(req.Pane, req.Text)
+	}
 	if err != nil {
 		log.Printf("remote: %q: message to pane %s refused: %q", d.Name, req.Pane, err)
 		http.Error(w, err.Error(), http.StatusConflict)

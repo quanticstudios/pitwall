@@ -40,6 +40,9 @@ func (trace *ScreenTrace) emptyPlan(kind, line, low string) bool {
 }
 
 func (p *screenPatterns) readScreen(g vt.Grid, trace *ScreenTrace) Screen {
+	if ReadQuestion(model.ProviderClaude, g) != nil || ReadQuestion(model.ProviderCodex, g) != nil {
+		return ScreenForm
+	}
 	lines := bottomLines(g, screenLines)
 	busy := false
 	for _, l := range lines {
@@ -65,6 +68,10 @@ func (p *screenPatterns) readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 func State(g vt.Grid) model.AgentState { return activePatterns.Load().state(g, nil) }
 
 func (p *screenPatterns) state(g vt.Grid, trace *ScreenTrace) model.AgentState {
+	if ReadQuestion(model.ProviderClaude, g) != nil || ReadQuestion(model.ProviderCodex, g) != nil {
+		trace.decide("input")
+		return model.StateAwaitingInput
+	}
 	switch p.readScreen(g, trace) {
 	case ScreenBusy:
 		trace.decide("busy")

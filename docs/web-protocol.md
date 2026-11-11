@@ -737,8 +737,8 @@ of `capabilities`.
 <a id="pull-requests"></a>
 ## Pull requests
 
-pitwall already polls the pull request of every tab's branch (`forge.View`,
-backing off as `forge.Next` says). Each chat's list entry carries its
+pitwall already reads pull requests in batches by GitHub remote
+(`forge.Poller.Poll`, backing off as `forge.Next` and the REST budget say). Each chat's list entry carries its
 tab's as `pr`, so a client sees checks and reviews change through
 `sessionsChanged` and never calls GitHub itself:
 

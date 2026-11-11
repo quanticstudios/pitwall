@@ -28,22 +28,25 @@ import (
 // composer is the chat's message box: a field that grows to six lines,
 // and a toolbar with the model chip, the effort chip and the send button.
 type composer struct {
-	ed                 widget.Editor
-	field, send        widget.Clickable
-	modelChip, effChip widget.Clickable
-	scrim              widget.Clickable
-	items              map[string]*widget.Clickable
-	sending            bool    // a send is on its way
-	notSent            string  // why the last message did not go in
-	menu               string  // "model" or "effort" while its menu is open
-	picks              []*pick // picks waiting for the agent to sit idle, one per setting, oldest first
-	picking            bool    // the first pick is on its way
-	model, modelAt     string  // the last model picked, and the turn's model then
-	effort             string  // the last effort picked
-	note               string  // a pick that failed
-	chipX              [2]int  // the chips' left edges, which the menus open above
-	chipW              [2]int
-	inited             bool
+	ed                              widget.Editor
+	attachment                      *attachment
+	attach, pasteImage, removeImage widget.Clickable
+	loadingImage                    bool
+	field, send                     widget.Clickable
+	modelChip, effChip              widget.Clickable
+	scrim                           widget.Clickable
+	items                           map[string]*widget.Clickable
+	sending                         bool    // a send is on its way
+	notSent                         string  // why the last message did not go in
+	menu                            string  // "model" or "effort" while its menu is open
+	picks                           []*pick // picks waiting for the agent to sit idle, one per setting, oldest first
+	picking                         bool    // the first pick is on its way
+	model, modelAt                  string  // the last model picked, and the turn's model then
+	effort, effortAt                string  // the last effort picked, and the server's effort then
+	note                            string  // a pick that failed
+	chipX                           [2]int  // the chips' left edges, which the menus open above
+	chipW                           [2]int
+	inited                          bool
 }
 
 // pick is a /model or /effort to type once the agent waits at its prompt.
@@ -114,7 +117,7 @@ func queueLine(t remote.Tab, ps []*phone.Pending, notSent string) (bold, rest st
 		return "Not sent:", notSent, true
 	}
 	if i := slices.IndexFunc(ps, func(p *phone.Pending) bool { return p.Err != "" }); i >= 0 {
-		return "Not sent:", strings.Join(strings.Fields(ps[i].Text), " "), true
+		return "Not sent:", strings.Join(strings.Fields(ps[i].Message()), " "), true
 	}
 	var queued []*phone.Pending
 	for _, p := range ps {
@@ -127,7 +130,7 @@ func queueLine(t remote.Tab, ps []*phone.Pending, notSent string) (bold, rest st
 		return "", "", false
 	}
 	if len(queued) > 0 {
-		rest = strings.Join(strings.Fields(queued[0].Text), " ")
+		rest = strings.Join(strings.Fields(queued[0].Message()), " ")
 	}
 	return fmt.Sprintf("%d queued", n), rest, false
 }
@@ -197,7 +200,12 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	}
 	c.firePick(env)
 	k.ed.ReadOnly = k.sending
-	st := sendStateOf(k.ed.Text(), k.sending, env.Online, busy(t))
+	draft := k.ed.Text()
+	if k.attachment != nil {
+		draft += "image"
+	}
+	st := sendStateOf(draft, k.sending || k.loadingImage, env.Online, busy(t))
+	c.imageClicks(gtx, env)
 	if k.send.Clicked(gtx) && (st == sendReady || st == sendQueue) {
 		c.sendDraft(env)
 		st = sendSending
@@ -227,6 +235,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 				}
 				return strip(gtx, th, bold, rest, bad)
 			}),
+			layout.Rigid(func(gtx C) D { return c.attachments(gtx, th, env) }),
 			layout.Rigid(func(gtx C) D {
 				return msgBox(gtx, th, focused, !env.Online, func(gtx C) D {
 					fieldW := func(gtx C) D { return k.drawField(gtx, th, placeholder(t)) }
@@ -247,9 +256,9 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 							return layout.Inset{Left: 6, Right: 4, Bottom: 2}.Layout(gtx, func(gtx C) D {
 								gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(50))
 								return midFlex(gtx,
-									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 0) }),
+									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 0, t) }),
 									layout.Rigid(layout.Spacer{Width: 8}.Layout),
-									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 1) }),
+									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 1, t) }),
 									layout.Flexed(1, func(gtx C) D { return D{Size: image.Pt(gtx.Constraints.Min.X, 0)} }),
 									layout.Rigid(sendW),
 								)
@@ -447,7 +456,7 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 
 // chip is the model chip (0) or the effort chip (1): 36dp in a 48dp hit
 // area, its name capped at 132dp so the send button never moves.
-func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
+func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 	k := &c.cmp
 	btn, what := &k.modelChip, "model"
 	if which == 1 {
@@ -458,7 +467,7 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 	open := k.menu == what
 	name := ""
 	if which == 0 {
-		name = k.modelShown(c.data.Model)
+		name = k.modelShown(c.currentModel(t))
 		if name == "" {
 			name = "Model"
 		}
@@ -466,7 +475,7 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 			name = modelName(pk.value)
 		}
 	} else {
-		name = k.effort
+		name = k.effortShown(t.Effort)
 		if pend {
 			name = pk.value
 		}
@@ -562,12 +571,29 @@ func effortGlyph(gtx C, th *theme.Theme, level int, col color.NRGBA) D {
 func (c *chatView) sendDraft(env chatEnv) {
 	k := &c.cmp
 	text := k.ed.Text()
+	attachment := k.attachment
 	k.sending, k.notSent = true, ""
 	pane := c.pane
 	p := c.data.Send(text)
+	p.Image = attachment != nil
+	tabUpdates := c.tabUpdates
 	var id uint64
 	env.Do(func(ctx context.Context, api chatAPI) (err error) {
-		id, err = api.Send(ctx, pane, text)
+		if attachment != nil {
+			a, ok := api.(imageAPI)
+			if !ok {
+				return fmt.Errorf("images are unavailable")
+			}
+			if attachment.remote == "" {
+				attachment.remote, err = a.Upload(ctx, pane, attachment.data)
+				if err != nil {
+					return err
+				}
+			}
+			id, err = a.SendImage(ctx, pane, text, attachment.remote)
+		} else {
+			id, err = api.Send(ctx, pane, text)
+		}
 		return err
 	}, func(err error) {
 		if c.pane != pane {
@@ -579,11 +605,21 @@ func (c *chatView) sendDraft(env chatEnv) {
 			k.notSent = err.Error()
 			return
 		}
+		if k.attachment == attachment {
+			k.attachment = nil
+		}
 		if k.ed.Text() == text {
 			k.ed.SetText("")
 		}
 		if c.data.Has(p) { // else the transcript showed it before this answer
-			c.data.Sent(p, id, env.Tab, env.now())
+			tab := env.Tab
+			if c.tabUpdates != tabUpdates {
+				tab = c.tab
+			}
+			c.data.Sent(p, id, tab, env.now())
+			if c.tabUpdates != tabUpdates {
+				c.data.Update(tab, env.now()) // the queue can drain before the HTTP answer arrives
+			}
 		}
 		c.list.Position = layout.Position{BeforeEnd: false}
 	})
@@ -604,9 +640,6 @@ func (c *chatView) firePick(env chatEnv) {
 			return
 		}
 		k.picking = false
-		if phone.IsBusy(err) {
-			return // a turn began first: the pick waits for the next idle
-		}
 		k.picks = slices.DeleteFunc(k.picks, func(q *pick) bool { return q == p })
 		if err != nil {
 			k.note = sentence(err.Error())
@@ -614,9 +647,9 @@ func (c *chatView) firePick(env chatEnv) {
 		}
 		k.note = ""
 		if p.what == "model" {
-			k.model, k.modelAt = p.value, c.data.Model
+			k.model, k.modelAt = p.value, c.currentModel(env.Tab)
 		} else {
-			k.effort = p.value
+			k.effort, k.effortAt = p.value, env.Tab.Effort
 		}
 	})
 }
@@ -637,12 +670,12 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	which := 0
 	current := ""
 	if k.menu == "model" {
-		values, width, current = env.Models, 268, k.modelShown(c.data.Model)
+		values, width, current = env.Models, 268, k.modelShown(c.currentModel(env.Tab))
 		if p := k.pending("model"); p != nil {
 			current = modelName(p.value)
 		}
 	} else {
-		values, width, which, current = env.Efforts, 236, 1, k.effort
+		values, width, which, current = env.Efforts, 236, 1, k.effortShown(env.Tab.Effort)
 		if p := k.pending("effort"); p != nil {
 			current = p.value
 		}
@@ -658,6 +691,7 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 				k.note = ""
 			}
 			k.menu = ""
+			gtx.Execute(op.InvalidateCmd{})
 			return
 		}
 	}
@@ -685,7 +719,7 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 			on := false
 			name, note := v, ""
 			if which == 0 {
-				name, note = modelName(v), modelNote(v, c.data.Model)
+				name, note = modelName(v), modelNote(v, c.currentModel(env.Tab))
 				on = v != "default" && name == current
 			} else {
 				on = v == current

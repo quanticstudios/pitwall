@@ -99,7 +99,12 @@ func (a *App) machinesLayout(gtx C) {
 	if v.note != "" {
 		ws = append(ws, func(gtx C) D { return small(gtx, th, th.Readable(th.Red, th.Sidebar), v.note) }, gap(10))
 	}
-	ws = append(ws, func(gtx C) D { return kit.WideButton(gtx, th, &v.add, kit.Secondary, kit.Large, "Add machine") })
+	ws = append(ws, func(gtx C) D { return kit.WideButton(gtx, th, &v.add, kit.Secondary, kit.Large, "Add machine") },
+		gap(16), func(gtx C) D {
+			return layout.Center.Layout(gtx, func(gtx C) D {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, "pitwall for Android "+Version)
+			})
+		})
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx C) D {
 			return a.bar(gtx, func(gtx C) D { return iconButton(gtx, th, &v.back, icon("chevron-left")) }, func(gtx C) D {
@@ -148,6 +153,14 @@ func (a *App) machineCard(gtx C, id string) D {
 					}),
 					layout.Flexed(1, func(gtx C) D {
 						return pairField(gtx, th, v.names[id], "Name", th.UIFont, false, nil)
+					}),
+					layout.Rigid(func(gtx C) D {
+						if l.hello.Version == "" {
+							return D{}
+						}
+						return layout.Inset{Left: 8, Right: 6}.Layout(gtx, func(gtx C) D {
+							return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, 1, l.hello.Version)
+						})
 					}),
 				)
 			}),

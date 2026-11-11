@@ -22,12 +22,15 @@ import (
 // cardState is the card of what the open tab asks, kept while the tab
 // asks the same thing, so typing survives a new list.
 type cardState struct {
-	key         string
-	allow, deny widget.Clickable
-	reqs        []*reqState
-	busy        bool
-	note        string
-	bad         bool
+	key               string
+	allow, deny       widget.Clickable
+	reqs              []*reqState
+	busy              bool
+	note              string
+	bad               bool
+	questionBtns      []widget.Clickable
+	other             widget.Editor
+	submit, otherSend widget.Clickable
 }
 
 // reqState is one of a chat tab's requests: an approval, a plan or a
@@ -45,7 +48,11 @@ func cardKey(t remote.Tab) string {
 	for i, r := range t.Requests {
 		ids[i] = r.ID
 	}
-	return fmt.Sprintf("%s|%d|%s|%s", t.Pane, t.At, t.State, strings.Join(ids, ","))
+	qid := ""
+	if t.Question != nil {
+		qid = t.Question.ID
+	}
+	return fmt.Sprintf("%s|%d|%s|%s|%s", t.Pane, t.At, t.State, strings.Join(ids, ","), qid)
 }
 
 // askCard is the card above the composer while the tab asks something:
@@ -55,6 +62,9 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 	k, t := &c.card, env.Tab
 	if key := cardKey(t); key != k.key {
 		*k = cardState{key: key}
+		if t.Question != nil {
+			k.questionBtns = make([]widget.Clickable, len(t.Question.Options))
+		}
 		for _, r := range t.Requests {
 			rs := &reqState{picked: make([]string, len(r.Questions)), texts: make([]widget.Editor, len(r.Questions)), opts: make([][]widget.Clickable, len(r.Questions))}
 			for i, q := range r.Questions {
@@ -91,7 +101,9 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 		agent = "The agent"
 	}
 	var w []layout.Widget
-	if len(t.Requests) > 0 {
+	if t.Question != nil {
+		w = append(w, c.terminalQuestion(gtx, th, env, done)...)
+	} else if len(t.Requests) > 0 {
 		for i, r := range t.Requests {
 			if i < len(k.reqs) {
 				w = append(w, c.request(gtx, th, env, r, k.reqs[i], agent, done)...)

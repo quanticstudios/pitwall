@@ -249,6 +249,7 @@ func (d *Daemon) setHooksMissing(id string, missing bool) {
 func (d *Daemon) setProvider(id string, prov model.Provider) {
 	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 && d.st.Panes[i].Provider != prov {
 		d.st.Panes[i].Provider = prov
+		delete(d.phoneSettings, id)
 		d.changed()
 	}
 }
