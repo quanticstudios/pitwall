@@ -738,8 +738,10 @@ The daemon reads each GitHub repository's open pull requests through `gh api`
 REST requests. Worktrees with the same base repository share one list, including
 all pages past 100 pull requests. The base repository comes from `gh`'s resolved
 remote, then `upstream`, then `origin`, or another GitHub remote. Each branch
-matches its push repository and upstream branch name. Fork checkouts made with
-`gh pr checkout` also match a configured `refs/pull/<number>/head`.
+matches its push repository and local branch name. With `push.default` set to
+`upstream` or `tracking`, it uses the configured upstream branch name instead.
+Fork checkouts made with `gh pr checkout` also match a configured
+`refs/pull/<number>/head`.
 
 The daemon schedules open branches every minute and branches without a pull
 request every five minutes. An unfocused window makes these waits five times
