@@ -192,8 +192,13 @@ apps when Android asks.
 
 ### Pair
 
-Run `pitwall remote pair` on the computer and paste the link it prints into
-the app, or tap Enter the address and code instead. Against pitwall's own
+Run `pitwall remote pair` on the computer, then tap Scan QR code and point
+the phone at the code it shows, or at the one in Settings, Phone. The app
+pairs as soon as it reads the code. It asks for the camera the first time you
+tap Scan; if you say no, paste the link `pitwall remote pair` prints instead,
+or tap Enter the address and code instead. A QR code that is not a pairing
+link, such as a Wi-Fi code, leaves the camera open and says so. The camera
+closes when you tap Cancel, press Back or leave the app. Against pitwall's own
 certificate (`tls = true`), the app shows the certificate's SHA-256 next to
 the one `pitwall remote pair` printed; They match, pair trusts that
 certificate and no other. The app keeps its device token in its own
@@ -237,6 +242,7 @@ machines is under each.
 | Where you are                | Back                      |
 | ---------------------------- | ------------------------- |
 | Pairing                      | closes the app            |
+| Scanning a QR code           | returns to pairing        |
 | Sidebar                      | closes the app            |
 | A menu                       | closes the menu           |
 | Machines, or Add machine     | returns to the sidebar    |

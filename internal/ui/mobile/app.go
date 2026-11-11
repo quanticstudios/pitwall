@@ -71,6 +71,7 @@ type App struct {
 	adding, machines bool
 
 	pair  pairView
+	cam   camFeed
 	list  listView
 	mach  machinesView
 	chat  chatView
@@ -107,8 +108,11 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
+			stopCamera()
 			a.stop()
 			return e.Err
+		case app.ViewEvent:
+			setCameraView(e)
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {
@@ -438,12 +442,12 @@ func (a *App) chatLayout(gtx C) {
 
 // screen names what the window shows, so a frame can tell it changed.
 type screen struct {
-	pairing, machines, manual bool
-	untrusted, chat, menu     string
+	pairing, machines, manual, scanning bool
+	untrusted, chat, menu               string
 }
 
 func (a *App) screen() screen {
-	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.untrusted, a.chat.pane, a.list.menu}
+	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.pair.untrusted, a.chat.pane, a.list.menu}
 }
 
 func (a *App) layout(gtx C) {

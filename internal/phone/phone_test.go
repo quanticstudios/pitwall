@@ -40,6 +40,25 @@ func TestParseInvite(t *testing.T) {
 	}
 }
 
+func TestParseScan(t *testing.T) {
+	server, code, err := ParseScan("https://box.example.com/#pair=ABCD2345\n")
+	if err != nil || server != "https://box.example.com/" || code != "ABCD2345" {
+		t.Errorf("ParseScan = %q %q %v", server, code, err)
+	}
+	for _, text := range []string{
+		"WIFI:T:WPA;S:home;P:secret;;",
+		"https://example.com/",
+		"https://example.com/?pair=ABCD",
+		"box.example.com/#pair=ABCD", // a scan holds the whole link, never a bare host
+		"pitwall://box.example.com/#pair=ABCD",
+		"hello",
+	} {
+		if _, _, err := ParseScan(text); !errors.Is(err, ErrNotPairing) {
+			t.Errorf("ParseScan(%q) = %v; want ErrNotPairing", text, err)
+		}
+	}
+}
+
 func TestMachinesFile(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
 	if ms, err := LoadMachines(dir); err != nil || ms != nil {
