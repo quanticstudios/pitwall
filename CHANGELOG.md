@@ -17,6 +17,12 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- Agent startup hooks clear a detected terminal command so a slow-starting agent reaches idle and accepts prompts.
+
+- Review tests wait for canceled diff readers before restoring git hooks to prevent races between tests.
+
 ## v0.2.7
 
 - The Android app's list draws a session with the same name on several machines as one, as the window's sidebar draws a shared session: each machine's tabs under a thin line with its name and latency, or offline in red, and no machine chip on any row. Tabs an agent opened hang under its tab behind a bar of their states. The gear shows the app's version and each machine's pitwall version, and `scripts/apk.sh` stamps the APK with a version from the highest release tag in its history, whose code grows with each commit, so each build installs over the last. Waiting on you folds two or more tabs into one row until tapped. Rows lead with their repo's icon, or its letter tile, as in the window's sidebar.
