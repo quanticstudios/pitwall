@@ -891,7 +891,8 @@ still copies.
 
 Links in panes are underlined, both URLs in the text and OSC 8 hyperlinks.
 Ctrl+click one (Cmd+click on macOS) to open it in your browser, even inside
-Claude Code or Codex.
+Claude Code or Codex. Paths to markdown files (`.md`, `.markdown`) are links
+too, and they open in the [markdown reader](#markdown-reader).
 Set `links = false` under `[terminal]` to turn this off.
 
 In a pane running Claude Code or Codex, Ctrl+V and the paste key
@@ -1250,6 +1251,43 @@ blocks and reports when older blocks exceed that limit. Fullscreen apps
 have no command blocks. Close and reopen the browser to refresh its snapshot.
 The daemon keeps marks through an update handoff. Marks do not survive a
 restart that starts a new shell.
+
+### Markdown reader
+
+Ctrl+click (Cmd+click on macOS) a markdown file a pane prints, such as
+`docs/plan.md` or `~/notes/TODO.md:12`, an OSC 8 link to one, or a
+`file://` URL ending in `.md` or `.markdown`, and pitwall shows it in place
+of the tab's panes, as the board does. A relative path is read from the
+pane's folder. In [hints mode](#hints), opening a markdown path does the
+same unless `open_path` is set.
+
+The file is drawn in a column about 72 characters wide in your theme's
+fonts and colors: headings, lists, task lists, tables, block quotes,
+inline and fenced code, links and rules. Local images (PNG, JPEG, GIF's
+first frame, WebP and SVG) are read relative to the file and scaled down to
+the column. Images from `http` and `https` URLs are downloaded with a
+10-second timeout and a 5 MiB limit; local ones may be up to 20 MiB. An
+image that does not load shows its alt text, address and the reason.
+
+A ` ```mermaid ` block with a flowchart (`graph` or `flowchart`, any
+direction) is drawn as a diagram: boxes, rounded boxes, stadiums, diamonds
+and circles, with arrow labels and dotted or thick arrows. Subgraphs are
+drawn as plain nodes and `style` lines are ignored. Other diagram types,
+and flowcharts of more than 200 nodes, show as code with a note saying so.
+
+A click on a link to another markdown file opens it in the reader, and the
+back arrow or Backspace returns to the file before. Other links open as
+they do in a pane. The reader checks the file twice a second and draws it
+again when it changes, at the same scroll position.
+
+- j/k or Down/Up scroll a little, Space and PageDown/PageUp a screen
+  (Shift+Space back up), g or Home goes to the top, Shift+G or End to the
+  bottom. The mouse wheel and the scrollbar scroll too.
+- Escape or the × button closes the reader, and the pane has the keys
+  again. Switching tabs closes it as well.
+
+On a window for another machine (`pitwall --host`), markdown files are on
+that machine, and the reader says so instead of opening them.
 
 ### Grouping
 

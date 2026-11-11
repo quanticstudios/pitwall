@@ -223,6 +223,9 @@ func (u *ui) hintAct(gtx gl.Context, st *model.State, t hintTarget, open bool) {
 		u.copyText(gtx, t.Text, r)
 		return
 	}
+	if u.openReader(gtx, st, t.pane, target, r) {
+		return
+	}
 	if err := hintOpen(target); err != nil {
 		log.Printf("hints: open %q: %v", target, err)
 		u.copyText(gtx, t.Text, r)

@@ -21,6 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 )
 
 func TestModelName(t *testing.T) {
@@ -307,11 +308,11 @@ func TestOfflineText(t *testing.T) {
 // 120px per em, where upstream's top alignment is 2 to 3px off.
 func TestInlineCode(t *testing.T) {
 	th := Theme()
-	k := monoScale(th)
+	k := mdview.MonoScale(th)
 	if k < 0.8 || k > 1.2 {
 		t.Fatalf("monoScale = %v", k)
 	}
-	if ui, mono := xHeight(th, th.UIFont), float32(xHeight(th, th.MonoFont))*k; mono < float32(ui)-1 || mono > float32(ui)+1 {
+	if ui, mono := mdview.XHeight(th, th.UIFont), float32(mdview.XHeight(th, th.MonoFont))*k; mono < float32(ui)-1 || mono > float32(ui)+1 {
 		t.Errorf("x-height: text %d, inline code %v", ui, mono)
 	}
 
@@ -413,8 +414,8 @@ func TestGluePunct(t *testing.T) {
 		{[]string{"ends with space ", ". odd"}, []string{"ends with space ", ". odd"}},
 		{[]string{"x", "plain"}, []string{"x", "plain"}},
 	} {
-		if got := text(gluePunct(sp(c.in...))); !slices.Equal(got, c.want) {
-			t.Errorf("gluePunct(%q) = %q, want %q", c.in, got, c.want)
+		if got := text(mdview.GluePunct(sp(c.in...))); !slices.Equal(got, c.want) {
+			t.Errorf("mdview.GluePunct(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

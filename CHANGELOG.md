@@ -19,6 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- Ctrl+click a markdown file a pane prints, such as `docs/plan.md`, to read it in pitwall over the panes: headings, lists, tables, code, local and web images, and mermaid flowcharts drawn as diagrams. Links to other markdown files open in the same reader with Back, and it redraws when the file changes. Esc closes it. See [Markdown reader](docs/usage.md#markdown-reader).
 - The Android app pairs by scanning the QR code `pitwall remote pair` or Settings, Phone shows: Scan QR code on the pairing screen and on Add machine opens the camera, which the app asks for on that first tap. Paste and the address and code stay.
 - Scrolling tabs and chat in the Android app reuses GPU path buffers across frames. Long chats no longer allocate a widget closure for every entry on each frame.
 - An Android app, built with `sh scripts/apk.sh` and installed by hand: pitwall's sidebar as the home screen, with Waiting on you across sessions and Allow and Deny on a row, and each agent tab's chat with model, effort and send on the message box. It pairs with the link `pitwall remote pair` prints, with as many computers as you like in one sidebar, and reconnects to each on its own; see [Phone](docs/phone.md#android-app). The phone page's model list gains `opus[1m]`.
