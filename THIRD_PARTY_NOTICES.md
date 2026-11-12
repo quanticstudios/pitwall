@@ -136,18 +136,16 @@ Inc. pitwall's terminal emulator is x/vt. A copy lives in `third_party/x-vt`
 with one line changed to turn off alternate-screen scrollback; its license is
 in `third_party/x-vt/LICENSE` and the change in `third_party/x-vt/PATCH.md`.
 
-### gioui.org/x (vendored and patched, Android app only)
+### gioui.org/x (vendored and patched)
 
 <https://git.sr.ht/~eliasnaur/gio-x>, Unlicense OR MIT, Copyright (c) 2019
-The gio authors. The Android app's chat draws replies with its `markdown`,
-`richtext` and `styledtext` packages. A copy of those three at v0.10.3 lives
-in `third_party/gioui.org-x`, changed so a line's spans share its baseline
-and URLs in inline code stay code; its license is in
-`third_party/gioui.org-x/LICENSE` and the changes in
-`third_party/gioui.org-x/PATCH.md`. `markdown` parses with goldmark (MIT),
-whose license is under the Go modules below. The desktop's markdown reader
-parses with goldmark too, with its GFM extension, and draws inline text with
-`richtext`.
+The gio authors. The markdown reader, on the desktop and in the Android
+app's files and chat replies, draws inline text with its `richtext` and
+`styledtext` packages. A copy of those two at v0.10.3 lives in
+`third_party/gioui.org-x`, changed so a line's spans share its baseline; its
+license is in `third_party/gioui.org-x/LICENSE` and the change in
+`third_party/gioui.org-x/PATCH.md`. The reader parses markdown with goldmark
+(MIT) and its GFM extension, whose license is under the Go modules below.
 
 ### T3 Code
 
@@ -448,8 +446,6 @@ For more information, please refer to <https://unlicense.org/>
 ```
 
 ### gioui.org/x v0.10.3
-
-Linked into the Android app (`cmd/pitwall-phone`) only.
 
 ```text
 This project is dual-licensed under the UNLICENSE or

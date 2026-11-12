@@ -54,6 +54,18 @@ func Chat(s managed.Snapshot) Feed {
 	return f
 }
 
+// ToolPath is a chat's file tool call's file in full, "" for another
+// call.
+func ToolPath(t managed.ToolCall) string {
+	if p := filePath(t.ToolName, t.Input); p != "" {
+		return p
+	}
+	if len(t.Files) > 0 && t.Command == "" {
+		return t.Files[0].Path
+	}
+	return ""
+}
+
 // ToolArg is a short label for a chat's tool call: its command's first
 // line, else what Call.Arg shows for its input, else its first file's base
 // name.

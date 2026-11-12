@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -114,6 +115,9 @@ func newServer(t *testing.T) (*server, *httptest.Server) {
 		},
 		Send: func(pane, text string) (uint64, error) { return 7, nil },
 	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte("# A"), 0o600)
+	s.Folder = func(tab string) (string, string, bool) { return dir, dir, tab == "w1" }
 	h := s.Handler()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/stream" {
@@ -173,7 +177,7 @@ func TestPairStreamSend(t *testing.T) {
 		}
 		return Event{}
 	}
-	if e := next(); e.Name != "hello" || e.Hello.Device != "pixel" || e.Hello.Version != "v9.9.9" || e.Hello.Latency < 15*time.Millisecond || len(e.Hello.Models) == 0 {
+	if e := next(); e.Name != "hello" || e.Hello.Device != "pixel" || e.Hello.Version != "v9.9.9" || e.Hello.Latency < 15*time.Millisecond || len(e.Hello.Models) == 0 || !e.Hello.Files {
 		t.Fatalf("first event %+v", e)
 	}
 	if e := next(); e.Name != "tabs" || len(e.Tabs) != 1 || e.Tabs[0].Tab != "Fix the build" {
@@ -182,6 +186,12 @@ func TestPairStreamSend(t *testing.T) {
 	s.poke([]remote.Tab{{Item: remote.Item{Pane: "p1", Tab: "Fix the build", Session: "main", Agent: "claude", State: "completed"}, ID: "w1", Send: true}})
 	if e := next(); e.Name != "tabs" || e.Tabs[0].State != "completed" {
 		t.Fatalf("changed tabs %+v", e)
+	}
+	if b, err := c.File(ctx, "w1", "a.md"); err != nil || string(b) != "# A" {
+		t.Fatalf("File = %q %v", b, err)
+	}
+	if _, err := c.File(ctx, "w1", "../x.md"); err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("File outside: %v", err)
 	}
 	if id, err := c.Send(ctx, "p1", "run it again"); err != nil || id != 7 {
 		t.Fatalf("Send = %d %v", id, err)

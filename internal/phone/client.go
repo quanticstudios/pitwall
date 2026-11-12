@@ -258,13 +258,38 @@ func (c *Client) Older(ctx context.Context, pane string, before int64) ([]flow.E
 	return out.Entries, out.More, err
 }
 
-// Hello is the stream's first event.
+// File is the markdown file, or an image one shows, at path in tab's
+// folder, a relative path read from the tab's working directory, as the
+// computer reads it.
+func (c *Client) File(ctx context.Context, tab, path string) ([]byte, error) {
+	r, err := c.request(ctx, "GET", "api/file?"+url.Values{"tab": {tab}, "path": {path}}.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(r)
+	if err != nil {
+		return nil, untrusted(err)
+	}
+	defer resp.Body.Close()
+	if err := status(resp); err != nil {
+		return nil, err
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, remote.MaxFileBytes+1))
+	if err == nil && len(b) > remote.MaxFileBytes {
+		err = fmt.Errorf("larger than %d MiB", remote.MaxFileBytes>>20)
+	}
+	return b, err
+}
+
+// Hello is the stream's first event. Files is set by a computer that
+// serves File.
 type Hello struct {
 	Device  string   `json:"device"`
 	Version string   `json:"version"` // the daemon's build; "" from an older daemon
 	Models  []string `json:"models"`
 	Efforts []string `json:"efforts"`
 	Upload  bool     `json:"upload"`
+	Files   bool     `json:"files"`
 	// Latency is how long the stream's request took to get its answer's
 	// first byte over an open connection: a round trip and the server's
 	// check of the token.

@@ -47,23 +47,30 @@ func TestReplyCacheTracksTextAndWidth(t *testing.T) {
 	gtx := C{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 10000)}}
 	wide := c.entry(gtx, th, c.data.Entries[0])
 	r := c.row(e.Seq)
-	spans := &r.parts[0].spans[0]
+	blocks := &r.doc.Blocks()[0]
 	ops.Reset()
 	c.entry(gtx, th, c.data.Entries[0])
-	if &r.parts[0].spans[0] != spans {
+	if &r.doc.Blocks()[0] != blocks {
 		t.Fatal("unchanged entry reparsed markdown")
 	}
 	ops.Reset()
 	gtx.Constraints.Max.X = 160
 	narrow := c.entry(gtx, th, c.data.Entries[0])
-	if narrow.Size.Y <= wide.Size.Y || &r.parts[0].spans[0] != spans {
+	if narrow.Size.Y <= wide.Size.Y || &r.doc.Blocks()[0] != blocks {
 		t.Fatal("width change must reflow cached markdown without parsing")
 	}
+	ops.Reset()
+	c.files = true
+	c.entry(gtx, th, c.data.Entries[0])
+	if &r.doc.Blocks()[0] == blocks {
+		t.Fatal("serving files did not link the reply's paths")
+	}
+	blocks = &r.doc.Blocks()[0]
 	ops.Reset()
 	e.Text = strings.Repeat(perfMarkdown, 4)
 	c.add(phone.Entries{Entries: []flow.Entry{e}})
 	changed := c.entry(gtx, th, c.data.Entries[0])
-	if changed.Size.Y <= narrow.Size.Y || &r.parts[0].spans[0] == spans {
+	if changed.Size.Y <= narrow.Size.Y || &r.doc.Blocks()[0] == blocks {
 		t.Fatal("changed entry reused stale markdown or layout")
 	}
 }

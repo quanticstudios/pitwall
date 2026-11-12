@@ -281,15 +281,16 @@ tabs show as flat rows. The session's name opens the other sessions, by
 machine, with a red count of what waits there; a session on several
 machines is under each.
 
-| Where you are                | Back                      |
-| ---------------------------- | ------------------------- |
-| Pairing                      | closes the app            |
-| Scanning a QR code           | returns to pairing        |
-| Sidebar                      | closes the app            |
-| A menu                       | closes the menu           |
-| Machines, or Add machine     | returns to the sidebar    |
-| Chat, keyboard up            | hides the keyboard        |
-| Chat                         | returns to the sidebar    |
+| Where you are            | Back                                         |
+| ------------------------ | -------------------------------------------- |
+| Pairing                  | closes the app                               |
+| Scanning a QR code       | returns to pairing                           |
+| Sidebar                  | closes the app                               |
+| A menu                   | closes the menu                              |
+| Machines, or Add machine | returns to the sidebar                       |
+| Chat, keyboard up        | hides the keyboard                           |
+| Chat                     | returns to the sidebar                       |
+| A markdown file          | returns to the file before, then to the chat |
 
 When a machine's connection drops, a red line over its sessions says when
 the app tries again (after 1 second, then 2, 4 and so on up to 15) and
@@ -304,12 +305,44 @@ once.
 link, which an emulator reaches at `http://10.0.2.2:7792`; with `-demo 2`
 it serves box's.
 
+### Markdown files
+
+An agent's reply draws as the [markdown reader](usage.md#markdown-reader)
+draws a file. A table keeps each column at least 112dp wide; when its
+columns do not fit the screen, swipe it sideways, or drag the bar under
+it. A code block scrolls sideways the same way.
+
+Tap a markdown path in a reply, such as `docs/plan.md`, a link to a
+markdown file, or Open on the row of a tool that read or wrote one, and
+the app shows that file full screen. Its images show too, and its links
+to other markdown files open in its place; Back goes back through them,
+then to the chat. Other links are copied, as before.
+
+The app asks the computer for the file with `GET /api/file?tab=&path=`
+and its device token. pitwall reads a relative path from the folder the
+tab's agent works in, `~/` from your home folder, and opens it only
+inside the tab's repo, or the tab's folder outside a repo. It serves
+`.md` and `.markdown` files, and PNG, JPEG, GIF, WebP and SVG images
+checked by their content, up to 10 MiB each. It opens them through
+[`os.OpenRoot`](https://pkg.go.dev/os#OpenRoot), so neither `..` nor a
+symlink, including an absolute one inside the repo, reaches a file
+outside it, and it refuses anything but a regular file. A symlink must
+end at a file of the same kind, so `notes.md -> secret.txt` is refused
+and `CLAUDE.md -> AGENTS.md` reads `AGENTS.md`. A file with a second hard
+link is refused, as that link can be outside the repo. pitwall notes which
+folder the phone's first read found; if that folder, or one above it, is
+replaced by another one after that, reads fail until the tab is closed. An SVG gets the reader's checks before it is sent: no
+`<use>`, at most 64 levels deep and 20,000 elements. Images from the
+web load on the phone, by the reader's rules. A computer running an older
+pitwall serves no files, and the app leaves paths as plain text.
+
 ## What pitwall logs
 
 `daemon.log` gets a line for each pairing, each opened stream, each
 answer, message and model or effort pick, with the device's name: "allow
 sent to pane …", "message of 42 bytes queued for pane …", "/model sonnet
-sent to pane …", never what a message, a reply, a reason or an answer said.
+sent to pane …", and for each file the app reads, its size and tab, never
+its path, nor what a message, a reply, a reason or an answer said.
 
 The page loads only its own script and stylesheet, and puts agent text on
 screen as text: a reply's markdown becomes paragraphs, lists and code, and

@@ -168,11 +168,18 @@ type Server struct {
 	Question    func(pane, id string, option int, text string) error
 	Upload      func(pane string, data []byte) (string, error)
 	SendImage   func(pane, text, image string) (uint64, error)
+	// Folder is tab's working directory and the folder, its repo's or
+	// the one it runs in, that the files the phone reads for it must be
+	// in; ok is false for no such tab. Nil serves no files.
+	Folder func(tab string) (cwd, root string, ok bool)
 	// Icons, when set, serves the repo icons Tab.Icon names.
 	Icons *Icons
 
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
+
+	pmu  sync.Mutex
+	pins map[string]pin // by tab, the folder its files are read from
 
 	mu    sync.Mutex
 	fails []time.Time // failed pairings and tokens in the last failWindow
@@ -241,6 +248,9 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.Icons != nil {
 		mux.Handle("GET /api/icon/{hash}", sameOrigin(s.authed(s.Icons.serve)))
+	}
+	if s.Folder != nil {
+		mux.Handle("GET /api/file", sameOrigin(s.authed(s.file)))
 	}
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})
