@@ -24,8 +24,9 @@ takes `--dry-run`.
 
 ## Unreleased
 
-
 - Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. Dismissing a version hides it until a newer one ships.
+- The README, the web page and [Phone](docs/phone.md#android-app) lead with the Android app: download `pitwall-phone.apk` from the latest release and open it, and after that the app installs its own updates. The web page stays for iPhones and anyone who wants no app. New screenshots show the app's tab list and a chat.
+
 ## v0.2.9
 
 - Keep messages sent during a Claude Code turn in the phone chat at their transcript position after reopening it.

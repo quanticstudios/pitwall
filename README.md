@@ -139,17 +139,22 @@ them too.
 
 <br clear="right">
 
-<img src="docs/media/phone.webp" alt="The phone page's tab list: tabs by session and group, each with its state, agent and branch, and what it asks" width="240" align="right">
+<img src="docs/media/phone-app-list.webp" alt="The Android app's tab list: a Waiting on you row, then the demo session's tabs on two machines, box and laptop, each under a line with its name and latency; box's api group holds Add rate limits waiting for approval with Allow and Deny, and Review the PR asking for input with Reply" width="240" align="right">
 
-**Or follow it from your phone.** Pair it by QR code and it lists every tab
-as the sidebar does, live. Tap one to read its agent's chat as it happens,
-send it a message, queued while it works, answer an approval, or switch
-Claude Code's model and effort. A shell never takes typing from the phone,
-and the page never shows a pane's screen. There
-is no account and no relay: the phone talks to your computer over your own
-network. [Push notifications](docs/phone.md#notifications) need separate setup:
-a certificate the phone trusts, Turn on on the page, and on an iPhone the Home
-Screen. They go through the browser's push service, encrypted.
+**Or follow it from your phone.** First turn the phone page on in Settings,
+Phone and give it an address the phone can reach, as
+[docs/phone.md](docs/phone.md) shows. On Android,
+[download the app](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
+(arm64, Android 9 or later) and scan the QR code `pitwall remote pair`
+shows. The app lists every tab from every computer you pair. Tap one to read
+its agent's chat, send a message even mid-turn, or answer an approval or a
+question. [The guide](docs/phone.md#android-app) covers pictures, markdown,
+updates and model controls.
+
+On an iPhone, or with no app, the same pairing opens
+[a web page](docs/phone.md) with the tab list and chats. Either way the
+phone talks to your computer over your own network, with no account and no
+relay.
 
 <br clear="right">
 
