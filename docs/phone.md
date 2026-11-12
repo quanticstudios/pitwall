@@ -190,7 +190,17 @@ the APK and install it yourself.
 In a Claude Code or Codex terminal chat, tap the paperclip to choose a
 picture, or the clipboard button to paste a picture copied by another
 Android app. Android grants access to the chosen picture without a storage
-permission. The composer shows a thumbnail with a remove button. Send
+permission. A hold of half a second on the message field opens Paste,
+which attaches a picture from the clipboard or pastes its text. A picture,
+sticker or GIF from the keyboard, such as Gboard's or Samsung Keyboard's
+clipboard panel, attaches too, on Android 12 and later. The clipboard
+button reads an item's own `content://` URI whatever its type label says.
+It also reads a `content://` or `file://` URI written as text, a URI list
+or an `<img>` in HTML, but Android lets pitwall open those only when the
+app that holds the picture is visible to it. Otherwise the composer says
+"pitwall has no access to that picture". With no picture on the
+clipboard, it says whether the clipboard holds text, a link or nothing.
+The composer shows a thumbnail with a remove button. Send
 uploads the picture with the message; an upload or send failure keeps it
 in the composer for retry. One picture fits each message.
 
