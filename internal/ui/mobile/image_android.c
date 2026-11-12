@@ -56,6 +56,29 @@ void pitwallPhotoBytes(JNIEnv *env, jbyteArray a, void *dst, jsize n) {
 	(*env)->GetByteArrayRegion(env, a, 0, n, (jbyte *)dst);
 }
 
+int pitwallInstall(JavaVM *vm, jobject view, const char *path) {
+	JNIEnv *env;
+	int attached = 0, rc = 0;
+	if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+		if ((*vm)->AttachCurrentThread(vm, &env, NULL) != JNI_OK) return -1;
+		attached = 1;
+	}
+	if (photoClass == NULL) {
+		rc = -1;
+	} else {
+		jmethodID method = (*env)->GetStaticMethodID(env, photoClass, "install", "(Landroid/view/View;Ljava/lang/String;)V");
+		jstring link = (*env)->NewStringUTF(env, path);
+		if (method != NULL && link != NULL) (*env)->CallStaticVoidMethod(env, photoClass, method, view, link);
+		if (link != NULL) (*env)->DeleteLocalRef(env, link);
+	}
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionClear(env);
+		rc = -1;
+	}
+	if (attached) (*vm)->DetachCurrentThread(vm);
+	return rc;
+}
+
 jsize pitwallPhotoLen(JNIEnv *jni, jbyteArray data) { return (*jni)->GetArrayLength(jni,data); }
 
 // pitwallChars and pitwallRelease wrap a Java string's modified UTF-8, which

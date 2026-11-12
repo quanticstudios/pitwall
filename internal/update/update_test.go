@@ -104,7 +104,9 @@ func release(t *testing.T, goos string, bin []byte, sums func(name, sum string) 
 // TestInstall installs a release's tar.gz the Unix way, and its zip the
 // Windows way: the old binary set aside, then removed on the next start.
 func TestInstall(t *testing.T) {
-	ok := func(name, sum string) string { return "abc  pitwall_other.zip\n" + sum + "  " + name + "\n" }
+	ok := func(name, sum string) string {
+		return "abc  pitwall-phone.apk\nabc  pitwall_other.zip\n" + sum + "  " + name + "\n"
+	}
 	for _, goos := range []string{"linux", "windows"} {
 		for _, c := range []struct {
 			name string

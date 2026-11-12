@@ -78,6 +78,7 @@ if [ -n "$tag" ]; then
     run git tag -a "$version" -m "pitwall $version" "$commit"
     run git push origin "refs/tags/$version"
     step "Done. Watch the release build: gh run list --workflow release.yml"
+    run sh "$root/scripts/apk-release.sh" --if-available "$version"
     exit 0
 fi
 

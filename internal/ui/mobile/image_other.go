@@ -14,3 +14,7 @@ func setImageView(app.ViewEvent, func(int), func(int, []byte, error)) {}
 func pickImage(clipboard bool, done func([]byte, error)) {
 	done(nil, errors.New("photo picking requires Android"))
 }
+
+func installAPK(string) error                { return errors.New("installing an APK requires Android") }
+func setInstallListener(func())              {}
+func takeInstallState() (installState, bool) { return installState{}, false }

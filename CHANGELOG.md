@@ -14,9 +14,18 @@ renames `## Unreleased` to the next patch of the newest release, such as
 `## v0.2.1` after `v0.2.0`, or to the version you pass, and opens a
 `Release v0.2.N` pull request. Once that merges, `git pull --ff-only` and
 run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
-pushes the tag once, which starts the release build. Either step takes
-`--dry-run`.
+pushes the tag once, which starts the release build. It then waits for the
+GitHub release, builds the arm64 APK from the tag and attaches
+`pitwall-phone.apk`. The signing key stays in the main checkout's
+`dist/android/debug.keystore`, or at `PITWALL_APK_KEY`; it never goes to CI.
+Without that key or the Android SDK/NDK, tagging still succeeds and prints
+the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
+takes `--dry-run`.
 
+## Unreleased
+
+
+- Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. Dismissing a version hides it until a newer one ships.
 ## v0.2.9
 
 - Keep messages sent during a Claude Code turn in the phone chat at their transcript position after reopening it.

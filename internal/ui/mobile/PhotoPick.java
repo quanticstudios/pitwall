@@ -21,6 +21,9 @@ import java.util.ArrayList;
 // A Fragment receives the picker result without changing GioActivity.
 @SuppressWarnings("deprecation")
 public final class PhotoPick {
+    static native void onInstall(String cache, String message, boolean busy);
+    public static void install(final View view, final String path) { ApkInstall.start(view, path); }
+
     static native void onImage(byte[] data, String type, int error);
     // onInsertStart tells Go a keyboard image is on its way; onInsert brings its bytes or error.
     static native void onInsertStart(int id);
