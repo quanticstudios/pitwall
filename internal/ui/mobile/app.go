@@ -70,13 +70,17 @@ type App struct {
 	// machines shows the list of paired machines.
 	adding, machines bool
 
-	pair   pairView
-	cam    camFeed
-	list   listView
-	mach   machinesView
-	chat   chatView
-	chatM  string // the machine the open chat's tab is on
-	reader readerView
+	pair  pairView
+	cam   camFeed
+	list  listView
+	mach  machinesView
+	chat  chatView
+	chatM string // the machine the open chat's tab is on
+	chatN int    // counts chats opened and closed, so a late keyboard picture finds its composer
+	// inserts are the keyboard pictures being read, by insert id, with the
+	// chatN of the composer each goes to.
+	inserts map[int]int
+	reader  readerView
 
 	icons map[string]*iconFetch // by machine and hash, for the rows' repo icons
 }
@@ -114,7 +118,8 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			return e.Err
 		case app.ViewEvent:
 			setCameraView(e)
-			setImageView(e)
+			setImageView(e, func(id int) { a.post(func() { a.insertStart(id) }) },
+				func(id int, b []byte, err error) { a.post(func() { a.insertImage(id, b, err) }) })
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {
@@ -203,6 +208,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 		a.st, a.session = model.State{}, ""
 		a.sb.Rev++
 		a.chat, a.chatM, a.machines = chatView{}, "", false
+		a.chatN++
 		a.closeReader()
 		return
 	}
@@ -270,6 +276,7 @@ func (a *App) removeMachine(id, why string) {
 	}
 	if a.chatM == id {
 		a.chat, a.chatM = chatView{}, ""
+		a.chatN++
 	}
 	if a.reader.machine == id {
 		a.closeReader()
@@ -351,6 +358,36 @@ func (a *App) tab() (remote.Tab, bool) {
 	return tabs[i], true
 }
 
+// insertStart takes keyboard picture id for the open chat's composer,
+// whose Send waits for it.
+func (a *App) insertStart(id int) {
+	t, open := a.tab()
+	l := a.links[a.chatM]
+	switch {
+	case !open || l == nil:
+	case !l.hello.Upload || !t.Attach:
+		a.chat.cmp.notSent = "this tab takes no pictures from the phone"
+	default:
+		if a.inserts == nil {
+			a.inserts = map[int]int{}
+		}
+		a.inserts[id] = a.chatN
+		a.chat.cmp.inserts++
+	}
+}
+
+// insertImage puts keyboard picture id on the composer it started on,
+// unless that chat has closed since.
+func (a *App) insertImage(id int, b []byte, err error) {
+	n, ok := a.inserts[id]
+	delete(a.inserts, id)
+	if !ok || n != a.chatN {
+		return
+	}
+	a.chat.cmp.inserts--
+	a.chat.setPicture(b, err)
+}
+
 // openChat opens the chat of the State tab or pane id.
 func (a *App) openChat(id string) {
 	m, t, ok := a.fleet.Tab(id)
@@ -358,6 +395,7 @@ func (a *App) openChat(id string) {
 		return
 	}
 	a.chat, a.chatM = newChat(t.Pane), m.ID
+	a.chatN++
 	a.links[m.ID].conn.Watch(t.Pane)
 }
 
@@ -366,6 +404,7 @@ func (a *App) closeChat() {
 		l.conn.Watch("")
 	}
 	a.chat, a.chatM = chatView{}, ""
+	a.chatN++
 }
 
 // many reports whether more than one machine is paired, when rows and

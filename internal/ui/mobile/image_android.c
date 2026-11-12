@@ -4,8 +4,9 @@
 // thread Go attached sees only the system's classes.
 static jclass photoClass;
 
-// pitwallPhoto starts the picker or reads a clipboard image.
-int pitwallPhoto(JavaVM *vm, jobject view, int paste) {
+// pitwallPhoto opens the picker (mode 0), reads the clipboard (1) or
+// starts taking keyboard images (2).
+int pitwallPhoto(JavaVM *vm, jobject view, int mode) {
 	JNIEnv *env;
 	int attached = 0, rc = 0;
 	if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {
@@ -39,8 +40,8 @@ int pitwallPhoto(JavaVM *vm, jobject view, int paste) {
 	if (photoClass == NULL) {
 		rc = -1;
 	} else {
-		jmethodID m = (*env)->GetStaticMethodID(env, photoClass, "start", "(Landroid/view/View;Z)V");
-		if (m != NULL) (*env)->CallStaticVoidMethod(env, photoClass, m, view, (jboolean)paste);
+		jmethodID m = (*env)->GetStaticMethodID(env, photoClass, "start", "(Landroid/view/View;I)V");
+		if (m != NULL) (*env)->CallStaticVoidMethod(env, photoClass, m, view, (jint)mode);
 	}
 	if ((*env)->ExceptionCheck(env)) {
 		(*env)->ExceptionClear(env);
@@ -56,3 +57,9 @@ void pitwallPhotoBytes(JNIEnv *env, jbyteArray a, void *dst, jsize n) {
 }
 
 jsize pitwallPhotoLen(JNIEnv *jni, jbyteArray data) { return (*jni)->GetArrayLength(jni,data); }
+
+// pitwallChars and pitwallRelease wrap a Java string's modified UTF-8, which
+// is plain ASCII for the URI-encoded strings PhotoPick sends.
+const char *pitwallChars(JNIEnv *jni, jstring s) { return s == NULL ? NULL : (*jni)->GetStringUTFChars(jni, s, NULL); }
+void pitwallRelease(JNIEnv *jni, jstring s, const char *c) { if (c != NULL) (*jni)->ReleaseStringUTFChars(jni, s, c); }
+jstring pitwallNewString(JNIEnv *jni, const char *s) { return (*jni)->NewStringUTF(jni, s); }

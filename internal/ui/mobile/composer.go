@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gioui.org/font"
+	"gioui.org/io/clipboard"
 	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -33,13 +34,16 @@ type composer struct {
 	attachment                      *attachment
 	attach, pasteImage, removeImage widget.Clickable
 	loadingImage                    bool
+	inserts                         int       // keyboard pictures still being read
+	pasteText                       bool      // Paste found text: read it into the field
+	longPress                       time.Time // the field press that opened Paste
 	field, send                     widget.Clickable
 	modelChip, effChip              widget.Clickable
 	scrim                           widget.Clickable
 	items                           map[string]*widget.Clickable
 	sending                         bool         // a send is on its way
 	notSent                         string       // why the last message did not go in
-	menu                            string       // "model" or "effort" while its menu is open
+	menu                            string       // "model", "effort" or "paste" while its menu is open
 	picks                           []*pick      // picks waiting for the agent to sit idle, one per setting, oldest first
 	picking                         bool         // the first pick is on its way
 	model, modelAt                  string       // the last model picked, and the turn's model then, until settle drops it
@@ -237,11 +241,23 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	if k.attachment != nil {
 		draft += "image"
 	}
-	st := sendStateOf(draft, k.sending || k.loadingImage, env.Online, busy(t))
+	st := sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t))
 	c.imageClicks(gtx, env)
 	if k.send.Clicked(gtx) && (st == sendReady || st == sendQueue) {
 		c.sendDraft(env)
 		st = sendSending
+	}
+	if k.pasteText {
+		k.pasteText = false
+		gtx.Execute(clipboard.ReadCmd{Tag: &k.ed})
+	}
+	// why: Gio's editor has no long-press menu on Android; a hold of 500 ms opens Paste.
+	if h := k.field.History(); len(h) > 0 && h[len(h)-1].End.IsZero() && !h[len(h)-1].Start.Equal(k.longPress) {
+		if at := h[len(h)-1].Start.Add(500 * time.Millisecond); gtx.Now.Before(at) {
+			gtx.Execute(op.InvalidateCmd{At: at})
+		} else {
+			k.longPress, k.menu = h[len(h)-1].Start, "paste"
+		}
 	}
 	if k.field.Clicked(gtx) {
 		gtx.Execute(key.FocusCmd{Tag: &k.ed})
@@ -692,7 +708,7 @@ func (c *chatView) firePick(env chatEnv) {
 }
 
 // menus draws the open model or effort menu over a scrim, above its chip,
-// with the composer's top at top.
+// or the field's Paste, with the composer's top at top.
 func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	k := &c.cmp
 	if k.menu == "" {
@@ -706,18 +722,27 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	var width unit.Dp
 	which := 0
 	current := ""
-	if k.menu == "model" {
+	switch k.menu {
+	case "paste":
+		values, width = []string{"Paste"}, 160
+	case "model":
 		values, width, current = env.Models, 268, k.modelShown(c.currentModel(env.Tab))
 		if p := k.pending("model"); p != nil {
 			current = modelName(p.value)
 		}
-	} else {
+	default:
 		values, width, which, current = env.Efforts, 236, 1, k.effortShown(env.Tab.Effort)
 		if p := k.pending("effort"); p != nil {
 			current = p.value
 		}
 	}
 	for _, v := range values {
+		if k.menu == "paste" && k.item(k.menu+":"+v).Clicked(gtx) {
+			k.menu = ""
+			c.paste(gtx, env)
+			gtx.Execute(op.InvalidateCmd{})
+			return
+		}
 		if k.item(k.menu + ":" + v).Clicked(gtx) {
 			name := v
 			if k.menu == "model" {
@@ -743,6 +768,9 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	d := layout.UniformInset(6).Layout(g, func(gtx C) D {
 		gtx.Constraints.Min.Y = 0
 		children := []layout.FlexChild{layout.Rigid(func(gtx C) D {
+			if k.menu == "paste" {
+				return D{}
+			}
 			title := "Model"
 			if which == 1 {
 				title = "Effort"
@@ -755,10 +783,12 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 			v := v
 			on := false
 			name, note := v, ""
-			if which == 0 {
+			switch {
+			case k.menu == "paste":
+			case which == 0:
 				name, note = modelName(v), modelNote(v, c.currentModel(env.Tab))
 				on = v != "default" && name == current
-			} else {
+			default:
 				on = v == current
 			}
 			children = append(children, layout.Rigid(func(gtx C) D {
@@ -769,6 +799,9 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	})
 	call := m.Stop()
 	x := k.chipX[which]
+	if k.menu == "paste" {
+		x = gtx.Dp(10)
+	}
 	anchor := image.Rect(x, top, x+k.chipW[which], top+gtx.Dp(48))
 	p := kit.Place(anchor, d.Size, image.Rectangle{Max: gtx.Constraints.Max}, kit.BelowStart, gtx.Dp(6), gtx.Dp(10))
 	defer op.Offset(p).Push(gtx.Ops).Pop()

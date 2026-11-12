@@ -11,6 +11,7 @@ import android.app.Activity;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.app.FragmentTransaction;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Canvas;
@@ -27,6 +28,7 @@ import android.text.SpannableStringBuilder;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.Choreographer;
+import android.view.ContentInfo;
 import android.view.Display;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -416,6 +418,10 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
 			editor.setInitialSurroundingSubText(snip.snippet, imeToUTF16(nhandle, snip.offset));
 		}
+		// pitwall: offer the keyboard the MIME types of the view's OnReceiveContentListener.
+		if (Build.VERSION.SDK_INT >= 31 && getReceiveContentMimeTypes() != null) {
+			editor.contentMimeTypes = getReceiveContentMimeTypes();
+		}
 		imeSetComposingRegion(nhandle, -1, -1);
 		return new GioInputConnection();
 	}
@@ -753,7 +759,35 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 		}
 
 		/*@Override*/ public boolean commitContent(InputContentInfo info, int flags, Bundle opts) {
-			return false;
+			// pitwall: hand a keyboard's image to the view's OnReceiveContentListener, as TextView does.
+			if (Build.VERSION.SDK_INT < 31 || getReceiveContentMimeTypes() == null) {
+				return false;
+			}
+			// pitwall: the extras carry info, whose read grant the listener releases when its read ends.
+			boolean grant = (flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0;
+			if (grant) {
+				try {
+					info.requestPermission();
+				} catch (Exception e) {
+					return false;
+				}
+			}
+			Bundle extras = opts == null ? new Bundle() : new Bundle(opts);
+			if (grant) {
+				extras.putParcelable("pitwall.inputContentInfo", info);
+			}
+			ClipData clip = new ClipData(info.getDescription(), new ClipData.Item(info.getContentUri()));
+			ContentInfo payload = new ContentInfo.Builder(clip, ContentInfo.SOURCE_INPUT_METHOD)
+				.setLinkUri(info.getLinkUri()).setExtras(extras).build();
+			boolean taken = false;
+			try {
+				taken = performReceiveContent(payload) == null;
+			} finally {
+				if (grant && !taken) {
+					info.releasePermission();
+				}
+			}
+			return taken;
 		}
 
 		/*@Override*/ public boolean deleteSurroundingTextInCodePoints(int before, int after) {

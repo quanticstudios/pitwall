@@ -9,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
+	"gioui.org/io/clipboard"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op/paint"
@@ -77,20 +78,48 @@ func (c *chatView) imageClicks(gtx C, env chatEnv) {
 					return
 				}
 				k.loadingImage = false
-				if err == nil && len(data) > 0 {
-					next, readErr := newAttachment(data)
-					err = readErr
-					if err == nil {
-						k.attachment = next
-						k.notSent = ""
-					}
-				}
-				if err != nil {
-					k.notSent = err.Error()
-				}
+				c.setPicture(data, err)
 			})
 		}
 	}
+}
+
+// setPicture makes data the composer's picture, or says why it is not.
+// Without data or an error, as when the picker closed, nothing changes.
+func (c *chatView) setPicture(data []byte, err error) {
+	k := &c.cmp
+	if err == nil && len(data) > 0 {
+		var next *attachment
+		if next, err = newAttachment(data); err == nil {
+			k.attachment, k.notSent = next, ""
+		}
+	}
+	if err != nil {
+		k.notSent = err.Error()
+	}
+}
+
+// paste is the field's long-press Paste: the clipboard's picture becomes the
+// attachment, and text goes into the field.
+func (c *chatView) paste(gtx C, env chatEnv) {
+	k := &c.cmp
+	if !env.Attach || k.sending || k.loadingImage {
+		gtx.Execute(clipboard.ReadCmd{Tag: &k.ed})
+		return
+	}
+	k.loadingImage = true
+	pane := c.pane
+	env.PickImage(true, func(data []byte, err error) {
+		if c.pane != pane {
+			return
+		}
+		k.loadingImage = false
+		if errors.Is(err, errClipText) || errors.Is(err, errClipLink) {
+			k.pasteText = true
+			return
+		}
+		c.setPicture(data, err)
+	})
 }
 
 func (c *chatView) attachments(gtx C, th *theme.Theme, env chatEnv) D {
@@ -128,7 +157,7 @@ func (c *chatView) attachments(gtx C, th *theme.Theme, env chatEnv) D {
 			return roundButton(gtx, th, &k.removeImage, "x", 20, th.Muted)
 		}),
 		layout.Rigid(func(gtx C) D {
-			if !k.loadingImage {
+			if !k.loadingImage && k.inserts == 0 {
 				return D{}
 			}
 			return spinner(gtx, 20, th.Primary)
