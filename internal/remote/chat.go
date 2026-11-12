@@ -177,7 +177,7 @@ func (s *Server) logOf(pane string, provider model.Provider, path string) *flow.
 // redacted is es with every text an agent wrote passed through logs.Redact.
 func redacted(es []flow.Entry) []flow.Entry {
 	for i := range es {
-		es[i].Text, es[i].Arg, es[i].Out = logs.Redact(es[i].Text), logs.Redact(es[i].Arg), logs.Redact(es[i].Out)
+		es[i].Text, es[i].Arg, es[i].Out, es[i].Path = logs.Redact(es[i].Text), logs.Redact(es[i].Arg), logs.Redact(es[i].Out), logs.Redact(es[i].Path)
 	}
 	if es == nil {
 		return []flow.Entry{}
@@ -220,7 +220,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 		fl.Flush()
 		return true
 	}
-	if !send("hello", map[string]any{"device": d.Name, "version": s.Version, "web": s.Web != nil, "models": Models, "efforts": Efforts, "upload": s.Upload != nil}) {
+	if !send("hello", map[string]any{"device": d.Name, "version": s.Version, "web": s.Web != nil, "models": Models, "efforts": Efforts, "upload": s.Upload != nil, "files": s.Folder != nil}) {
 		return
 	}
 	log.Printf("remote: %q opened the stream", d.Name)

@@ -168,6 +168,19 @@ func TestCutBytes(t *testing.T) {
 	}
 }
 
+// A file tool's entry keeps the whole path the agent read, which its
+// label cuts to the base name.
+func TestToolPath(t *testing.T) {
+	l, _ := logOf(t, model.ProviderClaude,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/w/repo/docs/phone.md"}}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cat docs/phone.md"}}]}}`,
+	)
+	es := l.Last(10)
+	if len(es) != 2 || es[0].Arg != "phone.md" || es[0].Path != "/w/repo/docs/phone.md" || es[1].Path != "" {
+		t.Errorf("entries %+v", es)
+	}
+}
+
 func TestCapturedQueuedCommand(t *testing.T) {
 	const prompt = "Also run Bash exactly as echo queued-qa after the sleep. Keep this message in the conversation."
 	for range 2 {

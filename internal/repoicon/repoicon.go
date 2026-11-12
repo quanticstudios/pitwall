@@ -4,6 +4,8 @@
 package repoicon
 
 import (
+	"bytes"
+	"encoding/xml"
 	"errors"
 	"io"
 	"os"
@@ -86,6 +88,45 @@ func Root(dir string) string {
 		}
 		if filepath.Dir(d) == d {
 			return ""
+		}
+	}
+}
+
+// Caps on an SVG before oksvg reads it, or the phone gets it.
+const (
+	MaxSVGDepth = 64    // nested elements
+	MaxSVGElems = 20000 // elements
+)
+
+// SVGSafe refuses an SVG oksvg could recurse forever in or spend too long
+// on: one with a <use>, deeper than MaxSVGDepth, or with more than
+// MaxSVGElems elements. oksvg draws a <use> by drawing its target again,
+// with no check for a cycle, and a Go stack overflow cannot be recovered.
+func SVGSafe(b []byte) error {
+	depth, n := 0, 0
+	d := xml.NewDecoder(bytes.NewReader(b))
+	for {
+		tok, err := d.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch {
+			case t.Name.Local == "use":
+				return errors.New("SVG has a <use>")
+			case depth >= MaxSVGDepth:
+				return errors.New("SVG nested too deep")
+			}
+			depth++
+			if n++; n > MaxSVGElems {
+				return errors.New("SVG has too many elements")
+			}
+		case xml.EndElement:
+			depth--
 		}
 	}
 }

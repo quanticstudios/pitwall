@@ -21,8 +21,6 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
-	"gioui.org/x/markdown"
-	"gioui.org/x/richtext"
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -68,6 +66,10 @@ type chatEnv struct {
 	Attach      bool
 	PickImage   func(clipboard bool, done func([]byte, error))
 	Now         time.Time
+	// OpenFile opens a markdown file the tab names in the reader, by its
+	// path and #fragment; nil when the computer serves no files, and then
+	// a path in a reply is plain text.
+	OpenFile func(path, frag string)
 }
 
 func (e *chatEnv) now() time.Time {
@@ -85,11 +87,10 @@ type chatView struct {
 	tabUpdates uint64
 	list       layout.List
 	rows       map[int64]*entryRow
-	loading    bool // a page of older entries is on its way
-	fresh      bool // new entries came while scrolled up
-	md         *markdown.Renderer
-
-	monoScale float32 // inline code's size over the text's; see monoScale
+	loading    bool   // a page of older entries is on its way
+	fresh      bool   // new entries came while scrolled up
+	files      bool   // replies link markdown paths: OpenFile is set
+	tapped     string // a link tapped in a reply this frame
 
 	backBtn, newBtn, retry widget.Clickable
 	card                   cardState
@@ -98,11 +99,13 @@ type chatView struct {
 
 // entryRow is an entry's widgets, kept across frames by seq.
 type entryRow struct {
-	click widget.Clickable
-	open  bool // a tool call shows its output
-	text  string
-	parts []mdPart
-	rts   []richtext.InteractiveText
+	click  widget.Clickable
+	open   bool             // a tool call shows its output
+	file   widget.Clickable // a file tool's Open
+	text   string           // the reply doc shows, parsed once
+	files  bool             // its paths are links
+	parsed bool
+	doc    mdview.Doc
 }
 
 func newChat(pane string) chatView {
@@ -176,6 +179,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 		c.fresh = false
 	}
 	c.older(env)
+	c.files = env.OpenFile != nil
 	t := env.Tab
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	var top int // the composer's top, which the menus open above
@@ -215,7 +219,28 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 		}),
 	)
 	c.menus(gtx, th, env, top)
+	if l := c.tapped; l != "" {
+		c.tapped = ""
+		c.follow(gtx, env, l)
+	}
 	return false
+}
+
+// tap takes a link tapped in a reply, followed once the frame's layout is
+// done.
+func (c *chatView) tap(link string) { c.tapped = link }
+
+// follow opens a markdown file in the reader when the computer serves
+// files, and copies any other link: the app opens nothing else itself.
+func (c *chatView) follow(gtx C, ce chatEnv, link string) {
+	if strings.HasPrefix(link, "#") {
+		return
+	}
+	if p, frag, ok := mdview.MarkdownLink(link); ok && ce.OpenFile != nil {
+		ce.OpenFile(p, frag)
+		return
+	}
+	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(link))})
 }
 
 // header is Back, the tab's name, and its state pill, agent and model.
@@ -576,88 +601,35 @@ func prompt(gtx C, th *theme.Theme, s string, opacity float32) D {
 	})
 }
 
-// reply draws an agent's markdown: paragraphs, lists, inline code and
-// links through x/markdown, and fenced code in its own box. Tapping a link
-// copies it, as the app opens nothing itself.
+// reply draws an agent's markdown as the desktop's reader draws a file:
+// parsed once for its text, laid out at the width each frame. Tapping a
+// link opens a markdown file, or copies anything else.
 func (c *chatView) reply(gtx C, th *theme.Theme, r *entryRow, src string) D {
-	if r.parts == nil || r.text != src {
-		r.parts, r.text = splitFences(src), src
-		r.rts = make([]richtext.InteractiveText, len(r.parts))
-	}
-	var children []layout.FlexChild
-	for i, p := range r.parts {
-		if i > 0 {
-			children = append(children, layout.Rigid(layout.Spacer{Height: 10}.Layout))
+	if !r.parsed || r.text != src || r.files != c.files {
+		blocks := mdview.Parse([]byte(src))
+		if c.files {
+			linkPaths(blocks)
 		}
-		if p.code {
-			children = append(children, layout.Rigid(func(gtx C) D { return codeBlock(gtx, th, p.text) }))
-			continue
-		}
-		rt, p := &r.rts[i], &r.parts[i]
-		children = append(children, layout.Rigid(func(gtx C) D { return c.markdown(gtx, th, rt, p) }))
+		r.doc.Set(blocks)
+		r.text, r.files, r.parsed = src, c.files, true
+		r.doc.Size, r.doc.Follow = replySize, c.tap
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+	return r.doc.Layout(gtx, th)
 }
 
-func (c *chatView) markdown(gtx C, th *theme.Theme, rt *richtext.InteractiveText, p *mdPart) D {
-	if c.md == nil {
-		c.md = markdown.NewRenderer()
-		size := unit.Sp(16.5)
-		c.md.Config = markdown.Config{DefaultFont: th.UIFont, MonospaceFont: th.MonoFont, DefaultSize: size,
-			DefaultColor: replyText, InteractiveColor: th.Readable(th.Blue, th.Bg)}
-		c.md.Config.H1Size, c.md.Config.H2Size, c.md.Config.H3Size = 21, 19, 17.5
-		c.md.Config.H4Size, c.md.Config.H5Size, c.md.Config.H6Size = size, size, size
-	}
-	if p.spans == nil {
-		spans, err := c.md.Render([]byte(p.text))
-		if err != nil || len(spans) == 0 {
-			spans = []richtext.SpanStyle{{Font: th.UIFont, Size: 16.5, Color: replyText, Content: p.text}}
-		}
-		if c.monoScale == 0 {
-			c.monoScale = mdview.MonoScale(th)
-		}
-		for i := range spans {
-			if spans[i].Font.Typeface == th.MonoFont.Typeface {
-				spans[i].Size, spans[i].Color = spans[i].Size*unit.Sp(c.monoScale), th.Fg
-			}
-		}
-		// why: the renderer ends a block with blank lines, which would add
-		// to the gap before a code box or the next entry.
-		for len(spans) > 1 && strings.TrimSpace(spans[len(spans)-1].Content) == "" {
-			spans = spans[:len(spans)-1]
-		}
-		spans[len(spans)-1].Content = strings.TrimRight(spans[len(spans)-1].Content, "\n")
-		p.spans = mdview.GluePunct(spans)
-	}
-	for {
-		span, ev, ok := rt.Update(gtx)
-		if !ok {
-			break
-		}
-		if url, _ := span.Get(markdown.MetadataURL).(string); ev.Type == richtext.Click && url != "" {
-			gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(url))})
-		}
-	}
-	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	return richtext.Text(rt, th.Shaper, p.spans...).Layout(gtx)
-}
-
-// replyText is a reply's text color, a step under Fg as the design has it.
-var replyText = color.NRGBA{R: 0xe6, G: 0xe7, B: 0xea, A: 0xff}
-
-// codeBlock is a fenced block of code, in mono on the surface.
-func codeBlock(gtx C, th *theme.Theme, s string) D {
-	return box(gtx, th.Surface, th.BorderSubtle, 12, layout.Inset{Left: 14, Right: 14, Top: 12, Bottom: 12}, func(gtx C) D {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return widget.Label{LineHeight: 21, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.MonoFont, 14, mdview.Detab(s), colorOp(gtx, replyText))
-	})
-}
+// replySize is a reply's text size, in the chat's real sp.
+const replySize unit.Sp = 16.5
 
 // tool is a call's 48dp line, its name and what it ran, which opens to its
 // output.
 func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 	if r.click.Clicked(gtx) {
 		r.open = !r.open
+	}
+	_, _, md := mdview.MarkdownLink(e.Path)
+	md = md && c.files
+	if r.file.Clicked(gtx) && md {
+		c.tap(e.Path)
 	}
 	return box(gtx, th.Surface, th.BorderSubtle, 12, layout.Inset{}, func(gtx C) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -680,6 +652,12 @@ func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 							layout.Flexed(1, func(gtx C) D {
 								gtx.Constraints.Min.X = 0
 								return label(gtx, th, th.MonoFont, 14, th.Fg, 1, e.Arg)
+							}),
+							layout.Rigid(func(gtx C) D {
+								if md {
+									return layout.Inset{Left: 4}.Layout(gtx, func(gtx C) D { return linkButton(gtx, th, &r.file, "Open") })
+								}
+								return D{}
 							}),
 							layout.Rigid(func(gtx C) D {
 								switch {

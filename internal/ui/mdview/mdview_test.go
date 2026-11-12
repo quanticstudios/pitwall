@@ -17,16 +17,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"gioui.org/f32"
+	"gioui.org/io/input"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/repoicon"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -551,14 +556,14 @@ func TestSVGSafe(t *testing.T) {
 		"twice":     `<defs><g id="a"><rect width="1" height="1"/></g><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
 		"external":  `<use href="other.svg#a"/>`,
 		"plain use": `<defs><rect id="r" width="5" height="5"/></defs><use href="#r"/>`,
-		"deep":      strings.Repeat("<g>", maxSVGDepth+1) + strings.Repeat("</g>", maxSVGDepth+1),
-		"many":      strings.Repeat(`<rect width="1" height="1"/>`, maxSVGElems+1),
+		"deep":      strings.Repeat("<g>", repoicon.MaxSVGDepth+1) + strings.Repeat("</g>", repoicon.MaxSVGDepth+1),
+		"many":      strings.Repeat(`<rect width="1" height="1"/>`, repoicon.MaxSVGElems+1),
 		"laughs":    laughs,
 	} {
 		if img, err := Decode([]byte(head+body+"</svg>"), 100); err == nil {
 			t.Errorf("%s: drawn %v", name, img.Bounds())
 		}
-		if err := svgSafe([]byte(head + body + "</svg>")); strings.Contains(body, "<use") && (err == nil || !strings.Contains(err.Error(), "<use>")) {
+		if err := repoicon.SVGSafe([]byte(head + body + "</svg>")); strings.Contains(body, "<use") && (err == nil || !strings.Contains(err.Error(), "<use>")) {
 			t.Errorf("%s: refused for %v, not its <use>", name, err)
 		}
 	}
@@ -701,5 +706,196 @@ func TestImageLoadsBounded(t *testing.T) {
 	defer v.mu.Unlock()
 	if p := v.imgs["/next.png"]; p.err != "" || v.held != maxHeld || len(v.imgs) != 20 {
 		t.Errorf("next file: %q, %d bytes held, %d images", p.err, v.held, len(v.imgs))
+	}
+}
+
+// TestPhoneTable: at a phone's width a table too wide to read keeps its
+// columns at least minColumn wide and scrolls sideways inside the column,
+// as a long code line does; a table that fits neither scrolls nor
+// overflows, and a sideways drag of the wide one moves it.
+func TestPhoneTable(t *testing.T) {
+	th := theme.Dark()
+	var d Doc
+	d.Set(Parse([]byte("| Package | What changed | Why | Tests | Notes |\n|-|-|-|-|-|\n" +
+		"| internal/ui/mdview | draws tables and code that scroll sideways | phones | TestPhoneTable | none |\n\n" +
+		"| a | b |\n|-|-|\n| 1 | 2 |\n\n```\n" + strings.Repeat("x", 300) + "\n```\n")))
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 1<<20)}}
+	dims := d.Layout(gtx, th)
+	if dims.Size.X != 412 {
+		t.Fatalf("width %d", dims.Size.X)
+	}
+	wide, narrow, code := d.wide[0], d.wide[1], d.wide[2]
+	if wide == nil || narrow != nil || code == nil {
+		t.Fatalf("sideways scrolls: table %v, small table %v, code %v", wide != nil, narrow != nil, code != nil)
+	}
+	widths := fitColumns(d.natural[0], 412, int(minColumn))
+	for c, w := range widths {
+		if w < min(int(minColumn), d.natural[0][c]) {
+			t.Errorf("column %d squashed to %d of %d", c, w, d.natural[0][c])
+		}
+	}
+	if sum(widths) <= 412 {
+		t.Errorf("columns %v fit in 412 and still scroll", widths)
+	}
+	// A drag left from the table's middle scrolls it.
+	h := d.Block(gtx, th, 0).Size.Y
+	var r input.Router
+	ops.Reset()
+	gtx.Source = r.Source()
+	d.Layout(gtx, th)
+	r.Frame(&ops)
+	at := f32.Pt(300, float32(h/2))
+	r.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Touch, Position: at, Time: 1})
+	for k := 1; k <= 10; k++ {
+		r.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Touch, Position: at.Sub(f32.Pt(float32(20*k), 0)), Time: time.Duration(1 + k*10_000_000)})
+	}
+	r.Queue(pointer.Event{Kind: pointer.Release, Source: pointer.Touch, Position: at.Sub(f32.Pt(200, 0)), Time: 200_000_000})
+	ops.Reset()
+	d.Layout(gtx, th)
+	if wide.x <= 0 {
+		t.Errorf("a drag did not scroll the table: x %d", wide.x)
+	}
+}
+
+func sum(xs []int) int {
+	n := 0
+	for _, x := range xs {
+		n += x
+	}
+	return n
+}
+
+// TestFetch: with Fetch the reader opens at once and the file follows,
+// links and images go through Fetch with ~/ left for it to read, a file
+// that does not come says why, and Back returns to where the file was.
+func TestFetch(t *testing.T) {
+	files := map[string]string{
+		"docs/a.md": "# A\n\n[b](../b.md#part) ![i](i.png)\n" + strings.Repeat("\nline\n", 60),
+		"b.md":      "# B\n" + strings.Repeat("\nline\n", 60) + "\n## Part\n\n[home](~/c.md)\n",
+	}
+	var mu sync.Mutex
+	var asked []string
+	frames := make(chan struct{}, 64)
+	v := View{Invalidate: func() { frames <- struct{}{} }}
+	v.Fetch = func(ctx context.Context, p string) ([]byte, error) {
+		mu.Lock()
+		asked = append(asked, p)
+		mu.Unlock()
+		if p == "docs/i.png" {
+			return pngBytes(t, 4, 2), nil
+		}
+		if s, ok := files[p]; ok {
+			return []byte(s), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	defer v.Close()
+	th := theme.Dark()
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(412, 800))}
+	frame := func() {
+		t.Helper()
+		select {
+		case <-frames:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no frame")
+		}
+		ops.Reset()
+		v.Body(gtx, th)
+	}
+	shown := func() string {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		if len(v.doc) == 0 {
+			return ""
+		}
+		return plain(v.doc[0].Spans)
+	}
+	if err := v.Open("docs/a.md", ""); err != nil || !v.On() {
+		t.Fatalf("Open = %v", err)
+	}
+	frame()
+	frame() // the image
+	if shown() != "A" {
+		t.Fatalf("shows %q", shown())
+	}
+	v.mu.Lock()
+	p := v.imgs["docs/i.png"]
+	v.mu.Unlock()
+	if p == nil || !p.done || p.err != "" || p.size != image.Pt(4, 2) {
+		t.Errorf("image %+v", p)
+	}
+	v.scroll = 30
+	v.follow("../b.md#part")
+	frame()
+	if shown() != "B" || v.Path() != "b.md" || v.scroll == 0 || !v.HasBack() {
+		t.Errorf("follow: %q %s scroll %d", shown(), v.Path(), v.scroll)
+	}
+	v.follow("~/c.md")
+	frame()
+	v.mu.Lock()
+	failed := v.failed
+	v.mu.Unlock()
+	if v.Path() != "~/c.md" || failed == "" {
+		t.Errorf("missing file: %s %q", v.Path(), failed)
+	}
+	v.Back()
+	v.Back() // cancels the first Back's fetch
+	frame()
+	if shown() != "A" || v.Path() != "docs/a.md" || v.scroll != 30 || v.HasBack() {
+		t.Errorf("back: %q %s scroll %d", shown(), v.Path(), v.scroll)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	slices.Sort(asked)
+	if want := []string{"b.md", "b.md", "docs/a.md", "docs/a.md", "docs/i.png", "~/c.md"}; !slices.Equal(asked, want) {
+		t.Errorf("fetched %q, want %q", asked, want)
+	}
+}
+
+// A table's cells never share a text's styles or click state with the
+// blocks after it, however many rows it has.
+func TestTableCellKeys(t *testing.T) {
+	src := "| a | b |\n|-|-|\n" + strings.Repeat("| cell | cell |\n", 512) + "\nAFTER TABLE\n"
+	var d Doc
+	d.Set(Parse([]byte(src)))
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 1<<24)}}
+	d.Layout(gtx, theme.Dark())
+	for _, ss := range d.styles {
+		for _, s := range ss {
+			if s.Content == "AFTER" {
+				return
+			}
+		}
+	}
+	t.Error("the paragraph after the table was drawn with a cell's text")
+}
+
+// A flowchart is placed once, not again on every frame, and again when
+// the scale changes the sizes of its nodes.
+func TestGraphPlacedOnce(t *testing.T) {
+	var d Doc
+	d.Set(Parse([]byte("```mermaid\nflowchart TD\n  A[start] --> B{ok?}\n  B -->|yes| C[done]\n  B --> A\n```\n")))
+	g := d.blocks[0].Graph
+	if g == nil {
+		t.Fatal("no graph")
+	}
+	th := theme.Dark()
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 1<<20)}}
+	nodes := func() *image.Rectangle {
+		ops.Reset()
+		d.Layout(gtx, th)
+		return &d.graphs[g].pl.Nodes[0]
+	}
+	first := nodes()
+	if nodes() != first {
+		t.Error("the second frame placed the chart again")
+	}
+	gtx.Metric = unit.Metric{PxPerDp: 2, PxPerSp: 2}
+	if nodes() == first {
+		t.Error("a new scale kept the old placement")
 	}
 }
