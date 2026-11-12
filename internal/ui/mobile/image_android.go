@@ -4,6 +4,7 @@ package mobile
 #include <jni.h>
 #include <stdlib.h>
 int pitwallPhoto(JavaVM *vm, jobject view, int mode);
+int pitwallInstall(JavaVM *vm, jobject view, const char *path);
 void pitwallPhotoBytes(JNIEnv *env,jbyteArray data,void *dst,jsize n);
 jsize pitwallPhotoLen(JNIEnv *env,jbyteArray data);
 const char *pitwallChars(JNIEnv *env, jstring s);
@@ -25,12 +26,63 @@ import (
 
 const canPickImage = true
 
+func installAPK(path string) error {
+	photo.Lock()
+	view := photo.view
+	photo.Unlock()
+	if view == 0 {
+		return errors.New("no Android view")
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	c := C.CString(path)
+	defer C.free(unsafe.Pointer(c))
+	if C.pitwallInstall((*C.JavaVM)(unsafe.Pointer(app.JavaVM())), C.jobject(unsafe.Pointer(view)), c) != 0 {
+		return errors.New("Android could not start the installer")
+	}
+	return nil
+}
+
 var photo struct {
 	sync.Mutex
-	view        uintptr
-	done        func([]byte, error)
-	insertStart func(id int)
-	insert      func(id int, b []byte, err error)
+	view         uintptr
+	done         func([]byte, error)
+	insertStart  func(id int)
+	insert       func(id int, b []byte, err error)
+	install      func()
+	installState *installState
+}
+
+func setInstallListener(on func()) {
+	photo.Lock()
+	photo.install = on
+	photo.Unlock()
+	if err := installAPK(""); err != nil {
+		log.Printf("mobile: installer: %v", err)
+	}
+}
+
+func takeInstallState() (installState, bool) {
+	photo.Lock()
+	defer photo.Unlock()
+	if photo.installState == nil {
+		return installState{}, false
+	}
+	s := *photo.installState
+	photo.installState = nil
+	return s, true
+}
+
+//export Java_com_quanticstudios_pitwall_PhotoPick_onInstall
+func Java_com_quanticstudios_pitwall_PhotoPick_onInstall(env *C.JNIEnv, cls C.jclass, cache, message C.jstring, busy C.jboolean) {
+	s := &installState{cache: goString(env, cache), message: goString(env, message), busy: busy != C.JNI_FALSE}
+	photo.Lock()
+	photo.installState = s
+	on := photo.install
+	photo.Unlock()
+	if on != nil {
+		on()
+	}
 }
 
 // setImageView keeps the view for the picker and the clipboard, and has it

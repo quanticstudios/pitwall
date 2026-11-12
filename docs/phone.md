@@ -207,13 +207,21 @@ from the latest release on the phone. It is for arm64 phones with
 Android 9 or later. Open it, and when Android asks, allow your browser or
 file manager to install apps. There is no store listing.
 
-After that the app updates itself. Check for updates, in its settings,
-looks for a newer release with an APK. Install downloads it in the app and
-hands it to Android, which asks for one tap to confirm. The first time,
-Android also asks you to allow installs from pitwall. While the app is
-open it checks once a day and shows the same Install on a line in the
-list; a toggle in settings turns the daily check off. An update installs
-over the old app and keeps your pairings.
+After that the app updates itself. It checks GitHub on launch and every
+24 hours while open; Check daily, under Updates in its settings, turns
+those checks off. Check for updates checks at once, even with Check daily
+off, and says Up to date with the installed version, a failure reason, or
+which version is out.
+
+When a newer release has its APK attached, the session list and settings offer Install: the app downloads the APK over
+HTTPS from GitHub with a progress bar, checks its size against the release,
+and hands it to Android, which asks for one tap to confirm. The first
+time, Android also asks you to allow installs from pitwall; allow it in
+the screen the app opens, then return. Android checks that the update
+carries the same signing key, and the app removes the downloaded file
+after Android's result. Dismiss, on the session list, hides that version
+until a newer one is out. An update installs over the old app and keeps
+your pairings.
 
 ### Pair
 
@@ -359,12 +367,13 @@ build-tools, a platform and the NDK, and runs Java 17 through mise
 (`java@temurin-17`). The APK is for arm64 phones; `ARCH=amd64` builds one
 for the x86_64 emulator, and `ARCH=arm64,amd64` one for both. It is signed
 with a debug key the script makes on first use, `dist/android/debug.keystore`,
-which git ignores. Keep that file: Android installs an update only over an
-APK signed with the same key.
+which git ignores. `PITWALL_APK_KEY` selects an existing key instead. Keep
+that file: Android installs an update only over an APK signed with the same
+key. A self-built APK with another key cannot take the release APK as an update.
 
 The script stamps the APK with pitwall's version: the highest stable
 release tag the commit contains, and the commits since. A build 3 commits
-after tag v0.2.6 gets versionName `0.2.6.206003` and versionCode 206003:
+after tag v0.2.6 gets versionName `v0.2.6` and versionCode 206003:
 the tag's three numbers as two digits each after the first, then the
 commit count as three. Each release and each commit after it raises the
 code, so Android takes every newer build over the last. A maintenance tag
@@ -372,7 +381,10 @@ merged in later, such as v0.2.10 into v0.3.x, does not lower it. The
 script refuses a shallow clone (`git fetch --unshallow --tags` first),
 since it would count too few commits, a tag whose minor or patch is 100 or
 more, and a build more than 999 commits after its tag. `sh scripts/apk.sh --version` prints the
-name, the code and the version the app shows without building.
+three-part number, the code and the version the app shows without building.
+The app shows the exact tag on a release build, or the tag plus commit count
+and hash on a build after it. A build after a tag never offers that same tag
+as an update.
 
 To install your build, turn on USB debugging and run
 `adb install dist/pitwall-phone.apk`, or copy the APK to the phone and

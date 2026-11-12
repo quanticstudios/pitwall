@@ -58,6 +58,7 @@ jobs:
           sh scripts/get_test.sh
           sh scripts/release_test.sh
           sh scripts/apk_test.sh
+          sh scripts/apk-release_test.sh
 
   changelog:
     if: github.event_name == 'pull_request'
