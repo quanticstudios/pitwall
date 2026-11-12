@@ -17,7 +17,7 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
-## Unreleased
+## v0.2.9
 
 - Keep messages sent during a Claude Code turn in the phone chat at their transcript position after reopening it.
 - Keep permission requests' tool and full command or file on the phone. Deny presses Esc only while a permission prompt is on screen; unavailable Allow offers Deny and Open on desktop.
