@@ -13,17 +13,26 @@ import android.os.Bundle;
 import android.view.ContentInfo;
 import android.view.OnReceiveContentListener;
 import android.view.View;
+import android.view.inputmethod.InputContentInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
 
 // A Fragment receives the picker result without changing GioActivity.
 @SuppressWarnings("deprecation")
 public final class PhotoPick {
     static native void onImage(byte[] data, String type, int error);
-    static native void onInsert(byte[] data, String type, int error);
-    // onClip gets the clipboard as lines of "kind encoded-value" and returns the URI to read,
+    // onInsertStart tells Go a keyboard image is on its way; onInsert brings its bytes or error.
+    static native void onInsertStart(int id);
+    static native void onInsert(int id, byte[] data, String type, int error);
+    // onClip gets the clipboard as lines of "kind encoded-value" and returns the URIs to try, one a line,
     // or null after it has reported what the clipboard holds.
     static native String onClip(String clip);
+    static native boolean isPicture(byte[] data);
+
+    // GioView's commitContent puts the keyboard's InputContentInfo in the payload's extras under this key.
+    private static final String GRANT = "pitwall.inputContentInfo";
+    private static int inserts; // keyboard images taken, for their ids; the UI thread's alone
 
     // mode: 0 opens the photo picker, 1 reads the clipboard, 2 accepts keyboard images.
     public static void start(final View view, final int mode) {
@@ -33,10 +42,13 @@ public final class PhotoPick {
                 if (Build.VERSION.SDK_INT >= 31) view.setOnReceiveContentListener(new String[]{"image/*"}, new Insert());
             } else if (mode == 1) {
                 ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                String uri;
-                try { uri = onClip(describe(cm.getPrimaryClip())); }
+                String uris;
+                try { uris = onClip(describe(cm.getPrimaryClip())); }
                 catch (RuntimeException e) { onImage(null, null, 1); return; }
-                if (uri != null) read(activity, Uri.parse(uri), false);
+                if (uris == null) return;
+                ArrayList<Uri> list = new ArrayList<>();
+                for (String u : uris.split("\n")) list.add(Uri.parse(u));
+                read(activity, list, false, 0, null);
             } else {
                 try { activity.getFragmentManager().beginTransaction().add(new Pick(), "pitwall-photo").commit(); }
                 catch (RuntimeException e) { onImage(null, null, 1); }
@@ -69,11 +81,17 @@ public final class PhotoPick {
     public static final class Insert implements OnReceiveContentListener {
         @Override public ContentInfo onReceiveContent(View view, ContentInfo payload) {
             ClipData clip = payload.getClip();
+            ArrayList<Uri> uris = new ArrayList<>();
             for (int i = 0; i < clip.getItemCount(); i++) {
-                Uri uri = clip.getItemAt(i).getUri();
-                if (uri != null) { read(view.getContext(), uri, true); return null; }
+                if (clip.getItemAt(i).getUri() != null) uris.add(clip.getItemAt(i).getUri());
             }
-            return payload;
+            if (uris.isEmpty()) return payload;
+            Bundle extras = payload.getExtras();
+            InputContentInfo grant = extras == null ? null : (InputContentInfo) extras.getParcelable(GRANT);
+            int id = ++inserts;
+            onInsertStart(id);
+            read(view.getContext(), uris, true, id, grant);
+            return null;
         }
     }
 
@@ -92,30 +110,49 @@ public final class PhotoPick {
         }
 
         @Override public void onActivityResult(int request, int result, Intent data) {
-            if (result == Activity.RESULT_OK && data != null && data.getData() != null) read(getActivity(), data.getData(), false);
+            if (result == Activity.RESULT_OK && data != null && data.getData() != null) read(getActivity(), single(data.getData()), false, 0, null);
             else onImage(null, null, 0);
             getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
         }
     }
 
-    private static void done(boolean insert, byte[] data, String type, int error) {
-        if (insert) onInsert(data, type, error);
+    private static ArrayList<Uri> single(Uri uri) {
+        ArrayList<Uri> list = new ArrayList<>();
+        list.add(uri);
+        return list;
+    }
+
+    private static void done(boolean insert, int id, byte[] data, String type, int error) {
+        if (insert) onInsert(id, data, type, error);
         else onImage(data, type, error);
     }
 
-    private static void read(final Context context, final Uri uri, final boolean insert) {
+    // read reports the first of uris that reads as a picture, or the last one's bytes or error.
+    // It releases grant, the keyboard's read permission, once it is done.
+    private static void read(final Context context, final ArrayList<Uri> uris, final boolean insert, final int id, final InputContentInfo grant) {
         new Thread(new Runnable() { public void run() {
-            String type = null;
-            try { type = context.getContentResolver().getType(uri); } catch (Exception e) {}
-            try (InputStream in = context.getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                byte[] buf = new byte[32768]; int n;
-                while ((n = in.read(buf)) != -1) {
-                    if (out.size() + n > 20 * 1024 * 1024) { done(insert, null, type, 3); return; }
-                    out.write(buf, 0, n);
+            try {
+                for (int i = 0; i < uris.size(); i++) {
+                    Uri uri = uris.get(i);
+                    String type = null;
+                    byte[] data = null;
+                    int error = 0;
+                    try { type = context.getContentResolver().getType(uri); } catch (Exception e) {}
+                    try (InputStream in = context.getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                        byte[] buf = new byte[32768]; int n;
+                        while (error == 0 && (n = in.read(buf)) != -1) {
+                            if (out.size() + n > 20 * 1024 * 1024) error = 3;
+                            else out.write(buf, 0, n);
+                        }
+                        if (error == 0) data = out.toByteArray();
+                    } catch (SecurityException | java.io.FileNotFoundException e) { error = 4; }
+                    catch (Exception e) { error = 1; }
+                    // why: a clip can hold a document or a URI pitwall cannot open before its picture.
+                    if (i == uris.size() - 1 || (error == 0 && isPicture(data))) { done(insert, id, data, type, error); return; }
                 }
-                done(insert, out.toByteArray(), type, 0);
-            } catch (SecurityException | java.io.FileNotFoundException e) { done(insert, null, type, 4); }
-            catch (Exception e) { done(insert, null, type, 1); }
+            } finally {
+                if (grant != null) grant.releasePermission();
+            }
         }}).start();
     }
 }

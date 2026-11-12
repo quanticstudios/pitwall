@@ -8,6 +8,7 @@ import (
 	"image"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -21,13 +22,20 @@ var (
 
 var imgSrc = regexp.MustCompile(`(?i)<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
 
-// clipPicture picks the URI to read from the clipboard as PhotoPick.describe
-// writes it: lines of a kind (mime, item, uri, text, html) and a URI-encoded
-// value. An item's own URI comes first, whatever the clip's MIME types say,
-// then a content:// or file:// line of its text (a text/uri-list too), then
-// an <img> in its HTML. With none, the error says what the clipboard holds.
-func clipPicture(desc string) (string, error) {
+// clipPictures lists the URIs to try for a picture from the clipboard as
+// PhotoPick.describe writes it: lines of a kind (mime, item, uri, text,
+// html) and a URI-encoded value. Per item, its own URI comes first, whatever
+// the clip's MIME types say, then each content:// or file:// line of its
+// text (a text/uri-list too), then each <img> in its HTML. With none, the
+// error says what the clipboard holds.
+func clipPictures(desc string) ([]string, error) {
 	found := errClipEmpty
+	var uris []string
+	add := func(u string) {
+		if !slices.Contains(uris, u) {
+			uris = append(uris, u)
+		}
+	}
 	for _, line := range strings.Split(desc, "\n") {
 		kind, enc, _ := strings.Cut(line, " ")
 		v, err := url.PathUnescape(enc)
@@ -37,28 +45,31 @@ func clipPicture(desc string) (string, error) {
 		switch kind {
 		case "uri":
 			if local(v) {
-				return v, nil
+				add(v)
+			} else {
+				found = errClipLink
 			}
-			found = errClipLink
 		case "text":
 			for _, l := range strings.Split(v, "\n") {
 				l = strings.TrimSpace(l)
 				if local(l) {
-					return l, nil
-				}
-				if l != "" && !strings.HasPrefix(l, "#") && found != errClipLink {
+					add(l)
+				} else if l != "" && !strings.HasPrefix(l, "#") && found != errClipLink {
 					found = errClipText
 				}
 			}
 		case "html":
 			for _, m := range imgSrc.FindAllStringSubmatch(v, -1) {
 				if src := html.UnescapeString(m[1] + m[2] + m[3]); local(src) {
-					return src, nil
+					add(src)
 				}
 			}
 		}
 	}
-	return "", found
+	if len(uris) == 0 {
+		return nil, found
+	}
+	return uris, nil
 }
 
 // local reports whether s is a content:// or file:// URI, the ones
@@ -88,13 +99,19 @@ func clipShape(desc string) string {
 	return strings.TrimSuffix(b.String(), "; ")
 }
 
+// isPicture reports whether b decodes as an image newAttachment reads.
+func isPicture(b []byte) bool {
+	_, _, err := image.DecodeConfig(bytes.NewReader(b))
+	return err == nil
+}
+
 // checkPicture rejects bytes that are no image when the provider named a
 // type that is no image either; other bytes go on to newAttachment.
 func checkPicture(b []byte, mime string) error {
 	if mime == "" || strings.HasPrefix(mime, "image/") {
 		return nil
 	}
-	if _, _, err := image.DecodeConfig(bytes.NewReader(b)); err == nil {
+	if isPicture(b) {
 		return nil
 	}
 	return fmt.Errorf("it is a %s file, not a picture", mime)

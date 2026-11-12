@@ -60,10 +60,11 @@ Each change is marked `pitwall` in a comment:
   Android 12 and later, a view with an `OnReceiveContentListener` offers the
   keyboard its MIME types, and a keyboard's image (from its clipboard, a
   sticker or a GIF) goes to that listener as `TextView` sends it, after the
-  read grant. Upstream refused every `commitContent`. The view keeps the last
-  `InputContentInfo` so its grant outlives the app's read on another thread,
-  and releases it on the next insert. The phone app's `PhotoPick.java` sets
-  the listener.
+  read grant. Upstream refused every `commitContent`. The payload's extras
+  carry the `InputContentInfo` under `pitwall.inputContentInfo`, and the
+  listener releases its grant when its read on another thread ends; a
+  payload the listener does not take has its grant released at once. The
+  phone app's `PhotoPick.java` sets the listener.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would

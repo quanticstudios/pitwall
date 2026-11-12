@@ -71,8 +71,6 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 	private int keyboardHint;
 
 	private long nhandle;
-	// pitwall: the last keyboard insert, kept so its read grant outlives the async read.
-	private InputContentInfo lastContent;
 
 	public GioView(Context context) {
 		this(context, null);
@@ -765,21 +763,31 @@ public final class GioView extends SurfaceView implements Choreographer.FrameCal
 			if (Build.VERSION.SDK_INT < 31 || getReceiveContentMimeTypes() == null) {
 				return false;
 			}
-			if ((flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+			// pitwall: the extras carry info, whose read grant the listener releases when its read ends.
+			boolean grant = (flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0;
+			if (grant) {
 				try {
 					info.requestPermission();
 				} catch (Exception e) {
 					return false;
 				}
-				if (lastContent != null) {
-					lastContent.releasePermission();
-				}
-				lastContent = info;
+			}
+			Bundle extras = opts == null ? new Bundle() : new Bundle(opts);
+			if (grant) {
+				extras.putParcelable("pitwall.inputContentInfo", info);
 			}
 			ClipData clip = new ClipData(info.getDescription(), new ClipData.Item(info.getContentUri()));
 			ContentInfo payload = new ContentInfo.Builder(clip, ContentInfo.SOURCE_INPUT_METHOD)
-				.setLinkUri(info.getLinkUri()).setExtras(opts).build();
-			return performReceiveContent(payload) == null;
+				.setLinkUri(info.getLinkUri()).setExtras(extras).build();
+			boolean taken = false;
+			try {
+				taken = performReceiveContent(payload) == null;
+			} finally {
+				if (grant && !taken) {
+					info.releasePermission();
+				}
+			}
+			return taken;
 		}
 
 		/*@Override*/ public boolean deleteSurroundingTextInCodePoints(int before, int after) {

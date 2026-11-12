@@ -2,17 +2,22 @@ package mobile
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"image/png"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
+	"gioui.org/app"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/phone"
+	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -26,28 +31,34 @@ func clipDesc(kv ...string) string {
 	return b.String()
 }
 
-func TestClipPicture(t *testing.T) {
+func TestClipPictures(t *testing.T) {
 	const gallery = "content://com.sec.android.gallery3d.provider/picker/item/42"
+	const doc = "content://com.android.providers.downloads.documents/document/notes.txt"
 	for _, c := range []struct {
-		name, desc, uri string
-		err             error
+		name, desc string
+		uris       []string
+		err        error
 	}{
-		{"item uri under an image MIME", clipDesc("mime", "image/jpeg", "item", "", "uri", gallery), gallery, nil},
-		{"item uri under a text MIME", clipDesc("mime", "text/plain", "item", "", "uri", gallery, "text", "IMG_0042.jpg"), gallery, nil},
-		{"chrome copy image", clipDesc("mime", "image/png", "item", "", "uri", "content://org.chromium.chrome.FileProvider/images/screenshot/1.png"), "content://org.chromium.chrome.FileProvider/images/screenshot/1.png", nil},
-		{"uri list", clipDesc("mime", "text/uri-list", "item", "", "text", "# copied\r\nfile:///sdcard/Pictures/a b.png\r\n"), "file:///sdcard/Pictures/a b.png", nil},
-		{"text that is a content uri", clipDesc("mime", "text/plain", "item", "", "text", " "+gallery+" "), gallery, nil},
-		{"second item", clipDesc("mime", "text/plain", "item", "", "text", "a caption", "item", "", "uri", gallery), gallery, nil},
-		{"html img", clipDesc("mime", "text/html", "item", "", "text", "", "html", `<p>x</p><IMG alt="a" src="content://media/external/images/media/7?a=1&amp;b=2">`), "content://media/external/images/media/7?a=1&b=2", nil},
-		{"html img with a web source", clipDesc("mime", "text/html", "item", "", "text", "a cat", "html", `<img src="https://example.com/cat.png">`), "", errClipText},
-		{"plain text", clipDesc("mime", "text/plain", "item", "", "text", "hello"), "", errClipText},
-		{"web link item", clipDesc("mime", "text/plain", "item", "", "uri", "https://example.com/cat.png", "text", "https://example.com/cat.png"), "", errClipLink},
-		{"empty item", clipDesc("mime", "text/plain", "item", "", "text", ""), "", errClipEmpty},
-		{"no clip", "", "", errClipEmpty},
+		{"item uri under an image MIME", clipDesc("mime", "image/jpeg", "item", "", "uri", gallery), []string{gallery}, nil},
+		{"item uri under a text MIME", clipDesc("mime", "text/plain", "item", "", "uri", gallery, "text", "IMG_0042.jpg"), []string{gallery}, nil},
+		{"chrome copy image", clipDesc("mime", "image/png", "item", "", "uri", "content://org.chromium.chrome.FileProvider/images/screenshot/1.png"), []string{"content://org.chromium.chrome.FileProvider/images/screenshot/1.png"}, nil},
+		{"uri list", clipDesc("mime", "text/uri-list", "item", "", "text", "# copied\r\nfile:///sdcard/Pictures/a b.png\r\n"), []string{"file:///sdcard/Pictures/a b.png"}, nil},
+		{"text that is a content uri", clipDesc("mime", "text/plain", "item", "", "text", " "+gallery+" "), []string{gallery}, nil},
+		{"second item", clipDesc("mime", "text/plain", "item", "", "text", "a caption", "item", "", "uri", gallery), []string{gallery}, nil},
+		{"html img", clipDesc("mime", "text/html", "item", "", "text", "", "html", `<p>x</p><IMG alt="a" src="content://media/external/images/media/7?a=1&amp;b=2">`), []string{"content://media/external/images/media/7?a=1&b=2"}, nil},
+		{"html img with a web source", clipDesc("mime", "text/html", "item", "", "text", "a cat", "html", `<img src="https://example.com/cat.png">`), nil, errClipText},
+		{"plain text", clipDesc("mime", "text/plain", "item", "", "text", "hello"), nil, errClipText},
+		{"web link item", clipDesc("mime", "text/plain", "item", "", "uri", "https://example.com/cat.png", "text", "https://example.com/cat.png"), nil, errClipLink},
+		{"empty item", clipDesc("mime", "text/plain", "item", "", "text", ""), nil, errClipEmpty},
+		{"no clip", "", nil, errClipEmpty},
+		// Java tries each in order and stops at the first that reads as a picture.
+		{"document before a picture", clipDesc("mime", "text/plain", "mime", "image/png", "item", "", "uri", doc, "item", "", "uri", gallery), []string{doc, gallery}, nil},
+		{"uri list of two", clipDesc("mime", "text/uri-list", "item", "", "text", "file:///gone.png\r\n"+gallery+"\r\n"), []string{"file:///gone.png", gallery}, nil},
+		{"same uri as item and text", clipDesc("mime", "text/plain", "item", "", "uri", gallery, "text", gallery, "html", `<img src="`+doc+`">`), []string{gallery, doc}, nil},
 	} {
-		uri, err := clipPicture(c.desc)
-		if uri != c.uri || !errors.Is(err, c.err) {
-			t.Errorf("%s: got %q, %v; want %q, %v", c.name, uri, err, c.uri, c.err)
+		uris, err := clipPictures(c.desc)
+		if !slices.Equal(uris, c.uris) || !errors.Is(err, c.err) {
+			t.Errorf("%s: got %q, %v; want %q, %v", c.name, uris, err, c.uris, c.err)
 		}
 	}
 	if got := clipShape(clipDesc("mime", "image/png", "item", "", "uri", "content://x/1", "text", "secret")); got != "mime image/png; item; uri content; text" {
@@ -119,5 +130,44 @@ func TestMenuItemClick(t *testing.T) {
 	c.menus(gtx, theme.Dark(), chatEnv{Models: []string{"sonnet"}}, 600)
 	if p := c.cmp.pending("model"); p == nil || p.value != "sonnet" || c.cmp.menu != "" {
 		t.Fatalf("pick %+v, menu %q", p, c.cmp.menu)
+	}
+}
+
+// A keyboard picture goes to the composer it started on. Send waits for it,
+// and a chat opened before it is read does not get it.
+func TestKeyboardInsert(t *testing.T) {
+	var b bytes.Buffer
+	png.Encode(&b, image.NewNRGBA(image.Rect(0, 0, 2, 1)))
+	tab := remote.Tab{Item: remote.Item{Pane: "%1"}, ID: "t1", Attach: true, Send: true}
+	a := &App{w: new(app.Window), ui: make(chan func(), 16), links: map[string]*link{}}
+	a.fleet = phone.NewFleet([]phone.Machine{{ID: "m1", Name: "box"}, {ID: "m2", Name: "box2"}})
+	for _, m := range a.fleet.Machines {
+		a.fleet.Set(m.ID, []remote.Tab{tab})
+		a.links[m.ID] = &link{m: m, conn: new(phone.Conn), hello: phone.Hello{Upload: true}}
+	}
+	gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(400, 800))}
+	env := chatEnv{Tab: tab, Open: true, Online: true, Attach: true, Do: func(func(context.Context, chatAPI) error, func(error)) {
+		t.Fatal("Send went before the keyboard picture was read")
+	}}
+
+	a.openChat(phone.NS("m1", "t1"))
+	a.chat.cmp.ed.SetText("a caption")
+	a.insertStart(1)
+	a.chat.cmp.send.Click()
+	a.chat.composer(gtx, theme.Dark(), env)
+	a.insertImage(1, b.Bytes(), nil)
+	if k := a.chat.cmp; k.attachment == nil || k.inserts != 0 || k.sending || k.notSent != "" {
+		t.Fatalf("picture not attached: attachment %v, inserts %d, sending %v, %q", k.attachment != nil, k.inserts, k.sending, k.notSent)
+	}
+
+	a.openChat(phone.NS("m1", "t1"))
+	a.insertStart(2)
+	a.openChat(phone.NS("m2", "t1"))
+	a.insertImage(2, b.Bytes(), nil)
+	if k := a.chat.cmp; k.attachment != nil || k.inserts != 0 || k.notSent != "" {
+		t.Fatalf("another chat got the picture: attachment %v, inserts %d, %q", k.attachment != nil, k.inserts, k.notSent)
+	}
+	if len(a.inserts) != 0 {
+		t.Fatalf("inserts left: %v", a.inserts)
 	}
 }

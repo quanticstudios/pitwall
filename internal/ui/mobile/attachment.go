@@ -157,7 +157,7 @@ func (c *chatView) attachments(gtx C, th *theme.Theme, env chatEnv) D {
 			return roundButton(gtx, th, &k.removeImage, "x", 20, th.Muted)
 		}),
 		layout.Rigid(func(gtx C) D {
-			if !k.loadingImage {
+			if !k.loadingImage && k.inserts == 0 {
 				return D{}
 			}
 			return spinner(gtx, 20, th.Primary)

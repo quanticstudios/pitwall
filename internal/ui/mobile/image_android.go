@@ -16,6 +16,7 @@ import (
 	"errors"
 	"log"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -26,20 +27,22 @@ const canPickImage = true
 
 var photo struct {
 	sync.Mutex
-	view   uintptr
-	done   func([]byte, error)
-	insert func([]byte, error)
+	view        uintptr
+	done        func([]byte, error)
+	insertStart func(id int)
+	insert      func(id int, b []byte, err error)
 }
 
 // setImageView keeps the view for the picker and the clipboard, and has it
-// take images from the keyboard, which go to insert.
-func setImageView(e app.ViewEvent, insert func([]byte, error)) {
+// take images from the keyboard: start gets each one's id as the view takes
+// it, and insert its bytes or error once read.
+func setImageView(e app.ViewEvent, start func(id int), insert func(id int, b []byte, err error)) {
 	v, ok := e.(app.AndroidViewEvent)
 	if !ok {
 		return
 	}
 	photo.Lock()
-	photo.view, photo.insert = v.View, insert
+	photo.view, photo.insertStart, photo.insert = v.View, start, insert
 	photo.Unlock()
 	if v.View != 0 {
 		callPhoto(v.View, 2)
@@ -93,15 +96,32 @@ func goString(env *C.JNIEnv, s C.jstring) string {
 //export Java_com_quanticstudios_pitwall_PhotoPick_onClip
 func Java_com_quanticstudios_pitwall_PhotoPick_onClip(env *C.JNIEnv, cls C.jclass, clip C.jstring) C.jstring {
 	desc := goString(env, clip)
-	uri, err := clipPicture(desc)
-	log.Printf("mobile: paste picture: clipboard %q: %v", clipShape(desc), err)
+	uris, err := clipPictures(desc)
+	log.Printf("mobile: paste picture: clipboard %q: %d to try, %v", clipShape(desc), len(uris), err)
 	if err != nil {
 		finishPhoto(nil, err)
 		return 0
 	}
-	c := C.CString(uri)
+	c := C.CString(strings.Join(uris, "\n"))
 	defer C.free(unsafe.Pointer(c))
 	return C.pitwallNewString(env, c)
+}
+
+//export Java_com_quanticstudios_pitwall_PhotoPick_isPicture
+func Java_com_quanticstudios_pitwall_PhotoPick_isPicture(env *C.JNIEnv, cls C.jclass, data C.jbyteArray) C.jboolean {
+	if data == 0 {
+		return C.JNI_FALSE
+	}
+	n := C.pitwallPhotoLen(env, data)
+	if n <= 0 {
+		return C.JNI_FALSE
+	}
+	b := make([]byte, int(n))
+	C.pitwallPhotoBytes(env, data, unsafe.Pointer(&b[0]), n)
+	if isPicture(b) {
+		return C.JNI_TRUE
+	}
+	return C.JNI_FALSE
 }
 
 //export Java_com_quanticstudios_pitwall_PhotoPick_onImage
@@ -110,14 +130,24 @@ func Java_com_quanticstudios_pitwall_PhotoPick_onImage(env *C.JNIEnv, cls C.jcla
 	finishPhoto(b, err)
 }
 
+//export Java_com_quanticstudios_pitwall_PhotoPick_onInsertStart
+func Java_com_quanticstudios_pitwall_PhotoPick_onInsertStart(env *C.JNIEnv, cls C.jclass, id C.jint) {
+	photo.Lock()
+	start := photo.insertStart
+	photo.Unlock()
+	if start != nil {
+		start(int(id))
+	}
+}
+
 //export Java_com_quanticstudios_pitwall_PhotoPick_onInsert
-func Java_com_quanticstudios_pitwall_PhotoPick_onInsert(env *C.JNIEnv, cls C.jclass, data C.jbyteArray, typ C.jstring, code C.jint) {
+func Java_com_quanticstudios_pitwall_PhotoPick_onInsert(env *C.JNIEnv, cls C.jclass, id C.jint, data C.jbyteArray, typ C.jstring, code C.jint) {
 	b, err := photoBytes(env, data, typ, code)
 	photo.Lock()
 	insert := photo.insert
 	photo.Unlock()
-	if insert != nil && (b != nil || err != nil) {
-		insert(b, err)
+	if insert != nil {
+		insert(int(id), b, err)
 	}
 }
 

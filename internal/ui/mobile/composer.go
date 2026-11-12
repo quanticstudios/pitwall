@@ -34,6 +34,7 @@ type composer struct {
 	attachment                      *attachment
 	attach, pasteImage, removeImage widget.Clickable
 	loadingImage                    bool
+	inserts                         int       // keyboard pictures still being read
 	pasteText                       bool      // Paste found text: read it into the field
 	longPress                       time.Time // the field press that opened Paste
 	field, send                     widget.Clickable
@@ -240,7 +241,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	if k.attachment != nil {
 		draft += "image"
 	}
-	st := sendStateOf(draft, k.sending || k.loadingImage, env.Online, busy(t))
+	st := sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t))
 	c.imageClicks(gtx, env)
 	if k.send.Clicked(gtx) && (st == sendReady || st == sendQueue) {
 		c.sendDraft(env)
