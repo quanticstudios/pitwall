@@ -207,11 +207,13 @@ from the latest release on the phone. It is for arm64 phones with
 Android 9 or later. Open it, and when Android asks, allow your browser or
 file manager to install apps. There is no store listing.
 
-To update, download the newer APK and open it the same way: it installs
-over the old one and keeps your pairings. The app checks GitHub's latest
-release once a day while it is open and shows "pitwall vX is out" with an
-Update button that opens the APK download; a toggle in its settings turns the
-check off.
+After that the app updates itself. Check for updates, in its settings,
+looks for a newer release with an APK. Install downloads it in the app and
+hands it to Android, which asks for one tap to confirm. The first time,
+Android also asks you to allow installs from pitwall. While the app is
+open it checks once a day and shows the same Install on a line in the
+list; a toggle in settings turns the daily check off. An update installs
+over the old app and keeps your pairings.
 
 ### Pair
 

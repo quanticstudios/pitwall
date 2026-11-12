@@ -19,7 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
-- The README, the web page and [Phone](docs/phone.md#android-app) lead with the Android app: download `pitwall-phone.apk` from the latest release and open it, and a newer APK installs over the old one. The web page stays for iPhones and anyone who wants no app. New screenshots show the app's tab list and a chat.
+- The README, the web page and [Phone](docs/phone.md#android-app) lead with the Android app: download `pitwall-phone.apk` from the latest release and open it, and after that the app installs its own updates. The web page stays for iPhones and anyone who wants no app. New screenshots show the app's tab list and a chat.
 
 ## v0.2.9
 

@@ -144,7 +144,7 @@ them too.
 **Or follow it from your phone.** On Android,
 [download the app](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
 (arm64, Android 9 or later), open the APK and let your file manager install
-it; a newer APK installs over the old one. Scan the QR code
+it; after that first download it installs its own updates. Scan the QR code
 `pitwall remote pair` shows, and the app lists every tab as the sidebar
 does, live, from as many computers as you pair, each under a line with its
 name. Tap one to read its agent's chat, with tables, code and mermaid drawn
