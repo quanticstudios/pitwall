@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- The README, the web page and [Phone](docs/phone.md#android-app) lead with the Android app: download `pitwall-phone.apk` from the latest release and open it, and a newer APK installs over the old one. The web page stays for iPhones and anyone who wants no app. New screenshots show the app's tab list and a chat.
+
 ## v0.2.9
 
 - Keep messages sent during a Claude Code turn in the phone chat at their transcript position after reopening it.

@@ -139,17 +139,24 @@ them too.
 
 <br clear="right">
 
-<img src="docs/media/phone.webp" alt="The phone page's tab list: tabs by session and group, each with its state, agent and branch, and what it asks" width="240" align="right">
+<img src="docs/media/phone-app-list.webp" alt="The Android app's tab list: a Waiting on you row, then the demo session's tabs on two machines, box and laptop, each under a line with its name and latency; box's api group holds Add rate limits waiting for approval with Allow and Deny, and Review the PR asking for input with Reply" width="240" align="right">
 
-**Or follow it from your phone.** Pair it by QR code and it lists every tab
-as the sidebar does, live. Tap one to read its agent's chat as it happens,
-send it a message, queued while it works, answer an approval, or switch
-Claude Code's model and effort. A shell never takes typing from the phone,
-and the page never shows a pane's screen. There
-is no account and no relay: the phone talks to your computer over your own
-network. [Push notifications](docs/phone.md#notifications) need separate setup:
-a certificate the phone trusts, Turn on on the page, and on an iPhone the Home
-Screen. They go through the browser's push service, encrypted.
+**Or follow it from your phone.** On Android,
+[download the app](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
+(arm64, Android 9 or later), open the APK and let your file manager install
+it; a newer APK installs over the old one. Scan the QR code
+`pitwall remote pair` shows, and the app lists every tab as the sidebar
+does, live, from as many computers as you pair, each under a line with its
+name. Tap one to read its agent's chat, with tables, code and mermaid drawn
+as the markdown reader draws them, send it a message even mid-turn, attach
+a picture, answer an approval or a question, or switch Claude Code's model
+and effort for that session. On an iPhone, or with no app, the same pairing
+opens [a web page](docs/phone.md) with the tab list and chats. A shell never
+takes typing from the phone, and neither shows a pane's screen. There is no
+account and no relay: the phone talks to your computer over your own
+network. The page can also send [push notifications](docs/phone.md#notifications),
+after separate setup: a certificate the phone trusts, Turn on on the page,
+and on an iPhone the Home Screen.
 
 <br clear="right">
 

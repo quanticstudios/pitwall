@@ -18,6 +18,7 @@ If you are an agent CHANGING pitwall: read AGENTS.md, then CONTRIBUTING.md. Ever
 - [Hooks](https://github.com/quanticstudios/pitwall/blob/main/docs/hooks.md): what `pitwall hooks install` changes for each agent
 - [Using pitwall](https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md): the window, sessions, review, worktrees, tasks
 - [Remote hosts](https://github.com/quanticstudios/pitwall/blob/main/docs/remote.md): agents on another machine over ssh
+- [Phone](https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md): the Android app and the phone page, pairing, push notifications
 - [Troubleshooting](https://github.com/quanticstudios/pitwall/blob/main/docs/troubleshooting.md): `pitwall doctor`, then the logs
 - [Install](https://github.com/quanticstudios/pitwall/blob/main/docs/install.md): platforms, updates, building from source
 

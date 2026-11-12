@@ -5,8 +5,9 @@ sidebar shows, and each agent's conversation as a chat you can read and
 type into. It runs inside pitwall's background service and shows what that
 service runs now, so tabs come and go on the phone as they do in the
 window. There is no account and no relay, and the page needs no app: the
-phone talks to your computer over your own network. An
-[Android app](#android-app) shows the same, if you build it.
+phone talks to your computer over your own network. On Android, the
+[app](#android-app) shows the same tabs and chats, from several computers
+at once; download it from the latest release.
 
 <img src="media/phone.webp" alt="The phone page's tab list: a working Claude Code tab, a finished one, a Codex tab asking approval and a pi tab asking a question in group api, a shell, and a failed tab in session infra" width="300"> <img src="media/phone-chat.webp" alt="A Claude Code tab's chat mid-turn: a reply, a failed go test call opened to its output, a code block, and a running call under a Working line" width="300">
 
@@ -179,72 +180,38 @@ copy of the chat drops the request.
 
 ## Android app
 
-The same tabs and chats also come as an Android app: pitwall's own
-sidebar as the home screen, and each agent tab's chat with model, effort
-and send on the message box. It talks to the phone page's API, so turn the
-page on and reach it as above first. There is no store listing; you build
-the APK and install it yourself.
+The same tabs and chats also come as an Android app. It talks to the
+phone page's API, so turn the page on and reach it as above first. What
+it does:
 
-### Pictures
+- pairs by scanning the QR code `pitwall remote pair` shows;
+- lists the tabs of several computers in one sidebar, each machine's under
+  a line with its name and latency;
+- leads each row with its repo's icon, and folds the tabs an agent opened
+  under that agent's tab;
+- puts Waiting on you at the top, with Allow and Deny on a row;
+- draws an agent's replies as the markdown reader does, with tables, code
+  blocks and mermaid flowcharts, and opens a `.md` file full screen;
+- sends a message during a turn, and answers approvals and Claude Code and
+  Codex questions in the chat;
+- attaches a picture from the gallery, the clipboard or the keyboard;
+- changes Claude Code's model and effort for that session only.
 
-In a Claude Code or Codex terminal chat, tap the paperclip to choose a
-picture, or the clipboard button to paste a picture copied by another
-Android app. Android grants access to the chosen picture without a storage
-permission. A hold of half a second on the message field opens Paste,
-which attaches a picture from the clipboard or pastes its text. A picture,
-sticker or GIF from the keyboard, such as Gboard's or Samsung Keyboard's
-clipboard panel, attaches too, on Android 12 and later. Send waits while
-it loads, and it stays with the chat it was inserted in: a picture that
-finishes after you leave that chat is dropped. The clipboard
-button reads an item's own `content://` URI whatever its type label says.
-It also reads a `content://` or `file://` URI written as text, a URI list
-or an `<img>` in HTML, but Android lets pitwall open those only when the
-app that holds the picture is visible to it. Otherwise the composer says
-"pitwall has no access to that picture". It tries the clip's URIs in
-order and takes the first that holds a picture, so a document or an
-unreadable URI before it does not hide it. With no picture on the
-clipboard, it says whether the clipboard holds text, a link or nothing.
-The composer shows a thumbnail with a remove button. Send
-uploads the picture with the message; an upload or send failure keeps it
-in the composer for retry. One picture fits each message.
+<img src="media/phone-app-list.webp" alt="The Android app's tab list: a Waiting on you row, then the demo session's tabs on two machines, box and laptop, each under a line with its name and latency; box's api group holds Add rate limits waiting for approval with Allow and Deny, and Review the PR asking for input with Reply" width="300"> <img src="media/phone-app-chat.webp" alt="The Android app's chat for Fix the checkout race on box: a failed go test call, a reply with inline code, a numbered list and a Go code block, an Edit call and a running go test call, then the message box with Opus 5.5 and effort buttons" width="300">
 
-The phone page also accepts a picture through Attach picture or a paste
-into the message box. Pictures must be PNG, JPEG, GIF or WebP, up to
-20 MiB. The Android preview accepts up to 40 megapixels. The authenticated
-upload checks the bytes and saves a private file under `paste/<tab>/` in
-the daemon's state folder. The existing desktop image delivery pastes that
-file's path into the agent before the message. Closing the tab removes its
-paste folder. An older daemon without uploads hides the attachment controls.
+### Install the Android app
 
-### Build
+Download
+[pitwall-phone.apk](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
+from the latest release on the phone. It is for arm64 phones with
+Android 9 or later. Open it, and when Android asks, allow your browser or
+file manager to install apps. There is no store listing.
 
-`sh scripts/apk.sh` builds `dist/pitwall-phone.apk` with
-[gogio](https://gioui.org/doc/install/android) and prints its path. It
-needs the Android SDK in `~/Android/Sdk` (or `ANDROID_SDK_ROOT`) with
-build-tools, a platform and the NDK, and runs Java 17 through mise
-(`java@temurin-17`). The APK is for arm64 phones; `ARCH=amd64` builds one
-for the x86_64 emulator, and `ARCH=arm64,amd64` one for both. It is signed
-with a debug key the script makes on first use, `dist/android/debug.keystore`,
-which git ignores. Keep that file: Android installs an update only over an
-APK signed with the same key.
-
-The script stamps the APK with pitwall's version: the highest stable
-release tag the commit contains, and the commits since. A build 3 commits
-after tag v0.2.6 gets versionName `0.2.6.206003` and versionCode 206003:
-the tag's three numbers as two digits each after the first, then the
-commit count as three. Each release and each commit after it raises the
-code, so Android takes every newer build over the last. A maintenance tag
-merged in later, such as v0.2.10 into v0.3.x, does not lower it. The
-script refuses a shallow clone (`git fetch --unshallow --tags` first),
-since it would count too few commits, a tag whose minor or patch is 100 or
-more, and a build more than 999 commits after its tag. `sh scripts/apk.sh --version` prints the
-name, the code and the version the app shows without building.
-
-### Install
-
-With USB debugging on, run `adb install dist/pitwall-phone.apk`. Or copy
-the APK to the phone, open it there and allow your file manager to install
-apps when Android asks.
+To update, download the newer APK and open it the same way: it installs
+over the old one and keeps your pairings. The app checks GitHub's latest
+release once a day while it is open and shows "pitwall vX is out" with an
+Update button that opens the APK download; a toggle in its settings turns the
+check off.
 
 ### Pair
 
@@ -319,6 +286,37 @@ once.
 link, which an emulator reaches at `http://10.0.2.2:7792`; with `-demo 2`
 it serves box's.
 
+### Pictures
+
+In a Claude Code or Codex terminal chat, tap the paperclip to choose a
+picture, or the clipboard button to paste a picture copied by another
+Android app. Android grants access to the chosen picture without a storage
+permission. A hold of half a second on the message field opens Paste,
+which attaches a picture from the clipboard or pastes its text. A picture,
+sticker or GIF from the keyboard, such as Gboard's or Samsung Keyboard's
+clipboard panel, attaches too, on Android 12 and later. Send waits while
+it loads, and it stays with the chat it was inserted in: a picture that
+finishes after you leave that chat is dropped. The clipboard
+button reads an item's own `content://` URI whatever its type label says.
+It also reads a `content://` or `file://` URI written as text, a URI list
+or an `<img>` in HTML, but Android lets pitwall open those only when the
+app that holds the picture is visible to it. Otherwise the composer says
+"pitwall has no access to that picture". It tries the clip's URIs in
+order and takes the first that holds a picture, so a document or an
+unreadable URI before it does not hide it. With no picture on the
+clipboard, it says whether the clipboard holds text, a link or nothing.
+The composer shows a thumbnail with a remove button. Send
+uploads the picture with the message; an upload or send failure keeps it
+in the composer for retry. One picture fits each message.
+
+The phone page also accepts a picture through Attach picture or a paste
+into the message box. Pictures must be PNG, JPEG, GIF or WebP, up to
+20 MiB. The Android preview accepts up to 40 megapixels. The authenticated
+upload checks the bytes and saves a private file under `paste/<tab>/` in
+the daemon's state folder. The existing desktop image delivery pastes that
+file's path into the agent before the message. Closing the tab removes its
+paste folder. An older daemon without uploads hides the attachment controls.
+
 ### Markdown files
 
 An agent's reply draws as the [markdown reader](usage.md#markdown-reader)
@@ -349,6 +347,36 @@ replaced by another one after that, reads fail until the tab is closed. An SVG g
 `<use>`, at most 64 levels deep and 20,000 elements. Images from the
 web load on the phone, by the reader's rules. A computer running an older
 pitwall serves no files, and the app leaves paths as plain text.
+
+### Build it yourself
+
+`sh scripts/apk.sh` builds `dist/pitwall-phone.apk` with
+[gogio](https://gioui.org/doc/install/android) and prints its path. It
+needs the Android SDK in `~/Android/Sdk` (or `ANDROID_SDK_ROOT`) with
+build-tools, a platform and the NDK, and runs Java 17 through mise
+(`java@temurin-17`). The APK is for arm64 phones; `ARCH=amd64` builds one
+for the x86_64 emulator, and `ARCH=arm64,amd64` one for both. It is signed
+with a debug key the script makes on first use, `dist/android/debug.keystore`,
+which git ignores. Keep that file: Android installs an update only over an
+APK signed with the same key.
+
+The script stamps the APK with pitwall's version: the highest stable
+release tag the commit contains, and the commits since. A build 3 commits
+after tag v0.2.6 gets versionName `0.2.6.206003` and versionCode 206003:
+the tag's three numbers as two digits each after the first, then the
+commit count as three. Each release and each commit after it raises the
+code, so Android takes every newer build over the last. A maintenance tag
+merged in later, such as v0.2.10 into v0.3.x, does not lower it. The
+script refuses a shallow clone (`git fetch --unshallow --tags` first),
+since it would count too few commits, a tag whose minor or patch is 100 or
+more, and a build more than 999 commits after its tag. `sh scripts/apk.sh --version` prints the
+name, the code and the version the app shows without building.
+
+To install your build, turn on USB debugging and run
+`adb install dist/pitwall-phone.apk`, or copy the APK to the phone and
+open it there. Your build carries your own key, so Android will not
+install it over the release APK, or the release over it: uninstall the
+other one first, which forgets its pairings.
 
 ## What pitwall logs
 
