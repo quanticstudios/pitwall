@@ -4,7 +4,7 @@ package mobile
 #include <jni.h>
 #include <stdlib.h>
 int pitwallPhoto(JavaVM *vm, jobject view, int mode);
-int pitwallOpenURL(JavaVM *vm, jobject view, const char *url);
+int pitwallInstall(JavaVM *vm, jobject view, const char *path);
 void pitwallPhotoBytes(JNIEnv *env,jbyteArray data,void *dst,jsize n);
 jsize pitwallPhotoLen(JNIEnv *env,jbyteArray data);
 const char *pitwallChars(JNIEnv *env, jstring s);
@@ -26,7 +26,7 @@ import (
 
 const canPickImage = true
 
-func openUpdateURL(url string) error {
+func installAPK(path string) error {
 	photo.Lock()
 	view := photo.view
 	photo.Unlock()
@@ -35,10 +35,10 @@ func openUpdateURL(url string) error {
 	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	c := C.CString(url)
+	c := C.CString(path)
 	defer C.free(unsafe.Pointer(c))
-	if C.pitwallOpenURL((*C.JavaVM)(unsafe.Pointer(app.JavaVM())), C.jobject(unsafe.Pointer(view)), c) != 0 {
-		return errors.New("Android could not open the update link")
+	if C.pitwallInstall((*C.JavaVM)(unsafe.Pointer(app.JavaVM())), C.jobject(unsafe.Pointer(view)), c) != 0 {
+		return errors.New("Android could not start the installer")
 	}
 	return nil
 }
@@ -49,6 +49,26 @@ var photo struct {
 	done        func([]byte, error)
 	insertStart func(id int)
 	insert      func(id int, b []byte, err error)
+	install     func(cache, message string, busy bool)
+}
+
+func setInstallListener(on func(string, string, bool)) {
+	photo.Lock()
+	photo.install = on
+	photo.Unlock()
+	if err := installAPK(""); err != nil {
+		log.Printf("mobile: installer: %v", err)
+	}
+}
+
+//export Java_com_quanticstudios_pitwall_PhotoPick_onInstall
+func Java_com_quanticstudios_pitwall_PhotoPick_onInstall(env *C.JNIEnv, cls C.jclass, cache, message C.jstring, busy C.jboolean) {
+	photo.Lock()
+	on := photo.install
+	photo.Unlock()
+	if on != nil {
+		on(goString(env, cache), goString(env, message), busy != C.JNI_FALSE)
+	}
 }
 
 // setImageView keeps the view for the picker and the clipboard, and has it

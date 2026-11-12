@@ -186,11 +186,20 @@ page on and reach it as above first. Download
 [`pitwall-phone.apk`](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
 from the latest GitHub release, or build the APK yourself. There is no store listing.
 
-The app checks GitHub on launch and every 24 hours while open. When a newer
-release has its APK attached, the session list and gear screen offer Update.
-That button opens the APK in your browser; Android handles installation.
-Dismiss hides that version across launches. The gear's Check for updates
-setting is on by default; turning it off prevents requests to GitHub.
+The app checks GitHub on launch and every 24 hours while open. Check daily
+in Settings turns those automatic checks on or off. Check for updates runs
+a check immediately, even when daily checks are off. Its status says Checking,
+Up to date with the installed version, a failure reason, or which version is out.
+Dismiss on the session list hides that version across launches.
+
+When a newer release has its APK attached, the session list and Settings offer
+Install. The app downloads the APK into its cache with a progress bar, checks
+the byte count against the release asset, then asks Android to install it.
+Downloads and redirects must use HTTPS on GitHub's download hosts. On the first
+install, allow pitwall to install unknown apps in the settings screen it opens,
+then return. Android still requires a tap on its installation confirmation.
+The app reports cancellation or Android's failure message and removes the
+cached APK after the installation result. Android checks the signing key.
 
 ### Pictures
 

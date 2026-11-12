@@ -101,6 +101,7 @@ func (a *App) listLayout(gtx C) {
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(a.listHeader),
 		layout.Rigid(a.updateLine),
+		layout.Rigid(a.updateProgress),
 		layout.Rigid(a.offlineLine),
 		layout.Rigid(a.waiting),
 		layout.Flexed(1, func(gtx C) D {

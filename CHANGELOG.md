@@ -24,7 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
-- Attach the Android APK to releases from the maintainer's computer. The Android app checks for a newer APK on launch and every 24 hours while open, offers Update through the browser, and saves dismissed versions and the Check for updates setting.
+- Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. The app saves dismissed versions and the daily-check setting.
 
 ## v0.2.9
 

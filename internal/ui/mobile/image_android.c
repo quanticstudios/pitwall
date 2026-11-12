@@ -56,7 +56,7 @@ void pitwallPhotoBytes(JNIEnv *env, jbyteArray a, void *dst, jsize n) {
 	(*env)->GetByteArrayRegion(env, a, 0, n, (jbyte *)dst);
 }
 
-int pitwallOpenURL(JavaVM *vm, jobject view, const char *url) {
+int pitwallInstall(JavaVM *vm, jobject view, const char *path) {
 	JNIEnv *env;
 	int attached = 0, rc = 0;
 	if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {
@@ -66,8 +66,8 @@ int pitwallOpenURL(JavaVM *vm, jobject view, const char *url) {
 	if (photoClass == NULL) {
 		rc = -1;
 	} else {
-		jmethodID method = (*env)->GetStaticMethodID(env, photoClass, "openURL", "(Landroid/view/View;Ljava/lang/String;)V");
-		jstring link = (*env)->NewStringUTF(env, url);
+		jmethodID method = (*env)->GetStaticMethodID(env, photoClass, "install", "(Landroid/view/View;Ljava/lang/String;)V");
+		jstring link = (*env)->NewStringUTF(env, path);
 		if (method != NULL && link != NULL) (*env)->CallStaticVoidMethod(env, photoClass, method, view, link);
 		if (link != NULL) (*env)->DeleteLocalRef(env, link);
 	}

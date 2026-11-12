@@ -15,4 +15,5 @@ func pickImage(clipboard bool, done func([]byte, error)) {
 	done(nil, errors.New("photo picking requires Android"))
 }
 
-func openUpdateURL(string) error { return errors.New("opening an APK requires Android") }
+func installAPK(string) error                       { return errors.New("installing an APK requires Android") }
+func setInstallListener(func(string, string, bool)) {}

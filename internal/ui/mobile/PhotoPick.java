@@ -21,12 +21,8 @@ import java.util.ArrayList;
 // A Fragment receives the picker result without changing GioActivity.
 @SuppressWarnings("deprecation")
 public final class PhotoPick {
-    public static void openURL(final View view, final String url) {
-        view.post(new Runnable() { public void run() {
-            try { view.getContext().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
-            catch (RuntimeException e) { android.util.Log.w("pitwall", "Could not open update link"); }
-        }});
-    }
+    static native void onInstall(String cache, String message, boolean busy);
+    public static void install(final View view, final String path) { ApkInstall.start(view, path); }
 
     static native void onImage(byte[] data, String type, int error);
     // onInsertStart tells Go a keyboard image is on its way; onInsert brings its bytes or error.

@@ -125,6 +125,9 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			if a.updates.cancel != nil {
 				a.updates.cancel()
 			}
+			if a.updates.downloadCancel != nil {
+				a.updates.downloadCancel()
+			}
 			stopCamera()
 			a.stop()
 			return e.Err
@@ -132,6 +135,9 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			setCameraView(e)
 			setImageView(e, func(id int) { a.post(func() { a.insertStart(id) }) },
 				func(id int, b []byte, err error) { a.post(func() { a.insertImage(id, b, err) }) })
+			setInstallListener(func(cache, message string, busy bool) {
+				a.postUpdate(func() { a.updates.cache, a.updates.installNote, a.updates.installing = cache, message, busy })
+			})
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {

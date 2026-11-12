@@ -21,7 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-const apkReleaseJSON = `{"tag_name":"v0.3.0","assets":[{"name":"pitwall_linux_arm64.tar.gz","browser_download_url":"https://example.com/desktop"},{"name":"pitwall-phone.apk","browser_download_url":"https://example.com/pitwall-phone.apk"}]}`
+const apkReleaseJSON = `{"tag_name":"v0.3.0","assets":[{"name":"pitwall_linux_arm64.tar.gz","browser_download_url":"https://example.com/desktop"},{"name":"pitwall-phone.apk","browser_download_url":"https://github.com/quanticstudios/pitwall/releases/download/v0.3.0/pitwall-phone.apk","size":5}]}`
 
 func TestPhoneReleaseOffer(t *testing.T) {
 	var r phoneRelease
@@ -56,8 +56,11 @@ func TestPhoneReleaseOffer(t *testing.T) {
 	for _, body := range []string{
 		`{"tag_name":"v0.3.0"}`,
 		`{"tag_name":"v0.3.0","assets":[{"name":"other.apk","browser_download_url":"https://example.com/app.apk"}]}`,
-		strings.ReplaceAll(apkReleaseJSON, "https://example.com/pitwall-phone.apk", "file:///app.apk"),
-		strings.ReplaceAll(apkReleaseJSON, "https://example.com/pitwall-phone.apk", ""),
+		strings.ReplaceAll(apkReleaseJSON, "https://github.com/quanticstudios/pitwall/releases/download/v0.3.0/pitwall-phone.apk", "file:///app.apk"),
+		strings.ReplaceAll(apkReleaseJSON, "https://github.com/quanticstudios/pitwall/releases/download/v0.3.0/pitwall-phone.apk", ""),
+		strings.ReplaceAll(apkReleaseJSON, `"size":5`, `"size":0`),
+		strings.ReplaceAll(apkReleaseJSON, `"size":5`, `"size":-1`),
+		strings.ReplaceAll(apkReleaseJSON, `"size":5`, `"size":9999999999`),
 	} {
 		r = phoneRelease{}
 		if err := json.Unmarshal([]byte(body), &r); err != nil {
@@ -112,6 +115,36 @@ func TestFetchPhoneRelease(t *testing.T) {
 	cancel()
 	if _, _, err := fetchPhoneRelease(ctx, srv.Client(), srv.URL, etag, r); err == nil {
 		t.Fatal("ignored cancellation")
+	}
+}
+
+func TestManualPhoneUpdateCheck(t *testing.T) {
+	oldVersion, oldURL := Version, releaseURL
+	t.Cleanup(func() { Version, releaseURL = oldVersion, oldURL })
+	for _, status := range []int{http.StatusOK, http.StatusForbidden} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status); fmt.Fprint(w, apkReleaseJSON) }))
+			defer srv.Close()
+			Version, releaseURL = "v0.2.9", srv.URL
+			a := &App{w: new(app.Window), ui: make(chan func(), 10), closed: make(chan struct{})}
+			a.startUpdateCheck(time.Now(), true)
+			if a.updates.cancel == nil {
+				t.Fatal("manual check did not start while daily checks were off")
+			}
+			select {
+			case done := <-a.ui:
+				done()
+			case <-time.After(time.Second):
+				t.Fatal("manual check did not finish")
+			}
+			if status == http.StatusOK {
+				if !a.updates.checked || !a.updates.release.available(Version) {
+					t.Fatal("manual check dropped its result")
+				}
+			} else if !strings.Contains(a.updates.checkError, "403") {
+				t.Fatalf("missing failure reason: %q", a.updates.checkError)
+			}
+		})
 	}
 }
 
