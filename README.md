@@ -141,22 +141,20 @@ them too.
 
 <img src="docs/media/phone-app-list.webp" alt="The Android app's tab list: a Waiting on you row, then the demo session's tabs on two machines, box and laptop, each under a line with its name and latency; box's api group holds Add rate limits waiting for approval with Allow and Deny, and Review the PR asking for input with Reply" width="240" align="right">
 
-**Or follow it from your phone.** On Android,
+**Or follow it from your phone.** First turn the phone page on in Settings,
+Phone and give it an address the phone can reach, as
+[docs/phone.md](docs/phone.md) shows. On Android,
 [download the app](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
-(arm64, Android 9 or later), open the APK and let your file manager install
-it; after that first download it installs its own updates. Scan the QR code
-`pitwall remote pair` shows, and the app lists every tab as the sidebar
-does, live, from as many computers as you pair, each under a line with its
-name. Tap one to read its agent's chat, with tables, code and mermaid drawn
-as the markdown reader draws them, send it a message even mid-turn, attach
-a picture, answer an approval or a question, or switch Claude Code's model
-and effort for that session. On an iPhone, or with no app, the same pairing
-opens [a web page](docs/phone.md) with the tab list and chats. A shell never
-takes typing from the phone, and neither shows a pane's screen. There is no
-account and no relay: the phone talks to your computer over your own
-network. The page can also send [push notifications](docs/phone.md#notifications),
-after separate setup: a certificate the phone trusts, Turn on on the page,
-and on an iPhone the Home Screen.
+(arm64, Android 9 or later) and scan the QR code `pitwall remote pair`
+shows. The app lists every tab from every computer you pair. Tap one to read
+its agent's chat, send a message even mid-turn, or answer an approval or a
+question. [The guide](docs/phone.md#android-app) covers pictures, markdown,
+updates and model controls.
+
+On an iPhone, or with no app, the same pairing opens
+[a web page](docs/phone.md) with the tab list and chats. Either way the
+phone talks to your computer over your own network, with no account and no
+relay.
 
 <br clear="right">
 
