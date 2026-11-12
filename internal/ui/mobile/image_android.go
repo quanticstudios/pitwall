@@ -4,6 +4,7 @@ package mobile
 #include <jni.h>
 #include <stdlib.h>
 int pitwallPhoto(JavaVM *vm, jobject view, int mode);
+int pitwallOpenURL(JavaVM *vm, jobject view, const char *url);
 void pitwallPhotoBytes(JNIEnv *env,jbyteArray data,void *dst,jsize n);
 jsize pitwallPhotoLen(JNIEnv *env,jbyteArray data);
 const char *pitwallChars(JNIEnv *env, jstring s);
@@ -24,6 +25,23 @@ import (
 )
 
 const canPickImage = true
+
+func openUpdateURL(url string) error {
+	photo.Lock()
+	view := photo.view
+	photo.Unlock()
+	if view == 0 {
+		return errors.New("no Android view")
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	c := C.CString(url)
+	defer C.free(unsafe.Pointer(c))
+	if C.pitwallOpenURL((*C.JavaVM)(unsafe.Pointer(app.JavaVM())), C.jobject(unsafe.Pointer(view)), c) != 0 {
+		return errors.New("Android could not open the update link")
+	}
+	return nil
+}
 
 var photo struct {
 	sync.Mutex

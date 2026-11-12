@@ -7,6 +7,7 @@ package mobile
 import (
 	"context"
 	"errors"
+	"log"
 	"runtime"
 	"slices"
 	"time"
@@ -52,10 +53,12 @@ func Theme() *theme.Theme {
 // App is the app's state; Run owns it, on the window's goroutine. Other
 // goroutines hand it work through post.
 type App struct {
-	w   *app.Window
-	th  *theme.Theme
-	dir string
-	ui  chan func()
+	w       *app.Window
+	th      *theme.Theme
+	dir     string
+	ui      chan func()
+	closed  chan struct{}
+	updates phoneUpdates
 
 	fleet   *phone.Fleet // nil while no machine is paired
 	links   map[string]*link
@@ -98,7 +101,12 @@ type link struct {
 
 // Run runs the app in w, with its machines kept in dir, until w closes.
 func Run(w *app.Window, th *theme.Theme, dir string) error {
-	a := &App{w: w, th: th, dir: dir, ui: make(chan func(), 256)}
+	a := &App{w: w, th: th, dir: dir, ui: make(chan func(), 256), closed: make(chan struct{})}
+	var err error
+	a.updates.settings, err = loadPhoneSettings(dir)
+	if err != nil {
+		log.Printf("mobile: update settings: %v", err)
+	}
 	a.sb.TreeOnly, a.sb.Fill, a.sb.Touch, a.sb.ExpandAll, a.sb.Answers = true, true, true, true, true
 	// why: no machine is the phone's own; a worker's state shows on its parent's strip, a tap opens its row.
 	a.sb.AllHosts, a.sb.SeparateWorkers, a.sb.Rev = true, true, 1
@@ -113,6 +121,10 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
+			close(a.closed)
+			if a.updates.cancel != nil {
+				a.updates.cancel()
+			}
 			stopCamera()
 			a.stop()
 			return e.Err
@@ -135,6 +147,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			// screen, or it shows the old one, with its hit areas, until the next input.
 			for range 3 {
 				gtx = app.NewContext(&ops, e)
+				a.pollUpdates(gtx)
 				paint.Fill(gtx.Ops, th.Bg)
 				gtx.Metric.PxPerDp *= zoom
 				gtx.Metric.PxPerSp *= zoom

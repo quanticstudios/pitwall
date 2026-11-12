@@ -14,7 +14,8 @@ tag=$(git tag --merged HEAD --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9
 [ -n "$tag" ] || { echo "apk.sh: no vX.Y.Z tag in reach; run git fetch --tags" >&2; exit 1; }
 # warn: git describe --match miscounts across merges; rev-list counts exactly.
 n=$(git rev-list --count "refs/tags/$tag..HEAD")
-describe=$tag-$n-g$(git rev-parse --short HEAD)
+describe=$tag
+[ "$n" = 0 ] || describe=$tag-$n-g$(git rev-parse --short HEAD)
 git diff --quiet HEAD -- || describe=$describe-dirty
 v=${tag#v}
 major=${v%%.*}
@@ -28,7 +29,7 @@ esac
     { echo "apk.sh: $describe does not fit a versionCode: minor and patch under 100, at most 999 commits after the tag" >&2; exit 1; }
 name=$major.$minor.$patch
 code=$((((major * 100 + minor) * 100 + patch) * 1000 + n))
-shown=${describe#v}
+shown=$describe
 if [ "${1:-}" = --version ]; then
     echo "$name $code $shown"
     exit 0
@@ -41,17 +42,34 @@ ndk=${ANDROID_NDK_ROOT:-$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -n 1)}
 java=${JAVA:-java@temurin-17}
 out=dist/pitwall-phone.apk
 # why: dist/ is ignored by git, so the debug keystore never gets committed.
-key=dist/android/debug.keystore
+key=${PITWALL_APK_KEY:-dist/android/debug.keystore}
 gogio_version=$(mise exec -- go list -m -f '{{.Version}}' gioui.org)
 
 [ -d "$sdk/build-tools" ] || { echo "apk.sh: no Android SDK at $sdk" >&2; exit 1; }
 [ -d "$ndk" ] || { echo "apk.sh: no NDK under $sdk/ndk" >&2; exit 1; }
 mkdir -p dist/android
 
-gogio=$root/dist/android/gogio-$gogio_version/gogio
-[ -x "$gogio" ] || GOFLAGS= GOBIN=$(dirname "$gogio") mise exec -- go install "gioui.org/cmd/gogio@$gogio_version"
+gogio=$root/dist/android/gogio-$gogio_version-versionname/gogio
+if [ ! -x "$gogio" ]; then
+    GOFLAGS= mise exec -- go mod download "gioui.org/cmd@$gogio_version"
+    src=$(mise exec -- go env GOMODCACHE)/gioui.org/cmd@$gogio_version
+    build=$(mktemp -d)
+    trap 'rm -rf "$build"' EXIT
+    cp -R "$src/." "$build/"
+    chmod -R u+w "$build"
+    # why: gogio includes versionCode in versionName; the release name must match the tag.
+    grep -qF 'android:versionName="{{.Version}}"' "$build/gogio/androidbuild.go" ||
+        { echo 'apk.sh: gogio versionName template changed; check the local patch' >&2; exit 1; }
+    sed 's/android:versionName="{{.Version}}"/android:versionName="v{{.Version.StringCompact}}"/' \
+        "$build/gogio/androidbuild.go" >"$build/gogio/androidbuild.go.tmp"
+    mv "$build/gogio/androidbuild.go.tmp" "$build/gogio/androidbuild.go"
+    GOFLAGS= mise exec -- go -C "$build" build -o "$gogio" ./gogio
+    rm -rf "$build"
+    trap - EXIT
+fi
 
 if [ ! -f "$key" ]; then
+    [ -z "${PITWALL_APK_KEY:-}" ] || { echo "apk.sh: no signing key at $key" >&2; exit 1; }
     mise exec "$java" -- keytool -genkeypair -keystore "$key" -storepass android -keypass android \
         -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 \
         -validity 10000 >/dev/null 2>&1
@@ -66,11 +84,11 @@ mise exec "$java" -- javac -source 1.8 -target 1.8 -Xlint:-options -bootclasspat
     -d "$classes" internal/ui/mobile/*.java
 mise exec "$java" -- jar cf "$jar" -C "$classes" .
 
-# warn: gogio puts all four parts of -version in Android's versionName.
+# APK_LDFLAGS can override Version and releaseURL for local emulator checks.
 ANDROID_HOME=$sdk ANDROID_SDK_ROOT=$sdk ANDROID_NDK_ROOT=$ndk GOFLAGS=-tags=novulkan \
     mise exec "$java" -- "$gogio" -target android -arch "$arch" -minsdk 28 -targetsdk 35 \
     -appid com.quanticstudios.pitwall -name pitwall -version "$name.$code" \
-    -ldflags "-X github.com/quanticstudios/pitwall/internal/ui/mobile.Version=$shown" \
+    -ldflags "-X github.com/quanticstudios/pitwall/internal/ui/mobile.Version=$shown ${APK_LDFLAGS:-}" \
     -icon internal/remote/web/icon-512.png -signkey "$key" -signpass android \
     -o "$out" ./cmd/pitwall-phone
 echo "$root/$out"

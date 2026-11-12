@@ -94,9 +94,16 @@ does, and what to check around it.
 3. Tag that commit on `main` with `v0.2.N` and push the tag on its
    own. The release workflow verifies that the tagged commit belongs to `main`
    before building and publishes the release as the latest one.
-4. Review the six platform archives, `checksums.txt`, notices and release notes
+4. `scripts/release.sh --tag` waits for the release and builds the arm64 APK
+   in a clean temporary worktree at the tag. It uploads `pitwall-phone.apk`
+   with the signing key from the main checkout's `dist/android/debug.keystore`,
+   or `PITWALL_APK_KEY`. Keep this key on the maintainer's computer, outside CI.
+   Without the key or Android SDK/NDK, the script skips the APK after pushing
+   the tag. Run `sh scripts/apk-release.sh vX.Y.Z` once those are available.
+   This command also retries a failed build or upload without moving the tag.
+5. Review `pitwall-phone.apk`, the six platform archives, `checksums.txt`, notices and release notes
    on the GitHub release before announcing it.
-5. Push the AUR package by hand, as below. The workflow updates Homebrew and
+6. Push the AUR package by hand, as below. The workflow updates Homebrew and
    Scoop itself.
 
 The **release tags: immutable** ruleset blocks updates and deletion of `v*`

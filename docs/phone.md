@@ -182,8 +182,15 @@ copy of the chat drops the request.
 The same tabs and chats also come as an Android app: pitwall's own
 sidebar as the home screen, and each agent tab's chat with model, effort
 and send on the message box. It talks to the phone page's API, so turn the
-page on and reach it as above first. There is no store listing; you build
-the APK and install it yourself.
+page on and reach it as above first. Download
+[`pitwall-phone.apk`](https://github.com/quanticstudios/pitwall/releases/latest/download/pitwall-phone.apk)
+from the latest GitHub release, or build the APK yourself. There is no store listing.
+
+The app checks GitHub on launch and every 24 hours while open. When a newer
+release has its APK attached, the session list and gear screen offer Update.
+That button opens the APK in your browser; Android handles installation.
+Dismiss hides that version across launches. The gear's Check for updates
+setting is on by default; turning it off prevents requests to GitHub.
 
 ### Pictures
 
@@ -225,12 +232,13 @@ build-tools, a platform and the NDK, and runs Java 17 through mise
 (`java@temurin-17`). The APK is for arm64 phones; `ARCH=amd64` builds one
 for the x86_64 emulator, and `ARCH=arm64,amd64` one for both. It is signed
 with a debug key the script makes on first use, `dist/android/debug.keystore`,
-which git ignores. Keep that file: Android installs an update only over an
-APK signed with the same key.
+which git ignores. `PITWALL_APK_KEY` selects an existing key instead. Keep
+that file: Android installs an update only over an APK signed with the same
+key. A self-built APK with another key cannot take the release APK as an update.
 
 The script stamps the APK with pitwall's version: the highest stable
 release tag the commit contains, and the commits since. A build 3 commits
-after tag v0.2.6 gets versionName `0.2.6.206003` and versionCode 206003:
+after tag v0.2.6 gets versionName `v0.2.6` and versionCode 206003:
 the tag's three numbers as two digits each after the first, then the
 commit count as three. Each release and each commit after it raises the
 code, so Android takes every newer build over the last. A maintenance tag
@@ -238,7 +246,10 @@ merged in later, such as v0.2.10 into v0.3.x, does not lower it. The
 script refuses a shallow clone (`git fetch --unshallow --tags` first),
 since it would count too few commits, a tag whose minor or patch is 100 or
 more, and a build more than 999 commits after its tag. `sh scripts/apk.sh --version` prints the
-name, the code and the version the app shows without building.
+three-part number, the code and the version the app shows without building.
+The app shows the exact tag on a release build, or the tag plus commit count
+and hash on a build after it. A build after a tag never offers that same tag
+as an update.
 
 ### Install
 

@@ -100,6 +100,7 @@ func (a *App) machinesLayout(gtx C) {
 		ws = append(ws, func(gtx C) D { return small(gtx, th, th.Readable(th.Red, th.Sidebar), v.note) }, gap(10))
 	}
 	ws = append(ws, func(gtx C) D { return kit.WideButton(gtx, th, &v.add, kit.Secondary, kit.Large, "Add machine") },
+		gap(16), a.updateToggle, a.updateLine,
 		gap(16), func(gtx C) D {
 			return layout.Center.Layout(gtx, func(gtx C) D {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, "pitwall for Android "+Version)

@@ -3,6 +3,7 @@
 set -eu
 
 script=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/release.sh
+apk_release=$(dirname "$script")/apk-release.sh
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -33,9 +34,11 @@ setup() {
     git init --quiet --bare -b main "$tmp/origin.git"
     git init --quiet -b main "$tmp/repo"
     cd "$tmp/repo"
+    mkdir scripts
+    cp "$apk_release" scripts/apk-release.sh
     git remote add origin "$tmp/origin.git"
     printf '# Changelog\n\n%s\n## v0.1.10\n\n- Old.\n' "$1" >CHANGELOG.md
-    git add CHANGELOG.md
+    git add CHANGELOG.md scripts
     git commit --quiet -m init
     for t in ${2:-v0.0.10 v0.1.0-beta.17 v0.1.0-beta.18 v0.1.2 v0.1.9 v0.1.10}; do
         git tag -a "$t" -m "$t"
@@ -90,7 +93,9 @@ git commit --quiet -m 'A later feature'
 git push --quiet origin main
 sh "$script" --tag --dry-run >/dev/null
 [ -z "$(git ls-remote --tags origin v0.1.11)" ] || bad '--tag --dry-run pushed a tag'
-sh "$script" --tag >/dev/null 2>&1
+out=$(PITWALL_APK_KEY="$tmp/missing.key" sh "$script" --tag 2>&1)
+printf '%s' "$out" | grep -qF 'APK step skipped' || bad "missing key did not skip the APK: $out"
+printf '%s' "$out" | grep -qF 'sh scripts/apk-release.sh v0.1.11' || bad 'skip did not name the retry command'
 got=$(git ls-remote origin 'refs/tags/v0.1.11^{}' | cut -f 1)
 [ "$got" = "$merged" ] || bad "tag points at $got, want the release commit $merged"
 refuses 'already exists' --tag v0.1.11

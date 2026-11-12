@@ -34,7 +34,7 @@ if out=$(ver 2>&1); then
 fi
 
 git tag -a v0.2.9 -m v0.2.9
-[ "$(ver)" = "0.2.9 209000 0.2.9-0-g$(git rev-parse --short HEAD)" ] || bad "on v0.2.9: $(ver)"
+[ "$(ver)" = "0.2.9 209000 v0.2.9" ] || bad "on v0.2.9: $(ver)"
 last=209000
 
 commit a
