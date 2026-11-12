@@ -148,57 +148,46 @@ func ReadFile(r *os.Root, root, cwd, name string) ([]byte, string, error) {
 	return b, ctype, nil
 }
 
-// pin is a tab's folder, opened at the phone's first read from it.
+// pin is a tab's folder as the phone first read from it.
 type pin struct {
 	path string
-	root *os.Root
+	id   fs.FileInfo // for os.SameFile
 }
 
-// folder is tab's folder at path, opened once and kept, so that when
-// the folder or one above it is replaced later, path now leading
-// elsewhere, reads are refused instead of following it. A folder that
-// was deleted, or a tab now in another folder, is opened again; a
-// closed tab's is closed.
+// folder opens tab's folder at path for one request. The folder the
+// first read found is kept by identity, not by an open handle, which
+// on Windows would stop the folder being deleted: when it, or a folder
+// above it, is replaced later, path now leading elsewhere, reads are
+// refused instead of following it, until the tab closes or moves to
+// another folder.
 func (s *Server) folder(tab, path string) (*os.Root, error) {
+	r, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	id, err := r.Stat(".")
+	if err != nil {
+		r.Close()
+		return nil, err
+	}
 	s.pmu.Lock()
 	defer s.pmu.Unlock()
 	for t, p := range s.pins {
-		if _, root, ok := s.Folder(t); !ok || root != p.path || gone(p.root) {
-			p.root.Close()
+		if _, root, ok := s.Folder(t); !ok || root != p.path {
 			delete(s.pins, t)
 		}
 	}
 	p, ok := s.pins[tab]
 	if !ok {
-		r, err := os.OpenRoot(path)
-		if err != nil {
-			return nil, err
-		}
-		p = pin{path, r}
 		if s.pins == nil {
 			s.pins = map[string]pin{}
 		}
-		s.pins[tab] = p
-	}
-	now, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if was, err := p.root.Stat("."); err != nil || !os.SameFile(now, was) {
+		s.pins[tab] = pin{path, id}
+	} else if !os.SameFile(p.id, id) {
+		r.Close()
 		return nil, errMoved
 	}
-	return p.root, nil
-}
-
-// gone is whether r's folder was deleted.
-func gone(r *os.Root) bool {
-	f, err := r.Open(".")
-	if err != nil {
-		return true
-	}
-	defer f.Close()
-	n, err := links(f)
-	return err != nil || n == 0
+	return r, nil
 }
 
 // rootErr is err from os.Root without the path it repeats, and an escape
@@ -232,6 +221,7 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request, d Device) {
 	var ctype string
 	if err == nil {
 		b, ctype, err = ReadFile(fr, root, cwd, name)
+		fr.Close()
 	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
