@@ -15,6 +15,8 @@ func TestAPKDownloadHosts(t *testing.T) {
 		want bool
 	}{
 		{"https://github.com/quanticstudios/pitwall/releases/download/v0.3.0/pitwall-phone.apk", true},
+		{"https://github.com/other/repo/releases/download/v0.3.0/pitwall-phone.apk", false},
+		{"https://github.com/quanticstudios/pitwall/releases/downloads/v0.3.0/pitwall-phone.apk", false},
 		{"https://release-assets.githubusercontent.com/file", true},
 		{"https://objects.githubusercontent.com/file", true},
 		{"http://github.com/file", false},

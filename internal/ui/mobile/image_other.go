@@ -15,5 +15,6 @@ func pickImage(clipboard bool, done func([]byte, error)) {
 	done(nil, errors.New("photo picking requires Android"))
 }
 
-func installAPK(string) error                       { return errors.New("installing an APK requires Android") }
-func setInstallListener(func(string, string, bool)) {}
+func installAPK(string) error                { return errors.New("installing an APK requires Android") }
+func setInstallListener(func())              {}
+func takeInstallState() (installState, bool) { return installState{}, false }

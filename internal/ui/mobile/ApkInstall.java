@@ -23,13 +23,26 @@ import java.lang.ref.WeakReference;
 @SuppressWarnings("deprecation")
 public final class ApkInstall {
     private static WeakReference<Activity> current = new WeakReference<>(null);
+    private static boolean active;
+    private static Intent pendingConfirm;
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("pitwall-update", Context.MODE_PRIVATE); }
 
     private static void report(Context c) {
-        if (current.get() != null) PhotoPick.onInstall(c.getCacheDir().getAbsolutePath(), prefs(c).getString("message", ""), prefs(c).contains("path"));
+        if (current.get() != null) {
+            SharedPreferences p = prefs(c);
+            PhotoPick.onInstall(c.getCacheDir().getAbsolutePath(), p.getString("message", ""), p.contains("path"));
+            if (!p.contains("path")) p.edit().remove("message").commit();
+        }
     }
 
     private static void finish(Context c, String message, boolean abandon) {
+        active = false;
+        pendingConfirm = null;
+        Activity a = current.get();
+        if (a != null) {
+            Fragment status = a.getFragmentManager().findFragmentByTag("pitwall-install-status");
+            if (status != null) a.getFragmentManager().beginTransaction().remove(status).commitAllowingStateLoss();
+        }
         SharedPreferences p = prefs(c);
         int session = p.getInt("session", -1);
         if (abandon && session != -1) {
@@ -41,37 +54,58 @@ public final class ApkInstall {
         report(c);
     }
 
+    private static boolean recover(Activity a) {
+        SharedPreferences p = prefs(a);
+        String path = p.getString("path", "");
+        if (path.isEmpty()) return false;
+        long target = p.getLong("target", 0);
+        try {
+            if (target != 0 && a.getPackageManager().getPackageInfo(a.getPackageName(), 0).getLongVersionCode() >= target) {
+                finish(a, "Update installed.", false);
+                return true;
+            }
+        } catch (Exception ignored) {}
+        int id = p.getInt("session", -1);
+        PackageInstaller.SessionInfo session = id < 0 ? null : a.getPackageManager().getPackageInstaller().getSessionInfo(id);
+        if (!active || !new File(path).isFile() || (id >= 0 && session == null)) {
+            finish(a, "", true);
+            return true;
+        }
+        return false;
+    }
+
     public static void start(final View view, final String path) {
         view.post(new Runnable() { public void run() {
             Activity a = (Activity) view.getContext();
             current = new WeakReference<>(a);
+            boolean recovered = recover(a);
             if (path.isEmpty()) {
-                SharedPreferences p = prefs(a);
-                long target = p.getLong("target", 0);
-                try {
-                    if (target != 0 && a.getPackageManager().getPackageInfo(a.getPackageName(), 0).getLongVersionCode() >= target) {
-                        finish(a, "Update installed.", false);
-                        return;
-                    }
-                } catch (Exception ignored) {}
-                report(a);
+                if (!recovered) report(a);
                 return;
             }
-            if (prefs(a).contains("path")) { report(a); return; }
             File apk = new File(path);
             try {
                 if (!apk.getCanonicalFile().getParentFile().equals(a.getCacheDir().getCanonicalFile())) throw new Exception("APK is outside the app cache");
+                if (prefs(a).contains("path")) {
+                    if (!path.equals(prefs(a).getString("path", ""))) apk.delete();
+                    report(a);
+                    return;
+                }
                 PackageInfo candidate = a.getPackageManager().getPackageArchiveInfo(path, 0);
                 PackageInfo installed = a.getPackageManager().getPackageInfo(a.getPackageName(), 0);
                 if (candidate == null || !a.getPackageName().equals(candidate.packageName)) throw new Exception("APK is not a pitwall update");
                 if (candidate.getLongVersionCode() <= installed.getLongVersionCode()) throw new Exception("APK is not newer than this build");
                 prefs(a).edit().putString("path", path).putLong("target", candidate.getLongVersionCode()).putString("message", "Preparing installation…").commit();
+                active = true;
+                if (a.getFragmentManager().findFragmentByTag("pitwall-install-status") == null) {
+                    a.getFragmentManager().beginTransaction().add(new Status(), "pitwall-install-status").commitAllowingStateLoss();
+                }
                 if (!a.getPackageManager().canRequestPackageInstalls()) {
                     String explanation = "Allow pitwall to install updates, then return.";
                     prefs(a).edit().putString("message", explanation).commit();
                     report(a);
                     Toast.makeText(a, explanation, Toast.LENGTH_LONG).show();
-                    a.getFragmentManager().beginTransaction().add(new Permission(), "pitwall-install").commit();
+                    a.getFragmentManager().beginTransaction().add(new Permission(), "pitwall-install").commitAllowingStateLoss();
                 } else begin(a);
             } catch (Exception e) {
                 apk.delete();
@@ -81,9 +115,23 @@ public final class ApkInstall {
     }
 
     public static final class Permission extends Fragment {
+        private boolean started;
         @Override public void onCreate(Bundle state) {
             super.onCreate(state);
-            if (state != null) return;
+            started = state != null && state.getBoolean("started");
+        }
+        @Override public void onSaveInstanceState(Bundle state) {
+            super.onSaveInstanceState(state);
+            state.putBoolean("started", started);
+        }
+        @Override public void onResume() {
+            super.onResume();
+            if (!prefs(getActivity()).contains("path")) {
+                getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
+                return;
+            }
+            if (started) return;
+            started = true;
             try { startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getActivity().getPackageName())), 1); }
             catch (RuntimeException e) { finish(getActivity(), "Could not open install settings: " + e.getMessage(), true); }
         }
@@ -93,6 +141,23 @@ public final class ApkInstall {
             else finish(a, "Installation cancelled. Allow pitwall to install updates to continue.", true);
             getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
         }
+    }
+
+    public static final class Status extends Fragment {
+        @Override public void onResume() {
+            super.onResume();
+            showConfirmation(getActivity());
+        }
+    }
+
+    private static void showConfirmation(Activity a) {
+        Fragment status = a.getFragmentManager().findFragmentByTag("pitwall-install-status");
+        if (pendingConfirm == null || status == null || !status.isResumed()) return;
+        Intent confirm = pendingConfirm;
+        pendingConfirm = null;
+        // A dialog left open across a process restart still holds its old session.
+        try { a.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK)); }
+        catch (RuntimeException e) { finish(a, "Could not show installation confirmation: " + e.getMessage(), true); }
     }
 
     private static void begin(final Activity a) {
@@ -128,18 +193,16 @@ public final class ApkInstall {
 
     public static final class Result extends BroadcastReceiver {
         @Override public void onReceive(Context c, Intent intent) {
-            if (!intent.getAction().equals(c.getPackageName() + ".INSTALL_RESULT")) return;
+            if (!(c.getPackageName() + ".INSTALL_RESULT").equals(intent.getAction())) return;
             if (intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1) != prefs(c).getInt("session", -2)) return;
             int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                 prefs(c).edit().putString("message", "Confirm installation in Android.").commit();
                 report(c);
-                Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
-                try {
-                    Activity a = current.get();
-                    if (a != null) a.startActivity(confirm);
-                    else c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                } catch (RuntimeException e) { finish(c, "Could not show installation confirmation: " + e.getMessage(), true); }
+                pendingConfirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                Activity a = current.get();
+                if (a == null) finish(c, "Return to pitwall and tap Install again.", true);
+                else showConfirmation(a);
                 return;
             }
             String message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);

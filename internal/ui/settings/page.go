@@ -906,31 +906,7 @@ func (p *Page) switchOf(id string, on bool, flip func()) gl.Widget {
 		for c.Clicked(gtx) {
 			flip()
 		}
-		return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			sz := image.Pt(gtx.Dp(32), gtx.Dp(18))
-			knob, in := gtx.Dp(14), gtx.Dp(2)
-			track := theme.Mix(th.SurfaceElevated, th.Fg, 0.12)
-			ring, x := track, in
-			if on {
-				track, ring, x = th.Primary, th.Primary, sz.X-in-knob
-			}
-			if c.Hovered() {
-				track = theme.Mix(track, th.Fg, 0.08)
-			}
-			rrect(gtx, ring, image.Rectangle{Max: sz}, sz.Y/2)
-			rrect(gtx, track, image.Rect(1, 1, sz.X-1, sz.Y-1), sz.Y/2-1)
-			fg := th.Muted
-			if on {
-				fg = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
-			}
-			rrect(gtx, fg, image.Rect(x, in, x+knob, in+knob), knob/2)
-			if gtx.Focused(c) {
-				kit.FocusRing(gtx, th, image.Rectangle{Max: sz}, sz.Y/2)
-			}
-			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-			pointer.CursorPointer.Add(gtx.Ops)
-			return gl.Dimensions{Size: sz}
-		})
+		return kit.Switch(gtx, th, c, on)
 	}
 }
 

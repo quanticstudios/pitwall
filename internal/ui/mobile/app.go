@@ -135,9 +135,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			setCameraView(e)
 			setImageView(e, func(id int) { a.post(func() { a.insertStart(id) }) },
 				func(id int, b []byte, err error) { a.post(func() { a.insertImage(id, b, err) }) })
-			setInstallListener(func(cache, message string, busy bool) {
-				a.postUpdate(func() { a.updates.cache, a.updates.installNote, a.updates.installing = cache, message, busy })
-			})
+			setInstallListener(a.w.Invalidate)
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {
@@ -148,6 +146,9 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			a.focused = e.Config.Focused
 		case app.FrameEvent:
 			a.drain()
+			if state, ok := takeInstallState(); ok {
+				a.applyInstallState(state)
+			}
 			var gtx C
 			// why: a tap that changes the screen lands mid-layout; the frame must show the new
 			// screen, or it shows the old one, with its hit areas, until the next input.

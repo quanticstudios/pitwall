@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,9 @@ func validAPKURL(raw, local string) bool {
 		return false
 	}
 	switch u.Hostname() {
-	case "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com":
+	case "github.com":
+		return strings.HasPrefix(u.Path, "/quanticstudios/pitwall/releases/download/")
+	case "release-assets.githubusercontent.com", "objects.githubusercontent.com":
 		return true
 	}
 	return false

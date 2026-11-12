@@ -121,7 +121,7 @@ func TestFetchPhoneRelease(t *testing.T) {
 func TestManualPhoneUpdateCheck(t *testing.T) {
 	oldVersion, oldURL := Version, releaseURL
 	t.Cleanup(func() { Version, releaseURL = oldVersion, oldURL })
-	for _, status := range []int{http.StatusOK, http.StatusForbidden} {
+	for _, status := range []int{http.StatusOK, http.StatusForbidden, http.StatusTooManyRequests} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status); fmt.Fprint(w, apkReleaseJSON) }))
 			defer srv.Close()
@@ -141,7 +141,7 @@ func TestManualPhoneUpdateCheck(t *testing.T) {
 				if !a.updates.checked || !a.updates.release.available(Version) {
 					t.Fatal("manual check dropped its result")
 				}
-			} else if !strings.Contains(a.updates.checkError, "403") {
+			} else if a.updates.checkError != errUpdateRateLimit.Error() {
 				t.Fatalf("missing failure reason: %q", a.updates.checkError)
 			}
 		})

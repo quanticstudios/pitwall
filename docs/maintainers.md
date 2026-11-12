@@ -101,6 +101,8 @@ does, and what to check around it.
    Without the key or Android SDK/NDK, the script skips the APK after pushing
    the tag. Run `sh scripts/apk-release.sh vX.Y.Z` once those are available.
    This command also retries a failed build or upload without moving the tag.
+   The APK must declare its installation permission and result receiver before
+   upload. Prerelease tags skip the APK step because phone updates use stable releases.
 5. Review `pitwall-phone.apk`, the six platform archives, `checksums.txt`, notices and release notes
    on the GitHub release before announcing it.
 6. Push the AUR package by hand, as below. The workflow updates Homebrew and

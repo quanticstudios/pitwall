@@ -45,14 +45,15 @@ func installAPK(path string) error {
 
 var photo struct {
 	sync.Mutex
-	view        uintptr
-	done        func([]byte, error)
-	insertStart func(id int)
-	insert      func(id int, b []byte, err error)
-	install     func(cache, message string, busy bool)
+	view         uintptr
+	done         func([]byte, error)
+	insertStart  func(id int)
+	insert       func(id int, b []byte, err error)
+	install      func()
+	installState *installState
 }
 
-func setInstallListener(on func(string, string, bool)) {
+func setInstallListener(on func()) {
 	photo.Lock()
 	photo.install = on
 	photo.Unlock()
@@ -61,13 +62,26 @@ func setInstallListener(on func(string, string, bool)) {
 	}
 }
 
+func takeInstallState() (installState, bool) {
+	photo.Lock()
+	defer photo.Unlock()
+	if photo.installState == nil {
+		return installState{}, false
+	}
+	s := *photo.installState
+	photo.installState = nil
+	return s, true
+}
+
 //export Java_com_quanticstudios_pitwall_PhotoPick_onInstall
 func Java_com_quanticstudios_pitwall_PhotoPick_onInstall(env *C.JNIEnv, cls C.jclass, cache, message C.jstring, busy C.jboolean) {
+	s := &installState{cache: goString(env, cache), message: goString(env, message), busy: busy != C.JNI_FALSE}
 	photo.Lock()
+	photo.installState = s
 	on := photo.install
 	photo.Unlock()
 	if on != nil {
-		on(goString(env, cache), goString(env, message), busy != C.JNI_FALSE)
+		on()
 	}
 }
 

@@ -3,6 +3,7 @@
 set -eu
 
 src=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/apk.sh
+patcher=$(dirname "$src")/apk-gogio.sh
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -17,6 +18,23 @@ bad() {
     printf 'FAIL: %s\n' "$*" >&2
     fail=1
 }
+
+for missing in none application receiver; do
+    cat >"$tmp/template" <<'TEMPLATE'
+android:versionName="{{.Version}}"
+<application {{.IconSnip}}>
+</application>
+TEMPLATE
+    case "$missing" in
+        application) sed '/<application /d' "$tmp/template" >"$tmp/changed"; mv "$tmp/changed" "$tmp/template" ;;
+        receiver) sed '\#</application>#d' "$tmp/template" >"$tmp/changed"; mv "$tmp/changed" "$tmp/template" ;;
+    esac
+    if sh "$patcher" "$tmp/template" >"$tmp/patch-output" 2>&1; then
+        [ "$missing" = none ] || bad "manifest patch accepted a missing $missing template"
+    else
+        [ "$missing" != none ] || bad "manifest patch rejected a valid template"
+    fi
+done
 
 git init --quiet -b main "$tmp/repo"
 cd "$tmp/repo"

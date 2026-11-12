@@ -5,7 +5,22 @@ optional=
 if [ "${1:-}" = --if-available ]; then optional=1; shift; fi
 [ "$#" = 1 ] || { echo 'usage: scripts/apk-release.sh [--if-available] vX.Y.Z' >&2; exit 2; }
 tag=$1
+if ! printf '%s\n' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+    echo "APK step skipped for $tag; phone updates use stable vX.Y.Z releases."
+    exit 0
+fi
 root=$(git rev-parse --show-toplevel)
+tmp=
+cleanup() {
+    result=$?
+    if [ -n "$tmp" ]; then
+        git -C "$root" worktree remove --force "$tmp/build" 2>/dev/null || true
+        rm -rf "$tmp"
+    fi
+    if [ "$result" -ne 0 ]; then echo "apk-release: retry: sh scripts/apk-release.sh $tag" >&2; fi
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 key=${PITWALL_APK_KEY:-$(dirname "$common")/dist/android/debug.keystore}
 sdk=${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}
@@ -21,12 +36,6 @@ fi
 key=$(CDPATH='' cd -- "$(dirname "$key")" && pwd)/$(basename "$key")
 
 tmp=$(mktemp -d)
-cleanup() {
-    git -C "$root" worktree remove --force "$tmp/build" 2>/dev/null || true
-    rm -rf "$tmp"
-}
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
 git worktree add --quiet --detach "$tmp/build" "refs/tags/$tag"
 cd "$tmp/build"
 set -- $(sh scripts/apk.sh --version)
@@ -41,6 +50,14 @@ until gh release view "$tag" >/dev/null 2>&1; do
     sleep 20
 done
 PITWALL_APK_KEY=$key APK_LDFLAGS= ARCH=arm64 sh scripts/apk.sh
+aapt=$(ls "$sdk"/build-tools/*/aapt 2>/dev/null | sort -V | tail -n 1)
+[ -x "$aapt" ] || { echo 'apk-release: no aapt in Android build-tools' >&2; exit 1; }
+permissions=$("$aapt" dump permissions dist/pitwall-phone.apk)
+printf '%s\n' "$permissions" | grep -qF 'android.permission.REQUEST_INSTALL_PACKAGES' ||
+    { echo 'apk-release: APK lacks REQUEST_INSTALL_PACKAGES' >&2; exit 1; }
+manifest=$("$aapt" dump xmltree dist/pitwall-phone.apk AndroidManifest.xml)
+printf '%s\n' "$manifest" | grep -qF 'com.quanticstudios.pitwall.ApkInstall$Result' ||
+    { echo 'apk-release: APK lacks the installation result receiver' >&2; exit 1; }
 set -- $(sh scripts/apk.sh --version)
 [ "$#" = 3 ] && [ "v$1" = "$tag" ] && [ "$3" = "$tag" ] ||
     { echo "apk-release: built version does not match $tag: $*" >&2; exit 1; }

@@ -24,7 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
-- Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. The app saves dismissed versions and the daily-check setting.
+- Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. Dismissing a version hides it until a newer one ships.
 
 ## v0.2.9
 

@@ -8,10 +8,19 @@ export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=dev GIT_AUTHOR_EMAIL=dev@example.com
 export GIT_COMMITTER_NAME=dev GIT_COMMITTER_EMAIL=dev@example.com
 : >"$GIT_CONFIG_GLOBAL"
-mkdir -p "$tmp/repo/scripts" "$tmp/repo/dist/android" "$tmp/bin" "$tmp/sdk/build-tools" "$tmp/sdk/platforms" "$tmp/sdk/ndk/1"
+mkdir -p "$tmp/repo/scripts" "$tmp/repo/dist/android" "$tmp/bin" "$tmp/sdk/build-tools/1" "$tmp/sdk/platforms" "$tmp/sdk/ndk/1"
 export ANDROID_SDK_ROOT="$tmp/sdk" ANDROID_NDK_ROOT="$tmp/sdk/ndk/1"
 unset PITWALL_APK_KEY APK_LDFLAGS
 export APK_RELEASE_TEST="$tmp"
+cat >"$tmp/sdk/build-tools/1/aapt" <<'SH'
+#!/bin/sh
+case "$2" in
+permissions) [ -f "$APK_RELEASE_TEST/no-permission" ] || echo "uses-permission: name='android.permission.REQUEST_INSTALL_PACKAGES'" ;;
+xmltree) [ -f "$APK_RELEASE_TEST/no-receiver" ] || echo 'com.quanticstudios.pitwall.ApkInstall$Result' ;;
+esac
+exit 0
+SH
+chmod +x "$tmp/sdk/build-tools/1/aapt"
 cat >"$tmp/bin/gh" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$APK_RELEASE_TEST/gh.log"
@@ -52,10 +61,25 @@ git add .
 git commit --quiet -m init
 git tag v0.3.0
 echo key >dist/android/debug.keystore
+out=$(sh scripts/apk-release.sh v0.3.0-beta.1)
+printf '%s' "$out" | grep -qF 'APK step skipped'
+[ ! -f "$tmp/gh.log" ]
 sh scripts/apk-release.sh v0.3.0 >"$tmp/output"
 grep -qF 'release upload v0.3.0 dist/pitwall-phone.apk --clobber' "$tmp/gh.log"
 [ "$(wc -l <"$tmp/sleep.log")" -eq 1 ]
 [ "$(git worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
+
+for missing in permission receiver; do
+    before=$(grep -c 'release upload' "$tmp/gh.log")
+    touch "$tmp/no-$missing"
+    if sh scripts/apk-release.sh v0.3.0 >"$tmp/output" 2>&1; then
+        echo "FAIL: uploaded without $missing" >&2
+        exit 1
+    fi
+    [ "$(grep -c 'release upload' "$tmp/gh.log")" -eq "$before" ]
+    grep -qF 'retry: sh scripts/apk-release.sh v0.3.0' "$tmp/output"
+    rm "$tmp/no-$missing"
+done
 
 git worktree add --quiet -b other "$tmp/other"
 (cd "$tmp/other" && sh scripts/apk-release.sh v0.3.0 >"$tmp/output")
@@ -79,6 +103,7 @@ if PITWALL_APK_KEY="$tmp/override.key" sh scripts/apk-release.sh v0.3.0 >"$tmp/o
     exit 1
 fi
 grep -qF 'upload-failure' "$tmp/output"
+grep -qF 'retry: sh scripts/apk-release.sh v0.3.0' "$tmp/output"
 [ "$(git worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
 
 sed 's/v0.3.0/v0.3.0-1-gabc123/' scripts/apk.sh >scripts/apk.sh.tmp
@@ -105,6 +130,7 @@ if PITWALL_APK_KEY="$tmp/override.key" sh scripts/apk-release.sh v0.3.2 >"$tmp/o
     exit 1
 fi
 grep -qF 'build-failure' "$tmp/output"
+grep -qF 'retry: sh scripts/apk-release.sh v0.3.2' "$tmp/output"
 [ "$(git worktree list --porcelain | grep -c '^worktree ')" -eq 1 ]
 
 cat >"$tmp/bin/gh" <<'SH'

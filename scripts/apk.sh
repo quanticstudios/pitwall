@@ -49,7 +49,8 @@ gogio_version=$(mise exec -- go list -m -f '{{.Version}}' gioui.org)
 [ -d "$ndk" ] || { echo "apk.sh: no NDK under $sdk/ndk" >&2; exit 1; }
 mkdir -p dist/android
 
-gogio=$root/dist/android/gogio-$gogio_version-installer/gogio
+patch_hash=$(git hash-object scripts/apk-gogio.sh | cut -c1-12)
+gogio=$root/dist/android/gogio-$gogio_version-$patch_hash/gogio
 if [ ! -x "$gogio" ]; then
     GOFLAGS= mise exec -- go mod download "gioui.org/cmd@$gogio_version"
     src=$(mise exec -- go env GOMODCACHE)/gioui.org/cmd@$gogio_version
@@ -57,14 +58,7 @@ if [ ! -x "$gogio" ]; then
     trap 'rm -rf "$build"' EXIT
     cp -R "$src/." "$build/"
     chmod -R u+w "$build"
-    # why: gogio includes versionCode in versionName; the release name must match the tag.
-    grep -qF 'android:versionName="{{.Version}}"' "$build/gogio/androidbuild.go" ||
-        { echo 'apk.sh: gogio versionName template changed; check the local patch' >&2; exit 1; }
-    sed -e 's/android:versionName="{{.Version}}"/android:versionName="v{{.Version.StringCompact}}"/' \
-        -e 's#<application {{.IconSnip}}#<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/><application {{.IconSnip}}#' \
-        -e 's#</application>#<receiver android:name="com.quanticstudios.pitwall.ApkInstall$Result" android:exported="false"/></application>#' \
-        "$build/gogio/androidbuild.go" >"$build/gogio/androidbuild.go.tmp"
-    mv "$build/gogio/androidbuild.go.tmp" "$build/gogio/androidbuild.go"
+    sh scripts/apk-gogio.sh "$build/gogio/androidbuild.go"
     GOFLAGS= mise exec -- go -C "$build" build -o "$gogio" ./gogio
     rm -rf "$build"
     trap - EXIT

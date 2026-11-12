@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gioui.org/io/semantic"
@@ -23,12 +24,13 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
-	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/update"
 )
 
 var releaseURL = "https://api.github.com/repos/quanticstudios/pitwall/releases/latest"
+
+var errUpdateRateLimit = errors.New("GitHub's rate limit was reached. Try again in an hour.")
 
 type phoneSettings struct {
 	CheckUpdates bool   `json:"check_updates"`
@@ -134,6 +136,9 @@ func fetchPhoneRelease(ctx context.Context, c *http.Client, endpoint, etag strin
 		return cached, etag, nil
 	}
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+			return cached, etag, errUpdateRateLimit
+		}
 		return cached, etag, fmt.Errorf("GitHub release: HTTP %d", resp.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
@@ -162,8 +167,72 @@ type phoneUpdates struct {
 	checkError                      string
 	cache, installNote              string
 	installing                      bool
-	progress                        float32
+	progress                        atomic.Int64
+	downloadSize                    int64
+	sweptCache                      string
 	downloadCancel                  context.CancelFunc
+}
+
+type installState struct {
+	cache, message string
+	busy           bool
+}
+
+func (a *App) applyInstallState(s installState) {
+	u := &a.updates
+	u.cache = s.cache
+	if u.downloadCancel == nil || s.busy || s.message != "" {
+		u.installNote, u.installing = s.message, s.busy
+	}
+	if s.message == "Update installed." && u.checked {
+		u.installNote = ""
+	}
+	if !s.busy && u.downloadCancel == nil && s.cache != "" && u.sweptCache != s.cache {
+		if err := sweepAPKs(s.cache); err != nil {
+			log.Printf("mobile: APK cache: %v", err)
+		}
+		u.sweptCache = s.cache
+	}
+}
+
+func sweepAPKs(cache string) error {
+	files, err := filepath.Glob(filepath.Join(cache, "pitwall-update-*.apk"))
+	for _, f := range files {
+		err = errors.Join(err, os.Remove(f))
+	}
+	return err
+}
+
+func (a *App) reportDownloadProgress(n int64) {
+	a.updates.progress.Store(n)
+	a.w.Invalidate()
+}
+
+func (u *phoneUpdates) canInstall() bool { return !u.installing && u.release.available(Version) }
+
+func (u *phoneUpdates) lineText() string {
+	if u.installNote != "" {
+		return u.installNote
+	}
+	return "pitwall " + u.release.Tag + " is out"
+}
+
+func (u *phoneUpdates) checkText() string {
+	switch {
+	case u.installNote != "":
+		return u.installNote
+	case u.cancel != nil:
+		return "Checking…"
+	case u.checkError != "":
+		return u.checkError
+	case u.release.available(Version):
+		return u.release.Tag + " is out"
+	case update.Newer(u.release.Tag, phoneVersion(Version)):
+		return u.release.Tag + " is out; its APK is not attached yet"
+	case u.checked:
+		return "Up to date (" + Version + ")"
+	}
+	return "Installed " + Version
 }
 
 func (a *App) pollUpdates(gtx C) {
@@ -213,8 +282,14 @@ func (a *App) startUpdateCheck(now time.Time, manual bool) {
 			if err == nil && (manual || u.settings.CheckUpdates) {
 				u.release, u.etag = r, etag
 				u.checked = true
+				if !u.installing {
+					u.installNote = ""
+				}
 			} else if err != nil {
 				u.checkError = "Could not check for updates: " + err.Error()
+				if errors.Is(err, errUpdateRateLimit) {
+					u.checkError = err.Error()
+				}
 			}
 		}
 		a.postUpdate(done)
@@ -223,21 +298,21 @@ func (a *App) startUpdateCheck(now time.Time, manual bool) {
 
 func (a *App) startInstall() {
 	u := &a.updates
-	if u.installing || !u.release.available(Version) {
+	if !u.canInstall() {
 		return
 	}
 	if u.cache == "" {
-		u.installNote = "Android's installer is not ready."
+		u.installNote = "Could not reach Android's installer. Close and reopen pitwall."
 		return
 	}
-	u.installing, u.progress, u.installNote = true, 0, "Downloading update…"
+	u.installing, u.installNote = true, "Downloading update…"
+	u.progress.Store(0)
 	ctx, cancel := context.WithCancel(context.Background())
 	u.downloadCancel = cancel
 	url, size, cache := u.release.apkURL(), u.release.apkSize(), u.cache
+	u.downloadSize = size
 	go func() {
-		path, err := downloadAPK(ctx, &http.Client{Timeout: 10 * time.Minute}, url, size, cache, apkTestURL, func(n int64) {
-			a.postUpdate(func() { u.progress = float32(n) / float32(size) })
-		})
+		path, err := downloadAPK(ctx, &http.Client{Timeout: 10 * time.Minute}, url, size, cache, apkTestURL, a.reportDownloadProgress)
 		cancel()
 		if err == nil {
 			err = installAPK(path)
@@ -270,31 +345,38 @@ func (a *App) updateLine(gtx C) D {
 		return D{}
 	}
 	if u.dismiss.Clicked(gtx) && !u.installing {
+		if u.installNote != "" {
+			u.installNote = ""
+			return D{}
+		}
 		s := u.settings
 		s.Dismissed = u.release.Tag
 		if a.saveUpdates(s) {
-			u.installNote = ""
 			return D{}
 		}
 	}
 	if u.install.Clicked(gtx) {
 		a.startInstall()
 	}
-	note := "pitwall " + u.release.Tag + " is out"
-	if u.installNote != "" {
-		note = u.installNote
-	}
+	note := u.lineText()
 	return layout.Inset{Left: pad, Right: 2}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, 1, note) }),
 			layout.Rigid(func(gtx C) D {
-				if u.installing || !u.release.available(Version) {
+				if !u.canInstall() {
 					return D{}
 				}
 				return textButton(gtx, th, &u.install, "Install")
 			}),
 			layout.Rigid(func(gtx C) D {
-				semantic.DescriptionOp("Dismiss this version").Add(gtx.Ops)
+				if u.installing {
+					return D{}
+				}
+				description := "Dismiss this version"
+				if u.installNote != "" {
+					description = "Clear update status"
+				}
+				semantic.DescriptionOp(description).Add(gtx.Ops)
 				return iconButton(gtx, th, &u.dismiss, icon("x"))
 			}),
 		)
@@ -309,20 +391,7 @@ func (a *App) updateSettings(gtx C) D {
 	if u.install.Clicked(gtx) {
 		a.startInstall()
 	}
-	note := "Installed " + Version
-	switch {
-	case u.cancel != nil:
-		note = "Checking"
-	case u.checkError != "":
-		note = u.checkError
-	case u.release.available(Version):
-		note = u.release.Tag + " is out"
-	case u.checked:
-		note = "Up to date (" + Version + ")"
-	}
-	if u.installNote != "" {
-		note = u.installNote
-	}
+	note := u.checkText()
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx C) D {
 			return kit.WideButton(gtx, th, &u.check, kit.Secondary.When(u.cancel == nil && !u.installing), kit.Large, "Check for updates")
@@ -332,7 +401,7 @@ func (a *App) updateSettings(gtx C) D {
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx C) D { return small(gtx, th, th.Fg, note) }),
 				layout.Rigid(func(gtx C) D {
-					if u.installing || !u.release.available(Version) {
+					if !u.canInstall() {
 						return D{}
 					}
 					return textButton(gtx, th, &u.install, "Install")
@@ -351,9 +420,10 @@ func (a *App) updateProgress(gtx C) D {
 	size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(4))
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	semantic.LabelOp("Update download").Add(gtx.Ops)
-	semantic.DescriptionOp(fmt.Sprintf("%d percent", int(u.progress*100))).Add(gtx.Ops)
+	progress := float32(u.progress.Load()) / float32(u.downloadSize)
+	semantic.DescriptionOp(fmt.Sprintf("%d percent", int(progress*100))).Add(gtx.Ops)
 	paint.FillShape(gtx.Ops, a.th.Border, clip.Rect{Max: size}.Op())
-	paint.FillShape(gtx.Ops, a.th.Primary, clip.Rect{Max: image.Pt(int(float32(size.X)*u.progress), size.Y)}.Op())
+	paint.FillShape(gtx.Ops, a.th.Primary, clip.Rect{Max: image.Pt(int(float32(size.X)*progress), size.Y)}.Op())
 	return D{Size: size}
 }
 
@@ -372,18 +442,11 @@ func (a *App) updateToggle(gtx C) D {
 			gtx.Execute(op.InvalidateCmd{})
 		}
 	}
-	return menuRow(gtx, th, &u.toggle, false, func(gtx C) D {
-		semantic.CheckBox.Add(gtx.Ops)
-		semantic.SelectedOp(u.settings.CheckUpdates).Add(gtx.Ops)
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Flexed(1, func(gtx C) D { return body(gtx, th, th.Fg, "Check daily") }),
-			layout.Rigid(func(gtx C) D {
-				name, col := "x", th.Muted
-				if u.settings.CheckUpdates {
-					name, col = "check", th.Primary
-				}
-				return sidebar.Icon(gtx, name, gtx.Dp(18), col)
-			}),
-		)
-	})
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Flexed(1, func(gtx C) D { return body(gtx, th, th.Fg, "Check daily") }),
+		layout.Rigid(func(gtx C) D {
+			gtx.Constraints.Min.Y = gtx.Dp(touch)
+			return kit.Switch(gtx, th, &u.toggle, u.settings.CheckUpdates)
+		}),
+	)
 }
