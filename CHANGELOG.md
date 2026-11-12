@@ -24,8 +24,8 @@ takes `--dry-run`.
 
 ## Unreleased
 
-- Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. Dismissing a version hides it until a newer one ships.
 
+- Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. Dismissing a version hides it until a newer one ships.
 ## v0.2.9
 
 - Keep messages sent during a Claude Code turn in the phone chat at their transcript position after reopening it.
