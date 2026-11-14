@@ -38,6 +38,10 @@ func (d *Daemon) keepReply(pane, msg string) {
 		d.replies = map[string]string{}
 	}
 	d.replies[pane] = msg
+	if d.turnCount == nil {
+		d.turnCount = map[string]uint64{}
+	}
+	d.turnCount[pane]++
 }
 
 // prompt types m.Text into an agent at its prompt and presses Enter. It

@@ -282,6 +282,7 @@ type Daemon struct {
 	// ride on every StateMsg.
 	replies       map[string]string
 	doneWorkers   map[string]workerClock
+	turnCount     map[string]uint64            // finished turns per pane, so a new one shows even when the clock has not moved
 	workerReplies map[string]map[string]string // closed-tab record id: pane replies
 	mail          mail                         // see talk.go
 	reviews       map[string]string            // second opinions: reviewer pane to the pane it reviews; see opinion.go
@@ -1626,6 +1627,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.attn, id)
 	delete(d.prog, id)
 	delete(d.replies, id)
+	delete(d.turnCount, id)
 	delete(d.phoneSettings, id)
 	delete(d.reviews, id)
 	if t := d.mail.wake[id]; t != nil {
