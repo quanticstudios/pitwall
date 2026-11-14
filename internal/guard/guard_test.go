@@ -2,8 +2,28 @@ package guard
 
 import (
 	"encoding/json"
+	"runtime"
 	"testing"
 )
+
+func TestEnvOn(t *testing.T) {
+	for _, tc := range []struct {
+		entry string
+		want  bool
+	}{
+		{"PITWALL_GUARD=1", true},
+		{"PITWALL_GUARD=0", true},
+		{"PITWALL_GUARD=yes", true},
+		{"PITWALL_GUARD=", false},
+		{"PITWALL_GUARD", false},
+		{"OTHER=1", false},
+		{"pitwall_guard=1", runtime.GOOS == "windows"},
+	} {
+		if got := EnvOn(tc.entry); got != tc.want {
+			t.Errorf("EnvOn(%q) = %v, want %v", tc.entry, got, tc.want)
+		}
+	}
+}
 
 func input(t *testing.T, cmd any) json.RawMessage {
 	t.Helper()

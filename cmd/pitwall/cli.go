@@ -221,10 +221,18 @@ func newOnHost(local *cliConn, session *model.Session, host string, tab proto.Ne
 		shell = hs.Numbered(part.ID)[0].ID
 	}
 	partID, id := part.ID, shell
-	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" {
+	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" || len(tab.Env) > 0 {
 		before := hs
 		tab.SessionID = partID
 		if hs, err = syncCLI(hc, tab); err != nil {
+			// A state accompanying the refusal proves the daemon answered.
+			// Remove only our bootstrap shell; an uncertain connection must
+			// leave any worker it may have started alone.
+			if shell != "" && hs.Session(partID) != nil {
+				if _, closeErr := syncCLI(hc, proto.CloseTab{WorkspaceID: shell}); closeErr != nil {
+					return "", fmt.Errorf("%w; could not close the initial shell @%s on %s: %v", err, shell, host, closeErr)
+				}
+			}
 			return "", err
 		}
 		var made []string
@@ -509,16 +517,10 @@ func varsLevel(vars []string, level int) error {
 	if len(vars) > 0 && level < proto.EnvLevel {
 		return errors.New("the pitwall daemon running is older than this pitwall and would drop the preset's variables and the guard; they work once it restarts")
 	}
-	if level < proto.GuardGateLevel && slices.ContainsFunc(vars, guardOn) {
+	if level < proto.GuardGateLevel && slices.ContainsFunc(vars, guard.EnvOn) {
 		return errors.New("the pitwall daemon running is older than this pitwall and would start a guarded tab without checking for pitwall's hooks; update pitwall there or restart its daemon")
 	}
 	return nil
-}
-
-// guardOn reports whether kv turns the guard on.
-func guardOn(kv string) bool {
-	v, ok := strings.CutPrefix(kv, guard.Env+"=")
-	return ok && v != ""
 }
 
 // absCmd makes cmd's program an absolute path, found on this shell's

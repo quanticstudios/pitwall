@@ -184,10 +184,7 @@ func (d *Daemon) respawn(ctx context.Context, s config.Settings, e escalation, p
 	old := d.panes[e.pane]
 	var guarded bool
 	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == e.pane }); i >= 0 {
-		guarded = slices.ContainsFunc(d.st.Panes[i].Env, func(kv string) bool {
-			v, ok := strings.CutPrefix(kv, guard.Env+"=")
-			return ok && v != ""
-		})
+		guarded = slices.ContainsFunc(d.st.Panes[i].Env, guard.EnvOn)
 	}
 	d.mu.Unlock()
 	if old == nil {

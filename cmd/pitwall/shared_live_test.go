@@ -290,4 +290,15 @@ func TestSharedSessionLive(t *testing.T) {
 	if got := boxTabCount(); got != n {
 		t.Fatalf("box has %d tabs after a refused guarded start, had %d", got, n)
 	}
+	// The same refusal on first contact must remove the initial shell
+	// created for the new part, leaving box's existing tabs alone.
+	if code, _, errOut := cliOutput("session", "new", "-d", "guard-refusal", home); code != 0 {
+		t.Fatalf("local guard-refusal session: %d %q", code, errOut)
+	}
+	if code, _, errOut := cliOutput("new", "-s", "guard-refusal", "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") {
+		t.Fatalf("guard refusal on a new part: %d %q", code, errOut)
+	}
+	if got := boxTabCount(); got != n {
+		t.Fatalf("box kept an initial shell after refusal: %d tabs, had %d", got, n)
+	}
 }

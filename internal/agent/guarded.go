@@ -40,8 +40,13 @@ func GuardHooked(provider model.Provider, dir string) error {
 			Pre []struct {
 				Matcher string `json:"matcher"`
 				Hooks   []struct {
-					Type    string `json:"type"`
-					Command string `json:"command"`
+					Type        string          `json:"type"`
+					Command     string          `json:"command"`
+					If          string          `json:"if"`
+					Async       bool            `json:"async"`
+					AsyncRewake bool            `json:"asyncRewake"`
+					Args        json.RawMessage `json:"args"`
+					Shell       string          `json:"shell"`
 				} `json:"hooks"`
 			} `json:"PreToolUse"`
 		} `json:"hooks"`
@@ -57,6 +62,12 @@ func GuardHooked(provider model.Provider, dir string) error {
 			continue // why: a matcher would leave some tools unchecked
 		}
 		for _, h := range g.Hooks {
+			// The installed hook runs synchronously on every call, through
+			// the shell that commandPath quotes for. Exec-form args would
+			// instead treat the entire command string as one executable.
+			if h.If != "" || h.Async || h.AsyncRewake || h.Args != nil || h.Shell != "" && h.Shell != "bash" {
+				continue
+			}
 			if bin, ok := hookBinary(h.Command, provider); ok && h.Type == "command" && runnable(bin) {
 				return nil
 			}
@@ -75,7 +86,7 @@ func hookBinary(command string, provider model.Provider) (string, bool) {
 		bin = strings.ReplaceAll(strings.TrimSuffix(q, "'"), `'\''`, "'")
 	}
 	bin = strings.Trim(bin, `"`)
-	return bin, bin != ""
+	return bin, filepath.IsAbs(bin) && command == commandPath(runtime.GOOS, bin)+" hook "+string(provider)
 }
 
 // runnable reports whether path is a file the agent can run.

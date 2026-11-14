@@ -538,7 +538,7 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 			t.err = "The pitwall daemon running is older than this window and would drop the preset's variables and the guard. They work once it restarts."
 			return
 		}
-		if slices.Contains(task.Env, guard.Env+"=1") && linkLevel(u.b) < proto.GuardGateLevel {
+		if slices.ContainsFunc(task.Env, guard.EnvOn) && linkLevel(u.b) < proto.GuardGateLevel {
 			t.err = "The pitwall daemon running is older than this window and would start a guarded agent without checking for pitwall's hooks. The guard works once it restarts."
 			return
 		}

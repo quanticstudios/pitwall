@@ -2381,7 +2381,13 @@ the tab, its preset or its profile sets it, else `~/.claude` or `~/.codex`.
 For a profile's folder, run `CLAUDE_CONFIG_DIR=<folder> pitwall hooks
 install` (or `CODEX_HOME=`). This holds for a resume after a restart and
 for a worker the fleet's big lane replaces, which keeps the guard of the
-worker it replaces. `pitwall doctor` shows a guard line per agent. Codex
+worker it replaces. Relative config paths resolve from the tab's working
+folder, and the default config folder follows the tab's home override.
+The hook must run synchronously for every tool. Guarded Claude Code
+launches refuse `--bare`, `--safe-mode`, `--settings`,
+`--setting-sources` without `user`, and `CLAUDE_CODE_SIMPLE`: those can
+skip or override the user hooks that pitwall checks. Remove those options
+to use the guard. `pitwall doctor` shows a guard line per agent. Codex
 also needs `/hooks` once to trust the hooks, which pitwall cannot check.
 
 pi, omp and OpenCode 1 run pitwall's extension and plugin, which call

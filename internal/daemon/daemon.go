@@ -2087,7 +2087,7 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 }
 
 func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBlock, env []string, newVT vt.NewFunc) error {
-	if err := guardGate(cmd, env); err != nil {
+	if err := guardGate(cmd, env, cwd); err != nil {
 		log.Printf("pane %s: %v", id, err)
 		return err
 	}

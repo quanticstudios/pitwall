@@ -590,6 +590,35 @@ func TestNewOnHostRefuses(t *testing.T) {
 	}
 }
 
+// A refused guarded tab removes the shell this call made for a new part.
+// It neither returns that shell as a successful guarded start nor closes
+// a tab that another caller added meanwhile.
+func TestNewOnHostGuardRefusalCleanup(t *testing.T) {
+	for _, cmd := range [][]string{nil, {"claude"}} {
+		t.Run(strings.Join(cmd, " "), func(t *testing.T) {
+			part := hostState("part", "shell", "pane")
+			tab := proto.NewSession{SessionID: "part", Cmd: cmd, Env: []string{"PITWALL_GUARD=1"}}
+			refused := part
+			refused.Workspaces = append(slices.Clone(part.Workspaces), model.Workspace{ID: "other", SessionID: "part"})
+			fakeCLI(t,
+				cliExchange{state: model.State{}, level: proto.Level},
+				cliExchange{request: proto.SessionNew{Name: "main"}, state: part, level: proto.Level},
+				cliExchange{request: tab, state: refused, level: proto.Level, error: "guarded tab not started"},
+				cliExchange{request: proto.CloseTab{WorkspaceID: "shell"}, state: refused, level: proto.Level})
+			prev := dialHost
+			t.Cleanup(func() { dialHost = prev })
+			dialHost = func(string) (*cliConn, func(), error) {
+				c, err := dialCLI()
+				return c, func() { c.Close() }, err
+			}
+			_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: cmd, Env: tab.Env}, false)
+			if err == nil || !strings.Contains(err.Error(), "guarded tab not started") {
+				t.Fatalf("start = %v", err)
+			}
+		})
+	}
+}
+
 // TestAgentHost: in a pitwall pane, --host takes only a [[hosts]] name; at
 // a shell any ssh destination goes.
 func TestAgentHost(t *testing.T) {
