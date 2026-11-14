@@ -568,7 +568,8 @@ func resolveSession(state model.State, name string) (model.Session, error) {
 	return model.Session{}, fmt.Errorf("ambiguous session %q; matches %s", name, strings.Join(names, ", "))
 }
 
-// resolveTab finds a tab of session by its id, then by its number in
+// resolveTab finds a tab by @ and its id or one of its panes' ids, in any
+// session, or a tab of session by its id, then by its number in
 // pitwall ls ("3" or "#3"), then by exact title, then by a unique title
 // prefix. With no name it is the tab of $PITWALL_PANE, in whichever session.
 func resolveTab(state model.State, session, name string) (model.Workspace, error) {
@@ -587,6 +588,13 @@ func resolveTab(state model.State, session, name string) (model.Workspace, error
 			return model.Workspace{}, fmt.Errorf("pane %q has no tab in daemon state", pane)
 		}
 		return model.Workspace{}, errors.New("specify a tab name outside a pitwall pane (see pitwall ls)")
+	}
+	if id, ok := strings.CutPrefix(name, "@"); ok {
+		if i := slices.IndexFunc(state.Workspaces, func(w model.Workspace) bool { return w.ID == id }); i >= 0 {
+			return state.Workspaces[i], nil
+		}
+		w, _, err := resolvePane(state, session, name)
+		return w, err
 	}
 	tabs := numbered(state, session)
 	if i := slices.IndexFunc(tabs, func(w model.Workspace) bool { return w.ID == name }); i >= 0 {

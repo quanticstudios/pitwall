@@ -24,7 +24,7 @@ pane, commands act on the pane's session; `-s <session>` picks another.
 A pane is `TAB.N`, the tab's Nth pane in layout order, counting from 1:
 `3.2`, `#3.2` or `review.2`. It is also `@` and the pane's `id` from
 `pitwall ls --json`, as `@5d0e9b2c71a4f836`, in any session: that address
-stays valid while tabs move or close. `wait`, `prompt`, `send` and `read`
+stays valid while tabs move or close. `wait`, `prompt`, `send`, `read` and `kill`
 take one; a tab alone means its main pane (see `wait`). `pane_list` in
 `pitwall ls --json` numbers each tab's panes.
 

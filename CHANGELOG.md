@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- `pitwall kill` takes `@<id>`, a tab id or a pane id, as the other commands do; it said "no tab matches" before.
 - Close finished worker tabs after 10 minutes without an open PR or user activity, with a configurable delay and a parent-menu action to close them sooner.
 
 ## v0.2.10

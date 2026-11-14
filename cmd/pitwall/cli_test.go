@@ -203,6 +203,8 @@ func TestCLIResolve(t *testing.T) {
 		{"fix login", "a", ""}, {"fix", "a", ""}, {"alp", "b", ""},
 		{"4", "", "no tab #4 (see pitwall ls)"},
 		{"absent", "", "no tab matches \"absent\" (see pitwall ls)"},
+		{"@a", "a", ""}, {"@pb", "b", ""},
+		{"@gone", "", "no pane @gone: it closed (see pitwall ls --json)"},
 	} {
 		w, err := resolveTab(state, "m", tc.name)
 		if tc.error != "" {
