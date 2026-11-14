@@ -226,7 +226,9 @@ func (d *Daemon) repoint(old, id string) {
 // reopenSession is the session closed tab c reopens in: its own, else one
 // with its name, else a new one with its name. Callers hold d.mu.
 func (d *Daemon) reopenSession(c model.ClosedTab) string {
-	if s := d.st.Session(c.Tab.SessionID); s != nil && s.Origin == c.Origin {
+	// why: an Origin is only ever stamped on, never changed, so the tab's
+	// own session is still its session even when stamped after it closed.
+	if d.st.Session(c.Tab.SessionID) != nil {
 		return c.Tab.SessionID
 	}
 	if c.Origin != (model.Origin{}) {

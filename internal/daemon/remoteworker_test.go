@@ -149,6 +149,26 @@ func TestRemoteWorkerReopenRestoresPart(t *testing.T) {
 	must(t, d.handle(ctx, proto.Reparent{WorkspaceID: id, ParentTab: "new", Origin: origin}))
 }
 
+// A tab closed before its session became a part reopens in that session,
+// not in a new one.
+func TestReopenInStampedSession(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	dir := t.TempDir()
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir}))
+	session := d.state().Sessions[0].ID
+	must(t, d.handle(ctx, proto.NewSession{SessionID: session, Cwd: dir, Cmd: []string{"sh"}}))
+	gone := d.state().Workspaces[1].ID
+	must(t, d.handle(ctx, proto.KillSession{WorkspaceID: gone}))
+	must(t, d.handle(ctx, proto.SetOrigin{SessionID: session, Origin: model.Origin{Daemon: "here", Session: "s"}}))
+	must(t, d.handle(ctx, proto.ReopenTab{ID: d.state().Closed[0].ID}))
+	st := d.state()
+	if len(st.Sessions) != 1 || len(st.Workspaces) != 2 || st.Workspaces[1].SessionID != session {
+		t.Fatalf("reopened outside its session: sessions %+v, tabs %+v", st.Sessions, st.Workspaces)
+	}
+}
+
 func TestWorktreeStartOnceConcurrent(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
