@@ -237,6 +237,14 @@ func (r *Read) Parse(name string, res Result) error {
 		}
 	case "diff":
 		err = parseInto(out, &r.Diff)
+		if err == nil {
+			for _, t := range r.Diff.Targets {
+				if t.Error != "" {
+					err = fmt.Errorf("%s: %s", t.Name, t.Error)
+					break
+				}
+			}
+		}
 	case "mcp":
 		err = parseInto(out, &r.MCP)
 	case "plugins":
@@ -254,6 +262,9 @@ func (r *Read) Parse(name string, res Result) error {
 		}
 	default:
 		return fmt.Errorf("unknown read %q", name)
+	}
+	if res.Code == 0 && err != nil && name == "diff" && r.Diff != nil {
+		return err
 	}
 	if res.Code != 0 || err != nil {
 		args := Reads[name]
@@ -729,6 +740,8 @@ func plural(n int, word string) string {
 
 func andMore(ts []Target) string {
 	switch len(ts) {
+	case 0:
+		return ""
 	case 1:
 		return ts[0].Name
 	case 2:
@@ -914,6 +927,12 @@ func RowState(it Item, showScope bool) string {
 // (action "enable" or "disable"), nil when the row cannot take it. The
 // pattern is the entry's own path, as the CLI's dashboard writes it.
 func ToggleArgs(it Item, action string) []string {
+	if it.Kind == Hooks {
+		if !it.Declared || it.Root != "" || it.Notice || action != "enable" && action != "disable" || (action == "enable") != it.Disabled {
+			return nil
+		}
+		return []string{"hooks", action, it.Name, Flag(it.Scope)}
+	}
 	if (it.Kind != Skills && it.Kind != Agents) || it.Path == "" {
 		return nil
 	}
@@ -948,6 +967,12 @@ func UpdateArgs(it Item, all bool) []string {
 // UninstallArgs move it to the CLI's trash. A project uninstall needs
 // --force, or it asks.
 func UninstallArgs(it Item) []string {
+	if it.Kind == Hooks {
+		if !it.Declared || it.Root != "" || it.Notice {
+			return nil
+		}
+		return []string{"hooks", "remove", it.Name, Flag(it.Scope)}
+	}
 	args := []string{"uninstall"}
 	if it.Kind == Agents {
 		args = append(args, "agents")

@@ -63,15 +63,18 @@ type skillshareUI struct {
 
 // ssInstall is the install steps: Source, Choose, Audit, Install.
 type ssInstall struct {
-	url    widget.Editor
-	scope  string
-	step   int // 0 source, 1 choose, 2 audit, 3 install, 4 done
-	plan   skillshare.Plan
-	picked map[string]bool
-	audit  *skillshare.AuditResult // a blocked audit, shown before anything is written
-	done   []string
-	err    string
-	work   bool // a step runs
+	url     widget.Editor
+	scope   string
+	step    int // 0 source, 1 choose, 2 audit, 3 install, 4 done
+	plan    skillshare.Plan
+	picked  map[string]bool
+	audit   *skillshare.AuditResult // a blocked audit, shown before anything is written
+	done    []string
+	err     string
+	work    bool   // a step runs
+	source  string // source and project captured for this plan
+	project string
+	cancel  context.CancelFunc
 }
 
 // installed reports whether the skillshare CLI is on PATH.
@@ -88,7 +91,8 @@ func (u *ui) toggleSkillshare(st *model.State) {
 	}
 	u.modal.open(modalSkillshare, "")
 	s := &u.ss
-	s.sel, s.inst, s.confirm = "", nil, false
+	s.dismissInstall()
+	s.sel, s.confirm = "", false
 	if s.scope == "" {
 		s.scope = "all"
 	}
@@ -99,11 +103,24 @@ func (u *ui) toggleSkillshare(st *model.State) {
 }
 
 func (u *ui) closeSkillshare() {
-	if in := u.ss.inst; in != nil {
-		skillshare.Drop(in.plan.Dir)
-	}
-	u.ss.inst = nil
+	u.ss.dismissInstall()
 	u.modal.close()
+}
+
+// dismissInstall invalidates pending transitions before cancelling their work.
+func (s *skillshareUI) dismissInstall() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if in := s.inst; in != nil {
+		if in.cancel != nil {
+			in.cancel()
+		}
+		// A running worker owns cleanup until it has stopped using the clone.
+		if !in.work {
+			skillshare.Drop(in.plan.Dir)
+		}
+	}
+	s.inst = nil
 }
 
 func (u *ui) invalidateFn() func() {
@@ -186,7 +203,6 @@ func (u *ui) ssRun(first string, f func(ctx context.Context, step func(string)) 
 	s.busy = first
 	s.mu.Unlock()
 	inv := u.invalidateFn()
-	project := skillshare.FindProject(s.dir)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
@@ -199,7 +215,7 @@ func (u *ui) ssRun(first string, f func(ctx context.Context, step func(string)) 
 		s.mu.Lock()
 		s.busy, s.note, s.at = "", out, time.Now()
 		s.mu.Unlock()
-		s.store.Refresh(skillshare.Default, project, true, inv)
+		s.store.Refresh(skillshare.Default, s.store.View().Project, true, inv)
 		inv()
 	}()
 }
@@ -268,6 +284,9 @@ func (s *skillshareUI) open(it skillshare.Item, r *skillshare.Read) {
 
 // startInstall shows the install steps.
 func (s *skillshareUI) startInstall(project string) {
+	s.dismissInstall()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	in := &ssInstall{scope: skillshare.Global, picked: map[string]bool{}}
 	if project != "" && s.scope != skillshare.Global {
 		in.scope = skillshare.Project
@@ -283,19 +302,23 @@ func (s *skillshareUI) startInstall(project string) {
 func (u *ui) ssDiscover(project string) {
 	in := u.ss.inst
 	source := strings.TrimSpace(in.url.Text())
-	if source == "" || in.work {
+	if source == "" || in.work || in.step != 0 {
 		return
 	}
 	in.work, in.err = true, ""
+	in.source, in.project = source, project
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	in.cancel = cancel
 	inv := u.invalidateFn()
 	scope := in.scope
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer inv()
 		defer cancel()
 		p := skillshare.Default.Discover(ctx, source, scope, ssCwd(scope, project))
 		u.ss.mu.Lock()
 		defer u.ss.mu.Unlock()
 		if u.ss.inst != in {
+			in.work = false
 			skillshare.Drop(p.Dir)
 			return
 		}
@@ -310,7 +333,6 @@ func (u *ui) ssDiscover(project string) {
 		default:
 			in.step = 1
 		}
-		inv()
 	}()
 }
 
@@ -324,7 +346,14 @@ func ssCwd(scope, project string) string {
 // ssAuditLocked audits the picked skills, then installs them when the
 // audit lets them through. Called with u.ss.mu held.
 func (u *ui) ssAuditLocked(in *ssInstall, project string, inv func()) {
+	if u.ss.inst != in || in.work || (in.step != 1 && in.step != 2) {
+		return
+	}
 	in.work, in.step = true, 2
+	dir, scope := in.plan.Dir, in.scope
+	project = in.project
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	in.cancel = cancel
 	var picks []skillshare.Choice
 	for _, c := range in.plan.Choices {
 		if in.picked[c.Name] {
@@ -332,12 +361,14 @@ func (u *ui) ssAuditLocked(in *ssInstall, project string, inv func()) {
 		}
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer inv()
 		defer cancel()
-		a := skillshare.Default.Audit(ctx, in.plan.Dir, in.scope, ssCwd(in.scope, project), picks)
+		a := skillshare.Default.Audit(ctx, dir, scope, ssCwd(scope, project), picks)
 		u.ss.mu.Lock()
 		if u.ss.inst != in {
+			in.work = false
 			u.ss.mu.Unlock()
+			skillshare.Drop(dir)
 			return
 		}
 		if len(a.Blocked) > 0 {
@@ -355,7 +386,19 @@ func (u *ui) ssAuditLocked(in *ssInstall, project string, inv func()) {
 // audit, after the user saw its findings.
 func (u *ui) ssInstallNow(in *ssInstall, project string, force bool, inv func()) {
 	u.ss.mu.Lock()
+	if u.ss.inst != in {
+		dir := in.plan.Dir
+		u.ss.mu.Unlock()
+		skillshare.Drop(dir)
+		return
+	}
+	if in.step != 2 || force && in.audit == nil {
+		u.ss.mu.Unlock()
+		return
+	}
 	in.work, in.step, in.audit = true, 3, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	in.cancel = cancel
 	var names []string
 	for _, c := range in.plan.Choices {
 		if in.picked[c.Name] {
@@ -365,22 +408,25 @@ func (u *ui) ssInstallNow(in *ssInstall, project string, force bool, inv func())
 	if len(in.plan.Choices) == 1 {
 		names = nil // the whole source: it names one skill
 	}
-	source := strings.TrimSpace(in.url.Text())
+	source, scope, dir := in.source, in.scope, in.plan.Dir
+	project = in.project
 	u.ss.mu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		done, errText := skillshare.Default.Install(ctx, source, in.scope, ssCwd(in.scope, project), names, force)
+		done, errText := skillshare.Default.Install(ctx, source, scope, ssCwd(scope, project), names, force)
 		u.ss.mu.Lock()
-		skillshare.Drop(in.plan.Dir)
-		in.plan.Dir, in.work = "", false
+		skillshare.Drop(dir)
+		in.plan.Dir = ""
 		if errText != "" {
 			in.err = errText
 		} else {
 			in.done, in.step = done, 4
 		}
 		u.ss.mu.Unlock()
-		u.ss.store.Refresh(skillshare.Default, project, false, inv)
+		u.ss.store.Refresh(skillshare.Default, u.ss.store.View().Project, false, inv)
+		u.ss.mu.Lock()
+		in.work = false
+		u.ss.mu.Unlock()
 		inv()
 	}()
 }
@@ -410,10 +456,7 @@ func (u *ui) layoutSkillshare(gtx gl.Context, st *model.State) {
 	}
 	// FocusFilter: the router focuses only a tag that declares it.
 	filters := []event.Filter{pointer.Filter{Target: &m.backdrop, Kinds: pointer.Press}, key.FocusFilter{Target: &m.backdrop},
-		key.Filter{Focus: &m.backdrop, Name: key.NameEscape}}
-	if s.inst != nil {
-		filters = append(filters, key.Filter{Focus: &s.inst.url, Name: key.NameEscape})
-	}
+		key.Filter{Name: key.NameEscape}}
 	for {
 		ev, ok := gtx.Event(filters...)
 		if !ok {
@@ -429,10 +472,7 @@ func (u *ui) layoutSkillshare(gtx gl.Context, st *model.State) {
 			}
 			switch {
 			case s.inst != nil:
-				s.mu.Lock()
-				skillshare.Drop(s.inst.plan.Dir)
-				s.inst = nil
-				s.mu.Unlock()
+				s.dismissInstall()
 				gtx.Execute(key.FocusCmd{Tag: &m.backdrop})
 			case s.sel != "":
 				s.sel = ""

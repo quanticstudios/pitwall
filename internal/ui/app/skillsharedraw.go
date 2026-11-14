@@ -471,7 +471,7 @@ func (u *ui) ssOverviewRows(v skillshare.View, busy bool) []ssW {
 	rows := []ssW{u.ssAnswer(ans, !busy && (len(waiting) > 0 || len(lag) > 0), v)}
 	rows = append(rows, ssSpace(12), u.ssCounts(v, scope), ssSpace(8))
 	if known || len(targets) > 0 {
-		rows = append(rows, u.ssTargets(targets, len(v.Reads) == 0)...)
+		rows = append(rows, u.ssTargets(targets, !known || len(reading) > 0 || len(errs) > 0)...)
 	}
 	for _, e := range errs {
 		rows = append(rows, u.ssText(th.UIFont, th.Sp(theme.Small), th.Readable(th.Red, th.Surface), e))
@@ -777,7 +777,7 @@ func (u *ui) ssPreviewRows(st *model.State, v skillshare.View) []ssW {
 	if it.WaitsForSync() {
 		acts = append(acts, u.ssButton("p-sync", kit.Primary.When(!busy), "Sync", func() { u.ssSync(v) }))
 	}
-	if it.Kind == skillshare.Skills || it.Kind == skillshare.Agents {
+	if it.Kind == skillshare.Skills || it.Kind == skillshare.Agents || it.Kind == skillshare.Hooks && it.Declared && it.Root == "" && !it.Notice {
 		verb, label := "disable", "Disable"
 		if it.Disabled {
 			verb, label = "enable", "Enable"
@@ -787,6 +787,8 @@ func (u *ui) ssPreviewRows(st *model.State, v skillshare.View) []ssW {
 				return skillshare.Default.Toggle(ctx, it, verb, project, step)
 			})
 		}))
+	}
+	if it.Kind == skillshare.Skills || it.Kind == skillshare.Agents || it.Kind == skillshare.Hooks && it.Declared && it.Root == "" && !it.Notice {
 		if s.confirm {
 			acts = append(acts,
 				u.ssButton("p-uninstall-yes", kit.Danger.When(!busy), "Uninstall "+it.Label, func() {
@@ -808,7 +810,11 @@ func (u *ui) ssPreviewRows(st *model.State, v skillshare.View) []ssW {
 		rows = append(rows, func(gtx gl.Context) gl.Dimensions { return ssButtons(gtx, acts...) }, ssSpace(6))
 	}
 	if s.confirm {
-		rows = append(rows, u.ssText(th.UIFont, th.Sp(theme.Small), th.Muted, "Uninstall moves it to the skillshare trash; skillshare trash restores it."))
+		text := "Uninstall moves it to the skillshare trash; skillshare trash restores it."
+		if it.Kind == skillshare.Hooks {
+			text = "Uninstall removes this hook from the source. Sync applies it to targets."
+		}
+		rows = append(rows, u.ssText(th.UIFont, th.Sp(theme.Small), th.Muted, text))
 	}
 
 	// Who gets it, waiting targets first.
@@ -1002,10 +1008,7 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 		gtx.Execute(key.FocusCmd{Tag: &in.url})
 	}
 	back := u.ssButton("i-back", kit.Ghost, "‹ Back", func() {
-		s.mu.Lock()
-		skillshare.Drop(in.plan.Dir)
-		s.inst = nil
-		s.mu.Unlock()
+		s.dismissInstall()
 	})
 	steps := []string{"Source", "Choose", "Audit", "Install"}
 	rows := []ssW{func(gtx gl.Context) gl.Dimensions {
@@ -1046,6 +1049,9 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 			func(gtx gl.Context) gl.Dimensions {
 				return gl.Flex{Alignment: gl.Middle}.Layout(gtx,
 					gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
+						if work {
+							gtx = gtx.Disabled()
+						}
 						return u.field(gtx, &in.url, th.UIFont, gtx.Dp(36), "owner/repo")
 					}),
 					gl.Rigid(ssGap(8)), gl.Rigid(next))
@@ -1057,7 +1063,16 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 						return u.ssLine(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Install into  ")
 					}),
 					gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-						return u.ssSegmented(gtx, "i-scope", [][2]string{{skillshare.Project, "Project"}, {skillshare.Global, "Global"}}, in.scope, func(k string) { in.scope = k })
+						if work {
+							gtx = gtx.Disabled()
+						}
+						return u.ssSegmented(gtx, "i-scope", [][2]string{{skillshare.Project, "Project"}, {skillshare.Global, "Global"}}, in.scope, func(k string) {
+							s.mu.Lock()
+							defer s.mu.Unlock()
+							if !in.work && in.step == 0 {
+								in.scope = k
+							}
+						})
 					}))
 			})
 		} else {
@@ -1142,10 +1157,7 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 		rows = append(rows, ssSpace(8), func(gtx gl.Context) gl.Dimensions {
 			return ssButtons(gtx,
 				u.ssButton("i-cancel", kit.Secondary, "Cancel", func() {
-					s.mu.Lock()
-					skillshare.Drop(in.plan.Dir)
-					s.inst = nil
-					s.mu.Unlock()
+					s.dismissInstall()
 				}),
 				u.ssButton("i-anyway", kit.Danger, "Install anyway", func() { u.ssInstallNow(in, project, true, inv) }))
 		})
@@ -1155,7 +1167,7 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 			u.ssText(th.UIFont, th.Sp(theme.Small), th.Fg, "Sync to give it to your agents."), ssSpace(8),
 			func(gtx gl.Context) gl.Dimensions {
 				return ssButtons(gtx,
-					u.ssButton("i-sync", kit.Primary.When(s.running() == ""), "Sync", func() { s.inst = nil; u.ssSync(s.store.View()) }),
+					u.ssButton("i-sync", kit.Primary.When(s.running() == ""), "Sync", func() { s.dismissInstall(); u.ssSync(s.store.View()) }),
 					u.ssButton("i-again", kit.Secondary, "Install another", func() { s.startInstall(project) }))
 			})
 	case work:

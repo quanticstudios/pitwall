@@ -78,7 +78,7 @@ func (c Client) UpdateItems(ctx context.Context, items []Item, all bool, project
 		if len(blocked) > 0 {
 			return failed("Audit blocked " + strings.Join(blocked, ", ") + ". Ask an agent to audit it before updating.")
 		}
-		if r.Code != 0 && !parsed {
+		if r.Code != 0 || !parsed {
 			return failure(r, "skillshare update")
 		}
 		for _, i := range append(j.Items, j.Agents...) {
@@ -119,6 +119,9 @@ func (c Client) Toggle(ctx context.Context, it Item, action, project string, ste
 	if r := c.Run(ctx, dir, args...); r.Code != 0 {
 		return failure(r, "skillshare "+action)
 	}
+	if it.Kind == Hooks {
+		return done("Saved " + it.Label + ". Sync applies it.")
+	}
 	want := action == "disable"
 	var list []ListEntry
 	if json.Unmarshal([]byte(c.Run(ctx, dir, "list", "--all", "--json", Flag(it.Scope)).Stdout), &list) == nil {
@@ -148,8 +151,12 @@ func (c Client) Toggle(ctx context.Context, it Item, action, project string, ste
 
 // Uninstall moves it to the CLI's trash.
 func (c Client) Uninstall(ctx context.Context, it Item, project string, step func(string)) Outcome {
+	args := UninstallArgs(it)
+	if args == nil {
+		return failed("This action is unavailable.")
+	}
 	step("Uninstalling " + it.Label + "…")
-	r := c.Run(ctx, at(it.Scope, project), UninstallArgs(it)...)
+	r := c.Run(ctx, at(it.Scope, project), args...)
 	if r.Code != 0 {
 		return failure(r, "skillshare uninstall")
 	}
@@ -158,6 +165,9 @@ func (c Client) Uninstall(ctx context.Context, it Item, project string, step fun
 	}
 	if json.Unmarshal([]byte(r.Stdout), &j) == nil && len(j.Failed) > 0 {
 		return failed("Could not uninstall " + strings.Join(j.Failed, ", "))
+	}
+	if it.Kind == Hooks {
+		return done("Removed " + it.Label + ". Sync applies it.")
 	}
 	return done("Moved " + it.Label + " to the skillshare trash")
 }

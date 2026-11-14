@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The fixtures under testdata are skillshare v0.30.7's own --json output,
@@ -100,6 +101,21 @@ func TestInSyncOverview(t *testing.T) {
 	a := Overview(false, nil, false, pending, nil, len(items), len(ts))
 	if a.Kind != "ok" || a.Headline != "Everything is in sync" {
 		t.Fatalf("answer %+v", a)
+	}
+}
+
+func TestOverviewWaitingWithoutTargets(t *testing.T) {
+	a := Overview(false, nil, false, 1, nil, 1, 0)
+	if a.Kind != "waiting" || a.Headline != "1 resource to sync" || a.Sub != "1 resource waiting" {
+		t.Fatalf("answer %+v", a)
+	}
+}
+
+func TestDiffTargetFailure(t *testing.T) {
+	r := &Read{}
+	err := r.Parse("diff", Result{Stdout: `{"targets":[{"name":"claude","error":"permission denied","items":null}]}`})
+	if err == nil || !strings.Contains(err.Error(), "claude: permission denied") {
+		t.Fatalf("target error lost: %v", err)
 	}
 }
 
@@ -280,6 +296,38 @@ func TestMCPServerMasks(t *testing.T) {
 	}
 }
 
+func TestMCPServerMasksYAMLValues(t *testing.T) {
+	for _, fields := range []string{
+		"      bearerToken: |\n        private-token\n",
+		"      env:\n        REGION: \"private\n        metadata: continuation\"\n",
+		"      headers: {Authorization: 'private-token',\n        X-Private: 'private-header'}\n",
+		"      headers: &headers\n        Authorization: private-token\n      env: *headers\n",
+		"      adapters:\n        pi: {bearerToken: private-token, env: {REGION: private-region}}\n",
+	} {
+		t.Run(fields, func(t *testing.T) {
+			got := MCPServer("mcp:\n  servers:\n    api:\n"+fields, "api")
+			if len(got) == 0 {
+				t.Fatal("server missing")
+			}
+			for _, row := range got {
+				if strings.Contains(row.Value, "private") || strings.Contains(row.Value, "metadata") || strings.Contains(row.Value, "continuation") {
+					t.Fatalf("secret leaked: %q", got)
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateCommandError(t *testing.T) {
+	c := Client{Run: func(context.Context, string, ...string) Result {
+		return Result{Code: 1, Stdout: `{"error":"repository unavailable"}`}
+	}}
+	got := c.UpdateItems(context.Background(), []Item{{Kind: Skills, Update: "lint"}}, false, "", func(string) {})
+	if !got.Err || got.Text != "repository unavailable" {
+		t.Fatalf("failed update reported success: %+v", got)
+	}
+}
+
 func TestCloneURL(t *testing.T) {
 	for _, c := range []struct {
 		in   string
@@ -287,6 +335,7 @@ func TestCloneURL(t *testing.T) {
 		ok   bool
 	}{
 		{"acme/skills", Clone{URL: "https://github.com/acme/skills.git"}, true},
+		{"acme/skills/skills/a", Clone{URL: "https://github.com/acme/skills.git"}, true},
 		{"https://github.com/acme/skills/tree/dev/skills/a", Clone{URL: "https://github.com/acme/skills.git", Branch: "dev"}, true},
 		{"gitlab.com/acme/skills.git", Clone{URL: "https://gitlab.com/acme/skills.git"}, true},
 		{"git@github.com:acme/skills.git", Clone{URL: "git@github.com:acme/skills.git"}, true},
@@ -483,5 +532,125 @@ func TestLiveCLI(t *testing.T) {
 			t.Fatalf("discover %+v", p)
 		}
 		t.Logf("plan %+v", p.Choices)
+	}
+}
+
+// Project changes must take effect while a slow read from the old project runs.
+func TestStoreRefreshChangesProject(t *testing.T) {
+	oldRead, release := make(chan struct{}), make(chan struct{})
+	releaseNew := make(chan struct{})
+	c := Demo()
+	demo := c.Run
+	c.Run = func(ctx context.Context, dir string, args ...string) Result {
+		if dir == "/old" && args[0] == "list" {
+			close(oldRead)
+			<-release
+		}
+		if dir == "/new" && args[0] == "list" {
+			<-releaseNew
+		}
+		return demo(ctx, dir, args...)
+	}
+	var s Store
+	changed := make(chan struct{}, 128)
+	notify := func() { changed <- struct{}{} }
+	s.Refresh(c, "/old", false, notify)
+	<-oldRead
+	s.Refresh(c, "/new", false, notify)
+	v := s.View()
+	if v.Project != "/new" || !v.Reads[Project].Pending["list"] {
+		t.Fatalf("old project still active: %+v", v)
+	}
+	close(release)
+	close(releaseNew)
+	for deadline := time.After(5 * time.Second); ; {
+		if !s.Running() {
+			break
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatal("new project's reads never finished")
+		}
+	}
+	if v := s.View(); v.Project != "/new" || len(v.Reads[Project].List) == 0 {
+		t.Fatalf("new project not loaded: %+v", v)
+	}
+}
+
+// A mutation's refresh must not be lost behind an older read in flight.
+func TestStoreRefreshQueuesAnotherRead(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var lists, checks int
+	var mu sync.Mutex
+	c := Demo()
+	demo := c.Run
+	c.Run = func(ctx context.Context, dir string, args ...string) Result {
+		if args[0] == "check" && len(args) > 1 && args[1] != "agents" {
+			mu.Lock()
+			checks++
+			mu.Unlock()
+		}
+		if args[0] == "list" {
+			mu.Lock()
+			lists++
+			n := lists
+			mu.Unlock()
+			if n == 1 {
+				close(started)
+				<-release
+			}
+		}
+		return demo(ctx, dir, args...)
+	}
+	var s Store
+	changed := make(chan struct{}, 128)
+	notify := func() { changed <- struct{}{} }
+	s.Refresh(c, "", false, notify)
+	<-started
+	s.Refresh(c, "", true, notify)
+	s.Refresh(c, "", false, notify)
+	close(release)
+	for deadline := time.After(5 * time.Second); ; {
+		mu.Lock()
+		n := lists
+		mu.Unlock()
+		if !s.Running() && n == 2 {
+			mu.Lock()
+			got := checks
+			mu.Unlock()
+			if got != 2 {
+				t.Fatalf("forced update check was lost: %d checks", got)
+			}
+			break
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatal("queued refresh never finished")
+		}
+	}
+}
+
+func TestHookToggle(t *testing.T) {
+	hook := Item{Kind: Hooks, Scope: Project, Name: "fmt", Declared: true, Disabled: true}
+	if got := ToggleArgs(hook, "enable"); !slices.Equal(got, []string{"hooks", "enable", "fmt", "-p"}) {
+		t.Fatalf("hook args %v", got)
+	}
+	c := Client{Run: func(ctx context.Context, dir string, args ...string) Result {
+		if dir != "/project" || !slices.Equal(args, []string{"hooks", "enable", "fmt", "-p"}) {
+			t.Fatalf("hook command %q %v", dir, args)
+		}
+		return Result{}
+	}}
+	if out := c.Toggle(context.Background(), hook, "enable", "/project", func(string) {}); out.Err {
+		t.Fatalf("hook failed: %+v", out)
+	}
+	if got := UninstallArgs(hook); !slices.Equal(got, []string{"hooks", "remove", "fmt", "-p"}) {
+		t.Fatalf("hook remove args %v", got)
+	}
+	hook.Root = "/other"
+	if got := ToggleArgs(hook, "enable"); got != nil {
+		t.Fatalf("project-root hook cannot use the scoped CLI action: %v", got)
 	}
 }

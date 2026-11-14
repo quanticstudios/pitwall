@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/png"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,6 +104,22 @@ func TestSkillshareEscapeLeavesPreview(t *testing.T) {
 	keys(key.Event{Name: key.NameEscape, State: key.Press})
 	if u.modal.kind != modalNone {
 		t.Fatal("second Escape should close")
+	}
+}
+
+func TestSkillshareEscapeAfterInstallBack(t *testing.T) {
+	_, u, frame, keys := ssWindow(t)
+	u.toggleSkillshare(new(u.b.State()))
+	waitReads(t, u, frame)
+	u.ss.startInstall("")
+	frame()
+	frame()
+	u.ss.acts["i-back"]()
+	frame()
+	frame()
+	keys(key.Event{Name: key.NameEscape, State: key.Press})
+	if u.modal.kind != modalNone {
+		t.Fatal("Escape should close after the URL editor is removed")
 	}
 }
 
@@ -226,4 +244,133 @@ func TestSkillshareShots(t *testing.T) {
 	u.ss.inst.url.SetText("example.com/acme/skills")
 	u.ss.inst.step, u.ss.inst.audit = 2, &a
 	shot("install-blocked")
+}
+
+// Install workers are driven with channels so close/discovery/audit overlap.
+func TestSkillshareInstallLifecycle(t *testing.T) {
+	for _, phase := range []string{"source", "close-discover", "close-audit"} {
+		t.Run(phase, func(t *testing.T) {
+			old := skillshare.Default
+			c := skillshare.Demo()
+			demo := c.Run
+			started, release := make(chan struct{}), make(chan struct{})
+			changed := make(chan struct{}, 128)
+			var once sync.Once
+			var callsMu sync.Mutex
+			var installs [][]string
+			block := func() { once.Do(func() { close(started); <-release }) }
+			c.Clone = func(context.Context, string, string, string) error {
+				if phase != "close-audit" {
+					block()
+				}
+				return nil
+			}
+			c.Run = func(ctx context.Context, dir string, args ...string) skillshare.Result {
+				if args[0] == "audit" {
+					if phase == "close-audit" {
+						block()
+					}
+					return skillshare.Result{Stdout: `{"results":[{"isBlocked":false}]}`}
+				}
+				if args[0] == "install" {
+					if slices.Contains(args, "--dry-run") {
+						return skillshare.Result{Stdout: `{"planned":[{"name":"a","path":"a"}]}`}
+					}
+					callsMu.Lock()
+					installs = append(installs, slices.Clone(args))
+					callsMu.Unlock()
+					return skillshare.Result{Stdout: `{"skills":["a"]}`}
+				}
+				return demo(ctx, dir, args...)
+			}
+			skillshare.Default = c
+			u := &ui{invalidate: func() { changed <- struct{}{} }}
+			u.modal.open(modalSkillshare, "")
+			u.ss.startInstall("")
+			in := u.ss.inst
+			in.url.SetText("acme/source-a")
+			u.ss.mu.Lock()
+			u.ssDiscover("")
+			u.ss.mu.Unlock()
+			<-started
+			if phase == "source" {
+				// The editor is owned by the UI, never read by an install worker.
+				in.url.SetText("acme/source-b")
+			} else {
+				u.closeSkillshare()
+			}
+			close(release)
+			deadline := time.After(5 * time.Second)
+			for {
+				select {
+				case <-changed:
+				case <-deadline:
+					t.Fatal("install worker did not finish")
+				}
+				u.ss.mu.Lock()
+				done, work := in.step == 4, in.work
+				u.ss.mu.Unlock()
+				if phase != "source" && !work || phase == "source" && done && !work && !u.ss.store.Running() {
+					break
+				}
+			}
+			callsMu.Lock()
+			defer callsMu.Unlock()
+			if phase == "source" {
+				if len(installs) != 1 || installs[0][1] != "acme/source-a" {
+					t.Fatalf("installed an unaudited source: %v", installs)
+				}
+			} else if len(installs) != 0 {
+				t.Fatalf("installed after close: %v", installs)
+			}
+			u.closeSkillshare()
+			skillshare.Default = old
+		})
+	}
+}
+
+func TestSkillshareHookPreviewActions(t *testing.T) {
+	_, u, frame, _ := ssWindow(t)
+	u.toggleSkillshare(new(u.b.State()))
+	waitReads(t, u, frame)
+	v := u.ss.store.View()
+	it, ok := ssPick(v.Items, "format-check")
+	if !ok {
+		t.Fatal("hook missing")
+	}
+	u.ss.open(it, ssReadOf(v, it))
+	frame()
+	if u.ss.acts["p-toggle"] == nil || u.ss.acts["p-uninstall"] == nil {
+		t.Fatal("declared hook must have toggle and uninstall controls")
+	}
+	u.ss.acts["p-uninstall"]()
+	frame()
+	if !u.ss.confirm || u.ss.acts["p-uninstall-yes"] == nil {
+		t.Fatal("hook removal must ask for confirmation")
+	}
+}
+
+func TestSkillshareInstallScopeStaysWithPlan(t *testing.T) {
+	_, u, frame, _ := ssWindow(t)
+	u.toggleSkillshare(new(u.b.State()))
+	waitReads(t, u, frame)
+	u.ss.startInstall("/project")
+	in := u.ss.inst
+	v := u.ss.store.View()
+	v.Project = "/project"
+	var ops op.Ops
+	gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(720, 640)), Now: time.Now()}
+	rows := u.ssInstallRows(gtx, v)
+	for _, row := range rows {
+		row(gtx)
+	}
+	pickGlobal := u.ss.acts["i-scope:global"]
+	if pickGlobal == nil {
+		t.Fatal("source scope control missing")
+	}
+	in.step = 1 // Discovery finished before the old click was handled.
+	pickGlobal()
+	if in.scope != skillshare.Project {
+		t.Fatal("a stale source-page click changed the plan's scope")
+	}
 }

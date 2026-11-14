@@ -149,12 +149,15 @@ func FindProject(dir string) string {
 // Store keeps the last answers of every read, per scope, for the UI
 // goroutine to draw while the reads run in their own goroutines.
 type Store struct {
-	mu      sync.Mutex
-	project string           // the project folder read, "" for none
-	reads   map[string]*Read // by scope
-	gen     int              // bumped on every change
-	running bool             // a refresh's reads are out
-	checked time.Time        // when the update checks last ran
+	mu         sync.Mutex
+	project    string           // the project folder read, "" for none
+	reads      map[string]*Read // by scope
+	gen        int              // bumped on every change
+	running    bool             // a refresh's reads are out
+	runID      int              // identity of the current refresh
+	again      func()           // a refresh requested while reads were out
+	againForce bool             // a queued update check must survive a later periodic read
+	checked    time.Time        // when the update checks last ran
 
 	items    []Item // built from reads at itemsGen
 	itemsGen int
@@ -214,17 +217,34 @@ const checkEvery = 10 * time.Minute
 
 // Refresh reads every scope of project ("" for global only) again, each
 // read in its own goroutine, keeping the old answers until new ones land;
-// changed is called after each lands. A refresh while one runs does
-// nothing. The checks run too when force is set or checkEvery has passed.
+// changed is called after each lands. A request during a refresh queues
+// another read; changing projects replaces the active view immediately.
+// The checks run too when force is set or checkEvery has passed.
 func (s *Store) Refresh(c Client, project string, force bool, changed func()) {
+	s.refresh(c, project, force, changed, 0)
+}
+
+func (s *Store) refresh(c Client, project string, force bool, changed func(), after int) {
 	s.mu.Lock()
-	if s.running {
+	if after != 0 && s.runID != after {
+		s.mu.Unlock()
+		return
+	}
+	if s.running && s.project == project {
+		id := s.runID
+		force = force || s.againForce
+		s.againForce = force
+		s.again = func() { s.refresh(c, project, force, changed, id) }
 		s.mu.Unlock()
 		return
 	}
 	s.running = true
+	s.runID++
+	runID := s.runID
+	s.again, s.againForce = nil, false
 	if s.reads == nil || s.project != project {
 		s.reads = map[string]*Read{}
+		s.checked = time.Time{}
 	}
 	s.project = project
 	scopes := []string{Global}
@@ -273,7 +293,7 @@ func (s *Store) Refresh(c Client, project string, force bool, changed func()) {
 			}
 			res := c.Run(ctx, dir, append(slices.Clone(j.args), "--json", Flag(j.scope))...)
 			s.mu.Lock()
-			if s.project == project {
+			if s.runID == runID {
 				r := s.reads[j.scope]
 				fresh := &Read{}
 				err := fresh.Parse(j.name, res)
@@ -292,8 +312,15 @@ func (s *Store) Refresh(c Client, project string, force bool, changed func()) {
 	go func() {
 		wg.Wait()
 		s.mu.Lock()
-		s.running = false
+		var again func()
+		if s.runID == runID {
+			s.running = false
+			again, s.again = s.again, nil
+		}
 		s.mu.Unlock()
+		if again != nil {
+			again()
+		}
 		changed()
 	}()
 }

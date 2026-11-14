@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -45,100 +47,94 @@ func SplitFrontmatter(text string) (meta []KV, body string) {
 // Mask is what a secret's value shows as.
 const Mask = "••••••••"
 
-// secretKey names the fields whose values never reach the UI.
-var secretKey = map[string]bool{"env": true, "headers": true, "bearerToken": true}
-
-// MCPServer is server name's settings out of the MCP source file text
-// (YAML), as rows, nil when the file does not name it. Under env, headers
-// and bearerToken only the names show: every value is Mask. The file can
-// hold several server lists, the global one and one per project root; the
-// first that names it wins.
+// MCPServer reads a server's YAML settings and masks secrets before returning
+// preview rows. Parsing YAML keeps multiline values, aliases and flow maps
+// from being mistaken for setting names.
 func MCPServer(text, name string) []KV {
-	var lines []string
-	for _, l := range regexp.MustCompile(`\r?\n`).Split(text, -1) {
-		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
-			lines = append(lines, l)
-		}
-	}
-	depth := func(l string) int { return len(l) - len(strings.TrimLeft(l, " ")) }
-	bare := func(k string) string { return quoted.ReplaceAllString(strings.TrimSpace(k), "$2") }
-	start, child := -1, -1
-	for at := 0; at < len(lines) && start < 0; at++ {
-		if strings.TrimSpace(lines[at]) != "servers:" {
-			continue
-		}
-		child = -1
-		for j := at + 1; j < len(lines) && depth(lines[j]) > depth(lines[at]); j++ {
-			if child < 0 {
-				child = depth(lines[j])
-			}
-			if depth(lines[j]) == child && bare(strings.TrimSuffix(strings.TrimSpace(lines[j]), ":")) == name {
-				start = j
-				break
-			}
-		}
-	}
-	if start < 0 {
+	var doc yaml.Node
+	if yaml.Unmarshal([]byte(text), &doc) != nil {
 		return nil
 	}
-	type row struct {
-		key          string
-		secret       bool
-		parts        []string
-		inner        int
-		innerDefined bool
-	}
-	var rows []*row
-	field := -1
-	for j := start + 1; j < len(lines) && depth(lines[j]) > child; j++ {
-		if field < 0 {
-			field = depth(lines[j])
-		}
-		s := strings.TrimSpace(lines[j])
-		if depth(lines[j]) == field {
-			k, v, ok := strings.Cut(s, ":")
-			if !ok {
-				continue
-			}
-			r := &row{key: bare(k), secret: secretKey[bare(k)]}
-			if v = strings.TrimSpace(v); v != "" {
-				if r.secret {
-					v = Mask
-				} else {
-					v = strings.TrimSuffix(strings.TrimPrefix(v, "["), "]")
+	var find func(*yaml.Node) *yaml.Node
+	find = func(n *yaml.Node) *yaml.Node {
+		if n.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				if n.Content[i].Value == "servers" {
+					servers := n.Content[i+1]
+					for j := 0; j+1 < len(servers.Content); j += 2 {
+						if servers.Content[j].Value == name {
+							return servers.Content[j+1]
+						}
+					}
 				}
-				r.parts = append(r.parts, v)
 			}
-			rows = append(rows, r)
-			continue
 		}
-		if len(rows) == 0 {
-			continue
+		for _, child := range n.Content {
+			if server := find(child); server != nil {
+				return server
+			}
 		}
-		last := rows[len(rows)-1]
-		if !last.innerDefined {
-			last.inner, last.innerDefined = depth(lines[j]), true
-		}
-		if depth(lines[j]) != last.inner {
-			continue // deeper: a fromEnv reference or a nested map
-		}
-		item := strings.TrimPrefix(s, "- ")
-		if last.secret {
-			k, _, _ := strings.Cut(item, ":")
-			last.parts = append(last.parts, bare(k)+" = "+Mask)
-		} else {
-			last.parts = append(last.parts, bare(item))
+		return nil
+	}
+	server := find(&doc)
+	if server == nil {
+		return nil
+	}
+	var fields map[string]any
+	if server.Decode(&fields) != nil {
+		return nil
+	}
+	var rows []KV
+	// Keep the source's order for ordinary fields; include merged fields too.
+	seen := map[string]bool{}
+	for i := 0; i+1 < len(server.Content); i += 2 {
+		k := server.Content[i].Value
+		if k != "<<" {
+			rows = append(rows, KV{k, mcpValue(k, fields[k])})
+			seen[k] = true
 		}
 	}
-	out := make([]KV, 0, len(rows))
-	for _, r := range rows {
-		sep := " "
-		if r.secret {
-			sep = ", "
+	for _, k := range sortedKeys(fields) {
+		if !seen[k] {
+			rows = append(rows, KV{k, mcpValue(k, fields[k])})
 		}
-		out = append(out, KV{r.key, strings.Join(r.parts, sep)})
 	}
-	return out
+	return rows
+}
+
+func mcpValue(key string, value any) string {
+	lower := strings.ToLower(key)
+	if lower == "env" || lower == "headers" {
+		if entries, ok := value.(map[string]any); ok {
+			var parts []string
+			for _, k := range sortedKeys(entries) {
+				parts = append(parts, k+" = "+Mask)
+			}
+			return strings.Join(parts, ", ")
+		}
+		return Mask
+	}
+	if strings.Contains(lower, "token") {
+		return Mask
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		var parts []string
+		for _, k := range sortedKeys(v) {
+			parts = append(parts, k+": "+mcpValue(k, v[k]))
+		}
+		return strings.Join(parts, ", ")
+	case []any:
+		var parts []string
+		for _, item := range v {
+			parts = append(parts, mcpValue("", item))
+		}
+		return strings.Join(parts, " ")
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 // Clone is what git clones for an install source.
@@ -161,7 +157,7 @@ func CloneURL(source string) (Clone, bool) {
 		}
 	}
 	rest := urlPrefix.ReplaceAllString(s, "")
-	if ownerRepo.MatchString(rest) {
+	if ownerRepo.MatchString(rest) || !strings.Contains(s, "://") && !strings.Contains(strings.Split(rest, "/")[0], ".") {
 		rest = "github.com/" + rest
 	}
 	parts := strings.Split(rest, "/")

@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Fix Skillshare preview secret masking, install cancellation and source selection, target read errors, project refreshes and Escape after installation steps. Declared hooks can now be enabled or disabled in their preview.
 - Skillshare: while the `skillshare` CLI is on PATH, a sidebar button, Ctrl+Alt+S and the palette open a popup that says what waits for a sync, syncs and updates, previews skills, agents and MCP servers with secrets masked, installs from a repository after an audit, and asks the focused agent to audit a skill. See [Skillshare](docs/usage.md#skillshare).
 
 ## v0.2.10
