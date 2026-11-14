@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.2.11
 
 - `pitwall kill` takes `@<id>`, a tab id or a pane id, as the other commands do; it said "no tab matches" before.
 - Close finished worker tabs after 10 minutes without an open PR or user activity, with a configurable delay and a parent-menu action to close them sooner.
