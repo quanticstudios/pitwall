@@ -190,8 +190,19 @@ This machine keeps the shared session: its name, the order of its tabs
 and groups across machines, and for each host the session there that
 holds its tabs. That session is an ordinary one on the host, named after
 the shared one, so `pitwall --host box`, the phone page and `pitwall ls`
-on box show those tabs as a session of their own. A session on another
-host becomes shared when you open a tab on this machine from it. A window
+on box show those tabs as a session of their own. The host records which
+machine's session each part was made for. A session there that already has
+the name and belongs to another machine's session is never joined: the new
+part gets the name with `-2`, `-3` added. When you open the first tab on
+box from the window or a shell, a session of the same name that belongs to
+no other machine joins; `pitwall new --host` run in a pane never joins a
+session by name and makes a part of its own, so it refuses a daemon on box
+from before parts recorded their session. A part joined before hosts
+recorded this takes the session of the first window or `pitwall new --host`
+that reaches it, and
+leaves the shared sessions of every other machine. A session on another
+host becomes shared when you open a tab on this machine from it, unless it
+is already another machine's part. A window
 must list the host in `[[hosts]]` with `window = true` to show its part.
 Renaming the shared session renames each part; killing it from the window
 kills them, and waits while a host with a part is down, so nothing keeps

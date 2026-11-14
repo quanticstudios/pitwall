@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
 )
@@ -364,4 +365,25 @@ func refuses(nc net.Conn) bool {
 			return refused
 		}
 	}
+}
+
+// partOn is session's part in hs, a host's state: the part session links,
+// else the one made for origin, else, with byName (a person's action), a
+// session of the same name made for no other session. A part made for
+// another session never is: a kill of this one would close its tabs. A
+// returned part whose Origin is not origin still needs a SetOrigin.
+func partOn(hs model.State, session *model.Session, host string, origin model.Origin, byName bool) *model.Session {
+	ours := func(p *model.Session) bool {
+		return p != nil && (p.Origin == origin || p.Origin == model.Origin{})
+	}
+	if r := session.Remote(host); r != nil && ours(hs.Session(r.Session)) {
+		return hs.Session(r.Session)
+	}
+	if p := hs.PartOf(origin); p != nil {
+		return p
+	}
+	if p := hs.SessionNamed(session.Name); byName && ours(p) {
+		return p
+	}
+	return nil
 }

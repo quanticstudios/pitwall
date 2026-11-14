@@ -377,6 +377,9 @@ func merge(s *model.State, old model.State) int {
 	}) {
 		return 0
 	}
+	if s.Daemon == "" {
+		s.Daemon = old.Daemon
+	}
 	for _, se := range old.Sessions {
 		name := se.Name
 		for n := 2; s.SessionNamed(se.Name) != nil; n++ {

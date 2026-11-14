@@ -411,9 +411,21 @@ func (m *multi) reconcile(local model.State) {
 				continue
 			}
 			hs := h.b.State()
+			o := m.origin(h, local, ss.ID)
+			part := hs.Session(r.Session)
 			switch {
-			case hs.Session(r.Session) == nil:
+			case part == nil:
 				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host})
+			case o != (model.Origin{}) && part.Origin != o && part.Origin != (model.Origin{}):
+				// why: a part made for another session, joined by name
+				// before parts had an Origin, would close with this one.
+				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host})
+			case o != (model.Origin{}) && part.Origin != o:
+				// A part linked before parts had an Origin gets this one's.
+				key := [2]string{r.Session, "origin"}
+				if time.Since(m.asked[key].at) > 5*time.Second && h.b.Send(proto.SetOrigin{SessionID: r.Session, Origin: o}) == nil {
+					m.asked[key] = asked{at: time.Now()}
+				}
 			case len(r.Forget) > 0:
 				// An id leaves Forget only once the host's state shows its
 				// tab gone, so a close a dropped link lost is sent again.
@@ -508,7 +520,11 @@ func (m *multi) reconcile(local model.State) {
 			continue
 		}
 		hs := h.b.State()
-		if x := hs.SessionNamed(name); x != nil && up(h) {
+		x := hs.SessionNamed(name)
+		if o := m.origin(h, local, ss.ID); o != (model.Origin{}) {
+			x = hs.PartOf(o)
+		}
+		if x != nil && up(h) {
 			link(proto.SessionLink{SessionID: ss.ID, Host: h.name, Remote: x.ID})
 			delete(m.pending, key)
 		}
@@ -846,8 +862,8 @@ func (m *multi) moveShared(sh, id, before string, move any) error {
 }
 
 // newTabOn opens a tab on a host, in that host's part of the window's
-// shared session: the part it has, else a session there of the same
-// name, which joins, else a new one, which joins once it shows up.
+// shared session (see partOn, by name too: a person asked), which joins,
+// else a new part, which joins once it shows up.
 func (m *multi) newTabOn(v app.NewTabOn) error {
 	h := m.byName(v.Host)
 	if h == nil {
@@ -875,13 +891,17 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 		return fmt.Errorf("no session %s on this machine", tab.SessionID)
 	}
 	hs := h.b.State()
-	if r := ss.Remote(h.name); r != nil && hs.Session(r.Session) != nil {
-		tab.SessionID = r.Session
-		return h.b.Send(tab)
-	}
-	if x := hs.SessionNamed(ss.Name); x != nil {
-		if err := m.hosts[0].b.Send(proto.SessionLink{SessionID: ss.ID, Host: h.name, Remote: x.ID}); err != nil {
-			return err
+	origin := m.origin(h, local, ss.ID)
+	if x := partOn(hs, ss, h.name, origin, true); x != nil {
+		if x.Origin != origin {
+			if err := h.b.Send(proto.SetOrigin{SessionID: x.ID, Origin: origin}); err != nil {
+				return err
+			}
+		}
+		if r := ss.Remote(h.name); r == nil || r.Session != x.ID {
+			if err := m.hosts[0].b.Send(proto.SessionLink{SessionID: ss.ID, Host: h.name, Remote: x.ID}); err != nil {
+				return err
+			}
 		}
 		tab.SessionID = x.ID
 		return h.b.Send(tab)
@@ -897,7 +917,17 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 	m.mu.Lock()
 	m.pending[[2]string{h.name, ss.ID}] = ss.Name
 	m.mu.Unlock()
-	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
+	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd, Origin: origin})
+}
+
+// origin is what h's part of session, a session of this machine's daemon
+// whose state is local, is made for: zero while either daemon is too old
+// to keep it, when parts join by name as before.
+func (m *multi) origin(h *hostLink, local model.State, session string) model.Origin {
+	if local.Daemon == "" || h.b.Link().Level < proto.OriginLevel {
+		return model.Origin{}
+	}
+	return model.Origin{Daemon: local.Daemon, Session: session}
 }
 
 // newTaskOn starts or queues a task on a host, in that host's part of
@@ -976,6 +1006,9 @@ func (m *multi) shareHere(owner, h *hostLink, tab proto.NewSession) error {
 	ss := ost.Session(tab.SessionID)
 	if ss == nil {
 		return fmt.Errorf("no session %s on %s", tab.SessionID, owner.name)
+	}
+	if ss.Origin != (model.Origin{}) {
+		return fmt.Errorf("session %s on %s is the part of a session of another machine; open the tab from that session", ss.Name, owner.name)
 	}
 	local := m.hosts[0].b.State()
 	if x := local.SessionNamed(ss.Name); x != nil {

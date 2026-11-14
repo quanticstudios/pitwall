@@ -151,6 +151,7 @@ func allMessages() []any {
 		ScrollbackResult{Pane: "a", Text: "history\nscreen\n"},
 		ForkPane{Pane: "a", Worktree: "side", Name: "alternative", ParentPane: "caller"},
 		SessionLink{SessionID: "s", Host: "box", Remote: "r", Forget: []string{"t"}, Unforget: []string{"u"}},
+		SetOrigin{SessionID: "s", Origin: model.Origin{Daemon: "d", Session: "o"}},
 		SessionOrder{SessionID: "s", Order: []string{"a", "b"}},
 		MonitorWatch{WorkspaceID: "w", Interval: 2 * time.Second},
 		MonitorSample{

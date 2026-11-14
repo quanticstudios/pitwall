@@ -28,6 +28,7 @@ takes `--dry-run`.
 - A guarded tab starts Claude Code or Codex with pitwall's hook, or pi, omp or OpenCode 1 with the current pitwall extension or plugin. The check uses the tab's home and working folder, requires a synchronous guard, and refuses options that skip it. OpenCode 2 and unknown versions are refused. `pitwall doctor` checks the same guard files, and a guarded agent that cannot be resumed after a restart says why in the window.
 - In a pitwall pane, `pitwall new --host` takes only a `[[hosts]]` name, and a `[[hosts]]` entry named `local` is a config problem and ignored, since `local` means this machine.
 - Workers waiting on Claude Code background shell commands, monitors or other running tasks stay Working, keep `wait --until idle` and `done` waiting, and do not start the automatic close timer.
+- A tab you open on another machine joins only the part of the session made for it there, never another session that has the same name.
 
 ## v0.2.12
 

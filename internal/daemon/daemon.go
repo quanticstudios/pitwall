@@ -449,6 +449,9 @@ func NewWith(o Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	if st.Daemon == "" {
+		st.Daemon = newID()
+	}
 	saved := st.Activities
 	st.Activities = nil
 	st.PRs = map[string]model.PR{}
@@ -1242,6 +1245,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.sessionKill(m)
 	case proto.SessionLink:
 		return d.sessionLink(m)
+	case proto.SetOrigin:
+		return d.setOrigin(m)
 	case proto.SessionOrder:
 		return d.sessionOrder(m)
 	case proto.SessionShow:

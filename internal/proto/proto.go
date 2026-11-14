@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 76 added State.Daemon, Session.Origin, SessionNew.Origin and
+// SetOrigin: a host's part of a shared session names the session it was
+// made for.
 // Level 75 added no message: a daemon at GuardGateLevel refuses a guarded
 // start the guard would not hold in.
 // Level 74 added Skillshare, SkillshareResult and State.Skillshare: the
@@ -204,7 +207,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 75
+const Level = 76
+
+// OriginLevel added State.Daemon, Session.Origin, SessionNew.Origin and
+// SetOrigin.
+const OriginLevel = 76
 
 // GuardGateLevel refuses to start a pane with the guard on unless it runs
 // an agent with pitwall's checked hook, extension or plugin in the config
@@ -321,6 +328,12 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case SetOrigin:
+		return OriginLevel
+	case SessionNew:
+		if m.Origin != (model.Origin{}) {
+			return OriginLevel
+		}
 	case Skillshare, SkillshareResult:
 		return SkillshareLevel
 	case CloseDoneWorkers:
@@ -923,10 +936,23 @@ type FocusDir struct {
 
 // SessionNew makes a session with one tab, a shell in FromPane's current
 // directory when set, else Cwd, else $HOME. Name "" gets a generated name.
+//
+// With Origin set it makes the part of another machine's session Origin
+// names, or does nothing when a session already has that Origin. A name
+// another session has then gets "-2", "-3" and so on.
 type SessionNew struct {
 	Name     string
 	Cwd      string
 	FromPane string
+	Origin   model.Origin
+}
+
+// SetOrigin sets the Origin of SessionID, a part of another machine's
+// session that was made before Origin existed. The daemon refuses it when
+// the session has another Origin, or another session has this one.
+type SetOrigin struct {
+	SessionID string
+	Origin    model.Origin
 }
 
 // SessionRename renames a session. Names are unique and not empty.
@@ -1136,6 +1162,7 @@ var Messages = []any{
 	MonitorWatch{}, MonitorSample{},
 	CloseDoneWorkers{},
 	Skillshare{}, SkillshareResult{},
+	SetOrigin{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

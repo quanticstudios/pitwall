@@ -184,11 +184,11 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 }
 
 // newOnHost opens tab on host, in that host's part of the shared session
-// here: the part it has, else the host's session of the same name, else a
-// new one of that name. The part then joins session. A detached tab is
+// here (see partOn), else a new part made for it, which then joins
+// session. daemon is this machine's State.Daemon. A detached tab is
 // hidden there, as new -d hides one here. It returns the tab's number
 // there, "box:3".
-func newOnHost(local *cliConn, session *model.Session, host string, tab proto.NewSession, detached bool) (string, error) {
+func newOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool) (string, error) {
 	hc, done, err := dialHost(host)
 	if err != nil {
 		return "", err
@@ -198,27 +198,33 @@ func newOnHost(local *cliConn, session *model.Session, host string, tab proto.Ne
 	if err != nil {
 		return "", err
 	}
-	if err := varsLevel(tab.Env, m.Level); err != nil {
+	if err := hostLevel(tab.Env, m.Level); err != nil {
 		return "", fmt.Errorf("%s: %w", host, err)
 	}
 	hs := m.State
-	var part *model.Session
-	if r := session.Remote(host); r != nil {
-		part = hs.Session(r.Session)
+	origin := model.Origin{Daemon: daemon, Session: session.ID}
+	if daemon == "" || m.Level < proto.OriginLevel {
+		origin = model.Origin{} // a person's shell, with a daemon too old on one side
 	}
-	if part == nil {
-		part = hs.SessionNamed(session.Name)
-	}
+	// why: an agent never joins by name, so it cannot take over the tabs of
+	// another session that happens to have its session's name.
+	part := partOn(hs, session, host, origin, os.Getenv("PITWALL_PANE") == "")
 	shell := "" // a new part's first tab, a shell
 	if part == nil {
-		if hs, err = syncCLI(hc, proto.SessionNew{Name: session.Name, Cwd: tab.Cwd}); err != nil {
+		if hs, err = syncCLI(hc, proto.SessionNew{Name: session.Name, Cwd: tab.Cwd, Origin: origin}); err != nil {
 			return "", err
 		}
-		part = hs.SessionNamed(session.Name)
+		if part = hs.PartOf(origin); origin == (model.Origin{}) {
+			part = hs.SessionNamed(session.Name)
+		}
 		if part == nil || len(hs.Numbered(part.ID)) != 1 {
-			return "", fmt.Errorf("%s made no session named %s", host, session.Name)
+			return "", fmt.Errorf("%s made no part of session %s", host, session.Name)
 		}
 		shell = hs.Numbered(part.ID)[0].ID
+	} else if part.Origin != origin {
+		if hs, err = syncCLI(hc, proto.SetOrigin{SessionID: part.ID, Origin: origin}); err != nil {
+			return "", err
+		}
 	}
 	partID, id := part.ID, shell
 	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" || len(tab.Env) > 0 {
@@ -385,14 +391,14 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			if err != nil {
 				return errors.New("--host opens a tab in a session here, and there is none: open a tab here first")
 			}
-			if m.Level < proto.SharedLevel {
+			if m.Level < proto.SharedLevel || os.Getenv("PITWALL_PANE") != "" && state.Daemon == "" {
 				return errors.New("pitwall's background service here is older than this pitwall and cannot share a session; restart it")
 			}
 			dir := ""
 			if len(args) == 1 {
 				dir = args[0] // a folder on the host
 			}
-			num, err := newOnHost(conn, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars}, detached)
+			num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars}, detached)
 			if err != nil {
 				return err
 			}
@@ -508,6 +514,18 @@ func withModel(cmd []string, selection string) ([]string, error) {
 		return nil, errors.New("--model needs an agent to run: --model opus -- claude")
 	}
 	return append([]string{cmd[0]}, config.WithModel(cmd[0], cmd[1:], selection)...), nil
+}
+
+// hostLevel is varsLevel for a tab on another host. From a pitwall pane
+// the host must also keep the part of each session apart (OriginLevel).
+func hostLevel(vars []string, level int) error {
+	if err := varsLevel(vars, level); err != nil {
+		return err
+	}
+	if os.Getenv("PITWALL_PANE") != "" && level < proto.OriginLevel {
+		return errors.New("the pitwall daemon running there is older than this pitwall and cannot tell this session's tabs from another session's of the same name; update pitwall there or restart its daemon")
+	}
+	return nil
 }
 
 // varsLevel refuses vars, a preset's or the guard's, for a daemon that
