@@ -228,6 +228,9 @@ func TestFleetRespawnKeepsGuard(t *testing.T) {
 	}
 	d.o.AutoSendFailures = func() bool { return true }
 	d.o.Head = func(context.Context, string) (string, error) { return "h3", nil }
+	d.o.Failures = func(context.Context, string) ([]forge.FailedCheck, error) {
+		return []forge.FailedCheck{{Name: "test", URL: "https://ci/1", Log: "boom"}}, nil
+	}
 	d.mu.Lock()
 	d.prs.sent[prKey("/r", "fix-login")] = []string{"h1", "h2"}
 	d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == "wa" })].Env = []string{"PITWALL_GUARD=1"}

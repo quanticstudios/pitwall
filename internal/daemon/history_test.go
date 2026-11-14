@@ -105,7 +105,6 @@ func TestHistoryPrivacy(t *testing.T) {
 		want  bool
 	}{
 		{"enabled", 2000, nil, true}, {"off", 0, nil, false},
-		{"guarded", 2000, []string{"PITWALL_GUARD=1"}, false},
 		{"excluded", 2000, []string{"PITWALL_NO_HISTORY=1"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,10 +135,11 @@ func TestHistoryPrivacy(t *testing.T) {
 			}
 		})
 	}
-	// One guarded pane excludes every pane in its tab, including shell splits.
+	// One guarded pane excludes every pane in its tab, including shell
+	// splits. why: not run as a restore above, since a guarded shell no longer starts.
 	d := &Daemon{o: Options{PersistScrollback: func() int { return 2000 }}, st: model.State{Panes: []model.Pane{{ID: "guard", WorkspaceID: "w", Env: []string{"PITWALL_GUARD=1"}}, {ID: "shell", WorkspaceID: "w"}}}}
-	if d.historyLines(d.st.Panes[1]) != 0 {
-		t.Fatal("guarded split saves history")
+	if d.historyLines(d.st.Panes[0]) != 0 || d.historyLines(d.st.Panes[1]) != 0 {
+		t.Fatal("a guarded tab saves history")
 	}
 }
 
