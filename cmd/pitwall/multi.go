@@ -89,8 +89,13 @@ type claimedTab struct {
 	origin     model.Origin
 	request    app.NewTabOn
 	epoch      int
-	at         time.Time
+	at         time.Time // the last SetOrigin
+	made       time.Time // the request
 }
+
+// claimWait is how long a tab waits for its claim. A later start, after a
+// host comes back, would surprise the person or double a tab they retried.
+var claimWait = 30 * time.Second
 
 // hostLink is one daemon of a multi.
 type hostLink struct {
@@ -537,8 +542,8 @@ func (m *multi) reconcile(local model.State) {
 			if o := m.origin(h, local, x.ID); o != (model.Origin{}) && part.Origin != o {
 				if part.Origin != (model.Origin{}) {
 					delete(m.pendingHere, name)
-				} else {
-					h.b.Send(proto.SetOrigin{SessionID: part.ID, Origin: o})
+				} else if key := [2]string{part.ID, "origin"}; time.Since(m.asked[key].at) > 5*time.Second && h.b.Send(proto.SetOrigin{SessionID: part.ID, Origin: o}) == nil {
+					m.asked[key] = asked{at: time.Now()}
 				}
 				continue
 			}
@@ -978,7 +983,7 @@ func (m *multi) claimTab(h *hostLink, part string, origin model.Origin, request 
 	if err := h.b.Send(proto.SetOrigin{SessionID: part, Origin: origin}); err != nil {
 		return err
 	}
-	m.claimTabs = append(m.claimTabs, claimedTab{host: h.name, part: part, origin: origin, request: request, epoch: h.b.Link().Epoch, at: time.Now()})
+	m.claimTabs = append(m.claimTabs, claimedTab{host: h.name, part: part, origin: origin, request: request, epoch: h.b.Link().Epoch, at: time.Now(), made: time.Now()})
 	return nil
 }
 
@@ -989,6 +994,10 @@ func (m *multi) openClaimedTabs() {
 	var ready []app.NewTabOn
 	kept := m.claimTabs[:0]
 	for _, c := range m.claimTabs {
+		if time.Since(c.made) > claimWait {
+			log.Printf("dropped a tab on %s: its session part was not claimed within %v", c.host, claimWait)
+			continue
+		}
 		h := m.byName(c.host)
 		if h == nil || !up(h) {
 			kept = append(kept, c)

@@ -415,6 +415,36 @@ func TestMultiClaimReconnect(t *testing.T) {
 	}
 }
 
+// A claim the host confirms only after claimWait, here after a reconnect,
+// must not start the tab the person asked for long ago.
+func TestMultiClaimExpires(t *testing.T) {
+	ls, rs := hostState("ls", "lw", "lp"), hostState("rs", "rw", "rp")
+	ls.Daemon = "here"
+	m, ld, rd := originWindow(t, ls, rs)
+	if err := m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls", Cmd: []string{"agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	claim, ok := next(rd).(proto.SetOrigin)
+	if !ok {
+		t.Fatalf("claim %#v", claim)
+	}
+	m.claimTabs[0].made = time.Now().Add(-claimWait - time.Second)
+	rs.Sessions = slices.Clone(rs.Sessions)
+	rs.Sessions[0].Origin = claim.Origin
+	remote := m.hosts[1].b
+	remote.mu.Lock()
+	remote.state = rs
+	remote.link.Epoch++
+	remote.mu.Unlock()
+	m.merge()
+	if msg := next(rd); msg != nil {
+		t.Fatalf("expired claim started %#v", msg)
+	}
+	if msg := next(ld); msg != nil || len(m.claimTabs) != 0 {
+		t.Fatalf("after expiry: local %#v, claims %d", msg, len(m.claimTabs))
+	}
+}
+
 // A local session made for a remote session must claim the remote part
 // before linking it, just like opening a tab in an existing local session.
 func TestMultiPendingHereOrigin(t *testing.T) {
