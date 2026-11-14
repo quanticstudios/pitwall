@@ -849,7 +849,11 @@ func TestFetch(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	slices.Sort(asked)
-	if want := []string{"b.md", "b.md", "docs/a.md", "docs/a.md", "docs/i.png", "~/c.md"}; !slices.Equal(asked, want) {
+	// The second Back may cancel the first Back's fetch of b.md before it starts.
+	if i := slices.Index(asked, "b.md"); i >= 0 && i+1 < len(asked) && asked[i+1] == "b.md" {
+		asked = slices.Delete(asked, i, i+1)
+	}
+	if want := []string{"b.md", "docs/a.md", "docs/a.md", "docs/i.png", "~/c.md"}; !slices.Equal(asked, want) {
 		t.Errorf("fetched %q, want %q", asked, want)
 	}
 }
