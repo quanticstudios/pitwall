@@ -23,6 +23,7 @@ the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
 ## Unreleased
+
 - Close finished worker tabs after 10 minutes without an open PR or user activity, with a configurable delay and a parent-menu action to close them sooner.
 
 ## v0.2.10

@@ -251,7 +251,7 @@ Done, no open PR, and no user focus or input. `[agents] close_done_workers`
 changes the delay, or `"off"` disables it. Pinned tabs stay open. Use
 `pitwall kill -f #N` to close one sooner. Closing ends the agent and keeps
 the worktree and branch. `wait --children` still includes retained finished
-workers. After a tab closes, read its last reply by the stable pane id,
+workers, each as `@<pane-id>` in place of a tab number. After a tab closes, read its last reply by the stable pane id,
 `pitwall read @<pane-id>`, from `ls --json` before it closed. Tab numbers
 can change. Replies remain until daemon restart or until the closed tab
 leaves the history, which keeps at most 200 tabs for 30 days. Closed panes

@@ -580,3 +580,35 @@ func TestCLIWaitClosedWorkers(t *testing.T) {
 		t.Fatal("retained workers leaked into the live state")
 	}
 }
+
+// A closed worker keeps the live tabs' numbers, which read and send use,
+// and counts as exited for --until exit: its process ended with the tab.
+func TestCLIWaitClosedWorkerNumbers(t *testing.T) {
+	for _, tc := range []struct {
+		until string
+		live  model.AgentState
+		out   string
+	}{
+		{"done", model.StateCompleted, "#2 w2 done\n@pw1 w1 done\n"},
+		{"exit", "", "#2 w2 exit unknown\n@pw1 w1 exit unknown\n"},
+	} {
+		t.Run(tc.until, func(t *testing.T) {
+			st := fleetState(model.StateCompleted, tc.live)
+			w1, p1 := st.State.Workspaces[2], st.State.Panes[2]
+			w1.Tabs = nil
+			st.State.Closed = []model.ClosedTab{{ID: "c1", Tab: w1, Pane: p1, FinishedWorker: true, ClosedAt: time.Now()}}
+			st.State.Workspaces = append(st.State.Workspaces[:2], st.State.Workspaces[3])
+			st.State.Panes = append(st.State.Panes[:2], st.State.Panes[3])
+			st.State.Activities = st.State.Activities[1:]
+			if tc.until == "exit" {
+				st.State.Panes[2].Exited, st.State.Panes[2].ExitUnknown = true, true
+			}
+			fakeWatch(t, st)
+			t.Setenv("PITWALL_PANE", "po")
+			code, out, stderr := cliOutput("wait", "--children", "--until", tc.until, "--timeout", "2s")
+			if code != 0 || out != tc.out {
+				t.Fatalf("code %d out %q stderr %q; want %q", code, out, stderr, tc.out)
+			}
+		})
+	}
+}
