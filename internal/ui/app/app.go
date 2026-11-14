@@ -659,6 +659,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.HostSections = u.cfg.HostSections
 	u.sidebar.HideSessions = !u.cfg.Sidebar.Sessions
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
+	u.sidebar.CloseDoneWorkers = u.link().Level >= proto.CloseDoneWorkersLevel
 	u.sidebar.Forks = u.link().Level >= proto.ForkLevel
 	// why: before drawing; the board's cards read it while the sidebar is hidden.
 	u.sidebar.Answers = u.canAnswer()
@@ -1057,6 +1058,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.MoveSession{WorkspaceID: e.WorkspaceID, GroupID: e.GroupID, Before: e.Before})
 	case sidebar.MoveGroup:
 		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
+	case sidebar.CloseDoneWorkers:
+		u.send(proto.CloseDoneWorkers{WorkspaceID: e.WorkspaceID})
 	case sidebar.CloseTab:
 		u.sendOrAsk(st, proto.CloseTab{WorkspaceID: e.WorkspaceID})
 	case sidebar.Peek:

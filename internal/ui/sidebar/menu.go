@@ -116,6 +116,9 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		}
 		entries = append(entries, s.opinionEntries(v, ws)...)
 	}
+	if s.CloseDoneWorkers && hasFinishedWorkers(v.st, ws.ID) {
+		entries = append(entries, menuEntry{c: &s.menuItem[actCloseDoneWorkers], icon: icCheck, text: "Close finished workers", sep: true})
+	}
 	entries = append(entries,
 		menuEntry{c: &s.menuItem[actDetach], icon: icDetach, text: "Detach tab", sep: true},
 		menuEntry{c: &s.menuItem[actClose], icon: icX, text: "Close tab"})
@@ -557,4 +560,13 @@ func baseName(p string) string {
 		return p[i+1:]
 	}
 	return p
+}
+
+func hasFinishedWorkers(st *model.State, parent string) bool {
+	for _, w := range st.Workspaces {
+		if w.Parent == parent && st.FinishedWorker(w) {
+			return true
+		}
+	}
+	return false
 }

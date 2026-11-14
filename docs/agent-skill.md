@@ -246,11 +246,20 @@ waits for it like the rest. Until you wait, you are still orchestrating:
 `pitwall read #N` prints a worker's last reply and `pitwall send #N --
 "..."` gives it more.
 
-Close a worker once you have its result with `pitwall kill -f #N`: it ends
-the agent and closes the tab, and the worktree and branch stay for the
-user to review or archive. Don't type `/exit` or another slash command
-into a worker with `prompt` or `send`. pitwall pastes the text, and an
-agent may not run a pasted command.
+Finished workers close themselves after 10 minutes with every agent pane
+Done, no open PR, and no user focus or input. `[agents] close_done_workers`
+changes the delay, or `"off"` disables it. Pinned tabs stay open. Use
+`pitwall kill -f #N` to close one sooner. Closing ends the agent and keeps
+the worktree and branch. `wait --children` still includes retained finished
+workers. After a tab closes, read its last reply by the stable pane id,
+`pitwall read @<pane-id>`, from `ls --json` before it closed. Tab numbers
+can change. Replies remain until daemon restart or until the closed tab
+leaves the history, which keeps at most 200 tabs for 30 days. Closed panes
+have no `read --screen`. When no final-message hook supplied a reply,
+cleanup keeps bounded, redacted screen text instead.
+
+Don't type `/exit` or another slash command into a worker with `prompt`
+or `send`. pitwall pastes the text, and an agent may not run a pasted command.
 
 ```sh
 for t in invoice-pdf webhook-retry rate-limit; do

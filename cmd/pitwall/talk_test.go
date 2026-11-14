@@ -270,3 +270,17 @@ func TestReview(t *testing.T) {
 		}
 	}
 }
+
+// The same CLI addresses the reply by stable id after the tab disappears.
+func TestReadClosedWorker(t *testing.T) {
+	bin, run := talkDaemon(t)
+	run(0, "", "session", "new", "work", "-d")
+	lead := paneID(t, "1")
+	t.Setenv("PITWALL_PANE", lead)
+	run(0, "#2", "new", "-n", "worker", "--", filepath.Join(bin, "claude"))
+	worker := paneID(t, "worker")
+	run(0, "critique of: task", "prompt", "worker", "--wait", "--timeout", "5s", "--", "task")
+	run(0, "", "kill", "-f", "worker")
+	run(0, "critique of: task", "read", "@"+worker)
+	run(0, "worker done", "wait", "--children", "--until", "done", "--timeout", "2s")
+}

@@ -235,6 +235,7 @@ func (d *Daemon) seePane(id string) error {
 	if d.panes[id] == nil && !d.isChat(id) {
 		return nil // closed while the GUI looked at it
 	}
+	d.touchWorker(id)
 	a := d.attnOf(id)
 	a.seen, a.notice = time.Now(), nil
 	d.changed()

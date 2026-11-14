@@ -499,6 +499,7 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 		return line, nil
 	}
 	for {
+		state = withFinishedWorkers(state)
 		only, err := childTabs(state)
 		if err != nil {
 			return waitError, err
@@ -636,4 +637,28 @@ func readDoneLine(conn *cliConn, pane string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// withFinishedWorkers makes retained results visible only to wait --children.
+// They never reappear as live tabs in ls or the sidebar.
+func withFinishedWorkers(state model.State) model.State {
+	state.Workspaces = slices.Clone(state.Workspaces)
+	state.Panes = slices.Clone(state.Panes)
+	state.Activities = slices.Clone(state.Activities)
+	for _, c := range state.Closed {
+		if !c.FinishedWorker || slices.ContainsFunc(state.Workspaces, func(w model.Workspace) bool { return w.ID == c.Tab.ID }) {
+			continue
+		}
+		w, p := c.Tab, c.Pane
+		w.Detached = false
+		w.Tabs = []model.Tab{{ID: c.ID, Layout: &layout.Node{Pane: p.ID}}}
+		p.Exited = false
+		state.Workspaces = append(state.Workspaces, w)
+		state.Panes = append(state.Panes, p)
+		state.Activities = append(state.Activities, model.Activity{
+			PaneID: p.ID, WorkspaceID: w.ID, Provider: p.Provider,
+			State: model.StateCompleted, UpdatedAt: c.ClosedAt,
+		})
+	}
+	return state
 }

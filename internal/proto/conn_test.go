@@ -51,7 +51,7 @@ func allMessages() []any {
 		Queued: map[string]int{"a": 2},
 		Closed: []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "w0", Name: "fix", Branch: "fix", Path: "/r/.worktrees/fix", WorktreeRoot: "/r"},
 			Pane:    model.Pane{ID: "a0", Cwd: "/r/.worktrees/fix", Provider: model.ProviderClaude, SessionID: "s0", AgentMode: "plan"},
-			Session: "work", Group: model.Project{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit}, PR: 7, ClosedAt: now, Gone: true}},
+			Session: "work", Group: model.Project{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit}, PR: 7, ClosedAt: now, Gone: true, FinishedWorker: true}},
 	}
 	return []any{
 		Tmux{From: "a", Args: []string{"list-panes", "-F", "#{pane_id}"}, Env: []string{"PATH=/bin", "TMUX=/run/test,1,0"}},
@@ -67,6 +67,7 @@ func allMessages() []any {
 		OpenPane{WorkspaceID: "w", Target: "a", Dir: layout.Vertical, Cmd: []string{"codex"}},
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
+		CloseDoneWorkers{WorkspaceID: "w"},
 		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t", SessionID: "s", Pane: "a"},
 		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"}, DismissNotice{Notice: "n"},
 		SessionNew{Name: "work", Cwd: "/tmp", FromPane: "a"}, SessionRename{SessionID: "s", Name: "play"},

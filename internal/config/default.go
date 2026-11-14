@@ -44,6 +44,8 @@ func defaults() Config {
 	c.Agents.KeepAwake, c.Agents.KeepAwakeGrace = &off, &grace
 	park := "0s"
 	c.Agents.ParkIdleAfter = &park
+	closeWorkers := "10m"
+	c.Agents.CloseDoneWorkers = &closeWorkers
 	startup := float64(DefaultStartupPerAgentDelayMS)
 	c.Agents.StartupPerAgentDelayMS = &startup
 	quiet := float64(DefaultQuietAfter)

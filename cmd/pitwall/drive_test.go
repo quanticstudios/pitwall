@@ -559,3 +559,24 @@ func TestCLIWaitDoneLine(t *testing.T) {
 		t.Fatalf("--done-line without --children: %d %q", code, stderr)
 	}
 }
+
+func TestCLIWaitClosedWorkers(t *testing.T) {
+	st := fleetState(model.StateCompleted, model.StateCompleted)
+	for _, w := range st.State.Workspaces[2:] {
+		p := tabPanes(st.State, w)[0]
+		w.Tabs = nil
+		st.State.Closed = append(st.State.Closed, model.ClosedTab{ID: "closed-" + w.ID, Tab: w, Pane: p, FinishedWorker: true, ClosedAt: time.Now()})
+	}
+	st.State.Workspaces = st.State.Workspaces[:2]
+	st.State.Panes = st.State.Panes[:2]
+	st.State.Activities = nil
+	fakeWatch(t, st)
+	t.Setenv("PITWALL_PANE", "po")
+	code, out, stderr := cliOutput("wait", "--children", "--until", "done", "--timeout", "2s")
+	if code != 0 || !strings.Contains(out, "w1 done") || !strings.Contains(out, "w2 done") {
+		t.Fatalf("wait after cleanup: %d %q %q", code, out, stderr)
+	}
+	if len(st.State.Workspaces) != 2 || len(st.State.Panes) != 2 {
+		t.Fatal("retained workers leaked into the live state")
+	}
+}
