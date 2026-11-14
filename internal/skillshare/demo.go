@@ -26,7 +26,13 @@ const demoHome = "/home/demo/.config/skillshare/"
 // MCP server and a hook waiting. Changes take a moment and change nothing.
 func Demo() Client {
 	return Client{Run: demoRun, Clone: func(context.Context, string, string, string) error { return nil },
-		FS: demoFile, Dir: demoDir, Installed: func() bool { return true }}
+		FS: demoFile, Dir: demoDir, Installed: func() bool { return true },
+		Git: func(_ context.Context, dir string, args ...string) (string, error) {
+			if args[0] == "rev-parse" {
+				return strings.TrimSuffix(demoHome, "/") + "\n", nil
+			}
+			return "## main...origin/main [behind 2]\n", nil
+		}}
 }
 
 var demoReads = map[string]string{

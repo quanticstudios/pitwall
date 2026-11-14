@@ -1865,16 +1865,30 @@ new place.
 
 [skillshare](https://github.com/runkids/skillshare) keeps one source of
 skills, agents, MCP servers, plugins and hooks and syncs it to each agent's
-folders. While its `skillshare` CLI is on PATH, pitwall shows a sparkles
-button in the sidebar's footer, with a badge that counts what waits for a
-sync or has an update. The button, `toggle_skillshare` (Ctrl+Alt+S,
-Cmd+Option+S on macOS) and "Show skillshare" in the command palette open
-the popup. Without the CLI, pitwall shows none of these.
+folders. While its `skillshare` CLI is on the PATH of the machine that runs
+the focused tab, pitwall shows skillshare's mark in the sidebar's footer,
+with a badge that counts what waits for a sync or has an update. The
+button, `toggle_skillshare` (Ctrl+Alt+S, Cmd+Option+S on macOS) and "Show
+skillshare" in the command palette open the popup. Without the CLI there,
+pitwall shows none of these. Each daemon says whether the CLI is on its
+own PATH; the window does not look at its own.
 
-The popup reads the focused pane's folder. A folder with
+The popup works on the focused tab's machine: this computer, or box for a
+tab of box in a window of several hosts (`[[hosts]]` with `window = true`)
+or in `pitwall --host box`. That machine's daemon runs every command and
+reads every file, and masks MCP secrets before anything leaves it. The
+header names the machine when it is not this computer or when the window
+shows several; with several, the name opens a list of them. A machine
+picked there stays shown until the focus moves to a tab on another
+machine. A daemon from before this popup
+cannot run it; the popup then says to update pitwall on that machine and
+reads nothing, not even this computer in its place.
+
+The popup reads the focused pane's folder on that machine. A folder with
 `.skillshare/config.yaml` or `skillshare/config.yaml` is a project, and
-All, Project and Global pick what the popup shows; elsewhere it shows the
-global source. It has two tabs:
+All, Project and Global pick what the popup shows; elsewhere, and on a
+machine picked in the header, it shows the global source. It has three
+tabs:
 
 - **Overview.** Whether everything is in sync, Sync while something waits,
   the counts per kind, one line per target, then only what needs you: what
@@ -1889,6 +1903,16 @@ global source. It has two tabs:
   Install… takes a repository, lets you pick its skills, audits them and
   installs them. When the audit blocks one, it shows the findings and
   writes nothing until you press Install anyway.
+- **Machines.** A card per machine the window is connected to: this
+  computer and each host that is up. Each shows the CLI's version, an
+  update when `skillshare doctor` knows a newer one, a line from the
+  source's remote into the source (up to date, behind, uncommitted or
+  ahead, as of the source's last fetch) and one from the source into its
+  targets, and doctor's errors. Pull and sync runs `skillshare pull`; when
+  the source has work of its own, Sync both ways runs `skillshare push
+  --pull` instead. Update to runs `skillshare upgrade --cli`. The tab row
+  says when the cards were last read, every minute while the tab shows.
+  A click on a machine's name shows it in Overview.
 
 pitwall runs `skillshare ... --json` for each read on its own: `list
 --all`, `diff`, `mcp list`, `plugin list`, `hooks list` and `status`, plus
@@ -1897,9 +1921,8 @@ popup shows and every 2 minutes for the badge. Old rows stay while a read
 runs, and a failed read shows its error beside the rows. Esc leaves the
 install steps or a preview, then closes the popup.
 
-The reads run on the window's machine, also for a pane on another host.
-The Machines tab, pulling and pushing the source repository, picking a side
-of a conflict per file and updating the CLI stay in `skillshare` itself.
+Picking a side of a conflict per file when a pull stops, pushing on its
+own and the CLI's `upgrade --skill` stay in `skillshare` itself.
 
 ### The monitor
 

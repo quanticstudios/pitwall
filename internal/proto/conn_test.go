@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"io"
 	"net"
 	"path/filepath"
@@ -68,6 +69,8 @@ func allMessages() []any {
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
 		CloseDoneWorkers{WorkspaceID: "w"},
+		Skillshare{Pane: "p", ID: 3, Call: skillshare.Call{Op: skillshare.OpRead, Name: "list", Scope: skillshare.Global}},
+		SkillshareResult{ID: 3, Done: true, Reply: skillshare.Reply{Result: skillshare.Result{Stdout: "[]"}, Preview: skillshare.Preview{MCP: []skillshare.KV{{Key: "env", Value: skillshare.Mask}}}}},
 		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t", SessionID: "s", Pane: "a"},
 		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"}, DismissNotice{Notice: "n"},
 		SessionNew{Name: "work", Cwd: "/tmp", FromPane: "a"}, SessionRename{SessionID: "s", Name: "play"},

@@ -41,6 +41,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/eventlog"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/teardown"
 	"github.com/quanticstudios/pitwall/internal/timelog"
@@ -114,6 +115,9 @@ type Options struct {
 	// problems in the repo's own file; nil gives worktrees no ports and no
 	// setup or teardown.
 	Worktrees func(repoRoot string) (config.WorktreeSettings, []config.Problem)
+	// Skillshare does the skillshare popup's work on this machine; its
+	// zero value has no CLI.
+	Skillshare skillshare.Client
 	// Errors is errors.jsonl; nil logs nothing.
 	Errors *errlog.Log
 	// Timing is timing.jsonl; nil logs nothing.
@@ -348,9 +352,10 @@ func Defaults() Options {
 		UpdateScreenPatterns: func(ctx context.Context) {
 			agent.UpdateScreenPatterns(ctx, config.StateDir(), setting(config.Path(), func(s config.Settings) bool { return s.UpdateScreenPatterns }))
 		},
-		Providers: configuredProviders(),
-		Errors:    errs,
-		Timing:    timing,
+		Providers:  configuredProviders(),
+		Skillshare: skillshare.Local(),
+		Errors:     errs,
+		Timing:     timing,
 		StartPane: func(c pane.Config) (Pane, error) {
 			p, err := pane.Start(c)
 			if err != nil {
@@ -937,6 +942,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if f, ok := m.(proto.Favicon); ok {
 			c.queue(favicon(f)) // a reply to this client alone
+			continue
+		}
+		if r, ok := m.(proto.Skillshare); ok {
+			go d.skillshare(ctx, r, func(m any) { c.queue(m) }) // replies to this client alone; it may run for minutes
 			continue
 		}
 		if i, ok := m.(proto.Image); ok {
@@ -2607,6 +2616,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Drafting = maps.Clone(d.mail.drafting)
 	s.DraftHeld = maps.Clone(d.mail.held)
 	s.Delivered = maps.Clone(d.mail.delivered)
+	s.Skillshare = d.o.Skillshare.Installed != nil && d.o.Skillshare.Installed()
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {
 		s.Clipboard.Text = ""

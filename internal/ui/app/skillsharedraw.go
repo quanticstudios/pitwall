@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -71,7 +70,7 @@ func (u *ui) drawSkillshare(gtx gl.Context, st *model.State, v skillshare.View) 
 		f(g)
 		o.Pop()
 	}
-	at(0, headH, func(gtx gl.Context) { u.ssHeader(gtx, v) })
+	at(0, headH, func(gtx gl.Context) { u.ssHeader(gtx, st, v) })
 	y := headH
 	if s.sel == "" && s.inst == nil {
 		at(y, tabsH, func(gtx gl.Context) { u.ssTabs(gtx, v) })
@@ -80,12 +79,23 @@ func (u *ui) drawSkillshare(gtx gl.Context, st *model.State, v skillshare.View) 
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(w, y+1)}.Op())
 	y++
 
+	if _, old := u.ssOn(s.to.host); old && !s.machView {
+		rows := []ssW{u.ssText(th.UIFont, th.Sp(theme.Body), th.Readable(th.Red, th.Surface), ssOld(s.to.host))}
+		o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = gl.Exact(image.Pt(w-2*pad, h-y))
+		u.ssList(g, rows)
+		o.Pop()
+		return
+	}
 	var rows []ssW
 	switch {
 	case s.inst != nil:
 		rows = u.ssInstallRows(gtx, v)
 	case s.sel != "":
 		rows = u.ssPreviewRows(st, v)
+	case s.machView:
+		rows = u.ssMachineRows(st, busy != "")
 	case s.library:
 		rows = u.ssLibraryRows(v, busy != "")
 	default:
@@ -119,24 +129,34 @@ func (u *ui) ssList(gtx gl.Context, rows []ssW) {
 	})
 }
 
-// ssHeader is the title, the folder read and the CLI's version, and at
-// the right Esc and the close button.
-func (u *ui) ssHeader(gtx gl.Context, v skillshare.View) {
+// ssHeader is the mark and title, the machine and the folder read, the
+// CLI's version, and at the right Esc and the close button.
+func (u *ui) ssHeader(gtx gl.Context, st *model.State, v skillshare.View) {
 	th, s := u.th, &u.ss
 	where := "global"
 	if v.Project != "" {
-		where = shortHome(v.Project)
+		where = v.Project
+		if s.to.host == "" && Host == "" {
+			where = shortHome(where) // why: a remote machine's home is not this one's
+		}
 	}
 	s.acts["close"] = u.closeSkillshare
 	gl.Flex{Alignment: gl.Middle}.Layout(gtx,
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return sidebar.Icon(gtx, "sparkles", gtx.Dp(18), th.Primary)
+			return sidebar.Icon(gtx, "skillshare", gtx.Dp(20), th.Primary)
 		}),
 		gl.Rigid(ssGap(10)),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.ssLine(gtx, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "skillshare")
 		}),
 		gl.Rigid(ssGap(10)),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			d := u.ssMachinePill(gtx, st)
+			if d.Size.X > 0 {
+				d.Size.X += gtx.Dp(6)
+			}
+			return d
+		}),
 		gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
 			gtx.Constraints.Min.X = 0
 			return u.ssPill(gtx, where, th.Muted)
@@ -195,12 +215,18 @@ func (u *ui) ssTabs(gtx gl.Context, v skillshare.View) {
 		})
 	}
 	kids := []gl.FlexChild{
-		tab("tab-overview", "Overview", !s.library, func() { s.library = false; s.list.Position = gl.Position{} }),
+		tab("tab-overview", "Overview", !s.library && !s.machView, func() { s.library, s.machView = false, false; s.list.Position = gl.Position{} }),
 		gl.Rigid(ssGap(20)),
-		tab("tab-library", "Library", s.library, func() { s.library = true; s.list.Position = gl.Position{} }),
+		tab("tab-library", "Library", s.library && !s.machView, func() { s.library, s.machView = true, false; s.list.Position = gl.Position{} }),
+		gl.Rigid(ssGap(20)),
+		tab("tab-machines", "Machines", s.machView, func() { s.machView = true; s.list.Position = gl.Position{} }),
 		gl.Flexed(1, ssFill),
 	}
-	if v.Project == "" {
+	if s.machView {
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.ssLine(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, u.ssChecked(gtx.Now))
+		}))
+	} else if v.Project == "" {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.ssLine(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Global")
 		}))
@@ -348,7 +374,7 @@ func (u *ui) ssSection(title string, n int, c color.NRGBA, right gl.Widget) ssW 
 func (u *ui) ssRow(v skillshare.View, it skillshare.Item, showScope bool, buttons ...gl.Widget) ssW {
 	th, s := u.th, &u.ss
 	id := "row:" + it.Key
-	s.acts[id] = func() { s.open(it, ssReadOf(v, it)) }
+	s.acts[id] = func() { u.ssOpen(it, ssReadOf(v, it)) }
 	return func(gtx gl.Context) gl.Dimensions {
 		h := gtx.Dp(46)
 		w := gtx.Constraints.Max.X
@@ -690,7 +716,7 @@ func (u *ui) ssLibraryRows(v skillshare.View, busy bool) []ssW {
 			gl.Rigid(u.ssButton("lib-sync", syncKind.When(!busy), "Sync", func() { u.ssSync(v) })),
 			gl.Rigid(ssGap(8)),
 			gl.Rigid(u.ssButton("install", kit.Secondary.When(!busy), "Install…", func() {
-				s.startInstall(project)
+				u.startInstall(project)
 				u.modal.focus = false
 			})),
 		)
@@ -783,9 +809,7 @@ func (u *ui) ssPreviewRows(st *model.State, v skillshare.View) []ssW {
 			verb, label = "enable", "Enable"
 		}
 		acts = append(acts, u.ssButton("p-toggle", kit.Secondary.When(!busy), label, func() {
-			u.ssRun(label+"…", func(ctx context.Context, step func(string)) skillshare.Outcome {
-				return skillshare.Default.Toggle(ctx, it, verb, project, step)
-			})
+			u.ssCall(label+"…", skillshare.Call{Op: skillshare.OpToggle, Item: it, Action: verb, Dir: project})
 		}))
 	}
 	if it.Kind == skillshare.Skills || it.Kind == skillshare.Agents || it.Kind == skillshare.Hooks && it.Declared && it.Root == "" && !it.Notice {
@@ -793,9 +817,7 @@ func (u *ui) ssPreviewRows(st *model.State, v skillshare.View) []ssW {
 			acts = append(acts,
 				u.ssButton("p-uninstall-yes", kit.Danger.When(!busy), "Uninstall "+it.Label, func() {
 					s.confirm, s.sel = false, ""
-					u.ssRun("Uninstalling…", func(ctx context.Context, step func(string)) skillshare.Outcome {
-						return skillshare.Default.Uninstall(ctx, it, project, step)
-					})
+					u.ssCall("Uninstalling…", skillshare.Call{Op: skillshare.OpUninstall, Item: it, Dir: project})
 				}),
 				u.ssButton("p-uninstall-no", kit.Ghost, "Cancel", func() { s.confirm = false }))
 		} else {
@@ -1167,8 +1189,8 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 			u.ssText(th.UIFont, th.Sp(theme.Small), th.Fg, "Sync to give it to your agents."), ssSpace(8),
 			func(gtx gl.Context) gl.Dimensions {
 				return ssButtons(gtx,
-					u.ssButton("i-sync", kit.Primary.When(s.running() == ""), "Sync", func() { s.dismissInstall(); u.ssSync(s.store.View()) }),
-					u.ssButton("i-again", kit.Secondary, "Install another", func() { s.startInstall(project) }))
+					u.ssButton("i-sync", kit.Primary.When(s.running() == ""), "Sync", func() { s.dismissInstall(); u.ssSync(s.cur().store.View()) }),
+					u.ssButton("i-again", kit.Secondary, "Install another", func() { u.startInstall(project) }))
 			})
 	case work:
 		what := "Auditing…"

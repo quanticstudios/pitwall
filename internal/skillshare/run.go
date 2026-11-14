@@ -40,6 +40,8 @@ type Client struct {
 	Dir func(dir string) ([]string, error)
 	// Installed reports whether skillshare is on PATH.
 	Installed func() bool
+	// Git runs git in dir and returns its output, for a Machines card.
+	Git func(ctx context.Context, dir string, args ...string) (string, error)
 }
 
 // Default is the client pitwall uses: Local, or Demo in pwdemo-app.
@@ -47,7 +49,12 @@ var Default = Local()
 
 // Local is the CLI on this machine's PATH.
 func Local() Client {
-	return Client{Run: execRun, Clone: gitClone, FS: readCapped, Dir: listFiles, Installed: onPath}
+	return Client{Run: execRun, Clone: gitClone, FS: readCapped, Dir: listFiles, Installed: onPath, Git: gitOut}
+}
+
+func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := gitstat.Command(ctx, dir, args...).Output()
+	return string(out), err
 }
 
 func execRun(ctx context.Context, dir string, args ...string) Result {
@@ -215,16 +222,16 @@ func (s *Store) Running() bool {
 // updates.
 const checkEvery = 10 * time.Minute
 
-// Refresh reads every scope of project ("" for global only) again, each
-// read in its own goroutine, keeping the old answers until new ones land;
+// Refresh reads every scope of project ("" for global only) again with
+// do, each read in its own goroutine, keeping the old answers until new ones land;
 // changed is called after each lands. A request during a refresh queues
 // another read; changing projects replaces the active view immediately.
 // The checks run too when force is set or checkEvery has passed.
-func (s *Store) Refresh(c Client, project string, force bool, changed func()) {
-	s.refresh(c, project, force, changed, 0)
+func (s *Store) Refresh(do Do, project string, force bool, changed func()) {
+	s.refresh(do, project, force, changed, 0)
 }
 
-func (s *Store) refresh(c Client, project string, force bool, changed func(), after int) {
+func (s *Store) refresh(do Do, project string, force bool, changed func(), after int) {
 	s.mu.Lock()
 	if after != 0 && s.runID != after {
 		s.mu.Unlock()
@@ -234,7 +241,7 @@ func (s *Store) refresh(c Client, project string, force bool, changed func(), af
 		id := s.runID
 		force = force || s.againForce
 		s.againForce = force
-		s.again = func() { s.refresh(c, project, force, changed, id) }
+		s.again = func() { s.refresh(do, project, force, changed, id) }
 		s.mu.Unlock()
 		return
 	}
@@ -255,10 +262,7 @@ func (s *Store) refresh(c Client, project string, force bool, changed func(), af
 	if checks {
 		s.checked = time.Now()
 	}
-	type job struct {
-		scope, name string
-		args        []string
-	}
+	type job struct{ scope, name string }
 	var jobs []job
 	for _, scope := range scopes {
 		r := s.reads[scope]
@@ -269,11 +273,11 @@ func (s *Store) refresh(c Client, project string, force bool, changed func(), af
 		r.Pending, r.Errors = map[string]bool{}, map[string]string{}
 		for _, name := range ReadNames {
 			r.Pending[name] = true
-			jobs = append(jobs, job{scope, name, Reads[name]})
+			jobs = append(jobs, job{scope, name})
 		}
 		if checks {
-			for name, args := range Checks {
-				jobs = append(jobs, job{scope, name, args})
+			for name := range Checks {
+				jobs = append(jobs, job{scope, name})
 			}
 		}
 	}
@@ -287,11 +291,7 @@ func (s *Store) refresh(c Client, project string, force bool, changed func(), af
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			dir := ""
-			if j.scope == Project {
-				dir = project
-			}
-			res := c.Run(ctx, dir, append(slices.Clone(j.args), "--json", Flag(j.scope))...)
+			res := do(ctx, Call{Op: OpRead, Name: j.name, Scope: j.scope, Dir: project}, nil).Result
 			s.mu.Lock()
 			if s.runID == runID {
 				r := s.reads[j.scope]

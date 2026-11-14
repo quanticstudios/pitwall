@@ -17,6 +17,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 )
@@ -38,27 +39,70 @@ const (
 // store's reads, a row's preview, and the install steps. The reads and the
 // commands run off the UI goroutine; see internal/skillshare.
 type skillshareUI struct {
-	store   skillshare.Store
-	dir     string    // the folder the reads are for: the focused pane's
-	nextAt  time.Time // the next refresh
-	library bool      // Library shows, else Overview
-	kind    skillshare.Kind
-	scope   string // "all", skillshare.Project or skillshare.Global
-	sel     string // the previewed row's key, "" for none
-	confirm bool   // Uninstall asked once
-	shown   skillshare.Preview
-	doc     mdview.Doc
-	inst    *ssInstall // the install steps while they show
-	ask     string     // a path Ask was clicked for, sent after the clicks
+	// machines are the reads and cards of each machine, by host name, ""
+	// for this one; to is the machine the popup shows.
+	machines map[string]*ssMachine
+	to       ssTarget
+	// picked is the machine chosen in the header or on Machines, kept
+	// while the focus stays on a tab of pickedFrom.
+	picked     *string
+	pickedFrom string
+	menu       bool // the machine picker is open
+
+	library  bool // Library shows, else Overview or Machines
+	machView bool // Machines shows
+	kind     skillshare.Kind
+	scope    string // "all", skillshare.Project or skillshare.Global
+	sel      string // the previewed row's key, "" for none
+	confirm  bool   // Uninstall asked once
+	shown    skillshare.Preview
+	doc      mdview.Doc
+	inst     *ssInstall // the install steps while they show
+	ask      string     // a path Ask was clicked for, sent after the clicks
 
 	list   widget.List
 	clicks map[string]*widget.Clickable
 	acts   map[string]func() // what each click does, as last drawn
 
-	mu   sync.Mutex
-	busy string             // what the running command does, "" for none
-	note skillshare.Outcome // the last command's outcome
-	at   time.Time          // when note came
+	mu     sync.Mutex
+	busy   string             // what the running command does, "" for none
+	note   skillshare.Outcome // the last command's outcome
+	at     time.Time          // when note came
+	loaded *ssLoaded          // a preview read off the UI goroutine, not yet shown
+}
+
+// ssTarget is a machine the popup's work goes to: its host name, "" for
+// this machine, and the focused pane, which routes the work in a window
+// of several machines; "" for a machine picked by name.
+type ssTarget struct{ host, pane string }
+
+// ssMachine is one machine's reads and its Machines card.
+type ssMachine struct {
+	store  skillshare.Store
+	dir    string    // the folder the reads are for
+	nextAt time.Time // the next refresh
+	// Guarded by skillshareUI.mu.
+	card    *skillshare.Machine
+	reading bool // a card read is out
+	cardAt  time.Time
+}
+
+// ssLoaded is a row's preview, read for key.
+type ssLoaded struct {
+	key    string
+	p      skillshare.Preview
+	blocks []mdview.Block
+}
+
+// Skillsharer is optionally implemented by a Backend: the skillshare
+// popup's work runs on the daemon of the machine it is for.
+type Skillsharer interface {
+	// Skillshare sends m to the daemon of m.Pane's machine, or of host
+	// when m.Pane is "", and waits for its reply; step gets its steps.
+	Skillshare(ctx context.Context, host string, m proto.Skillshare, step func(string)) (skillshare.Reply, error)
+	// SkillshareOn reports whether host's daemon has skillshare on its
+	// PATH, and old when that daemon is too old to say or to run it.
+	SkillshareOn(host string) (installed, old bool)
 }
 
 // ssInstall is the install steps: Source, Choose, Audit, Install.
@@ -74,11 +118,117 @@ type ssInstall struct {
 	work    bool   // a step runs
 	source  string // source and project captured for this plan
 	project string
+	do      skillshare.Do // the machine it installs on, fixed when it opens
 	cancel  context.CancelFunc
 }
 
-// installed reports whether the skillshare CLI is on PATH.
-func ssInstalled() bool { return skillshare.Default.Installed() }
+// ssShown is whether skillshare shows for the focused tab, which the
+// palette reads; the window's goroutine sets it every frame.
+var ssShown bool
+
+// ssOn reports whether skillshare is on host's machine, and old when its
+// daemon predates the popup running there. A backend that runs no daemon
+// (the demo's, the tests') uses skillshare.Default on this machine.
+func (u *ui) ssOn(host string) (installed, old bool) {
+	if sk, ok := u.b.(Skillsharer); ok {
+		return sk.SkillshareOn(host)
+	}
+	return skillshare.Default.Installed(), false
+}
+
+// ssVisible is whether the button, palette entry and key show: skillshare
+// is on the focused tab's machine, or that machine's daemon is too old to
+// say while this machine has it, so the popup can say to update it.
+func (u *ui) ssVisible(st *model.State) bool {
+	host := u.ssFocusHost(st)
+	on, old := u.ssOn(host)
+	if !on && old && host != "" {
+		on, _ = u.ssOn("")
+	}
+	return on
+}
+
+// ssFocusHost is the focused tab's machine.
+func (u *ui) ssFocusHost(st *model.State) string {
+	if p := u.nav.focused(); p != "" && findPane(st, p) != nil {
+		return u.hostOf(p)
+	}
+	if u.nav.workspace != "" {
+		return u.hostOf(u.nav.workspace)
+	}
+	return curHost()
+}
+
+// ssTargetOf is the machine the popup shows: the focused tab's, unless
+// one was picked while the focus stays on a tab of the same machine.
+func (u *ui) ssTargetOf(st *model.State) ssTarget {
+	s := &u.ss
+	host := u.ssFocusHost(st)
+	if s.picked != nil && host == s.pickedFrom {
+		return ssTarget{host: *s.picked}
+	}
+	s.picked = nil
+	pane := u.nav.focused()
+	if findPane(st, pane) == nil {
+		pane = ""
+	}
+	return ssTarget{host: host, pane: pane}
+}
+
+// ssPickHost points Overview and Library at host until the focus moves to
+// a tab on another machine.
+func (u *ui) ssPickHost(st *model.State, host string) {
+	s := &u.ss
+	s.picked, s.pickedFrom, s.menu = &host, u.ssFocusHost(st), false
+	s.sel, s.confirm, s.machView = "", false, false
+	s.dismissInstall()
+	u.ssFollow(st, true, true)
+}
+
+// ssOld is what the popup says for a machine whose daemon predates it.
+func ssOld(host string) string {
+	if host == "" {
+		return "This computer's pitwall daemon is older than this window. Restart it to use skillshare."
+	}
+	return host + " runs an older pitwall that cannot run skillshare there. Update pitwall on " + host + "."
+}
+
+// ssDo is the Do for t's machine: its daemon through the backend, or
+// skillshare.Default here for a backend that runs no daemon. A daemon too
+// old for it fails every call with ssOld; nothing falls back to this
+// machine.
+func (u *ui) ssDo(t ssTarget) skillshare.Do {
+	sk, ok := u.b.(Skillsharer)
+	if !ok {
+		return skillshare.Default.Serve
+	}
+	return func(ctx context.Context, c skillshare.Call, step func(string)) skillshare.Reply {
+		if _, old := sk.SkillshareOn(t.host); old {
+			return skillshare.Failed(ssOld(t.host))
+		}
+		r, err := sk.Skillshare(ctx, t.host, proto.Skillshare{Pane: t.pane, Call: c}, step)
+		if err != nil {
+			return skillshare.Failed(err.Error())
+		}
+		return r
+	}
+}
+
+// machine is host's reads, made on first use.
+func (s *skillshareUI) machine(host string) *ssMachine {
+	if s.machines == nil {
+		s.machines = map[string]*ssMachine{}
+	}
+	m := s.machines[host]
+	if m == nil {
+		m = &ssMachine{}
+		s.machines[host] = m
+	}
+	return m
+}
+
+// cur is the shown machine's reads.
+func (s *skillshareUI) cur() *ssMachine { return s.machine(s.to.host) }
 
 // toggleSkillshare opens the popup, or closes it.
 func (u *ui) toggleSkillshare(st *model.State) {
@@ -86,20 +236,20 @@ func (u *ui) toggleSkillshare(st *model.State) {
 		u.closeSkillshare()
 		return
 	}
-	if !ssInstalled() || u.modal.kind != modalNone {
+	if !u.ssVisible(st) || u.modal.kind != modalNone {
 		return
 	}
 	u.modal.open(modalSkillshare, "")
 	s := &u.ss
 	s.dismissInstall()
-	s.sel, s.confirm = "", false
+	s.sel, s.confirm, s.menu = "", false, false
 	if s.scope == "" {
 		s.scope = "all"
 	}
 	if s.kind == "" {
 		s.kind = skillshare.Skills
 	}
-	s.follow(u.ssDir(st), true, u.invalidateFn())
+	u.ssFollow(st, true, true)
 }
 
 func (u *ui) closeSkillshare() {
@@ -117,7 +267,7 @@ func (s *skillshareUI) dismissInstall() {
 		}
 		// A running worker owns cleanup until it has stopped using the clone.
 		if !in.work {
-			skillshare.Drop(in.plan.Dir)
+			in.drop(in.plan.Dir)
 		}
 	}
 	s.inst = nil
@@ -141,40 +291,64 @@ func (u *ui) ssDir(st *model.State) string {
 	return ""
 }
 
-// follow reads dir's scopes again when dir changed, when now is set, or
-// when the refresh is due.
-func (s *skillshareUI) follow(dir string, now bool, changed func()) {
-	if !now && dir == s.dir && time.Now().Before(s.nextAt) {
+// ssFollow points the popup at the focused tab's machine, or the picked
+// one, and reads its scopes again when the machine or folder changed, when
+// now is set, or when the refresh is due. Closed, it keeps the folder it
+// read last on the same machine, for the badge. A picked machine that is
+// not the focused tab's has no folder there: it reads global only.
+func (u *ui) ssFollow(st *model.State, now, open bool) {
+	s := &u.ss
+	t := u.ssTargetOf(st)
+	m := s.machine(t.host)
+	dir := m.dir
+	switch {
+	case open || now || dir == "" || t.host != s.to.host:
+		dir = ""
+		if t.pane != "" || t.host == u.ssFocusHost(st) {
+			dir = u.ssDir(st)
+		}
+	default:
+		t = s.to
+	}
+	moved := t != s.to
+	s.to = t
+	if !now && !moved && dir == m.dir && time.Now().Before(m.nextAt) {
 		return
 	}
-	project := skillshare.FindProject(dir)
-	if s.dir != dir && project == "" && s.scope == skillshare.Project {
-		s.scope = "all"
-	}
-	s.dir = dir
-	s.nextAt = time.Now().Add(ssClosedEvery)
-	s.store.Refresh(skillshare.Default, project, false, changed)
+	m.dir = dir
+	m.nextAt = time.Now().Add(ssClosedEvery)
+	do, changed := u.ssDo(t), u.invalidateFn()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		project := ""
+		if dir != "" {
+			project = do(ctx, skillshare.Call{Op: skillshare.OpProject, Dir: dir}, nil).Project
+		}
+		m.store.Refresh(do, project, false, changed)
+	}()
 }
 
 // tickSkillshare keeps the reads fresh: every ssOpenEvery while the popup
 // shows, every ssClosedEvery for the badge, and when the focused folder
-// changes while it shows. It reports the badge's count.
+// or machine changes while it shows. It reports the badge's count.
 func (u *ui) tickSkillshare(gtx gl.Context, st *model.State) int {
-	if !ssInstalled() {
+	ssShown = u.ssVisible(st)
+	if !ssShown {
 		return 0
 	}
 	s := &u.ss
 	open := u.modal.kind == modalSkillshare
-	dir := s.dir
-	if open || s.dir == "" {
-		dir = u.ssDir(st)
+	u.ssFollow(st, false, open)
+	m := s.cur()
+	if open && time.Until(m.nextAt) > ssOpenEvery {
+		m.nextAt = time.Now().Add(ssOpenEvery)
 	}
-	s.follow(dir, false, u.invalidateFn())
-	if open && time.Until(s.nextAt) > ssOpenEvery {
-		s.nextAt = time.Now().Add(ssOpenEvery)
+	gtx.Execute(op.InvalidateCmd{At: m.nextAt})
+	if open && s.machView {
+		u.ssReadCards()
 	}
-	gtx.Execute(op.InvalidateCmd{At: s.nextAt})
-	v := s.store.View()
+	v := m.store.View()
 	n := 0
 	for _, it := range v.Items {
 		if it.WaitsForSync() || it.State == skillshare.Update {
@@ -191,9 +365,15 @@ func (s *skillshareUI) running() string {
 	return s.busy
 }
 
-// run runs one command off the UI goroutine, one at a time; the status
-// line shows its steps and then its outcome, and the reads run again.
-func (u *ui) ssRun(first string, f func(ctx context.Context, step func(string)) skillshare.Outcome) {
+// ssRun runs one command on the shown machine off the UI goroutine, one
+// at a time; the status line shows its steps and then its outcome, and the
+// reads run again.
+func (u *ui) ssRun(first string, f func(ctx context.Context, do skillshare.Do, step func(string)) skillshare.Outcome) {
+	u.ssRunOn(u.ss.to, first, f)
+}
+
+// ssRunOn is ssRun on t's machine.
+func (u *ui) ssRunOn(t ssTarget, first string, f func(ctx context.Context, do skillshare.Do, step func(string)) skillshare.Outcome) {
 	s := &u.ss
 	s.mu.Lock()
 	if s.busy != "" {
@@ -203,10 +383,11 @@ func (u *ui) ssRun(first string, f func(ctx context.Context, step func(string)) 
 	s.busy = first
 	s.mu.Unlock()
 	inv := u.invalidateFn()
+	m, do := s.machine(t.host), u.ssDo(t)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		out := f(ctx, func(t string) {
+		out := f(ctx, do, func(t string) {
 			s.mu.Lock()
 			s.busy = t
 			s.mu.Unlock()
@@ -214,10 +395,18 @@ func (u *ui) ssRun(first string, f func(ctx context.Context, step func(string)) 
 		})
 		s.mu.Lock()
 		s.busy, s.note, s.at = "", out, time.Now()
+		m.cardAt = time.Time{} // read the card again too
 		s.mu.Unlock()
-		s.store.Refresh(skillshare.Default, s.store.View().Project, true, inv)
+		m.store.Refresh(do, m.store.View().Project, true, inv)
 		inv()
 	}()
+}
+
+// ssCall runs c on the shown machine as ssRun does, first saying first.
+func (u *ui) ssCall(first string, c skillshare.Call) {
+	u.ssRun(first, func(ctx context.Context, do skillshare.Do, step func(string)) skillshare.Outcome {
+		return do(ctx, c, step).Outcome
+	})
 }
 
 // ssSync syncs the scopes the switch shows that wait.
@@ -226,16 +415,11 @@ func (u *ui) ssSync(v skillshare.View) {
 	plugins := slices.ContainsFunc(v.Items, func(it skillshare.Item) bool {
 		return it.Kind == skillshare.Plugins && it.WaitsForSync() && skillshare.Shown(u.ss.scope, it.Scope)
 	})
-	project := v.Project
-	u.ssRun("Syncing…", func(ctx context.Context, step func(string)) skillshare.Outcome {
-		return skillshare.Default.Sync(ctx, scopes, plugins, project, step)
-	})
+	u.ssCall("Syncing…", skillshare.Call{Op: skillshare.OpSync, Scopes: scopes, Plugins: plugins, Dir: v.Project})
 }
 
 func (u *ui) ssUpdate(items []skillshare.Item, all bool, project string) {
-	u.ssRun("Updating…", func(ctx context.Context, step func(string)) skillshare.Outcome {
-		return skillshare.Default.UpdateItems(ctx, items, all, project, step)
-	})
+	u.ssCall("Updating…", skillshare.Call{Op: skillshare.OpUpdate, Items: items, All: all, Dir: project})
 }
 
 // ssAgent is the agent Ask sends to: the focused pane's, else the shown
@@ -269,25 +453,50 @@ func (u *ui) ssAsk(gtx gl.Context, st *model.State, path string) {
 	u.deliver(st, gtx.Now)
 }
 
-// ssSelect previews the row with key, reading its files now: they are
-// local and capped at 60 kB.
-func (s *skillshareUI) open(it skillshare.Item, r *skillshare.Read) {
+// open previews it, reading its files on its machine off the UI
+// goroutine: a skill's names, 40 at most, and 60 kB of its document.
+func (u *ui) ssOpen(it skillshare.Item, r *skillshare.Read) {
+	s := &u.ss
 	s.sel, s.confirm = it.Key, false
-	s.shown = skillshare.Default.LoadPreview(it, r)
-	var blocks []mdview.Block
-	if s.shown.Body != "" {
-		blocks = mdview.Parse([]byte(s.shown.Body))
-	}
-	s.doc.Set(blocks)
+	s.shown = skillshare.Preview{}
+	s.doc.Set(nil)
 	s.list.Position = gl.Position{}
+	do, inv := u.ssDo(s.to), u.invalidateFn()
+	paths := skillshare.PathsOf(r)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		p := do(ctx, skillshare.Call{Op: skillshare.OpPreview, Item: it, Paths: paths}, nil).Preview
+		l := &ssLoaded{key: it.Key, p: p}
+		if p.Body != "" {
+			l.blocks = mdview.Parse([]byte(p.Body))
+		}
+		s.mu.Lock()
+		s.loaded = l
+		s.mu.Unlock()
+		inv()
+	}()
 }
 
-// startInstall shows the install steps.
-func (s *skillshareUI) startInstall(project string) {
+// takePreview shows a preview that came for the row shown.
+func (s *skillshareUI) takePreview() {
+	s.mu.Lock()
+	l := s.loaded
+	s.loaded = nil
+	s.mu.Unlock()
+	if l != nil && l.key == s.sel {
+		s.shown = l.p
+		s.doc.Set(l.blocks)
+	}
+}
+
+// startInstall shows the install steps, which run on the shown machine.
+func (u *ui) startInstall(project string) {
+	s := &u.ss
 	s.dismissInstall()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	in := &ssInstall{scope: skillshare.Global, picked: map[string]bool{}}
+	in := &ssInstall{scope: skillshare.Global, picked: map[string]bool{}, do: u.ssDo(s.to)}
 	if project != "" && s.scope != skillshare.Global {
 		in.scope = skillshare.Project
 	}
@@ -297,6 +506,18 @@ func (s *skillshareUI) startInstall(project string) {
 
 // Adapted from skillshare (MIT): herdr/skillshare/mods/skillshare/main.js
 // (the install steps: source, choose, audit, install anyway).
+
+// drop removes an audit clone on the install's machine.
+func (in *ssInstall) drop(dir string) {
+	if dir == "" || in.do == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		in.do(ctx, skillshare.Call{Op: skillshare.OpDrop, Clone: dir}, nil)
+	}()
+}
 
 // discover clones the source and asks the CLI for its plan.
 func (u *ui) ssDiscover(project string) {
@@ -314,12 +535,12 @@ func (u *ui) ssDiscover(project string) {
 	go func() {
 		defer inv()
 		defer cancel()
-		p := skillshare.Default.Discover(ctx, source, scope, ssCwd(scope, project))
+		p := in.do(ctx, skillshare.Call{Op: skillshare.OpDiscover, Source: source, Scope: scope, Dir: project}, nil).Plan
 		u.ss.mu.Lock()
 		defer u.ss.mu.Unlock()
 		if u.ss.inst != in {
 			in.work = false
-			skillshare.Drop(p.Dir)
+			in.drop(p.Dir)
 			return
 		}
 		in.work, in.plan = false, p
@@ -334,13 +555,6 @@ func (u *ui) ssDiscover(project string) {
 			in.step = 1
 		}
 	}()
-}
-
-func ssCwd(scope, project string) string {
-	if scope == skillshare.Project {
-		return project
-	}
-	return ""
 }
 
 // ssAuditLocked audits the picked skills, then installs them when the
@@ -363,12 +577,12 @@ func (u *ui) ssAuditLocked(in *ssInstall, project string, inv func()) {
 	go func() {
 		defer inv()
 		defer cancel()
-		a := skillshare.Default.Audit(ctx, dir, scope, ssCwd(scope, project), picks)
+		a := in.do(ctx, skillshare.Call{Op: skillshare.OpAudit, Clone: dir, Scope: scope, Dir: project, Picks: picks}, nil).Audit
 		u.ss.mu.Lock()
 		if u.ss.inst != in {
 			in.work = false
 			u.ss.mu.Unlock()
-			skillshare.Drop(dir)
+			in.drop(dir)
 			return
 		}
 		if len(a.Blocked) > 0 {
@@ -389,7 +603,7 @@ func (u *ui) ssInstallNow(in *ssInstall, project string, force bool, inv func())
 	if u.ss.inst != in {
 		dir := in.plan.Dir
 		u.ss.mu.Unlock()
-		skillshare.Drop(dir)
+		in.drop(dir)
 		return
 	}
 	if in.step != 2 || force && in.audit == nil {
@@ -410,20 +624,21 @@ func (u *ui) ssInstallNow(in *ssInstall, project string, force bool, inv func())
 	}
 	source, scope, dir := in.source, in.scope, in.plan.Dir
 	project = in.project
+	m := u.ss.cur()
 	u.ss.mu.Unlock()
 	go func() {
 		defer cancel()
-		done, errText := skillshare.Default.Install(ctx, source, scope, ssCwd(scope, project), names, force)
+		r := in.do(ctx, skillshare.Call{Op: skillshare.OpInstall, Source: source, Scope: scope, Dir: project, Skills: names, Force: force}, nil)
 		u.ss.mu.Lock()
-		skillshare.Drop(dir)
+		in.drop(dir)
 		in.plan.Dir = ""
-		if errText != "" {
-			in.err = errText
+		if r.Err != "" {
+			in.err = r.Err
 		} else {
-			in.done, in.step = done, 4
+			in.done, in.step = r.Done, 4
 		}
 		u.ss.mu.Unlock()
-		u.ss.store.Refresh(skillshare.Default, u.ss.store.View().Project, false, inv)
+		m.store.Refresh(in.do, m.store.View().Project, false, inv)
 		u.ss.mu.Lock()
 		in.work = false
 		u.ss.mu.Unlock()
@@ -471,6 +686,8 @@ func (u *ui) layoutSkillshare(gtx gl.Context, st *model.State) {
 				break
 			}
 			switch {
+			case s.menu:
+				s.menu = false
 			case s.inst != nil:
 				s.dismissInstall()
 				gtx.Execute(key.FocusCmd{Tag: &m.backdrop})
@@ -484,7 +701,8 @@ func (u *ui) layoutSkillshare(gtx gl.Context, st *model.State) {
 	if m.kind != modalSkillshare {
 		return
 	}
-	v := s.store.View()
+	s.takePreview()
+	v := s.cur().store.View()
 	if s.inst != nil {
 		for {
 			ev, ok := s.inst.url.Update(gtx)
@@ -531,13 +749,13 @@ func (u *ui) demoSkillshare(st *model.State) {
 	case "library":
 		s.library = true
 	default:
-		v := s.store.View()
+		v := s.cur().store.View()
 		it, ok := ssPick(v.Items, OpenSkillshare)
-		if !ok || s.store.Running() {
+		if !ok || s.cur().store.Running() {
 			return
 		}
 		s.library, s.kind = true, it.Kind
-		s.open(it, ssReadOf(v, it))
+		u.ssOpen(it, ssReadOf(v, it))
 	}
 	OpenSkillshare = ""
 }

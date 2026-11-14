@@ -60,13 +60,64 @@ func waitReads(t *testing.T, u *ui, frame func()) {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		frame()
-		if v := u.ss.store.View(); len(v.Items) > 0 && !u.ss.store.Running() {
+		if v := u.ss.cur().store.View(); len(v.Items) > 0 && !u.ss.cur().store.Running() {
 			frame()
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("the reads never landed")
+}
+
+// waitPreview takes the preview ssOpen reads off the UI goroutine.
+func waitPreview(t *testing.T, u *ui) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		u.ss.takePreview()
+		if u.ss.shown.Path != "" || u.ss.shown.Err != "" || u.ss.shown.MCP != nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the preview never came")
+}
+
+// waitCard draws frames until this machine's Machines card is read.
+func waitCard(t *testing.T, u *ui, frame func()) *skillshare.Machine {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		frame()
+		u.ss.mu.Lock()
+		c := u.ss.machine("").card
+		u.ss.mu.Unlock()
+		if c != nil {
+			frame()
+			return c
+		}
+	}
+	t.Fatal("the machine card never came")
+	return nil
+}
+
+// Machines reads a card per machine, here this one alone, with its
+// version, the source two commits behind its remote, and Pull and sync;
+// a click on its name points Overview at it.
+func TestSkillshareMachines(t *testing.T) {
+	_, u, frame, _ := ssWindow(t)
+	u.toggleSkillshare(new(u.b.State()))
+	waitReads(t, u, frame)
+	u.ss.machView = true
+	c := waitCard(t, u, frame)
+	if c.Version == "" || c.Git.Behind != 2 || c.Git.Line() != "↓2 behind" || c.Targets != 2 {
+		t.Fatalf("card %+v", *c)
+	}
+	if u.ss.acts["m::pull"] == nil || !strings.HasPrefix(u.ssChecked(time.Now()), "Checked ") {
+		t.Fatal("the card has no Pull and sync, or the tab row no check time")
+	}
+	u.ss.acts["m::open"]()
+	if u.ss.machView || u.ss.picked == nil || *u.ss.picked != "" {
+		t.Fatalf("a click on the card: machines %v, picked %v", u.ss.machView, u.ss.picked)
+	}
 }
 
 // Ctrl+Alt+S opens the popup and Escape closes it; the sidebar shows its
@@ -93,9 +144,9 @@ func TestSkillshareEscapeLeavesPreview(t *testing.T) {
 	_, u, frame, keys := ssWindow(t)
 	u.toggleSkillshare(new(u.b.State()))
 	waitReads(t, u, frame)
-	v := u.ss.store.View()
+	v := u.ss.cur().store.View()
 	it, _ := ssPick(v.Items, "code-review")
-	u.ss.open(it, ssReadOf(v, it))
+	u.ssOpen(it, ssReadOf(v, it))
 	frame()
 	keys(key.Event{Name: key.NameEscape, State: key.Press})
 	if u.modal.kind != modalSkillshare || u.ss.sel != "" {
@@ -111,7 +162,7 @@ func TestSkillshareEscapeAfterInstallBack(t *testing.T) {
 	_, u, frame, keys := ssWindow(t)
 	u.toggleSkillshare(new(u.b.State()))
 	waitReads(t, u, frame)
-	u.ss.startInstall("")
+	u.startInstall("")
 	frame()
 	frame()
 	u.ss.acts["i-back"]()
@@ -222,19 +273,24 @@ func TestSkillshareShots(t *testing.T) {
 		u.ss.kind = k
 		shot("library-" + string(k))
 	}
-	v := u.ss.store.View()
+	v := u.ss.cur().store.View()
 	for _, name := range []string{"code-review", "demo-server", "reviewer"} {
 		it, ok := ssPick(v.Items, name)
 		if !ok {
 			t.Fatalf("%s missing", name)
 		}
-		u.ss.open(it, ssReadOf(v, it))
+		u.ssOpen(it, ssReadOf(v, it))
+		waitPreview(t, u)
 		shot("preview-" + name)
 	}
 	u.ss.confirm = true
 	shot("preview-uninstall")
+	u.ss.sel, u.ss.confirm, u.ss.machView = "", false, true
+	waitCard(t, u, frame)
+	shot("machines")
+	u.ss.machView = false
 	u.ss.sel, u.ss.confirm = "", false
-	u.ss.startInstall("")
+	u.startInstall("")
 	shot("install")
 	b, err := os.ReadFile("../../skillshare/testdata/audit_blocked.json")
 	if err != nil {
@@ -286,7 +342,7 @@ func TestSkillshareInstallLifecycle(t *testing.T) {
 			skillshare.Default = c
 			u := &ui{invalidate: func() { changed <- struct{}{} }}
 			u.modal.open(modalSkillshare, "")
-			u.ss.startInstall("")
+			u.startInstall("")
 			in := u.ss.inst
 			in.url.SetText("acme/source-a")
 			u.ss.mu.Lock()
@@ -310,7 +366,7 @@ func TestSkillshareInstallLifecycle(t *testing.T) {
 				u.ss.mu.Lock()
 				done, work := in.step == 4, in.work
 				u.ss.mu.Unlock()
-				if phase != "source" && !work || phase == "source" && done && !work && !u.ss.store.Running() {
+				if phase != "source" && !work || phase == "source" && done && !work && !u.ss.cur().store.Running() {
 					break
 				}
 			}
@@ -333,12 +389,12 @@ func TestSkillshareHookPreviewActions(t *testing.T) {
 	_, u, frame, _ := ssWindow(t)
 	u.toggleSkillshare(new(u.b.State()))
 	waitReads(t, u, frame)
-	v := u.ss.store.View()
+	v := u.ss.cur().store.View()
 	it, ok := ssPick(v.Items, "format-check")
 	if !ok {
 		t.Fatal("hook missing")
 	}
-	u.ss.open(it, ssReadOf(v, it))
+	u.ssOpen(it, ssReadOf(v, it))
 	frame()
 	if u.ss.acts["p-toggle"] == nil || u.ss.acts["p-uninstall"] == nil {
 		t.Fatal("declared hook must have toggle and uninstall controls")
@@ -354,9 +410,9 @@ func TestSkillshareInstallScopeStaysWithPlan(t *testing.T) {
 	_, u, frame, _ := ssWindow(t)
 	u.toggleSkillshare(new(u.b.State()))
 	waitReads(t, u, frame)
-	u.ss.startInstall("/project")
+	u.startInstall("/project")
 	in := u.ss.inst
-	v := u.ss.store.View()
+	v := u.ss.cur().store.View()
 	v.Project = "/project"
 	var ops op.Ops
 	gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(720, 640)), Now: time.Now()}

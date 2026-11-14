@@ -920,8 +920,8 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.BoardOn = u.boardOn
 		u.sidebar.MonitorOn = u.mon.on
 		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(&st), gtx.Now)
-		u.sidebar.Skillshare = ssInstalled()
 		u.sidebar.SkillshareWaiting = u.tickSkillshare(gtx, &st)
+		u.sidebar.Skillshare = ssShown
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
 		if p := findPane(&st, u.nav.pip); p != nil {

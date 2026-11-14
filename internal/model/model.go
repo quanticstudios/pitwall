@@ -499,6 +499,9 @@ type State struct {
 	// DevProxyPort is the port this daemon's local dev proxy actually bound.
 	// Zero means no proxy is listening. It is not saved.
 	DevProxyPort int `json:"-"`
+	// Skillshare reports whether the skillshare CLI is on this daemon's
+	// PATH, for the window's skillshare button.
+	Skillshare bool `json:"-"`
 	// Chats are the live (not archived) chats of every session. The daemon
 	// fills it in; it is not saved in state.json.
 	Chats []Chat `json:"-"`
