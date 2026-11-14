@@ -423,4 +423,66 @@ func TestSharedSessionLive(t *testing.T) {
 	if len(bs.Numbered(plainID)) != 1 || len(bs.Numbered(theirsID)) != 1 {
 		t.Fatalf("a kill reached another session's tabs on box: %+v", bs.Sessions)
 	}
+
+	// An agent here starts a worker on box: it is recorded here first, runs
+	// there under the agent's tab, and hangs under it in the window.
+	orchestrator := st.Workspaces[lw].ID
+	workers := func() []model.RemoteWorker {
+		st := local.State()
+		return st.Session(ls.ID).Workers
+	}
+	t.Setenv("PITWALL_PANE", lp)
+	code, out, errOut = cliOutput("new", "-s", ls.Name, "--host", "box", "--", "sleep", "60")
+	if code != 0 || !strings.HasPrefix(out, "#box:") || len(workers()) != 1 {
+		t.Fatalf("an agent's worker on box: %d %q %q; records %+v", code, out, errOut, workers())
+	}
+	worker := workers()[0]
+	bs = boxState()
+	if w := bs.Workspace(worker.ID); worker.Host != "box" || worker.Parent != orchestrator || w == nil || w.Parent != orchestrator || !w.RemoteParent {
+		t.Fatalf("record %+v; on box %+v", worker, w)
+	}
+	waitFor(t, "box's worker under the agent's tab", func() bool {
+		st := m.State()
+		w := st.Workspace(worker.ID)
+		return w != nil && st.Root(*w) == orchestrator
+	})
+	// The same start again with its id finds it there and starts nothing.
+	n = boxTabCount()
+	code, out, errOut = cliOutput("new", "-s", ls.Name, "--host", "box", "--id", worker.ID, "--", "sleep", "60")
+	if code != 0 || !strings.HasPrefix(out, "#box:") || boxTabCount() != n || len(workers()) != 1 {
+		t.Fatalf("a repeated start: %d %q %q; box tabs %d, had %d", code, out, errOut, boxTabCount(), n)
+	}
+	// A guarded worker box cannot hold is refused and leaves no record.
+	if code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") || boxTabCount() != n || len(workers()) != 1 {
+		t.Fatalf("a refused guarded worker: %d %q; box tabs %d, records %+v", code, errOut, boxTabCount(), workers())
+	}
+	// Until wait can watch box, a worker there fails wait --children.
+	if code, _, errOut := cliOutput("wait", "--children", "--until", "done", "--timeout", "10s"); code != waitError || !strings.Contains(errOut, "box:@"+worker.ID) {
+		t.Fatalf("wait --children with a worker on box: %d %q", code, errOut)
+	}
+	t.Setenv("PITWALL_PANE", "")
+
+	// The agent's tab closes and reopens with a new id: the record follows
+	// here, and the window moves box's worker under it.
+	if err := m.Send(proto.KillSession{WorkspaceID: orchestrator}); err != nil {
+		t.Fatal(err)
+	}
+	var reopened string
+	waitFor(t, "the agent's tab closed", func() bool {
+		st := local.State()
+		i := slices.IndexFunc(st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == orchestrator })
+		if i >= 0 {
+			reopened = st.Closed[i].ID
+		}
+		return i >= 0
+	})
+	if err := m.Send(proto.ReopenTab{ID: reopened}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the record under the reopened tab", func() bool { return len(workers()) == 1 && workers()[0].Parent == reopened })
+	waitFor(t, "box's worker under the reopened tab", func() bool {
+		bs := boxState()
+		w := bs.Workspace(worker.ID)
+		return w != nil && w.Parent == reopened
+	})
 }

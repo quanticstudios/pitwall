@@ -359,6 +359,12 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, subTitle(e))
 			}},
 		}
+		if e.worker != nil {
+			// A worker on another machine than the tab it hangs under names it.
+			if host := s.hostOf(e.worker.ID); host != s.hostOf(v.rootOf[e.worker.ID]) {
+				items = append(items, item{opt: true, w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, base) }})
+			}
+		}
 		prog := e.pane.Pane.Program
 		if prog != nil && agentReport(v.st, e.pane.Pane) {
 			prog = nil

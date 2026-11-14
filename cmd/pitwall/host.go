@@ -387,3 +387,37 @@ func partOn(hs model.State, session *model.Session, host string, origin model.Or
 	}
 	return nil
 }
+
+// lostAfter is how long a recorded worker may be missing from its host's
+// current state before it counts as never started.
+const lostAfter = 2 * time.Minute
+
+// workerFixes compares session's records of its workers on host with hs,
+// that host's current state, in which origin made session's part. A
+// worker whose parent there is not the record's, as after its parent here
+// reopened with a new id, gets a Reparent. A record hs has neither live
+// nor closed lostAfter after Since comes back marked lost.
+func workerFixes(session model.Session, host string, hs model.State, origin model.Origin, now time.Time) (moves []proto.Reparent, lost []model.RemoteWorker) {
+	for _, r := range session.Workers {
+		if r.Host != host || r.Lost != "" {
+			continue
+		}
+		if w := hs.Workspace(r.ID); w != nil {
+			if w.Parent != r.Parent {
+				moves = append(moves, proto.Reparent{WorkspaceID: r.ID, ParentTab: r.Parent, Origin: origin})
+			}
+			continue
+		}
+		if i := slices.IndexFunc(hs.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == r.ID }); i >= 0 {
+			if hs.Closed[i].Tab.Parent != r.Parent {
+				moves = append(moves, proto.Reparent{WorkspaceID: r.ID, ParentTab: r.Parent, Origin: origin})
+			}
+			continue
+		}
+		if now.Sub(r.Since) > lostAfter {
+			r.Lost = "never started"
+			lost = append(lost, r)
+		}
+	}
+	return moves, lost
+}

@@ -65,7 +65,7 @@ const usage = `usage:
                              (--json: one object per tab, see docs/agent-skill.md;
                              --children: only the tabs this pane's tab opened;
                              --tree: each tab under the tab that opened it)
-  pitwall new [-n name] [-d] [--host name] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
+  pitwall new [-n name] [-d] [--host name [--id id]] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. --issue adds GitHub issue n
                              as cmd's last argument, its prompt. --preset runs a
@@ -76,7 +76,9 @@ const usage = `usage:
                              exits, showing its output, until closed. After a
                              daemon restart it shows a notice instead; a cmd
                              still running then is not run again (exit unknown).
-                             Run inside a pane, the tab hangs under the pane's tab
+                             Run inside a pane, the tab hangs under the pane's tab.
+                             --host opens it on that machine; --id finishes a
+                             start there whose connection dropped
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there (its first
                              live agent pane, else live pane). done: it

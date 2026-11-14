@@ -350,3 +350,24 @@ func TestIconBoxCenters(t *testing.T) {
 		}
 	}
 }
+
+// A worker on box that a local tab started hangs under that tab, in this
+// machine's section: activating it opens that section, not box's, and its
+// row names box.
+func TestRemoteWorkerSection(t *testing.T) {
+	h := machineHarness(t, true)
+	h.st.Workspaces = append(h.st.Workspaces, model.Workspace{ID: "b3", Name: "remote worker", Parent: "u1", RemoteParent: true, ProjectID: "boxgroup"})
+	h.s.hostFold = map[string]bool{foldKey("", ""): true}
+	h.frame()
+	if got := h.s.Rows(&h.st, "", "b1"); slices.Contains(got, "u1") {
+		t.Fatalf("this machine's section is not folded: %v", got)
+	}
+	if got := h.s.Rows(&h.st, "", "b3"); !slices.Contains(got, "u1") || h.s.sectionFolded(&view{session: ""}, "") {
+		t.Fatalf("activating box's worker left its parent's section folded: %v", got)
+	}
+	got := labels(func(gtx layout.Context) { h.s.Layout(gtx, theme.Dark(), &h.st, "", "b3") }, 288, h.now)
+	count := func(s string) int { return strings.Count("\n"+strings.Join(got, "\n")+"\n", "\n"+s+"\n") }
+	if !slices.Contains(got, "remote worker") || count("box") <= count("38 ms") {
+		t.Fatalf("the worker row under a local tab does not name box: %q", got)
+	}
+}

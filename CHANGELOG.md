@@ -29,6 +29,7 @@ takes `--dry-run`.
 - In a pitwall pane, `pitwall new --host` takes only a `[[hosts]]` name, and a `[[hosts]]` entry named `local` is a config problem and ignored, since `local` means this machine.
 - Workers waiting on Claude Code background shell commands, monitors or other running tasks stay Working, keep `wait --until idle` and `done` waiting, and do not start the automatic close timer.
 - A tab you open on another machine joins only the part of the session made for it there, never another session that has the same name.
+- A tab an agent opens with `pitwall new --host` hangs under the agent's tab in a window that shows both machines, closes itself when done like a worker here, and `--id` retries a start that lost its connection without starting it twice.
 
 ## v0.2.12
 

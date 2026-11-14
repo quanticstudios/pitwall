@@ -127,7 +127,18 @@ issue from a checkout here, and refuses `--guard` and presets with
 variables while box's daemon is too old to keep them or to check the
 guard's hooks. Box's daemon starts a guarded tab only when pitwall's hooks
 are installed in the agent's config folder there (see
-[the guard](usage.md#the-guard)). When the window
+[the guard](usage.md#the-guard)).
+
+Run in an agent's pane, `pitwall new --host box` opens a worker of that
+agent's tab, as `pitwall new` does here. This machine records the worker
+before box starts it. In a window that shows both machines, the worker
+hangs under the agent's tab, with box's name on its row, and box closes it
+when it is done, as `[agents] close_done_workers` in box's config says.
+When the connection drops during the start, the command retries 3 times;
+if box stays out of reach it prints the tab's id. Run the same command
+with `--id <id>` to finish that start: box opens no second tab for an id it
+already has. `pitwall wait --children` cannot watch box's workers yet, so
+with one of them it exits 1 instead of reporting success without it. When the window
 will not open a tab or task on a host, or kill, group or move a shared
 session's tabs, such as while the host is down, it says why in the notice
 at the top of the window. A task started from

@@ -637,6 +637,9 @@ func (f *FakeBackend) Send(msg any) error {
 		f.st.Closed = slices.Delete(f.st.Closed, i, i+1)
 		w := c.Tab
 		w.ID, w.UpdatedAt = c.ID, time.Now()
+		if w.ClientID {
+			w.ID = c.Tab.ID
+		}
 		if f.st.Session(w.SessionID) == nil {
 			w.SessionID = f.st.Sessions[0].ID
 		}

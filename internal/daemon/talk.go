@@ -475,14 +475,18 @@ func (d *Daemon) header(from string) string {
 	if from == "" {
 		return "[pitwall: message from a script]"
 	}
+	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == from })
+	if i < 0 {
+		// why: pitwall send @<id> from here would not reach a pane of
+		// another machine's daemon.
+		return "[pitwall: message from an agent on another machine; answer in your reply, which it reads with pitwall read]"
+	}
 	who := "a pane"
-	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == from }); i >= 0 {
-		if pr := d.st.Panes[i].Provider; pr != "" && pr != model.ProviderTerminal {
-			who = string(pr)
-		}
-		if a := d.paneAddr(d.st.Panes[i]); a != "" {
-			who += " in " + a
-		}
+	if pr := d.st.Panes[i].Provider; pr != "" && pr != model.ProviderTerminal {
+		who = string(pr)
+	}
+	if a := d.paneAddr(d.st.Panes[i]); a != "" {
+		who += " in " + a
 	}
 	return fmt.Sprintf(`[pitwall: message from %s; reply with: pitwall send @%s "..."]`, who, from)
 }

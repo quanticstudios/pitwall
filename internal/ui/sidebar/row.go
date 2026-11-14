@@ -203,7 +203,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}
 		}
 		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
-		if host != "" && !v.sectioned && !s.AllHosts { // a machine's line names it in the tree
+		// A machine's line names it in the tree; a worker under a parent
+		// of another machine names its own.
+		if host != "" && !v.sectioned && !s.AllHosts || v.rootOf[ws.ID] != "" && host != s.hostOf(v.rootOf[ws.ID]) {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, base) }})
 		}
 		if down && own != nil && model.Tier(own) == model.TierAttention {

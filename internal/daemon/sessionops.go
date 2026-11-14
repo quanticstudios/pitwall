@@ -127,6 +127,84 @@ func (d *Daemon) setOrigin(m proto.SetOrigin) error {
 	return nil
 }
 
+// remoteWorkers edits a session's record of its workers on other
+// machines; see proto.RemoteWorkers. A record cannot expire just because
+// it is old: its worker may still be running or its host unreachable.
+func (d *Daemon) remoteWorkers(m proto.RemoteWorkers) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := d.st.Session(m.SessionID)
+	if s == nil {
+		return fmt.Errorf("no session %s", m.SessionID)
+	}
+	at := func(id string) int {
+		return slices.IndexFunc(s.Workers, func(w model.RemoteWorker) bool { return w.ID == id })
+	}
+	for _, w := range m.Add {
+		if w.ID == "" || w.Host == "" || w.Parent == "" {
+			return errors.New("a remote worker needs an id, a host and a parent")
+		}
+		if i := at(w.ID); i >= 0 && (s.Workers[i].Host != w.Host || s.Workers[i].Parent != w.Parent) {
+			return fmt.Errorf("remote worker %s belongs to another host or parent", w.ID)
+		}
+	}
+	s.Workers = slices.Clone(s.Workers)
+	for _, w := range m.Add {
+		if at(w.ID) < 0 {
+			s.Workers = append(s.Workers, w)
+		}
+	}
+	for _, w := range m.Set {
+		if i := at(w.ID); i >= 0 {
+			// A comparison made before a reopen or a new start attempt
+			// must not replace that newer record or mark it lost.
+			old := s.Workers[i]
+			if w.Lost != "" && (w.Host != old.Host || w.Parent != old.Parent || !w.Since.Equal(old.Since)) {
+				continue
+			}
+			s.Workers[i] = w
+		}
+	}
+	s.Workers = slices.DeleteFunc(s.Workers, func(w model.RemoteWorker) bool {
+		return slices.Contains(m.Drop, w.ID)
+	})
+	if len(s.Workers) == 0 {
+		s.Workers = nil
+	}
+	d.changed()
+	return nil
+}
+
+// reparent points a worker of a tab on another machine at that tab's new
+// id; see proto.Reparent.
+func (d *Daemon) reparent(m proto.Reparent) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	w := d.workspace(m.WorkspaceID)
+	var origin model.Origin
+	if w != nil {
+		if s := d.st.Session(w.SessionID); s != nil {
+			origin = s.Origin
+		}
+	} else {
+		for i := range d.st.Closed {
+			if c := &d.st.Closed[i]; c.Tab.ID == m.WorkspaceID {
+				w, origin = &c.Tab, c.Origin
+				break
+			}
+		}
+	}
+	if w == nil {
+		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	if m.Origin == (model.Origin{}) || m.ParentTab == "" || origin != m.Origin {
+		return errors.New("only the session that made a tab's part can change its parent")
+	}
+	w.Parent, w.RemoteParent = m.ParentTab, true
+	d.changed()
+	return nil
+}
+
 func (d *Daemon) sessionRename(m proto.SessionRename) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

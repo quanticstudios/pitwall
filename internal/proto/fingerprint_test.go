@@ -191,3 +191,16 @@ func TestSinceOrigin(t *testing.T) {
 		t.Errorf("Since(SetOrigin{}) = %d, want %d", got, OriginLevel)
 	}
 }
+
+// An older daemon would start a remote worker under a random id, with no
+// parent, and drop its records.
+func TestSinceRemoteWorker(t *testing.T) {
+	for _, m := range []any{NewSession{ID: "a"}, NewSession{ParentTab: "p"}, NewSession{ID: "a", Monitor: true}, NewWorkspace{ID: "a"}, NewWorkspace{SessionID: "s"}, RemoteWorkers{}, Reparent{}} {
+		if got := Since(m); got != RemoteWorkerLevel {
+			t.Errorf("Since(%#v) = %d, want %d", m, got, RemoteWorkerLevel)
+		}
+	}
+	if got := Since(NewWorkspace{}); got != 0 {
+		t.Errorf("Since(NewWorkspace{}) = %d, want 0", got)
+	}
+}

@@ -238,7 +238,8 @@ type Options struct {
 }
 
 type Daemon struct {
-	worktreeDeletes map[string]bool // guarded by mu
+	tabStarts       map[string]chan struct{} // in-flight client-chosen ids; guarded by mu
+	worktreeDeletes map[string]bool          // guarded by mu
 	worktreeJobs    sync.WaitGroup
 	o               Options
 	devProxyStop    func() // startup listener, adopted by Serve or closed by shutdown
@@ -1247,6 +1248,10 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.sessionLink(m)
 	case proto.SetOrigin:
 		return d.setOrigin(m)
+	case proto.RemoteWorkers:
+		return d.remoteWorkers(m)
+	case proto.Reparent:
+		return d.reparent(m)
 	case proto.SessionOrder:
 		return d.sessionOrder(m)
 	case proto.SessionShow:
@@ -1320,6 +1325,11 @@ func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
 }
 
 func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
+	unlock, err := d.lockTabStart(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == m.ProjectID })
 	var p model.Project
@@ -1328,10 +1338,21 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		p = d.st.Projects[pi]
 	} else if parent := d.paneTab(m.ParentPane); m.ProjectID == "" && m.Root != "" && parent != nil {
 		p, ok = model.Project{SessionID: parent.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
+	} else if m.ProjectID == "" && m.Root != "" && m.ParentTab != "" && d.st.Session(m.SessionID) != nil {
+		// A worker of a tab on another machine, in that tab's part here.
+		p, ok = model.Project{SessionID: m.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
+	}
+	var started bool
+	var startErr error
+	if ok && m.ID != "" {
+		started, startErr = d.startedTab(m.ID, p.SessionID, m.ParentTab)
 	}
 	d.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("no project %s", m.ProjectID)
+	}
+	if started || startErr != nil {
+		return startErr
 	}
 	named := m.Name != ""
 	if !named {
@@ -1352,13 +1373,22 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if m.ID != "" {
+		// why: the same id may have started while the worktree was made.
+		if started, err := d.startedTab(m.ID, p.SessionID, m.ParentTab); started || err != nil {
+			return err
+		}
+	}
 	w := model.Workspace{
-		ID: newID(), SessionID: p.SessionID, ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
+		ID: cmp.Or(m.ID, newID()), SessionID: p.SessionID, ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
+		ClientID:     m.ID != "",
 		WorktreeRoot: owned, RepoRoot: root,
 	}
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
 	if parent := d.workspace(w.Parent); parent != nil {
 		w.ProjectID = parent.ProjectID // hang under the parent, in its group or none
+	} else if m.ParentTab != "" && m.ParentPane == "" {
+		w.Parent, w.RemoteParent = m.ParentTab, true
 	}
 	if m.Lane != "" && len(m.Cmd) > 0 {
 		w.Lane = model.Lane{Name: m.Lane, Start: time.Now()}
@@ -1372,7 +1402,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		}
 	}
 	d.st.Workspaces = append(d.st.Workspaces, w)
-	var err error
+	err = nil
 	if len(problems) > 0 {
 		err = fmt.Errorf("worktree %s is ready, but: %w", m.Name, errors.Join(problems...))
 	}

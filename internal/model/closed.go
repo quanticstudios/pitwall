@@ -8,7 +8,7 @@ import (
 // ClosedTab is a tab that closed, kept so tab search can open it again.
 // The daemon adds one for every tab of panes that closes, newest last.
 type ClosedTab struct {
-	ID string // the record's own id, which the reopened tab takes
+	ID string // the record's own id, which a reopened tab without ClientID takes
 	// Tab is the tab as it was, without its layout.
 	Tab Workspace
 	// Pane is the tab's agent pane that RestoreCmd resumes, else its first
@@ -16,6 +16,8 @@ type ClosedTab struct {
 	Pane Pane
 	// Session is the name of the tab's session, which may have ended since.
 	Session string
+	// Origin keeps a reopened part apart from same-named sessions.
+	Origin Origin `json:",omitzero"`
 	// Group is the tab's group as it was; the zero Project for none.
 	Group Project
 	PR    int // the number of its branch's pull request, 0 for none

@@ -255,3 +255,17 @@ func TestTabSearchKeys(t *testing.T) {
 		t.Fatal("Escape left tab search open")
 	}
 }
+
+func TestTabSearchReopensClientID(t *testing.T) {
+	b := NewFakeBackend()
+	c := model.ClosedTab{ID: "closed-worker", Tab: model.Workspace{ID: "worker", SessionID: b.st.Sessions[0].ID, ClientID: true}}
+	b.st.Closed = append(b.st.Closed, c)
+	u := &ui{b: b, nav: nav{keys: conventional}}
+	st := b.State()
+	u.pickTab(&st, tabHit{closed: &c})
+	st = b.State()
+	u.nav.sync(&st)
+	if u.nav.workspace != c.Tab.ID || u.nav.reopen != "" {
+		t.Fatalf("client-chosen id was not selected: tab %q, waiting for %q", u.nav.workspace, u.nav.reopen)
+	}
+}

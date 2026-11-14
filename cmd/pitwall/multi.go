@@ -253,7 +253,7 @@ func (m *multi) byName(name string) *hostLink {
 }
 
 // foldIn is s with the sessions in to, each a part of a shared session
-// here, folded into that session: their groups, tabs and tasks move to it,
+// here, folded into that session: their groups, tabs, closed tabs and tasks move to it,
 // the sessions themselves go, and so do the tabs in forget.
 func foldIn(s model.State, to map[string]string, forget map[string]bool) model.State {
 	if len(to) == 0 {
@@ -276,6 +276,14 @@ func foldIn(s model.State, to map[string]string, forget map[string]bool) model.S
 	for i := range s.Tasks {
 		if id := to[s.Tasks[i].SessionID]; id != "" {
 			s.Tasks[i].SessionID = id
+		}
+	}
+	// why: a finished worker's closed tab is its parent's result, in the
+	// parent's session.
+	s.Closed = slices.Clone(s.Closed)
+	for i := range s.Closed {
+		if id := to[s.Closed[i].Tab.SessionID]; id != "" {
+			s.Closed[i].Tab.SessionID = id
 		}
 	}
 	return s
@@ -473,6 +481,27 @@ func (m *multi) reconcile(local model.State) {
 				if len(gone) > 0 {
 					link(proto.SessionLink{SessionID: ss.ID, Host: r.Host, Remote: r.Session, Unforget: gone})
 				}
+			}
+		}
+	}
+	// A worker started on a host from a tab here follows that tab's id
+	// when it reopens, and one the host never shows is marked lost.
+	for _, ss := range local.Sessions {
+		for _, h := range m.hosts[1:] {
+			o := m.origin(h, local, ss.ID)
+			if o == (model.Origin{}) || !up(h) || !slices.ContainsFunc(ss.Workers, func(w model.RemoteWorker) bool { return w.Host == h.name }) {
+				continue
+			}
+			moves, lost := workerFixes(ss, h.name, h.b.State(), o, time.Now())
+			for _, mv := range moves {
+				key := [2]string{mv.WorkspaceID, "reparent"}
+				if time.Since(m.asked[key].at) > 5*time.Second && h.b.Send(mv) == nil {
+					m.asked[key] = asked{at: time.Now()}
+				}
+			}
+			key := [2]string{ss.ID + "\x00" + h.name, "lost"}
+			if len(lost) > 0 && time.Since(m.asked[key].at) > 5*time.Second && m.hosts[0].b.Send(proto.RemoteWorkers{SessionID: ss.ID, Set: lost}) == nil {
+				m.asked[key] = asked{at: time.Now()}
 			}
 		}
 	}
@@ -702,6 +731,17 @@ func (m *multi) send(msg any) error {
 			})
 			return nil
 		}
+	case proto.CloseDoneWorkers:
+		// why: a parent's workers may run on other hosts too; each host
+		// closes those of them it finds finished.
+		to := m.route(msg)
+		var err error
+		for _, h := range m.hosts {
+			if h == to || slices.ContainsFunc(h.b.State().Workspaces, func(w model.Workspace) bool { return w.Parent == v.WorkspaceID }) {
+				err = errors.Join(err, h.b.Send(msg))
+			}
+		}
+		return err
 	case proto.CloseTab:
 		if m.forget(v.WorkspaceID) {
 			return nil

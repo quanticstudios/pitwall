@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"cmp"
 	"image"
 	"slices"
 	"strconv"
@@ -89,7 +90,9 @@ func (s *Sidebar) sectionView(v *view) {
 	if v.active != s.foldFollow {
 		s.foldFollow = v.active
 		if v.active != "" {
-			delete(s.hostFold, foldKey(v.session, s.hostOf(v.active)))
+			// A worker on another host is drawn under its parent, in the
+			// parent's section.
+			delete(s.hostFold, foldKey(v.session, s.hostOf(cmp.Or(v.rootOf[v.active], v.active))))
 		}
 	}
 	top := make([]string, 0, len(v.top))
