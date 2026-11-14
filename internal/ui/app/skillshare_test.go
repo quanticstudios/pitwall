@@ -21,9 +21,187 @@ import (
 	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
+
+type ssHostFake struct {
+	hostFake
+	do   skillshare.Do
+	on   func(string) (bool, bool)
+	sent func(proto.Skillshare)
+}
+
+func (b ssHostFake) HostOf(id string) string {
+	st := b.State()
+	if p := findPane(&st, id); p != nil {
+		id = p.WorkspaceID
+	}
+	return b.hostFake.HostOf(id)
+}
+
+func (b ssHostFake) Skillshare(ctx context.Context, _ string, m proto.Skillshare, step func(string)) (skillshare.Reply, error) {
+	if b.sent != nil {
+		b.sent(m)
+	}
+	return b.do(ctx, m.Call, step), nil
+}
+
+func TestSkillshareCleanupAfterPaneClosed(t *testing.T) {
+	b := ssHostFake{do: func(context.Context, skillshare.Call, func(string)) skillshare.Reply { return skillshare.Reply{} },
+		sent: func(m proto.Skillshare) {
+			if m.Pane != "" {
+				t.Fatal("cleanup still depends on its removed pane")
+			}
+		}}
+	u := &ui{b: b}
+	u.ssDo(ssTarget{host: "box", pane: "removed"})(context.Background(), skillshare.Call{Op: skillshare.OpDrop, Clone: "/audit-clone"}, nil)
+}
+
+func (b ssHostFake) SkillshareOn(host string) (bool, bool) {
+	if b.on != nil {
+		return b.on(host)
+	}
+	return true, false
+}
+
+func TestSkillshareFollowsMissingCLI(t *testing.T) {
+	b := ssHostFake{hostFake: hostFake{NewFakeBackend()}, do: skillshare.Demo().Serve,
+		on: func(host string) (bool, bool) { return host == "", false }}
+	st := b.State()
+	u := &ui{b: b}
+	u.nav.switchSession(&st, "s1")
+	u.modal.open(modalSkillshare, "")
+	u.ssFollow(&st, true, true)
+	u.ss.sel, u.ss.confirm, u.ss.ask = "global:skills:check", true, "/old/path"
+	u.ss.shown = skillshare.Preview{Body: "old machine"}
+	u.ss.acts = map[string]func(){"p-toggle": func() { t.Fatal("stale action ran") }}
+	canceled := false
+	u.ss.inst = &ssInstall{work: true, cancel: func() { canceled = true }}
+	u.nav.switchSession(&st, "s2")
+	var ops op.Ops
+	u.tickSkillshare(gl.Context{Ops: &ops}, &st)
+	if u.ss.to.host != "box" || u.ss.inst != nil || !canceled || u.ss.sel != "" || u.ss.shown.Body != "" || u.ss.confirm || u.ss.ask != "" || len(u.ss.acts) != 0 {
+		t.Fatalf("old machine state survived focus change: target %+v, install %v, canceled %v, selection %q", u.ss.to, u.ss.inst, canceled, u.ss.sel)
+	}
+}
+
+func TestSkillsharePreviewIgnoresEarlierRequest(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	changed := make(chan struct{}, 4)
+	b := ssHostFake{hostFake: hostFake{NewFakeBackend()}, do: func(_ context.Context, c skillshare.Call, _ func(string)) skillshare.Reply {
+		if c.Paths.Skills == "/old" {
+			close(started)
+			<-release
+		}
+		return skillshare.Reply{Preview: skillshare.Preview{Path: c.Paths.Skills, Body: c.Paths.Skills}}
+	}}
+	u := &ui{b: b, invalidate: func() { changed <- struct{}{} }}
+	it := skillshare.Item{Kind: skillshare.Skills, Key: "global:skills:check"}
+	read := func(path string) *skillshare.Read {
+		r := &skillshare.Read{Status: &skillshare.StatusJSON{}}
+		r.Status.Source.Path = path
+		return r
+	}
+	u.ssOpen(it, read("/old"))
+	<-started
+	u.ss.to = ssTarget{host: "box"}
+	u.ssOpen(it, read("/new"))
+	<-changed
+	u.ss.takePreview()
+	if u.ss.shown.Path != "/new" {
+		t.Fatalf("new preview: %+v", u.ss.shown)
+	}
+	close(release)
+	<-changed
+	u.ss.takePreview()
+	if u.ss.shown.Path != "/new" {
+		t.Fatalf("old machine replaced preview: %+v", u.ss.shown)
+	}
+}
+
+func TestSkillshareProjectLookupOrder(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	changed := make(chan struct{}, 128)
+	demo := skillshare.Demo()
+	b := ssHostFake{hostFake: hostFake{NewFakeBackend()}, do: func(ctx context.Context, c skillshare.Call, step func(string)) skillshare.Reply {
+		if c.Op == skillshare.OpProject {
+			if c.Dir == "/folder-a" {
+				close(started)
+				<-release
+			}
+			return skillshare.Reply{Project: c.Dir}
+		}
+		return demo.Serve(ctx, c, step)
+	}}
+	st := b.State()
+	u := &ui{b: b, invalidate: func() { changed <- struct{}{} }}
+	u.nav.switchSession(&st, "s1")
+	findPane(&st, u.nav.focused()).Cwd = "/folder-a"
+	u.ssFollow(&st, true, true)
+	<-started
+	findPane(&st, u.nav.focused()).Cwd = "/folder-b"
+	u.ssFollow(&st, true, true)
+	// Every read and the two scheduling workers invalidate once.
+	for range 2*(len(skillshare.Reads)+len(skillshare.Checks)) + 2 {
+		select {
+		case <-changed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("new folder was not read")
+		}
+	}
+	close(release)
+	select {
+	case <-changed: // the stale project lookup has been discarded
+	case <-time.After(5 * time.Second):
+		t.Fatal("old folder lookup did not finish")
+	}
+	if got := u.ss.cur().store.View().Project; got != "/folder-b" {
+		t.Fatalf("late lookup restored %q", got)
+	}
+}
+
+func TestSkillshareAskStaysOnMachine(t *testing.T) {
+	_, u, frame, _ := ssWindow(t)
+	u.b = hostFake{u.b.(*FakeBackend)}
+	st := u.b.State()
+	u.nav.selectWorkspace(&st, "w1b", "i")
+	u.toggleSkillshare(&st)
+	waitReads(t, u, frame)
+	u.ss.to = ssTarget{host: "box"}
+	var ops op.Ops
+	u.ssAsk(gl.Context{Ops: &ops}, &st, "/remote/skills/check")
+	if len(u.review.queue) != 0 || u.modal.kind != modalSkillshare {
+		t.Fatal("remote path sent to this computer's agent")
+	}
+}
+
+func TestSkillshareOldHostVisible(t *testing.T) {
+	b := ssHostFake{hostFake: hostFake{NewFakeBackend()}, on: func(string) (bool, bool) { return false, true }}
+	u := &ui{b: b}
+	st := b.State()
+	u.nav.switchSession(&st, "s2")
+	if !u.ssVisible(&st) {
+		t.Fatal("old remote daemon has no way to show the update message")
+	}
+}
+
+func TestSkillshareFollowsWithSidebarHidden(t *testing.T) {
+	b := ssHostFake{hostFake: hostFake{NewFakeBackend()}, do: skillshare.Demo().Serve}
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: conventional}}
+	u.nav.sidebarHidden, u.sidebarShown = true, true
+	st := b.State()
+	u.nav.switchSession(&st, "s1")
+	u.toggleSkillshare(&st)
+	u.nav.switchSession(&st, "s2")
+	var ops op.Ops
+	u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1280, 800)), Now: time.Now()})
+	if u.ss.to.host != "box" {
+		t.Fatalf("hidden sidebar stopped the popup following focus: %+v", u.ss.to)
+	}
+	t.Cleanup(func() { shownHost = "" })
+}
 
 // ssWindow is a window whose skillshare client answers from the captured
 // fixtures, the popup open and its reads in.

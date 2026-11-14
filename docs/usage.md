@@ -1871,7 +1871,8 @@ with a badge that counts what waits for a sync or has an update. The
 button, `toggle_skillshare` (Ctrl+Alt+S, Cmd+Option+S on macOS) and "Show
 skillshare" in the command palette open the popup. Without the CLI there,
 pitwall shows none of these. Each daemon says whether the CLI is on its
-own PATH; the window does not look at its own.
+own PATH; the window does not look at its own. With an older daemon that
+cannot report this, the button opens a message asking you to update pitwall.
 
 The popup works on the focused tab's machine: this computer, or box for a
 tab of box in a window of several hosts (`[[hosts]]` with `window = true`)
@@ -1883,6 +1884,10 @@ picked there stays shown until the focus moves to a tab on another
 machine. A daemon from before this popup
 cannot run it; the popup then says to update pitwall on that machine and
 reads nothing, not even this computer in its place.
+Changing the machine or folder closes an open preview or install flow.
+Closing the install flow cancels its work and removes its temporary audit
+clone on that machine. Ask an agent to audit is available when that agent
+is on the machine shown in the popup.
 
 The popup reads the focused pane's folder on that machine. A folder with
 `.skillshare/config.yaml` or `skillshare/config.yaml` is a project, and

@@ -770,6 +770,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 // served; see proto.Version for what that asks of a new message type. A hook
 // of any Version is served too, its AgentEvents alone.
 func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
+	var skillshareCalls skillshareCalls
+	defer skillshareCalls.close()
 	var cancelSearch context.CancelFunc
 	defer func() {
 		if cancelSearch != nil {
@@ -945,7 +947,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			continue
 		}
 		if r, ok := m.(proto.Skillshare); ok {
-			go d.skillshare(ctx, r, func(m any) { c.queue(m) }) // replies to this client alone; it may run for minutes
+			skillshareCalls.request(ctx, d, r, func(m any) { c.queue(m) })
 			continue
 		}
 		if i, ok := m.(proto.Image); ok {

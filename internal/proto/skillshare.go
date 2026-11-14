@@ -14,7 +14,9 @@ const SkillshareLevel = 74
 type Skillshare struct {
 	Pane string
 	ID   uint64
-	Call skillshare.Call
+	// Cancel stops this connection's call with ID and releases its clone.
+	Cancel bool
+	Call   skillshare.Call
 }
 
 // SkillshareResult answers a Skillshare to its client alone: a Step while

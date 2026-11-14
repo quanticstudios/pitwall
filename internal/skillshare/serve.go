@@ -171,6 +171,19 @@ func trim(name string, res Result) Result {
 	if err := r.Parse(name, res); err != nil {
 		return Result{Stderr: err.Error(), Code: max(res.Code, 1)}
 	}
+	if r.Hooks != nil && r.Hooks.Source != nil {
+		sources := []hookSource{r.Hooks.Source.hookSource}
+		for _, source := range r.Hooks.Source.Projects {
+			sources = append(sources, source)
+		}
+		for _, source := range sources {
+			for _, entry := range source.Entries {
+				for target := range entry.Bindings {
+					entry.Bindings[target] = nil // the popup uses names, never hook commands
+				}
+			}
+		}
+	}
 	v := map[string]any{"list": r.List, "diff": r.Diff, "mcp": r.MCP, "plugins": r.Plugins, "hooks": r.Hooks,
 		"status": r.Status, "check": r.Check, "checkAgents": r.CheckAgents}[name]
 	b, err := json.Marshal(v)
@@ -263,6 +276,9 @@ func (cl Client) LoadMachine(ctx context.Context) Machine {
 		if d.Version.Update {
 			m.Latest = d.Version.Latest
 		}
+	} else {
+		m.Err = Failure(doctor, "skillshare doctor")
+		return m
 	}
 	var st Read
 	if err := st.Parse("status", status); err != nil {
@@ -278,9 +294,11 @@ func (cl Client) LoadMachine(ctx context.Context) Machine {
 		}
 	}
 	var df Read
-	if df.Parse("diff", diff) == nil {
-		m.Drift = len(driftFrom(df.Diff))
+	if err := df.Parse("diff", diff); err != nil {
+		m.Err = err.Error()
+		return m
 	}
+	m.Drift = len(driftFrom(df.Diff))
 	if src := st.Status.Source.Path; src != "" && cl.Git != nil {
 		m.Git = readGit(ctx, cl, src)
 	}

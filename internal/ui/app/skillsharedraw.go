@@ -823,7 +823,7 @@ func (u *ui) ssPreviewRows(st *model.State, v skillshare.View) []ssW {
 		} else {
 			acts = append(acts, u.ssButton("p-uninstall", kit.Secondary.When(!busy), "Uninstall…", func() { s.confirm = true }))
 		}
-		if p := u.ssAgent(st); p != nil && s.shown.Path != "" {
+		if p := u.ssAgent(st); p != nil && u.hostOf(p.ID) == s.to.host && s.shown.Path != "" {
 			path := s.shown.Path
 			acts = append(acts, u.ssButton("p-ask", kit.Secondary, "Ask "+agentName(p)+" to audit", func() { s.ask = path }))
 		}

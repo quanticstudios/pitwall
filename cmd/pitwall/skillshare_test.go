@@ -2,12 +2,43 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/skillshare"
 )
+
+func TestMultiSkillshareMissingPane(t *testing.T) {
+	local, _ := localBackend(t, hostState("ls", "lw", "lp"))
+	m := newMulti(local, nil)
+	_, err := m.Skillshare(context.Background(), "box", proto.Skillshare{Pane: "removed", Call: skillshare.Call{Op: skillshare.OpUninstall}}, nil)
+	if err == nil {
+		t.Fatal("a removed pane's operation fell back to the current machine")
+	}
+}
+
+func TestSkillshareCancel(t *testing.T) {
+	b, daemon := localBackend(t, hostState("ls", "lw", "lp"))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.Skillshare(ctx, "", proto.Skillshare{Call: skillshare.Call{Op: skillshare.OpDiscover}}, nil)
+		done <- err
+	}()
+	call, ok := recv(daemon).(proto.Skillshare)
+	if !ok || call.Cancel {
+		t.Fatal("the daemon did not receive the call")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled call: %v", err)
+	}
+	if msg, ok := recv(daemon).(proto.Skillshare); !ok || !msg.Cancel || msg.ID != call.ID {
+		t.Fatalf("cancel: %+v", msg)
+	}
+}
 
 // answer is a fake daemon answering the next Skillshare it reads with a
 // step and then reply, and reporting which one it got.

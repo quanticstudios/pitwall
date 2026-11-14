@@ -139,7 +139,7 @@ proto.SetSessionGroup{WorkspaceID string; GroupID string}
 proto.SetStatus{WorkspaceID string; Text string}
 proto.SetTabInbox{WorkspaceID string; Settled bool; SnoozedUntil time.Time}
 proto.SetTabOptions{WorkspaceID string; Pinned bool; Color string}
-proto.Skillshare{Pane string; ID uint64; Call skillshare.Call}
+proto.Skillshare{Pane string; ID uint64; Cancel bool; Call skillshare.Call}
 proto.SkillshareResult{ID uint64; Step string; Done bool; Reply skillshare.Reply}
 proto.StateMsg{State model.State; Level int; Build string}
 proto.Sync{}
@@ -173,7 +173,7 @@ skillshare.Outcome{Text string; Err bool}
 skillshare.Paths{MCP string; Skills string; Agents string}
 skillshare.Plan{Dir string; Choices []skillshare.Choice; Err string}
 skillshare.Preview{Path string; Files []string; Meta []skillshare.KV; Body string; MCP []skillshare.KV; Err string}
-skillshare.Reply{Result skillshare.Result; Preview skillshare.Preview; Outcome skillshare.Outcome; Plan skillshare.Plan; Audit skillshare.AuditResult; Done []string; Err string; Machine skillshare.Machine}
+skillshare.Reply{Result skillshare.Result; Preview skillshare.Preview; Outcome skillshare.Outcome; Plan skillshare.Plan; Audit skillshare.AuditResult; Done []string; Err string; Machine skillshare.Machine; Project string}
 skillshare.Result{Stdout string; Stderr string; Code int}
 time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}
 time.Time{wall uint64; ext int64; loc *time.Location}

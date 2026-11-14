@@ -27,6 +27,9 @@ var errLost = errors.New("lost the connection to the daemon")
 // Skillshare implements app.Skillsharer: the daemon does m's call, and
 // its steps go to step as they come.
 func (b *backend) Skillshare(ctx context.Context, _ string, m proto.Skillshare, step func(string)) (skillshare.Reply, error) {
+	if err := ctx.Err(); err != nil {
+		return skillshare.Reply{}, err
+	}
 	w := &ssWait{step: step, done: make(chan skillshare.Reply, 1)}
 	b.mu.Lock()
 	b.ssID++
@@ -51,8 +54,11 @@ func (b *backend) Skillshare(ctx context.Context, _ string, m proto.Skillshare, 
 	case r := <-w.done:
 		return r, nil
 	case <-gone:
+		_ = b.Send(proto.Skillshare{ID: m.ID, Cancel: true})
 		return skillshare.Reply{}, errLost
 	case <-ctx.Done():
+		// The daemon owns the subprocess and any discovery clone.
+		_ = b.Send(proto.Skillshare{ID: m.ID, Cancel: true})
 		return skillshare.Reply{}, ctx.Err()
 	}
 }
@@ -93,7 +99,10 @@ func (b *backend) SkillshareOn(string) (installed, old bool) {
 func (m *multi) Skillshare(ctx context.Context, host string, msg proto.Skillshare, step func(string)) (skillshare.Reply, error) {
 	to := m.byName(host)
 	if msg.Pane != "" {
-		to = m.route(msg)
+		to = m.of(msg.Pane)
+		if to == nil {
+			return skillshare.Reply{}, errors.New("the skillshare pane is no longer available")
+		}
 	}
 	if to == nil {
 		return skillshare.Reply{}, fmt.Errorf("%s is not one of this window's machines", host)

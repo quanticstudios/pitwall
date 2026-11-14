@@ -12,6 +12,43 @@ import (
 	"time"
 )
 
+func TestServeStripsHookCommands(t *testing.T) {
+	const secret = "synthetic-hook-secret"
+	cl := Client{Run: func(context.Context, string, ...string) Result {
+		return Result{Stdout: `{"source":{"entries":{"check":{"bindings":{"claude":{"command":"TOKEN=` + secret + ` run"}}}},"projects":{"/project":{"entries":{"check":{"bindings":{"codex":{"env":{"TOKEN":"` + secret + `"}}}}}}}}}`}
+	}}
+	r := cl.Serve(context.Background(), Call{Op: OpRead, Name: "hooks", Scope: Global}, nil)
+	if r.Result.Code != 0 || strings.Contains(r.Result.Stdout, secret) {
+		t.Fatalf("hook command reached the reply: %+v", r.Result)
+	}
+	var read Read
+	if err := read.Parse("hooks", r.Result); err != nil {
+		t.Fatal(err)
+	}
+	items := BuildItems(Global, &read)
+	if len(items) != 2 || !slices.Contains(items[0].Targets, "claude") || !slices.Contains(items[1].Targets, "codex") {
+		t.Fatalf("binding names lost: %+v", items)
+	}
+}
+
+func TestMachineReadFailures(t *testing.T) {
+	for _, name := range []string{"doctor", "diff"} {
+		t.Run(name, func(t *testing.T) {
+			cl := Demo()
+			run := cl.Run
+			cl.Run = func(ctx context.Context, dir string, args ...string) Result {
+				if args[0] == name {
+					return Result{Code: 1, Stderr: "could not read " + name}
+				}
+				return run(ctx, dir, args...)
+			}
+			if card := cl.LoadMachine(context.Background()); !strings.Contains(card.Err, "could not read "+name) {
+				t.Fatalf("failed health read looked successful: %+v", card)
+			}
+		})
+	}
+}
+
 // The fixtures under testdata are skillshare v0.30.7's own --json output,
 // captured in a temp HOME with two targets (claude, codex). global: a new
 // skill (deploy-notes), a disabled one (format-on-save), one with an

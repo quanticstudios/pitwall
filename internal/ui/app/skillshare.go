@@ -64,11 +64,12 @@ type skillshareUI struct {
 	clicks map[string]*widget.Clickable
 	acts   map[string]func() // what each click does, as last drawn
 
-	mu     sync.Mutex
-	busy   string             // what the running command does, "" for none
-	note   skillshare.Outcome // the last command's outcome
-	at     time.Time          // when note came
-	loaded *ssLoaded          // a preview read off the UI goroutine, not yet shown
+	mu        sync.Mutex
+	busy      string             // what the running command does, "" for none
+	note      skillshare.Outcome // the last command's outcome
+	at        time.Time          // when note came
+	loaded    *ssLoaded          // a preview read off the UI goroutine, not yet shown
+	previewID uint64             // invalidates replies from a previous preview
 }
 
 // ssTarget is a machine the popup's work goes to: its host name, "" for
@@ -85,11 +86,13 @@ type ssMachine struct {
 	card    *skillshare.Machine
 	reading bool // a card read is out
 	cardAt  time.Time
+	follow  uint64 // identity of the pending project lookup
 }
 
 // ssLoaded is a row's preview, read for key.
 type ssLoaded struct {
 	key    string
+	id     uint64
 	p      skillshare.Preview
 	blocks []mdview.Block
 }
@@ -137,15 +140,12 @@ func (u *ui) ssOn(host string) (installed, old bool) {
 }
 
 // ssVisible is whether the button, palette entry and key show: skillshare
-// is on the focused tab's machine, or that machine's daemon is too old to
-// say while this machine has it, so the popup can say to update it.
+// is on the focused tab's machine, or its daemon is too old to say, so
+// the popup can explain that it needs an update.
 func (u *ui) ssVisible(st *model.State) bool {
 	host := u.ssFocusHost(st)
 	on, old := u.ssOn(host)
-	if !on && old && host != "" {
-		on, _ = u.ssOn("")
-	}
-	return on
+	return on || old
 }
 
 // ssFocusHost is the focused tab's machine.
@@ -206,7 +206,11 @@ func (u *ui) ssDo(t ssTarget) skillshare.Do {
 		if _, old := sk.SkillshareOn(t.host); old {
 			return skillshare.Failed(ssOld(t.host))
 		}
-		r, err := sk.Skillshare(ctx, t.host, proto.Skillshare{Pane: t.pane, Call: c}, step)
+		pane := t.pane
+		if c.Op == skillshare.OpDrop {
+			pane = "" // cleanup stays on the captured host after its pane closes
+		}
+		r, err := sk.Skillshare(ctx, t.host, proto.Skillshare{Pane: pane, Call: c}, step)
 		if err != nil {
 			return skillshare.Failed(err.Error())
 		}
@@ -312,20 +316,41 @@ func (u *ui) ssFollow(st *model.State, now, open bool) {
 	}
 	moved := t != s.to
 	s.to = t
+	if moved || dir != m.dir {
+		s.dismissInstall()
+		s.sel, s.confirm, s.ask, s.menu = "", false, "", false
+		s.shown = skillshare.Preview{}
+		s.doc.Set(nil)
+		s.acts = nil // clicks from the previous frame name the previous target
+		s.list.Position = gl.Position{}
+		s.mu.Lock()
+		s.previewID++
+		s.loaded = nil
+		s.mu.Unlock()
+	}
 	if !now && !moved && dir == m.dir && time.Now().Before(m.nextAt) {
 		return
 	}
 	m.dir = dir
 	m.nextAt = time.Now().Add(ssClosedEvery)
+	s.mu.Lock()
+	m.follow++
+	follow := m.follow
+	s.mu.Unlock()
 	do, changed := u.ssDo(t), u.invalidateFn()
 	go func() {
+		defer changed()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		project := ""
 		if dir != "" {
 			project = do(ctx, skillshare.Call{Op: skillshare.OpProject, Dir: dir}, nil).Project
 		}
-		m.store.Refresh(do, project, false, changed)
+		s.mu.Lock()
+		if m.follow == follow {
+			m.store.Refresh(do, project, false, changed)
+		}
+		s.mu.Unlock()
 	}()
 }
 
@@ -334,11 +359,11 @@ func (u *ui) ssFollow(st *model.State, now, open bool) {
 // or machine changes while it shows. It reports the badge's count.
 func (u *ui) tickSkillshare(gtx gl.Context, st *model.State) int {
 	ssShown = u.ssVisible(st)
-	if !ssShown {
+	open := u.modal.kind == modalSkillshare
+	if !ssShown && !open {
 		return 0
 	}
 	s := &u.ss
-	open := u.modal.kind == modalSkillshare
 	u.ssFollow(st, false, open)
 	m := s.cur()
 	if open && time.Until(m.nextAt) > ssOpenEvery {
@@ -435,7 +460,7 @@ func (u *ui) ssAgent(st *model.State) *model.Pane {
 // queues its prompt, and closes the popup.
 func (u *ui) ssAsk(gtx gl.Context, st *model.State, path string) {
 	p := u.ssAgent(st)
-	if p == nil {
+	if p == nil || u.hostOf(p.ID) != u.ss.to.host {
 		return
 	}
 	u.closeSkillshare()
@@ -462,17 +487,23 @@ func (u *ui) ssOpen(it skillshare.Item, r *skillshare.Read) {
 	s.doc.Set(nil)
 	s.list.Position = gl.Position{}
 	do, inv := u.ssDo(s.to), u.invalidateFn()
+	s.mu.Lock()
+	s.previewID++
+	id := s.previewID
+	s.mu.Unlock()
 	paths := skillshare.PathsOf(r)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		p := do(ctx, skillshare.Call{Op: skillshare.OpPreview, Item: it, Paths: paths}, nil).Preview
-		l := &ssLoaded{key: it.Key, p: p}
+		l := &ssLoaded{key: it.Key, id: id, p: p}
 		if p.Body != "" {
 			l.blocks = mdview.Parse([]byte(p.Body))
 		}
 		s.mu.Lock()
-		s.loaded = l
+		if s.previewID == id {
+			s.loaded = l
+		}
 		s.mu.Unlock()
 		inv()
 	}()
@@ -484,7 +515,7 @@ func (s *skillshareUI) takePreview() {
 	l := s.loaded
 	s.loaded = nil
 	s.mu.Unlock()
-	if l != nil && l.key == s.sel {
+	if l != nil && l.key == s.sel && l.id == s.previewID {
 		s.shown = l.p
 		s.doc.Set(l.blocks)
 	}
@@ -730,6 +761,7 @@ func (u *ui) layoutSkillshare(gtx gl.Context, st *model.State) {
 	if m.kind != modalSkillshare {
 		return
 	}
+	v = s.cur().store.View() // a machine-picker click may have changed the target
 	if v.Project == "" && s.scope == skillshare.Project {
 		s.scope = "all"
 	}
