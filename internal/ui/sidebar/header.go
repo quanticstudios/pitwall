@@ -184,24 +184,28 @@ func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimens
 		})
 		d := layout.Dimensions{Size: image.Pt(size, size)}
 		if s.NeedYou > 0 {
-			bg, fg := badgeColors(th)
-			n := strconv.Itoa(s.NeedYou)
-			m := op.Record(gtx.Ops)
-			ld := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption)*0.85, fg, n)
-			call := m.Stop()
-			bh := gtx.Dp(14)
-			bw := max(bh, ld.Size.X+gtx.Dp(6))
-			at := image.Pt(size-bw, 0) // why: inside the button, whose clip would cut a badge over its corner
-			paint.FillShape(gtx.Ops, th.Sidebar, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}.Inset(-gtx.Dp(1)), bh/2+gtx.Dp(1)).Op(gtx.Ops))
-			rr := clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}, bh/2)
-			paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
-			paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Yellow, 0.6), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
-			o := op.Offset(at.Add(image.Pt((bw-ld.Size.X)/2, (bh-ld.Size.Y)/2))).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
+			countBadge(gtx, th, size, s.NeedYou)
 		}
 		return d
 	})
+}
+
+// countBadge draws n in a badge at the top right of a size-wide button.
+func countBadge(gtx layout.Context, th *theme.Theme, size, n int) {
+	bg, fg := badgeColors(th)
+	m := op.Record(gtx.Ops)
+	ld := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption)*0.85, fg, strconv.Itoa(n))
+	call := m.Stop()
+	bh := gtx.Dp(14)
+	bw := max(bh, ld.Size.X+gtx.Dp(6))
+	at := image.Pt(size-bw, 0) // why: inside the button, whose clip would cut a badge over its corner
+	paint.FillShape(gtx.Ops, th.Sidebar, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}.Inset(-gtx.Dp(1)), bh/2+gtx.Dp(1)).Op(gtx.Ops))
+	rr := clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}, bh/2)
+	paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Yellow, 0.6), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	o := op.Offset(at.Add(image.Pt((bw-ld.Size.X)/2, (bh-ld.Size.Y)/2))).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	o.Pop()
 }
 
 // badgeColors are the board button badge's fill and number: a yellow chip

@@ -26,6 +26,7 @@ takes `--dry-run`.
 
 - `pitwall kill` takes `@<id>`, a tab id or a pane id, as the other commands do; it said "no tab matches" before.
 - Close finished worker tabs after 10 minutes without an open PR or user activity, with a configurable delay and a parent-menu action to close them sooner.
+- Skillshare: while the `skillshare` CLI is on PATH, a sidebar button, Ctrl+Alt+S and the palette open a popup that says what waits for a sync, syncs and updates, previews skills, agents and MCP servers with secrets masked, installs from a repository after an audit, and asks the focused agent to audit a skill. See [Skillshare](docs/usage.md#skillshare).
 
 ## v0.2.10
 

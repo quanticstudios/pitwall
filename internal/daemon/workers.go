@@ -12,6 +12,7 @@ import (
 type workerClock struct {
 	since time.Time
 	turn  time.Time
+	turns uint64
 }
 
 // touchWorker restarts a tab's clock on focus or input. Callers hold d.mu.
@@ -68,9 +69,11 @@ func (d *Daemon) checkDoneWorkers(now time.Time) {
 		}
 		focused := false
 		var turn time.Time
+		var turns uint64
 		for _, p := range st.Panes {
 			if p.WorkspaceID == w.ID {
 				focused = focused || d.shownFocused(p.ID)
+				turns += d.turnCount[p.ID]
 			}
 		}
 		for _, a := range st.Activities {
@@ -82,8 +85,8 @@ func (d *Daemon) checkDoneWorkers(now time.Time) {
 			continue
 		}
 		clock, ok := d.doneWorkers[w.ID]
-		if !ok || !clock.turn.Equal(turn) {
-			clock = workerClock{since: now, turn: turn}
+		if !ok || !clock.turn.Equal(turn) || clock.turns != turns {
+			clock = workerClock{since: now, turn: turn, turns: turns}
 		}
 		if now.Sub(clock.since) < after {
 			next[w.ID] = clock

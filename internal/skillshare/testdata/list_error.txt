@@ -1,0 +1,3 @@
+
+✗ .skillshare/ in /home/demo/work/app holds skills or agents but has no config.yaml
+Restore it from version control, or run 'skillshare init -p' to write a new one

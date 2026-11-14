@@ -128,9 +128,15 @@ type Sidebar struct {
 	NeedYou int
 	// MonitorOn shows the monitor button pressed.
 	MonitorOn bool
-	bd        boardState // the board's own state, see Sidebar.Board
-	boardBt   widget.Clickable
-	monitorBt widget.Clickable
+	// Skillshare shows the footer's skillshare button, while the CLI is on
+	// PATH; SkillshareWaiting is its badge: what waits for a sync or has
+	// an update.
+	Skillshare        bool
+	SkillshareWaiting int
+	skillshareBt      widget.Clickable
+	bd                boardState // the board's own state, see Sidebar.Board
+	boardBt           widget.Clickable
+	monitorBt         widget.Clickable
 
 	undo             *undoNote
 	undoBtn, viewBtn widget.Clickable

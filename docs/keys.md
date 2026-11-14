@@ -88,6 +88,7 @@ conventional:
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
 | Ctrl+Shift+M                            | Show or hide the board: every agent tab as a card, by what it needs |
 | Ctrl+Alt+M                              | Show or hide the monitor: the machine's CPU, memory, drives, network and processes |
+| Ctrl+Alt+S                              | Show or hide skillshare, while its CLI is on PATH         |
 | Ctrl+Shift+Y / Ctrl+Shift+D             | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                            | New task: an agent on a prompt, started now or queued     |
 | Ctrl+Shift+S                            | Session switcher                                          |
@@ -133,6 +134,7 @@ aide:
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
 | Ctrl+Shift+M                      | Show or hide the board                         |
 | Ctrl+Alt+M                        | Show or hide the monitor                       |
+| Ctrl+Alt+S                        | Show or hide skillshare                        |
 | Ctrl+Shift+Y / Ctrl+Shift+D       | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                      | New task: an agent on a prompt, started now or queued |
 | Alt+S                             | Session switcher                               |
@@ -301,6 +303,12 @@ panes come back as they were. Its default is Ctrl+Alt+M in conventional and
 aide, Cmd+Option+M in mac: M as in the board's Ctrl+Shift+M, with the
 modifier `jump_last_prompt` uses beside `jump_attention`. It appears as
 "Show monitor" in the command palette.
+
+`toggle_skillshare` opens [skillshare](usage.md#skillshare) over the
+window, or closes it. Esc closes it too. Its default is Ctrl+Alt+S in
+conventional and aide, Cmd+Option+S in mac. It shows in Settings and in the
+command palette, as "Show skillshare", only while the `skillshare` CLI is
+on PATH.
 
 `open_monitor` opens the monitor as a Monitor tab of the shown tab's
 machine, which stays in the sidebar, or shows the one the session has. It

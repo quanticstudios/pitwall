@@ -100,6 +100,47 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### skillshare
+
+<https://github.com/runkids/skillshare>, MIT License, Copyright (c) 2025
+runkids. Read at commit `1f0077d2db6896dff2931a4485e1a7e557591e82`.
+
+skillshare syncs skills, agents, MCP servers, plugins and hooks to each
+agent's folders, and ships a panel for the herdr terminal. pitwall's
+skillshare popup took that panel's state model and its operations. Each
+adapted block carries a `// Adapted from skillshare (MIT): <path>` comment.
+
+| pitwall file | skillshare source |
+| --- | --- |
+| `internal/skillshare/model.go`, `internal/skillshare/parse.go` | `herdr/skillshare/mods/skillshare/model.js` (rows from the reads, the overview answer, MCP settings, frontmatter, clone URLs, dry run and audit results) |
+| `internal/skillshare/ops.go` | `herdr/skillshare/mods/skillshare/operations.js` (sync, update, enable, disable, uninstall) |
+| `internal/skillshare/run.go` | `herdr/skillshare/mods/skillshare/loader.js` (the preview) |
+| `internal/ui/app/skillshare.go` | `herdr/skillshare/mods/skillshare/main.js` (the install steps) |
+
+```text
+MIT License
+
+Copyright (c) 2025 runkids
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### charmbracelet/x/vt (vendored and patched)
 
 <https://github.com/charmbracelet/x>, MIT License, Copyright (c) Charmbracelet,

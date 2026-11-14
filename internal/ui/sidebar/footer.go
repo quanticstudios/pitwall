@@ -14,9 +14,15 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
+// ToggleSkillshare is a click on the footer's skillshare button.
+type ToggleSkillshare struct{}
+
+// icSkillshare is lucide sparkles: the skillshare button.
+const icSkillshare = "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0zM20 3v4M22 5h-4"
+
 // footer: the plan limits' meter when it shows, then Open folder as
-// group, the update button when there is one, detached tabs, comments
-// (disabled), settings.
+// group, the update button when there is one, skillshare while its CLI is
+// on PATH, detached tabs, settings.
 func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	th := v.th
 	w := gtx.Constraints.Max.X
@@ -44,7 +50,15 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	defer op.Offset(image.Pt(0, top)).Push(gtx.Ops).Pop()
 	h := 1 + 2*px + btn + top
 	gap := gtx.Dp(4)
-	addW := w - 2*px - 2*(btn+gap)
+	type footBtn struct {
+		c    *widget.Clickable
+		icon string
+	}
+	btns := []footBtn{{&s.detached, icDetach}, {&s.settings, icSettings}}
+	if s.Skillshare {
+		btns = append([]footBtn{{&s.skillshareBt, icSkillshare}}, btns...)
+	}
+	addW := w - 2*px - len(btns)*(btn+gap)
 	x := px + addW + gap
 	off := op.Offset(image.Pt(px, 1+px)).Push(gtx.Ops)
 	if s.Update != "" {
@@ -56,12 +70,12 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	}
 	off.Pop()
 
-	for i, b := range []struct {
-		c    *widget.Clickable
-		icon string
-	}{{&s.detached, icDetach}, {&s.settings, icSettings}} {
+	for i, b := range btns {
 		off := op.Offset(image.Pt(x+i*(btn+gap), 1+px)).Push(gtx.Ops)
 		iconButton(gtx, th, b.c, b.icon, btn, gtx.Dp(14), true)
+		if b.c == &s.skillshareBt && s.SkillshareWaiting > 0 {
+			countBadge(gtx, th, btn, s.SkillshareWaiting)
+		}
 		if b.c == &s.detached && s.detachedOpen {
 			m := op.Record(gtx.Ops)
 			at := image.Pt(x+i*(btn+gap), s.height-h+top+1+px)

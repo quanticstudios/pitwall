@@ -1,0 +1,19 @@
+{
+  "source": "file:///home/demo/src/skills-repo",
+  "tracked": false,
+  "dry_run": true,
+  "skills": [],
+  "skipped": [],
+  "failed": [],
+  "duration": "13ms",
+  "planned": [
+    {
+      "name": "bad-skill",
+      "path": "skills/bad-skill"
+    },
+    {
+      "name": "lint-rules",
+      "path": "skills/lint-rules"
+    }
+  ]
+}

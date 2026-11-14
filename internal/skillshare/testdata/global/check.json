@@ -1,0 +1,12 @@
+{
+  "tracked_repos": [],
+  "skills": [
+    {
+      "name": "lint-rules",
+      "source": "file:///home/demo/src/skills-repo//skills/lint-rules",
+      "version": "bfe1025",
+      "status": "update_available",
+      "installed_at": "2026-11-14"
+    }
+  ]
+}

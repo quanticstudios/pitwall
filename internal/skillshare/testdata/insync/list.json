@@ -1,0 +1,22 @@
+[
+  {
+    "name": "code-review",
+    "kind": "skill",
+    "relPath": "code-review"
+  },
+  {
+    "name": "format-on-save",
+    "kind": "skill",
+    "relPath": "format-on-save"
+  },
+  {
+    "name": "release-notes",
+    "kind": "skill",
+    "relPath": "release-notes"
+  },
+  {
+    "name": "reviewer",
+    "kind": "agent",
+    "relPath": "reviewer.md"
+  }
+]

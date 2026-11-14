@@ -1,0 +1,48 @@
+{
+  "source": {
+    "path": "/home/demo/.config/skillshare/config.yaml",
+    "configPath": "/home/demo/.config/skillshare/config.yaml",
+    "entries": {
+      "format-check": {
+        "description": "Format after an edit",
+        "bindings": {
+          "claude": {
+            "events": {
+              "PostToolUse": [
+                {
+                  "hooks": [
+                    {
+                      "command": "echo fmt",
+                      "type": "command"
+                    }
+                  ],
+                  "matcher": "Write"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "plan": {
+    "revision": "31046303ec7036282ad8cbbf6a677730c7e7467283e977679b6a337e6f311f4f",
+    "fingerprint": "074d7cfc6e93720387a2dd15321ff9ee411c4cb3cf8fc31acd59784c9f8ab33d",
+    "sourcePath": "/home/demo/.config/skillshare/config.yaml",
+    "blocked": false,
+    "changes": [
+      {
+        "target": "claude",
+        "path": "/home/demo/.claude/settings.json",
+        "name": "format-check",
+        "action": "add",
+        "events": {
+          "added": [
+            "PostToolUse"
+          ]
+        }
+      }
+    ],
+    "warnings": []
+  }
+}

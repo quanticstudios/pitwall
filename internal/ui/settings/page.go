@@ -35,6 +35,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -1008,6 +1009,9 @@ func (p *Page) shortcuts() []section {
 	}
 	var global, sessions, tab, pane []row
 	for _, a := range config.Actions() {
+		if a.Name == "toggle_skillshare" && !skillshare.Default.Installed() {
+			continue // nothing about skillshare shows without it
+		}
 		cs := chordsOf(b, a.Name, tableOf(a))
 		var names []string
 		for _, c := range cs {

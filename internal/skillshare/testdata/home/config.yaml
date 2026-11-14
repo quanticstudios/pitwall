@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/runkids/skillshare/main/schemas/config.schema.json
+
+sources:
+  skills: /home/demo/.config/skillshare/skills
+  agents: /home/demo/.config/skillshare/agents
+mode: merge
+targets:
+  claude:
+    skills:
+      path: /home/demo/.claude/skills
+  codex:
+    skills:
+      path: /home/demo/.agents/skills
+ignore:
+  - .DS_Store
+  - .git/
+  - __pycache__/
+audit:
+  block_threshold: CRITICAL
+mcp:
+  servers:
+    demo-server:
+      command: npx
+      args:
+        - demo-mcp
+        - --port
+        - "3000"
+      env:
+        API_TOKEN:
+          fromEnv: API_TOKEN
+        REGION: eu
+      targets:
+        - claude
+        - codex
+    docs-server:
+      url: https://example.com/mcp
+      targets:
+        - claude
+hooks:
+  entries:
+    format-check:
+      description: Format after an edit
+      bindings:
+        claude:
+          events:
+            PostToolUse:
+              - hooks:
+                  - command: echo fmt
+                    type: command
+                matcher: Write

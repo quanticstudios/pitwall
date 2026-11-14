@@ -62,6 +62,8 @@ type nav struct {
 	reviewBase map[string]reviewPick
 	// board asks the window to open or close the board.
 	board bool
+	// skillshare asks the window to open or close the skillshare popup.
+	skillshare bool
 	// monitor asks the window to open the shown tab's machine's Monitor tab.
 	monitor bool
 	// monitorView asks the window to show or hide the monitor.
@@ -1100,6 +1102,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.jumpAttention(st)
 	case "toggle_board":
 		n.board = true
+	case "toggle_skillshare":
+		n.skillshare = true
 	case "toggle_monitor":
 		n.monitorView = true
 	case "allow_prompt", "deny_prompt":
