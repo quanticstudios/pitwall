@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -70,7 +71,7 @@ func demoRun(ctx context.Context, dir string, args ...string) Result {
 }
 
 func demoPath(p string) (string, error) {
-	rest, ok := strings.CutPrefix(p, demoHome)
+	rest, ok := strings.CutPrefix(filepath.ToSlash(p), demoHome)
 	if !ok {
 		return "", fs.ErrNotExist
 	}
