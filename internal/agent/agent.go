@@ -817,9 +817,12 @@ func CodexDir(home string) string {
 	return filepath.Join(home, ".codex")
 }
 
-// OpenCodeDir is OpenCode's global config directory,
-// $XDG_CONFIG_HOME/opencode or ~/.config/opencode on every system.
+// OpenCodeDir is the custom discovery directory when OPENCODE_CONFIG_DIR
+// is set, else $XDG_CONFIG_HOME/opencode or ~/.config/opencode.
 func OpenCodeDir(home string) string {
+	if dir := os.Getenv("OPENCODE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
 	if x := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(x) {
 		return filepath.Join(x, "opencode")
 	}

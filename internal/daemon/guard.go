@@ -18,8 +18,8 @@ import (
 var errUnguarded = errors.New("guarded tab not started")
 
 // guardGate refuses a pane whose environment turns the guard on when the
-// guard would not run in it: its program is not Claude Code or Codex, or
-// pitwall's PreToolUse hook is missing from the config dir that program
+// guard would not run in it: its program has no checked guard, or
+// pitwall's hook, extension or plugin is missing from the config dir it
 // reads. env is what the pane gets on top of the daemon's own environment,
 // so a later entry wins, as it does for the process.
 func guardGate(cmd, env []string, cwd string) error {
@@ -56,17 +56,51 @@ func guardGate(cmd, env []string, cwd string) error {
 		}
 	case model.ProviderCodex:
 		key, dir = "CODEX_HOME", filepath.Join(home, ".codex")
+	case model.ProviderPi, model.ProviderOmp:
+		folder := ".pi"
+		if provider == model.ProviderOmp {
+			folder = ".omp"
+		}
+		key, dir = "PI_CODING_AGENT_DIR", filepath.Join(home, folder, "agent")
+		for _, arg := range cmd[1:] {
+			flag, _, _ := strings.Cut(arg, "=")
+			if arg == "--" {
+				break
+			}
+			if flag == "--no-extensions" || flag == "-ne" {
+				return fmt.Errorf("%w: %s disables pitwall's guard extension", errUnguarded, flag)
+			}
+		}
+	case model.ProviderOpenCode:
+		key, dir = "XDG_CONFIG_HOME", filepath.Join(home, ".config")
+		if v := get(key); filepath.IsAbs(v) {
+			dir = v
+		}
+		dir = filepath.Join(dir, "opencode")
+		key = "OPENCODE_CONFIG_DIR"
 	default:
-		return fmt.Errorf("%w: the guard covers Claude Code and Codex, not %s", errUnguarded, program)
+		return fmt.Errorf("%w: the guard covers Claude Code, Codex, pi, omp and OpenCode 1, not %s", errUnguarded, program)
 	}
 	if v := get(key); v != "" {
 		dir = v
+	}
+	if key == "PI_CODING_AGENT_DIR" {
+		if dir == "~" {
+			dir = home
+		} else if strings.HasPrefix(dir, "~/") {
+			dir = filepath.Join(home, dir[2:])
+		}
 	}
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(cwd, dir)
 	}
 	if err := agent.GuardHooked(provider, dir); err != nil {
 		return fmt.Errorf("%w: %v; run %s=%s pitwall hooks install", errUnguarded, err, key, dir)
+	}
+	if provider == model.ProviderOpenCode {
+		if err := agent.GuardOpenCode(cmd[0], cwd, env); err != nil {
+			return fmt.Errorf("%w: %v", errUnguarded, err)
+		}
 	}
 	return nil
 }

@@ -136,8 +136,8 @@ func daemonRow(m proto.StateMsg, err error) (ok bool, detail, fix string) {
 
 // hooksRows reports each file `pitwall hooks install` would write: ok when
 // a dry run leaves it unchanged. Claude Code's and Codex's files count only
-// when that agent is installed, and each of those gets a guard row: whether
-// a guarded tab of it may start.
+// when that agent is installed. Agents with a checked guard get a guard
+// row: whether their hook, extension or plugin is ready.
 func hooksRows(home string, short func(string) string, report func(ok bool, what, detail, fix string)) {
 	plans, err := planHooks([]string{"install"})
 	if err != nil {
@@ -148,14 +148,25 @@ func hooksRows(home string, short func(string) string, report func(ok bool, what
 	for _, a := range []struct {
 		provider model.Provider
 		dir, key string
-	}{{model.ProviderClaude, agent.ClaudeDir(home), "CLAUDE_CONFIG_DIR"}, {model.ProviderCodex, agent.CodexDir(home), "CODEX_HOME"}} {
+	}{{model.ProviderClaude, agent.ClaudeDir(home), "CLAUDE_CONFIG_DIR"}, {model.ProviderCodex, agent.CodexDir(home), "CODEX_HOME"},
+		{model.ProviderPi, agent.PiDir(home), "PI_CODING_AGENT_DIR"}, {model.ProviderOmp, agent.OmpDir(home), "PI_CODING_AGENT_DIR"},
+		{model.ProviderOpenCode, agent.OpenCodeDir(home), "OPENCODE_CONFIG_DIR"}} {
 		if !installed(string(a.provider), a.dir) {
 			skip = append(skip, a.dir+string(os.PathSeparator))
 			continue
 		}
 		// why: the daemon refuses a guarded tab with the same check, so the two cannot disagree.
-		if err := agent.GuardHooked(a.provider, a.dir); err != nil {
-			report(false, "guard", err.Error(), "pitwall hooks install; a profile's dir needs "+a.key+"=<dir> pitwall hooks install")
+		err := agent.GuardHooked(a.provider, a.dir)
+		fix := "pitwall hooks install; a profile's dir needs " + a.key + "=<dir> pitwall hooks install"
+		if err == nil && a.provider == model.ProviderOpenCode {
+			cwd, _ := os.Getwd()
+			err = agent.GuardOpenCode("opencode", cwd, nil)
+			if err != nil {
+				fix = "use OpenCode 1.4 or later in series 1 for a guarded tab; OpenCode 2 and unknown versions cannot be guarded"
+			}
+		}
+		if err != nil {
+			report(false, "guard", err.Error(), fix)
 		} else {
 			report(true, "guard", string(a.provider)+" in "+short(a.dir), "")
 		}

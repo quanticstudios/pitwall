@@ -207,8 +207,9 @@ const Version = 18
 const Level = 75
 
 // GuardGateLevel refuses to start a pane with the guard on unless it runs
-// Claude Code or Codex with pitwall's hooks in the config dir it reads. A
-// client sends a guarded start only to a daemon at this level or above.
+// an agent with pitwall's checked hook, extension or plugin in the config
+// dir it reads. A client sends a guarded start only to a daemon at this
+// level or above.
 const GuardGateLevel = 75
 
 // CloseDoneWorkersLevel adds finished-worker cleanup and retained result metadata.

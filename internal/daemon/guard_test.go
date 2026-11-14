@@ -14,8 +14,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// hookedDir is a Claude Code and Codex config dir with pitwall's hooks,
-// which run this test binary.
+// hookedDir has current pitwall hooks, extensions and a plugin, all using
+// this test binary.
 func hookedDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -23,12 +23,135 @@ func hookedDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for file, hooks := range map[string][]byte{"settings.json": agent.ClaudeHooks(self), "hooks.json": agent.CodexHooks(self)} {
-		if err := os.WriteFile(filepath.Join(dir, file), []byte(`{"hooks": `+string(hooks)+`}`), 0o600); err != nil {
+	for file, data := range map[string][]byte{
+		"settings.json":         []byte(`{"hooks": ` + string(agent.ClaudeHooks(self)) + `}`),
+		"hooks.json":            []byte(`{"hooks": ` + string(agent.CodexHooks(self)) + `}`),
+		"extensions/pitwall.ts": agent.PiExtension(self),
+		"plugins/pitwall.js":    agent.OpenCodePlugin(self),
+	} {
+		path := filepath.Join(dir, file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	return dir
+}
+
+func TestGuardGateExtensions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, key := range []string{"PI_CODING_AGENT_DIR", "OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "PITWALL_GUARD"} {
+		t.Setenv(key, "")
+	}
+	hooked, empty := hookedDir(t), t.TempDir()
+	for _, a := range []struct{ name, key, defaultDir, file string }{
+		{"pi", "PI_CODING_AGENT_DIR", filepath.Join(home, ".pi", "agent"), "extensions/pitwall.ts"},
+		{"omp", "PI_CODING_AGENT_DIR", filepath.Join(home, ".omp", "agent"), "extensions/pitwall.ts"},
+		{"opencode", "OPENCODE_CONFIG_DIR", filepath.Join(home, ".config", "opencode"), "plugins/pitwall.js"},
+	} {
+		program := a.name
+		if a.name == "opencode" {
+			if runtime.GOOS == "windows" {
+				continue
+			} // version fixture is a shell script
+			program = filepath.Join(t.TempDir(), "opencode")
+			if err := os.WriteFile(program, []byte("#!/bin/sh\nprintf '%s\\n' \"${GUARD_TEST_VERSION:-1.4.0}\"\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		data, err := os.ReadFile(filepath.Join(hooked, a.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(a.defaultDir, a.file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		relative, err := filepath.Rel(home, hooked)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct {
+			name, daemon string
+			cmd, env     []string
+			want         bool
+		}{
+			{"default", "", []string{program}, nil, true},
+			{"request", "", []string{program}, []string{a.key + "=" + hooked}, true},
+			{"daemon", hooked, []string{program}, nil, true},
+			{"missing overrides daemon", hooked, []string{program}, []string{a.key + "=" + empty}, false},
+			{"relative", "", []string{program}, []string{a.key + "=" + relative}, true},
+			{"tilde", "", []string{program}, []string{a.key + "=~/" + filepath.ToSlash(relative)}, true},
+			{"no extensions", "", []string{program, "--no-extensions"}, []string{a.key + "=" + hooked}, false},
+			{"no extensions short", "", []string{program, "-ne"}, []string{a.key + "=" + hooked}, false},
+			{"OpenCode2", "", []string{program}, []string{a.key + "=" + hooked, "GUARD_TEST_VERSION=2.0.0"}, false},
+			{"unknown version", "", []string{program}, []string{a.key + "=" + hooked, "GUARD_TEST_VERSION=unknown"}, false},
+		} {
+			if a.name == "opencode" && (strings.HasPrefix(tc.name, "no extensions") || tc.name == "tilde") {
+				continue
+			}
+			if a.name != "opencode" && (tc.name == "OpenCode2" || tc.name == "unknown version") {
+				continue
+			}
+			t.Run(a.name+"/"+tc.name, func(t *testing.T) {
+				t.Setenv(a.key, tc.daemon)
+				f := &fakes{statsCalls: map[string]int{}}
+				d, err := NewWith(f.options())
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = d.handle(context.Background(), proto.NewSession{Cwd: home, Cmd: tc.cmd, Env: append([]string{"PITWALL_GUARD=1"}, tc.env...)})
+				if (err == nil) != tc.want {
+					t.Fatalf("start = %v, want success %v", err, tc.want)
+				}
+				if !tc.want && (!errors.Is(err, errUnguarded) || len(snapshot(d).Panes) != 0 || len(f.panes) != 0) {
+					t.Fatalf("refusal left a pane: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestGuardGateOpenCodeXDG(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("version fixture is a shell script")
+	}
+	home, xdg := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(xdg, "opencode", "plugins", "pitwall.js")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, agent.OpenCodePlugin(self), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(home, "opencode")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\necho 1.4.0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{xdg, true}, {t.TempDir(), false}, {"relative-config", false},
+	} {
+		err := guardGate([]string{program}, []string{"PITWALL_GUARD=1", "XDG_CONFIG_HOME=" + tc.value}, home)
+		if (err == nil) != tc.want {
+			t.Fatalf("XDG_CONFIG_HOME=%q: %v, want success %v", tc.value, err, tc.want)
+		}
+	}
 }
 
 // The config directory is relative to the pane's cwd and default home,

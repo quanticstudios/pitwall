@@ -25,7 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - A tab started with the guard, here or with `--host`, no longer starts when pitwall's hooks are missing from the agent's config folder, and a worker that takes over after CI fails keeps the guard.
-- A guarded tab starts only Claude Code or Codex, the agents whose hook pitwall checks; pi, omp and OpenCode tabs no longer take the guard. The check uses the tab's home and working folder, requires a synchronous hook for every tool, and refuses Claude options that skip or override user hooks. `pitwall doctor` has a guard line for Claude Code and Codex, and a guarded agent that cannot be resumed after a restart says why in the window.
+- A guarded tab starts Claude Code or Codex with pitwall's hook, or pi, omp or OpenCode 1 with the current pitwall extension or plugin. The check uses the tab's home and working folder, requires a synchronous guard, and refuses options that skip it. OpenCode 2 and unknown versions are refused. `pitwall doctor` checks the same guard files, and a guarded agent that cannot be resumed after a restart says why in the window.
 - In a pitwall pane, `pitwall new --host` takes only a `[[hosts]]` name, and a `[[hosts]]` entry named `local` is a config problem and ignored, since `local` means this machine.
 
 ## v0.2.12

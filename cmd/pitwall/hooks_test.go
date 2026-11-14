@@ -37,10 +37,26 @@ func hooksHome(t *testing.T) string {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return testBin, nil }
 	t.Cleanup(func() { hookExecutable = previous })
 	return home
+}
+
+func TestHooksOpenCodeConfigDir(t *testing.T) {
+	home := hooksHome(t)
+	dir := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG_DIR", dir)
+	if err := runHooks([]string{"install"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHooksTestFile(t, filepath.Join(dir, "plugins", "pitwall.js")); !bytes.Equal(got, agent.OpenCodePlugin(testBin)) {
+		t.Fatal("custom config directory did not get the current plugin")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "pitwall.js")); !os.IsNotExist(err) {
+		t.Fatalf("plugin written outside custom config: %v", err)
+	}
 }
 
 func writeHooksTestFile(t *testing.T, path, data string) {

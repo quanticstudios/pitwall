@@ -53,7 +53,8 @@ pi's extension, which knows omp by its process title and reports as omp.
 
 OpenCode takes plugins rather than shell hooks, so for OpenCode the command
 writes `~/.config/opencode/plugins/pitwall.js` (under `$XDG_CONFIG_HOME`
-when set), when `opencode` is on your `PATH` or that directory exists. The
+when set, or in `$OPENCODE_CONFIG_DIR/plugins` when that override is set),
+when `opencode` is on your `PATH` or that directory exists. The
 plugin works like pi's extension: inside a pitwall pane it runs `pitwall
 hook opencode` in the background, one at a time, on each prompt, tool call,
 permission prompt, question, and finished, failed or aborted run of the main

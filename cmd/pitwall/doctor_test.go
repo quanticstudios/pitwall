@@ -105,3 +105,37 @@ func TestDoctorGuard(t *testing.T) {
 		t.Errorf("guard rows %q, want %q", rows, want)
 	}
 }
+
+func TestDoctorGuardExtensions(t *testing.T) {
+	home := hooksHome(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeHooksTestFile(t, filepath.Join(agent.PiDir(home), "extensions", "pitwall.ts"), string(agent.PiExtension(self)))
+	writeHooksTestFile(t, filepath.Join(agent.OmpDir(home), "extensions", "pitwall.ts"), string(agent.OmpExtension(self)))
+	writeHooksTestFile(t, filepath.Join(agent.OpenCodeDir(home), "plugins", "pitwall.js"), string(agent.OpenCodePlugin(self)))
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\nprintf '%s\\n' \"$GUARD_TEST_VERSION\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	for _, version := range []string{"1.4.0", "2.0.0"} {
+		t.Setenv("GUARD_TEST_VERSION", version)
+		var rows []string
+		hooksRows(home, func(s string) string { return s }, func(ok bool, what, detail, fix string) {
+			if what == "guard" {
+				rows = append(rows, fmt.Sprint(ok, " ", detail))
+			}
+		})
+		if len(rows) != 3 || !strings.HasPrefix(rows[0], "true pi in ") || !strings.HasPrefix(rows[1], "true omp in ") {
+			t.Fatalf("rows %v", rows)
+		}
+		if version == "1.4.0" && !strings.HasPrefix(rows[2], "true opencode in ") {
+			t.Fatalf("OpenCode 1 rows %v", rows)
+		}
+		if version == "2.0.0" && (!strings.HasPrefix(rows[2], "false ") || !strings.Contains(rows[2], "OpenCode 2")) {
+			t.Fatalf("OpenCode 2 rows %v", rows)
+		}
+	}
+}

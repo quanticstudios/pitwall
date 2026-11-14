@@ -17,9 +17,9 @@ ok   config: ~/.config/pitwall/config.toml
 It checks that the `pitwall` on your `PATH` is the binary you ran, that the
 daemon answers with the same version and protocol, that every installed
 agent's hooks, plugin or extension, and pitwall skill are in place and
-unedited, that a [guarded](usage.md#the-guard) Claude Code or Codex tab
-may start, and that `config.toml` loads. Over ssh on a Linux host with
-systemd, it also checks linger (see [Remote hosts](remote.md)). Each `FAIL`
+unedited, that installed agents have their [guard](usage.md#the-guard)
+hook, extension or plugin, and that `config.toml` loads. Over ssh on a Linux
+host with systemd, it also checks linger (see [Remote hosts](remote.md)). Each `FAIL`
 names the command that fixes it, and the exit status is 1 while any line
 fails. A daemon that is not running is only `info`: the window starts one.
 Codex still needs `/hooks` once to trust its hooks, which doctor cannot see.
