@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -365,6 +366,26 @@ func fleetState(s1, s2 model.AgentState) proto.StateMsg {
 		}
 	}
 	return proto.StateMsg{State: s}
+}
+
+func TestCLIWaitChildrenBackgroundTasks(t *testing.T) {
+	for _, kind := range []string{"shell", "monitor"} {
+		for _, until := range []string{"idle", "done"} {
+			t.Run(kind+"/"+until, func(t *testing.T) {
+				payload := fmt.Sprintf(`{"hook_event_name":"Stop","background_tasks":[{"type":%q,"status":"running"}]}`, kind)
+				a, ok := agent.Derive(nil, model.ProviderClaude, []byte(payload), time.Now())
+				if !ok {
+					t.Fatal("Stop hook did not produce an activity")
+				}
+				fakeWatch(t, fleetState(a.State, model.StateCompleted))
+				t.Setenv("PITWALL_PANE", "po")
+				code, out, stderr := cliOutput("wait", "--children", "--until", until, "--timeout", "50ms")
+				if code != 124 || out != "" {
+					t.Fatalf("code %d out %q stderr %q; want timeout", code, out, stderr)
+				}
+			})
+		}
+	}
 }
 
 func TestCLIWaitChildren(t *testing.T) {

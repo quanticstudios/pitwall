@@ -123,6 +123,34 @@ func TestDerive(t *testing.T) {
 	}
 }
 
+func TestBackgroundRunning(t *testing.T) {
+	for _, kind := range []string{"shell", "monitor", "subagent", "workflow", "teammate", "cloud session", "MCP task", "future task"} {
+		for _, status := range []string{"running", "completed", "failed", "killed", ""} {
+			t.Run(kind+"/"+status, func(t *testing.T) {
+				b, err := json.Marshal(map[string]any{
+					"hook_event_name":  "Stop",
+					"background_tasks": []map[string]string{{"type": kind, "status": status}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := status == "running"
+				if got := BackgroundRunning(b); got != want {
+					t.Errorf("BackgroundRunning = %v, want %v", got, want)
+				}
+				a, ok := Derive(nil, model.ProviderClaude, b, time.Now())
+				state := model.StateCompleted
+				if want {
+					state = model.StateWorking
+				}
+				if !ok || a.State != state {
+					t.Errorf("Derive = %q, %v; want %q, true", a.State, ok, state)
+				}
+			})
+		}
+	}
+}
+
 func TestSubagentHook(t *testing.T) {
 	if !SubagentHook(fixture(t, "claude_subagent_stop")) || SubagentHook(fixture(t, "claude_pre_tool_use")) {
 		t.Fatal("subagent identity did not match the hook fixtures")

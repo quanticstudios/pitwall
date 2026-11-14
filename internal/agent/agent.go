@@ -112,7 +112,7 @@ type payload struct {
 //	Notification idle_prompt, others        no change (an idle reminder must not undo completed)
 //	Stop                                    completed, Detail = the start of the last message,
 //	                                        even when the turn ends on a question;
-//	                                        working while a background subagent or workflow runs
+//	                                        working while any background task runs
 //	StopFailure (Claude)                    error, Detail = the API error text
 //	SubagentStop                            no change (the main turn is still going)
 //	SessionStart                            no change: Claude and Codex fire it when
@@ -335,7 +335,7 @@ func BackgroundRunning(b []byte) bool {
 
 func (p payload) backgroundRunning() bool {
 	for _, t := range p.BackgroundTasks {
-		if (t.Type == "subagent" || t.Type == "workflow") && t.Status == "running" {
+		if t.Status == "running" {
 			return true
 		}
 	}
