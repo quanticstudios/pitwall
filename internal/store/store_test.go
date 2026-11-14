@@ -60,7 +60,7 @@ func TestSaveLoad(t *testing.T) {
 		Stats:      map[string]model.BranchStats{"workspace": {Additions: 10, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 1, Behind: 3}},
 		Tasks:      []model.Task{{ID: "task", SessionID: "s", GroupID: "project", Dir: "/repo", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}},
 		Closed: []model.ClosedTab{{ID: "closed", Tab: model.Workspace{ID: "worker", ClientID: true},
-			Origin: model.Origin{Daemon: "other", Session: "origin"}, ClosedAt: time.Now().Round(0)}},
+			Origin: model.Origin{Daemon: "other", Session: "origin"}, ClosedAt: time.Now().UTC().Round(0)}},
 	}
 	// Overwrite an existing snapshot as well as creating the first one.
 	for _, state := range []model.State{{}, want} {
