@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,9 +28,9 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 
 // addSession is newSession, placing the tab right after the tab after, in
 // its group or, when after is ungrouped, at the top level. With create set
-// the tab goes into a new session named *create (generated when ""). prep,
+// the tab goes into a new session with create's name and origin. prep,
 // when set, fills in the tab before its pane starts, under d.mu.
-func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *string, prep func(*model.Workspace)) error {
+func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *model.Session, prep func(*model.Workspace)) error {
 	if m.Monitor {
 		m.Cwd, m.Cmd, m.Env, m.Loose = "", nil, nil, m.GroupID == ""
 	}
@@ -79,10 +80,21 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	at, sessions := len(d.st.Workspaces), len(d.st.Sessions)
 	switch {
 	case create != nil:
-		if *create != "" && d.st.SessionNamed(*create) != nil {
-			return fmt.Errorf("a session is already named %s", *create)
+		name := create.Name
+		if create.Origin != (model.Origin{}) {
+			// The lookup, free name and creation share the same lock: other
+			// clients may have made a part while we read the folder above.
+			if d.st.PartOf(create.Origin) != nil {
+				return nil
+			}
+			for n, base := 2, name; name != "" && d.st.SessionNamed(name) != nil; n++ {
+				name = base + "-" + strconv.Itoa(n)
+			}
+		} else if name != "" && d.st.SessionNamed(name) != nil {
+			return fmt.Errorf("a session is already named %s", name)
 		}
-		m.SessionID, m.GroupID = d.makeSession(*create), ""
+		m.SessionID, m.GroupID = d.makeSession(name), ""
+		d.st.Session(m.SessionID).Origin = create.Origin
 	case after != "":
 		i := slices.IndexFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.ID == after })
 		if i < 0 {

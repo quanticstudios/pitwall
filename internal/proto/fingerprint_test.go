@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/quanticstudios/pitwall/internal/model"
 )
 
 var update = flag.Bool("update", false, "record the current wire layout in testdata/wire.txt")
@@ -174,5 +176,18 @@ func TestSinceMonitorTab(t *testing.T) {
 	}
 	if got := Since(NewSession{}); got != 0 {
 		t.Errorf("Since(NewSession{}) = %d, want 0", got)
+	}
+}
+
+// An older daemon would drop a part's Origin and make an ordinary session.
+func TestSinceOrigin(t *testing.T) {
+	if got := Since(SessionNew{Origin: model.Origin{Daemon: "d", Session: "s"}}); got != OriginLevel {
+		t.Errorf("Since(SessionNew{Origin}) = %d, want %d", got, OriginLevel)
+	}
+	if got := Since(SessionNew{}); got != 0 {
+		t.Errorf("Since(SessionNew{}) = %d, want 0", got)
+	}
+	if got := Since(SetOrigin{}); got != OriginLevel {
+		t.Errorf("Since(SetOrigin{}) = %d, want %d", got, OriginLevel)
 	}
 }

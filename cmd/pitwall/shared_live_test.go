@@ -349,4 +349,78 @@ func TestSharedSessionLive(t *testing.T) {
 	if got := boxTabCount(); got != n+1 {
 		t.Fatalf("missing extension left %d tabs, want %d", got, n+1)
 	}
+
+	// A part belongs to the session that made it. The window's part of ls
+	// names this machine's daemon and ls.
+	boxState := func() model.State {
+		t.Helper()
+		c, done, err := dialHost("box")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer done()
+		m, err := syncMsg(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.State
+	}
+	hereSt := local.State()
+	here := hereSt.Daemon
+	bs := boxState()
+	if lsPart := bs.Session(hereSt.Session(ls.ID).Remote("box").Session); here == "" || lsPart == nil || lsPart.Origin != (model.Origin{Daemon: here, Session: ls.ID}) {
+		t.Fatalf("daemon %q; box's part of %s: %+v", here, ls.ID, lsPart)
+	}
+	// box has a session named agents a person made there, and another
+	// machine's part of its own agents session.
+	other := model.Origin{Daemon: "other-daemon", Session: "other-session"}
+	bc, bdone, err := dialHost("box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, msg := range []any{proto.SessionNew{Name: "agents", Cwd: home}, proto.SessionNew{Name: "agents", Cwd: home, Origin: other}} {
+		if _, err := syncCLI(bc, msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bdone()
+	if code, _, errOut := cliOutput("session", "new", "-d", "agents", home); code != 0 {
+		t.Fatalf("local agents session: %d %q", code, errOut)
+	}
+	// An agent here opens a tab on box in its agents session: it makes a
+	// part of its own and joins neither of the two.
+	t.Setenv("PITWALL_PANE", lp)
+	code, out, errOut = cliOutput("new", "-s", "agents", "--host", "box", "--", "sleep", "60")
+	t.Setenv("PITWALL_PANE", "")
+	if code != 0 || !strings.HasPrefix(out, "#box:") {
+		t.Fatalf("an agent's new --host box: %d %q %q", code, out, errOut)
+	}
+	var agents model.Session
+	waitFor(t, "agents linked to its part", func() bool {
+		st := local.State()
+		if s := st.SessionNamed("agents"); s != nil && s.Remote("box") != nil {
+			agents = *s
+			return true
+		}
+		return false
+	})
+	bs = boxState()
+	mine, plain, theirs := bs.PartOf(model.Origin{Daemon: here, Session: agents.ID}), bs.SessionNamed("agents"), bs.PartOf(other)
+	if mine == nil || mine.Name != "agents-3" || agents.Remote("box").Session != mine.ID || len(bs.Numbered(mine.ID)) != 1 ||
+		plain == nil || plain.Origin != (model.Origin{}) || len(bs.Numbered(plain.ID)) != 1 || theirs == nil || len(bs.Numbered(theirs.ID)) != 1 {
+		t.Fatalf("box's sessions after an agent's start: %+v", bs.Sessions)
+	}
+	// Killing agents here ends its part on box and leaves the other two.
+	plainID, theirsID, mineID := plain.ID, theirs.ID, mine.ID
+	if err := m.Send(proto.SessionKill{SessionID: agents.ID}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "agents' part gone from box", func() bool {
+		bs := boxState()
+		return bs.Session(mineID) == nil
+	})
+	bs = boxState()
+	if len(bs.Numbered(plainID)) != 1 || len(bs.Numbered(theirsID)) != 1 {
+		t.Fatalf("a kill reached another session's tabs on box: %+v", bs.Sessions)
+	}
 }

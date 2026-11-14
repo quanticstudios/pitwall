@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -261,5 +262,110 @@ func TestNewTabHomeFolder(t *testing.T) {
 	must(t, d.handle(context.Background(), proto.NewSession{Cwd: "~/src"}))
 	if st := d.state(); len(st.Workspaces) != 1 || st.Workspaces[0].Path != filepath.Join(home, "src") {
 		t.Fatalf("workspaces %+v", st.Workspaces)
+	}
+}
+
+// A part of another machine's session is made once per Origin, under a
+// free name, keeps its Origin, and a kill of one part leaves another
+// part's tabs, even one of the same name.
+func TestPartOrigin(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Load = func() (model.State, error) { return model.State{Daemon: "saved"}, nil }
+	if d := newDaemon(t, o); d.state().Daemon != "saved" {
+		t.Fatalf("daemon id %q, want the saved one", d.state().Daemon)
+	}
+	d := newDaemon(t, f.options())
+	if d.state().Daemon == "" {
+		t.Fatal("a daemon with no saved id made none")
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	a := model.Origin{Daemon: "here", Session: "s1"}
+	b := model.Origin{Daemon: "other", Session: "s1"}
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir})) // a person's
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir, Origin: a}))
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir, Origin: a}))
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir, Origin: b}))
+	st := d.state()
+	pa, pb, own := st.PartOf(a), st.PartOf(b), st.SessionNamed("work")
+	if len(st.Sessions) != 3 || pa == nil || pb == nil || pa.Name != "work-2" || pb.Name != "work-3" || own.Origin != (model.Origin{}) {
+		t.Fatalf("sessions %+v", st.Sessions)
+	}
+	if len(st.Numbered(pa.ID)) != 1 {
+		t.Fatalf("a repeated SessionNew opened %d tabs in its part", len(st.Numbered(pa.ID)))
+	}
+	if d.handle(ctx, proto.SessionNew{Name: "x", Cwd: dir, Origin: model.Origin{Daemon: "here"}}) == nil {
+		t.Fatal("an origin with no session was taken")
+	}
+
+	// SetOrigin stamps an unstamped session once and never moves a part.
+	c := model.Origin{Daemon: "here", Session: "s2"}
+	if d.handle(ctx, proto.SetOrigin{SessionID: own.ID, Origin: a}) == nil {
+		t.Fatal("two sessions with one origin")
+	}
+	must(t, d.handle(ctx, proto.SetOrigin{SessionID: own.ID, Origin: c}))
+	must(t, d.handle(ctx, proto.SetOrigin{SessionID: own.ID, Origin: c}))
+	if d.handle(ctx, proto.SetOrigin{SessionID: own.ID, Origin: b}) == nil || d.handle(ctx, proto.SetOrigin{SessionID: pa.ID, Origin: b}) == nil {
+		t.Fatal("a part's origin changed")
+	}
+	st = d.state()
+	if got := st.PartOf(c); got == nil || got.ID != own.ID {
+		t.Fatalf("stamped session %+v", got)
+	}
+
+	// Killing one part leaves the other's tabs.
+	must(t, d.handle(ctx, proto.SessionKill{SessionID: pa.ID}))
+	st = d.state()
+	if st.PartOf(a) != nil || st.PartOf(b) == nil || len(st.Numbered(pb.ID)) != 1 {
+		t.Fatalf("after killing one part: %+v", st.Sessions)
+	}
+}
+
+// Folder inspection happens outside d.mu. Requests reaching that point
+// together must still choose one part per origin and distinct free names.
+func TestPartOriginConcurrent(t *testing.T) {
+	for _, sameOrigin := range []bool{true, false} {
+		t.Run(map[bool]string{true: "same origin, different names", false: "different origins, same name"}[sameOrigin], func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			o := f.options()
+			entered, release := make(chan struct{}, 2), make(chan struct{})
+			o.Branch = func(context.Context, string) (string, bool) {
+				entered <- struct{}{}
+				<-release
+				return "", false
+			}
+			d := newDaemon(t, o)
+			a := proto.SessionNew{Name: "work", Cwd: t.TempDir(), Origin: model.Origin{Daemon: "here", Session: "s1"}}
+			b := a
+			if sameOrigin {
+				b.Name = "renamed"
+			} else {
+				b.Origin.Session = "s2"
+			}
+			var wg sync.WaitGroup
+			errs := make(chan error, 2)
+			for _, request := range []proto.SessionNew{a, b} {
+				wg.Go(func() { errs <- d.handle(context.Background(), request) })
+			}
+			<-entered
+			<-entered
+			close(release)
+			wg.Wait()
+			for range 2 {
+				must(t, <-errs)
+			}
+			st := d.state()
+			want := 2
+			if sameOrigin {
+				want = 1
+			}
+			if len(st.Sessions) != want || len(st.Workspaces) != want || st.PartOf(a.Origin) == nil || st.PartOf(b.Origin) == nil {
+				t.Fatalf("sessions %+v; tabs %d, want %d", st.Sessions, len(st.Workspaces), want)
+			}
+			if !sameOrigin && (st.SessionNamed("work") == nil || st.SessionNamed("work-2") == nil) {
+				t.Fatalf("parts did not choose free names: %+v", st.Sessions)
+			}
+		})
 	}
 }

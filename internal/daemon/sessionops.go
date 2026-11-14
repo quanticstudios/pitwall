@@ -71,6 +71,9 @@ func (d *Daemon) makeSession(name string) string {
 
 // sessionNew makes a session with a shell tab.
 func (d *Daemon) sessionNew(ctx context.Context, m proto.SessionNew) error {
+	if m.Origin != (model.Origin{}) {
+		return d.partNew(ctx, m)
+	}
 	d.mu.Lock()
 	name := ""
 	if m.Name != "" {
@@ -81,7 +84,47 @@ func (d *Daemon) sessionNew(ctx context.Context, m proto.SessionNew) error {
 		}
 	}
 	d.mu.Unlock()
-	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &name, nil)
+	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &model.Session{Name: name}, nil)
+}
+
+// partNew makes the part m.Origin names, under m.Name or the first of
+// m.Name-2, m.Name-3... no session has; a part it has already stays.
+func (d *Daemon) partNew(ctx context.Context, m proto.SessionNew) error {
+	if m.Origin.Daemon == "" || m.Origin.Session == "" {
+		return errors.New("a session's origin names a daemon and a session")
+	}
+	d.mu.Lock()
+	if d.st.PartOf(m.Origin) != nil {
+		d.mu.Unlock()
+		return nil
+	}
+	d.mu.Unlock()
+	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &model.Session{Name: strings.TrimSpace(m.Name), Origin: m.Origin}, nil)
+}
+
+// setOrigin stamps a part made before parts had an Origin.
+func (d *Daemon) setOrigin(m proto.SetOrigin) error {
+	if m.Origin.Daemon == "" || m.Origin.Session == "" {
+		return errors.New("a session's origin names a daemon and a session")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := d.st.Session(m.SessionID)
+	if s == nil {
+		return fmt.Errorf("no session %s", m.SessionID)
+	}
+	if s.Origin == m.Origin {
+		return nil
+	}
+	if s.Origin != (model.Origin{}) {
+		return fmt.Errorf("session %s is the part of another machine's session", s.Name)
+	}
+	if o := d.st.PartOf(m.Origin); o != nil {
+		return fmt.Errorf("session %s is already that session's part", o.Name)
+	}
+	s.Origin = m.Origin
+	d.changed()
+	return nil
 }
 
 func (d *Daemon) sessionRename(m proto.SessionRename) error {
@@ -282,7 +325,7 @@ func (d *Daemon) firstSession(ctx context.Context, cwd, name string) error {
 	}
 	if s == nil {
 		d.mu.Unlock()
-		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &name, nil)
+		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &model.Session{Name: name}, nil)
 	}
 	id := s.ID
 	// A shared session may have its tabs on other hosts only.

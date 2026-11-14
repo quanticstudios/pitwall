@@ -78,7 +78,12 @@ func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 			}
 			for _, exchange := range exchanges {
 				if exchange.request != nil {
-					if got, err := c.Recv(); err != nil || !reflect.DeepEqual(got, exchange.request) {
+					got, err := c.Recv()
+					matches := reflect.DeepEqual(got, exchange.request)
+					if check, ok := exchange.request.(func(any) bool); ok && err == nil {
+						matches = check(got)
+					}
+					if err != nil || !matches {
 						return fmt.Errorf("request = %#v, %v; want %#v", got, err, exchange.request)
 					}
 				}
@@ -578,13 +583,13 @@ func TestNewOnHostRefuses(t *testing.T) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
-	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}}, false)
+	_, err := newOnHost(nil, "", &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}}, false)
 	if err == nil || !strings.Contains(err.Error(), "would drop") {
 		t.Fatalf("an old host took a guarded tab: %v", err)
 	}
 	// A host that keeps the guard's variable but would not check its hooks.
 	fakeCLI(t, cliExchange{state: model.State{}, level: proto.GuardGateLevel - 1})
-	_, err = newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"FOO=1", "PITWALL_GUARD=1"}}, false)
+	_, err = newOnHost(nil, "", &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"FOO=1", "PITWALL_GUARD=1"}}, false)
 	if err == nil || !strings.HasPrefix(err.Error(), "box: ") || !strings.Contains(err.Error(), "without checking for pitwall's hooks") {
 		t.Fatalf("a host below GuardGateLevel took a guarded tab: %v", err)
 	}
@@ -611,7 +616,7 @@ func TestNewOnHostGuardRefusalCleanup(t *testing.T) {
 				c, err := dialCLI()
 				return c, func() { c.Close() }, err
 			}
-			_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: cmd, Env: tab.Env}, false)
+			_, err := newOnHost(nil, "", &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: cmd, Env: tab.Env}, false)
 			if err == nil || !strings.Contains(err.Error(), "guarded tab not started") {
 				t.Fatalf("start = %v", err)
 			}
@@ -662,8 +667,101 @@ func TestNewOnHostAmbiguous(t *testing.T) {
 		return c, func() { c.Close() }, err
 	}
 	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
-	_, err := newOnHost(nil, session, "box", proto.NewSession{Cmd: []string{"sh"}}, true)
+	_, err := newOnHost(nil, "", session, "box", proto.NewSession{Cmd: []string{"sh"}}, true)
 	if err == nil || !strings.Contains(err.Error(), "not detached") {
 		t.Fatalf("detached a tab it could not tell apart: %v", err)
+	}
+}
+
+// TestPartOn: a host's part of a session is the linked one, else the one
+// made for the session's origin, else, for a person only, a session of the
+// same name made for none. A part made for another session never is.
+func TestPartOn(t *testing.T) {
+	ours := model.Origin{Daemon: "here", Session: "s"}
+	other := model.Origin{Daemon: "there", Session: "s"}
+	hs := model.State{Sessions: []model.Session{
+		{ID: "plain", Name: "main"},
+		{ID: "theirs", Name: "main-2", Origin: other},
+		{ID: "mine", Name: "main-3", Origin: ours},
+	}}
+	linked := func(to string) *model.Session {
+		return &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: to}}}
+	}
+	unlinked := &model.Session{ID: "s", Name: "main"}
+	for _, c := range []struct {
+		name    string
+		session *model.Session
+		origin  model.Origin
+		byName  bool
+		want    string
+	}{
+		{"linked, stamped", linked("mine"), ours, false, "mine"},
+		{"linked before origins", linked("plain"), ours, false, "plain"},
+		{"linked to another's part", linked("theirs"), ours, true, "mine"},
+		{"by origin", unlinked, ours, false, "mine"},
+		{"agent never by name", &model.Session{ID: "new", Name: "main"}, model.Origin{Daemon: "here", Session: "new"}, false, ""},
+		{"person by name", &model.Session{ID: "new", Name: "main"}, model.Origin{Daemon: "here", Session: "new"}, true, "plain"},
+		{"never another's by name", &model.Session{ID: "new", Name: "main-2"}, model.Origin{Daemon: "here", Session: "new"}, true, ""},
+		{"old host, by name", unlinked, model.Origin{}, true, "plain"},
+		{"old host, linked to a stamped part", linked("theirs"), model.Origin{}, false, ""},
+	} {
+		got := ""
+		if p := partOn(hs, c.session, "box", c.origin, c.byName); p != nil {
+			got = p.ID
+		}
+		if got != c.want {
+			t.Errorf("%s: part %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// An agent pane's --host needs a host that keeps each session's part
+// apart; a person's shell may still use an older one.
+func TestNewOnHostOriginLevel(t *testing.T) {
+	fakeCLI(t, cliExchange{state: model.State{}, level: proto.OriginLevel - 1})
+	prev := dialHost
+	t.Cleanup(func() { dialHost = prev })
+	dialHost = func(string) (*cliConn, func(), error) {
+		c, err := dialCLI()
+		return c, func() { c.Close() }, err
+	}
+	t.Setenv("PITWALL_PANE", "p1")
+	_, err := newOnHost(nil, "here", &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}}, false)
+	if err == nil || !strings.HasPrefix(err.Error(), "box: ") || !strings.Contains(err.Error(), "another session's of the same name") {
+		t.Fatalf("an agent used a host below OriginLevel: %v", err)
+	}
+	t.Setenv("PITWALL_PANE", "")
+	if err := hostLevel(nil, proto.OriginLevel-1); err != nil {
+		t.Fatalf("a person's shell: %v", err)
+	}
+}
+
+// Another client finished creating the part after our first state. Its
+// sole worker is not our bootstrap shell, even though SessionNew succeeds.
+func TestNewOnHostConcurrentPart(t *testing.T) {
+	origin := model.Origin{Daemon: "here", Session: "s"}
+	part := model.Session{ID: "p", Name: "main", Origin: origin}
+	existing := model.Workspace{ID: "worker", SessionID: "p"}
+	before := model.State{Sessions: []model.Session{part}, Workspaces: []model.Workspace{existing}}
+	after := before
+	after.Workspaces = []model.Workspace{existing, {ID: "new", SessionID: "p"}}
+	fakeCLI(t,
+		cliExchange{state: model.State{}, level: proto.Level},
+		cliExchange{request: func(got any) bool {
+			m, ok := got.(proto.SessionNew)
+			return ok && m.Origin == origin && strings.HasPrefix(m.Name, "main")
+		}, state: before, level: proto.Level},
+		cliExchange{request: proto.NewSession{SessionID: "p", Cmd: []string{"sh"}}, state: after, level: proto.Level},
+	)
+	prev := dialHost
+	t.Cleanup(func() { dialHost = prev })
+	dialHost = func(string) (*cliConn, func(), error) {
+		c, err := dialCLI()
+		return c, func() { c.Close() }, err
+	}
+	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+	got, err := newOnHost(nil, "here", session, "box", proto.NewSession{Cmd: []string{"sh"}}, false)
+	if err != nil || got != "box:2" {
+		t.Fatalf("new tab %q, %v; existing worker must stay", got, err)
 	}
 }

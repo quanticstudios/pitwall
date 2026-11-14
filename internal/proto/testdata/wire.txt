@@ -1,4 +1,4 @@
-18.75
+18.76
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -13,6 +13,7 @@ model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string;
 model.Form{ID string; WorkspaceID string; PaneID string; Spec string; Title string; Waits bool; OpenedAt time.Time}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.LimitResume{PaneID string; SessionID string; Provider model.Provider; Turn time.Time; Since time.Time; Resets time.Time; Message string; Pending bool; Drafting bool}
+model.Origin{Daemon string; Session string}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Teardown string; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
 model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; ChangeRequests []string; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
@@ -23,8 +24,8 @@ model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.RemoteSession{Host string; Session string; Forget []string}
-model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
+model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin}
+model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.TaskRun{Pane string; Base string}
@@ -129,11 +130,12 @@ proto.Send{Pane string; From string; Text string}
 proto.SessionKill{SessionID string}
 proto.SessionLink{SessionID string; Host string; Remote string; Forget []string; Unforget []string; Kill bool}
 proto.SessionMatch{Workspace string; Pane string; Match vt.Match; Snippet string; Time time.Time; Transcript bool; Hidden bool}
-proto.SessionNew{Name string; Cwd string; FromPane string}
+proto.SessionNew{Name string; Cwd string; FromPane string; Origin model.Origin}
 proto.SessionOrder{SessionID string; Order []string}
 proto.SessionRename{SessionID string; Name string}
 proto.SessionShow{SessionID string}
 proto.SetLayout{WorkspaceID string; TabID string; Layout *layout.Node}
+proto.SetOrigin{SessionID string; Origin model.Origin}
 proto.SetProjectAppearance{ProjectID string; Icon string; Color string}
 proto.SetSessionGroup{WorkspaceID string; GroupID string}
 proto.SetStatus{WorkspaceID string; Text string}

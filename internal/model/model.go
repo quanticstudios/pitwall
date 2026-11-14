@@ -430,7 +430,14 @@ type Session struct {
 	// send the kill to each part's host until the part is gone, then end
 	// the session here.
 	Killing bool `json:",omitempty"`
+	// Origin is, for a part of another machine's shared session, the
+	// daemon and session it was made for; zero for an ordinary session.
+	Origin Origin `json:",omitzero"`
 }
+
+// Origin names a session on another machine's daemon: the State.Daemon
+// of that daemon and the session's id there.
+type Origin struct{ Daemon, Session string }
 
 // RemoteSession is a session on another host that is part of a shared
 // session. On its host it is an ordinary session, named after the shared one.
@@ -453,7 +460,10 @@ func (s *Session) Remote(host string) *RemoteSession {
 // State is everything a client needs to draw the sidebar and the layout.
 // The daemon sends a fresh copy on every change.
 type State struct {
-	Version    uint64
+	Version uint64
+	// Daemon is a random id the daemon makes once and saves, which names
+	// it in the Origin of its sessions' parts on other machines.
+	Daemon     string    `json:",omitempty"`
 	Sessions   []Session // in the order the switcher lists them
 	Projects   []Project
 	Workspaces []Workspace
@@ -622,6 +632,14 @@ func (s *State) Session(id string) *Session {
 // SessionNamed returns the session called name, or nil.
 func (s *State) SessionNamed(name string) *Session {
 	if i := slices.IndexFunc(s.Sessions, func(x Session) bool { return x.Name == name }); i >= 0 {
+		return &s.Sessions[i]
+	}
+	return nil
+}
+
+// PartOf returns the session made for origin, or nil; nil for a zero origin.
+func (s *State) PartOf(origin Origin) *Session {
+	if i := slices.IndexFunc(s.Sessions, func(x Session) bool { return x.Origin == origin }); origin != (Origin{}) && i >= 0 {
 		return &s.Sessions[i]
 	}
 	return nil
