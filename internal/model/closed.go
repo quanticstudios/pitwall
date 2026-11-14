@@ -24,6 +24,9 @@ type ClosedTab struct {
 	// Gone is set while Folder no longer exists, as after Archive removed
 	// the worktree. The daemon fills it in; it is not saved.
 	Gone bool `json:"-"`
+	// FinishedWorker marks a closed worker whose result is still available
+	// in this daemon. A restart clears it along with the replies.
+	FinishedWorker bool `json:"-"`
 }
 
 // ClosedKeep and ClosedDays bound State.Closed: the newest ClosedKeep

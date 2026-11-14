@@ -30,8 +30,9 @@ const Width unit.Dp = 288
 type Sidebar struct {
 	DevProxyPort int // zero keeps direct port URLs
 	// Forks is whether the daemon supports terminal forks.
-	Forks    bool
-	Profiles map[string]config.Profile
+	CloseDoneWorkers bool
+	Forks            bool
+	Profiles         map[string]config.Profile
 	// ExpandAll starts every group expanded, for a drawing of a session
 	// the window does not show (the session switcher's preview).
 	ExpandAll bool
@@ -286,6 +287,7 @@ type Sidebar struct {
 const (
 	actRename = iota
 	actClose
+	actCloseDoneWorkers
 	actMove
 	actNewGroup
 	actUngroup

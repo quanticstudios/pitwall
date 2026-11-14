@@ -45,6 +45,9 @@ type PictureInPicture struct{ WorkspaceID string }
 // CloseTab closes a tab and all its panes.
 type CloseTab struct{ WorkspaceID string }
 
+// CloseDoneWorkers closes the finished children of a parent tab.
+type CloseDoneWorkers struct{ WorkspaceID string }
+
 // SetTabOptions pins or unpins a tab and sets its color id, "" for none.
 type SetTabOptions struct {
 	WorkspaceID string

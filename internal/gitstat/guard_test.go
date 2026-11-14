@@ -181,10 +181,11 @@ func TestPoisonRunsUnderPlainGit(t *testing.T) {
 	root := poisonedRepo(t, p)
 	index := filepath.Join(p.dir, "index")
 	plain(t, root, nil, "status", "--porcelain", "-z")
-	// The process probe exits without speaking the filter protocol. Leave it
-	// to status/add: its failure can abort diff before the diff probes run.
-	plain(t, root, nil, "-c", "filter.proc.process=", "-c", "core.quotePath=true", "diff", "--no-color", "HEAD", "--")
-	plain(t, root, nil, "-c", "filter.proc.process=", "diff", "--no-color", "--no-ext-diff", "HEAD", "--")
+	// The process-filter probe records its invocation and exits without a
+	// filter handshake. Keep it out of diff: that protocol failure would
+	// abort before git reaches any diff driver.
+	plain(t, root, nil, "-c", "core.quotePath=true", "diff", "--no-color", "HEAD", "--", "a.txt", "c")
+	plain(t, root, nil, "diff", "--no-color", "--no-ext-diff", "HEAD", "--", "a.txt", "c")
 	plain(t, root, []string{"GIT_INDEX_FILE=" + index}, "add", "-A")
 	plain(t, root, nil, "update-ref", "refs/pitwall/x", "HEAD")
 	plain(t, root, nil, "merge-tree", "--write-tree", "main", "feat")

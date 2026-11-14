@@ -312,6 +312,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, NewTab{After: id})
 			s.closeMenus()
 		}
+		if s.menuItem[actCloseDoneWorkers].Clicked(gtx) && hasFinishedWorkers(v.st, id) {
+			s.events = append(s.events, CloseDoneWorkers{WorkspaceID: id})
+			s.closeMenus()
+		}
 		if s.menuItem[actClose].Clicked(gtx) {
 			s.events = append(s.events, CloseTab{WorkspaceID: id})
 			s.closeMenus()

@@ -499,7 +499,9 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 		return line, nil
 	}
 	for {
-		only, err := childTabs(state)
+		live := numbered(state, session)
+		all := withFinishedWorkers(state)
+		only, err := childTabs(all)
 		if err != nil {
 			return waitError, err
 		}
@@ -508,22 +510,28 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 		}
 		var lines, blocked []string
 		reached, failed := 0, false
-		for i, w := range numbered(state, session) {
+		for _, w := range numbered(all, session) {
 			if !only[w.ID] {
 				continue
 			}
 			st, question, code, queued := "exited", "", (*int)(nil), 0
 			var pane string
 			var since time.Time
-			if p := mainPane(tabPanes(state, w)); p != nil {
-				j := paneOf(state, 0, *p)
+			if p := mainPane(tabPanes(all, w)); p != nil {
+				j := paneOf(all, 0, *p)
 				st, question, code, queued, pane = j.State, j.Question, j.ExitCode, j.Queued, p.ID
 				if j.Since != nil {
 					since = *j.Since
 				}
 			}
+			// A closed worker has no tab number; read reaches it by pane id.
+			head := fmt.Sprintf("@%s %s", pane, tabTitle(w))
+			if i := slices.IndexFunc(live, func(x model.Workspace) bool { return x.ID == w.ID }); i >= 0 {
+				head = fmt.Sprintf("#%d %s", i+1, tabTitle(w))
+			} else if until == "exit" {
+				st = "exited" // its process ended with the tab
+			}
 			saw[w.ID] = saw[w.ID] || st == "working" || st == "blocked"
-			head := fmt.Sprintf("#%d %s", i+1, tabTitle(w))
 			finished := st == "done" || st == "parked" || st == "idle" && saw[w.ID]
 			switch {
 			case st == "blocked":
@@ -636,4 +644,28 @@ func readDoneLine(conn *cliConn, pane string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// withFinishedWorkers makes retained results visible only to wait --children.
+// They never reappear as live tabs in ls or the sidebar.
+func withFinishedWorkers(state model.State) model.State {
+	state.Workspaces = slices.Clone(state.Workspaces)
+	state.Panes = slices.Clone(state.Panes)
+	state.Activities = slices.Clone(state.Activities)
+	for _, c := range state.Closed {
+		if !c.FinishedWorker || slices.ContainsFunc(state.Workspaces, func(w model.Workspace) bool { return w.ID == c.Tab.ID }) {
+			continue
+		}
+		w, p := c.Tab, c.Pane
+		w.Detached = false
+		w.Tabs = []model.Tab{{ID: c.ID, Layout: &layout.Node{Pane: p.ID}}}
+		p.Exited = false
+		state.Workspaces = append(state.Workspaces, w)
+		state.Panes = append(state.Panes, p)
+		state.Activities = append(state.Activities, model.Activity{
+			PaneID: p.ID, WorkspaceID: w.ID, Provider: p.Provider,
+			State: model.StateCompleted, UpdatedAt: c.ClosedAt,
+		})
+	}
+	return state
 }

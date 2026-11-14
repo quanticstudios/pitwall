@@ -48,6 +48,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 73 added CloseDoneWorkers and ClosedTab.FinishedWorker.
 // Level 72 added State.DevProxyPort: the port the daemon's dev proxy bound.
 // Level 71 added Task.FreshWorktree and Workspace.TaskRun for disposable task worktrees.
 // Level 70 added NewSession.Monitor and model.Workspace.Monitor: Monitor
@@ -199,7 +200,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 72
+const Level = 73
+
+// CloseDoneWorkersLevel adds finished-worker cleanup and retained result metadata.
+const CloseDoneWorkersLevel = 73
 
 // MonitorTabLevel added NewSession.Monitor and model.Workspace.Monitor.
 const MonitorTabLevel = 70
@@ -307,6 +311,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case CloseDoneWorkers:
+		return CloseDoneWorkersLevel
 	case NewSession:
 		if m.Monitor {
 			return MonitorTabLevel
@@ -853,6 +859,11 @@ type KillSession struct {
 	WorkspaceID string
 }
 
+// CloseDoneWorkers closes only the finished children of WorkspaceID.
+type CloseDoneWorkers struct {
+	WorkspaceID string
+}
+
 // GroupByFolder puts every ungrouped session with the same RepoRoot as
 // WorkspaceID into one group: the group whose Root is that folder, or a new
 // one named after it.
@@ -1111,6 +1122,7 @@ var Messages = []any{
 	ForkPane{},
 	SessionLink{}, SessionOrder{},
 	MonitorWatch{}, MonitorSample{},
+	CloseDoneWorkers{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

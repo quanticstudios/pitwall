@@ -105,6 +105,9 @@ func (d *Daemon) sawHook(id string) {
 // a denied permission.
 func (d *Daemon) noteInput(id string, b []byte) {
 	d.mu.Lock()
+	if len(b) > 0 && !focusReport(b) {
+		d.touchWorker(id)
+	}
 	i := d.activityIndex(id)
 	reported := i >= 0 && model.ReportedName(d.st.Activities[i].Provider) != ""
 	var s model.AgentState
@@ -199,6 +202,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		d.checkLimits()
 		d.checkQuiet()
 		d.checkWaking()
+		d.checkDoneWorkers(time.Now())
 		d.checkPark(time.Now())
 		d.checkForms()
 		d.checkRemoteControl()
