@@ -12,6 +12,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
 )
 
 // TestFuzzy: the best alignment counts, word starts and runs beat
@@ -33,12 +34,21 @@ func TestFuzzy(t *testing.T) {
 	}
 }
 
+// paletteActions is how many actions the palette lists: all but skillshare
+// while its CLI is not on PATH.
+func paletteActions() int {
+	if skillshare.Default.Installed() {
+		return len(config.Actions())
+	}
+	return len(config.Actions()) - 1
+}
+
 // TestPaletteRank: the action a query names comes first, every word must
 // match, and an empty query keeps every action grouped.
 func TestPaletteRank(t *testing.T) {
 	es := paletteEntries(conventional)
-	if len(rank(es, "")) != len(config.Actions()) {
-		t.Fatalf("empty query lists %d of %d actions", len(rank(es, "")), len(config.Actions()))
+	if len(rank(es, "")) != paletteActions() {
+		t.Fatalf("empty query lists %d of %d actions", len(rank(es, "")), paletteActions())
 	}
 	for q, want := range map[string]string{
 		"paste":        "paste",
@@ -86,8 +96,8 @@ func names(es []paletteEntry) []string {
 func TestPaletteChords(t *testing.T) {
 	for _, b := range []*config.Bindings{aide, conventional} {
 		es := paletteEntries(b)
-		if len(es) != len(config.Actions()) {
-			t.Fatalf("%s: %d entries for %d actions", b.Preset, len(es), len(config.Actions()))
+		if len(es) != paletteActions() {
+			t.Fatalf("%s: %d entries for %d actions", b.Preset, len(es), paletteActions())
 		}
 		for _, e := range es {
 			a := e.action

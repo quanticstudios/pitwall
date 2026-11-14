@@ -1,0 +1,11 @@
+{
+  "source": "file:///home/demo/src/skills-repo",
+  "tracked": false,
+  "dry_run": false,
+  "skills": [
+    "lint-rules"
+  ],
+  "skipped": [],
+  "failed": [],
+  "duration": "23ms"
+}

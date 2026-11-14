@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Skillshare: while the `skillshare` CLI is on PATH, a sidebar button, Ctrl+Alt+S and the palette open a popup that says what waits for a sync, syncs and updates, previews skills, agents and MCP servers with secrets masked, installs from a repository after an audit, and asks the focused agent to audit a skill. See [Skillshare](docs/usage.md#skillshare).
+
 ## v0.2.10
 
 - Attach the Android APK to releases from the maintainer's computer. The Android app checks on launch, daily while open, or through Check for updates in Settings. Install downloads the APK with progress and a size check, then uses Android's installer and its required confirmation. Dismissing a version hides it until a newer one ships.

@@ -1861,6 +1861,46 @@ clicks on its answers for 650 milliseconds. A card that changes column
 travels there in 200 milliseconds; with `reduce_motion` it fades in at its
 new place.
 
+### Skillshare
+
+[skillshare](https://github.com/runkids/skillshare) keeps one source of
+skills, agents, MCP servers, plugins and hooks and syncs it to each agent's
+folders. While its `skillshare` CLI is on PATH, pitwall shows a sparkles
+button in the sidebar's footer, with a badge that counts what waits for a
+sync or has an update. The button, `toggle_skillshare` (Ctrl+Alt+S,
+Cmd+Option+S on macOS) and "Show skillshare" in the command palette open
+the popup. Without the CLI, pitwall shows none of these.
+
+The popup reads the focused pane's folder. A folder with
+`.skillshare/config.yaml` or `skillshare/config.yaml` is a project, and
+All, Project and Global pick what the popup shows; elsewhere it shows the
+global source. It has two tabs:
+
+- **Overview.** Whether everything is in sync, Sync while something waits,
+  the counts per kind, one line per target, then only what needs you: what
+  waits to sync, what has an update (each with Update), and hook notices.
+  A count shows "…" until its read lands, never 0.
+- **Library.** A tab per kind, its rows grouped as Needs sync, Update
+  available, In sync and Off. A row opens its preview: a skill's SKILL.md,
+  an agent's file, an MCP server's settings with every env, header and
+  token value masked. A preview has Update, Sync, Enable or Disable,
+  Uninstall (asked once more first), and Ask <agent> to audit, which
+  sends `audit this skill: <path>` to the focused pane's agent.
+  Install… takes a repository, lets you pick its skills, audits them and
+  installs them. When the audit blocks one, it shows the findings and
+  writes nothing until you press Install anyway.
+
+pitwall runs `skillshare ... --json` for each read on its own: `list
+--all`, `diff`, `mcp list`, `plugin list`, `hooks list` and `status`, plus
+`check` every 10 minutes for updates. It reads every 20 seconds while the
+popup shows and every 2 minutes for the badge. Old rows stay while a read
+runs, and a failed read shows its error beside the rows. Esc leaves the
+install steps or a preview, then closes the popup.
+
+The reads run on the window's machine, also for a pane on another host.
+The Machines tab, pulling and pushing the source repository, picking a side
+of a conflict per file and updating the CLI stay in `skillshare` itself.
+
 ### The monitor
 
 The monitor shows a machine's CPU by thread and by agent, its cores,

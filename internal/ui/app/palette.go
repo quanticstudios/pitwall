@@ -10,6 +10,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 )
 
@@ -54,6 +55,9 @@ func paletteEntries(b *config.Bindings) []paletteEntry {
 	var out []paletteEntry
 	var groups []string
 	for _, a := range config.Actions() {
+		if a.Name == "toggle_skillshare" && !skillshare.Default.Installed() {
+			continue // nothing about skillshare shows without it
+		}
 		cs, prefix := b.Global[a.Name], ""
 		switch {
 		case a.Tab:

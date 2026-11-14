@@ -1,0 +1,21 @@
+{
+  "targets": [
+    {
+      "name": "claude",
+      "mode": "merge",
+      "synced": true,
+      "items": [],
+      "include": [],
+      "exclude": []
+    },
+    {
+      "name": "codex",
+      "mode": "merge",
+      "synced": true,
+      "items": [],
+      "include": [],
+      "exclude": []
+    }
+  ],
+  "duration": "1ms"
+}

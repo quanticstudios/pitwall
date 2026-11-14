@@ -11,6 +11,7 @@ import (
 	gioapp "gioui.org/app"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
 )
 
@@ -21,6 +22,7 @@ func main() {
 	remote := flag.String("remote", "", "put this tab id on a host named box, in a shared session")
 	clipHost := flag.String("clipboard", "", "a program on this host writes the clipboard after 2s, which opens its dialog")
 	parked := flag.String("parked", "", "park this tab id's agents, as park_idle_after does, such as w1b")
+	ss := flag.String("skillshare", "", "open the skillshare popup on canned reads: overview, library, or a row's name such as code-review")
 	flag.Parse()
 	if _, err := fmt.Sscanf(*size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y); err != nil {
 		log.Fatalf("-size %q: want WxH", *size)
@@ -36,6 +38,9 @@ func main() {
 		b = app.FakeShared{FakeBackend: app.NewFakeBackend(), Tab: *remote}
 	}
 	app.PeekTab = *peek
+	if *ss != "" {
+		skillshare.Default, app.OpenSkillshare = skillshare.Demo(), *ss
+	}
 	// A canned install: the demo never touches an agent's config.
 	app.InstallHooks = func(dry, statusline bool) (string, error) {
 		time.Sleep(300 * time.Millisecond)

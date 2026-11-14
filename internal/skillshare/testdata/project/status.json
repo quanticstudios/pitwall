@@ -1,0 +1,45 @@
+{
+  "source": {
+    "path": "/home/demo/work/app/.skillshare/skills",
+    "exists": true,
+    "skillignore": {
+      "active": false,
+      "ignored_count": 0
+    }
+  },
+  "skill_count": 1,
+  "variant_count": 1,
+  "tracked_repos": [],
+  "targets": [
+    {
+      "name": "claude",
+      "path": "/home/demo/work/app/.claude/skills",
+      "mode": "merge",
+      "status": "has files",
+      "synced_count": 0,
+      "include": [],
+      "exclude": [],
+      "skills_enabled": true
+    }
+  ],
+  "agents": {
+    "source": "/home/demo/work/app/.skillshare/agents",
+    "exists": false,
+    "count": 0
+  },
+  "audit": {
+    "profile": "default",
+    "threshold": "CRITICAL",
+    "dedupe": "global",
+    "analyzers": [
+      "static",
+      "dataflow",
+      "structure",
+      "integrity",
+      "tier",
+      "cross-skill",
+      "metadata"
+    ]
+  },
+  "version": "0.30.7"
+}

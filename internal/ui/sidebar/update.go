@@ -482,6 +482,9 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for s.settings.Clicked(gtx) {
 		s.events = append(s.events, OpenSettings{})
 	}
+	for s.skillshareBt.Clicked(gtx) {
+		s.events = append(s.events, ToggleSkillshare{})
+	}
 	for s.upgrade.Clicked(gtx) {
 		s.events = append(s.events, RunUpdate{})
 	}

@@ -375,6 +375,7 @@ type ui struct {
 	gui     guiState      // gui.json as loaded, and as last saved
 	welcome welcome       // the first-run card
 	task    taskDialog    // the New task dialog, shown as modalTask
+	ss      skillshareUI  // the skillshare popup, shown as modalSkillshare
 	profile profileChoice // New tab's account picker
 
 	review reviewView // the review view, shown in place of the panes
@@ -581,6 +582,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.board = false
 		u.toggleBoard()
 	}
+	if u.nav.skillshare {
+		u.nav.skillshare = false
+		u.toggleSkillshare(st)
+	}
 	if u.nav.monitor {
 		u.nav.monitor = false
 		u.openMonitor()
@@ -686,6 +691,9 @@ func (u *ui) layout(gtx gl.Context) {
 	if PeekTab != "" && u.nav.workspace != "" {
 		u.openPeek(&st, PeekTab, "")
 		PeekTab = ""
+	}
+	if OpenSkillshare != "" && u.nav.workspace != "" {
+		u.demoSkillshare(&st)
 	}
 	u.showHost()
 	u.openRequested(&st, gtx.Now)
@@ -911,6 +919,8 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.BoardOn = u.boardOn
 		u.sidebar.MonitorOn = u.mon.on
 		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(&st), gtx.Now)
+		u.sidebar.Skillshare = ssInstalled()
+		u.sidebar.SkillshareWaiting = u.tickSkillshare(gtx, &st)
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
 		if p := findPane(&st, u.nav.pip); p != nil {
@@ -1022,6 +1032,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.modal.open(modalAddProject, "")
 	case sidebar.OpenSettings:
 		u.openSettings()
+	case sidebar.ToggleSkillshare:
+		u.toggleSkillshare(st)
 	case sidebar.RunUpdate:
 		if u.updates.label() == "" && u.daemonBehind() {
 			u.modal.open(modalRestart, "")

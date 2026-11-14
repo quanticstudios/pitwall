@@ -44,12 +44,13 @@ const (
 	modalTask
 	modalProfile
 	modalDiscard
-	modalUndoTurn  // putting back the files of the review view's turn
-	modalPinned    // closing a pinned tab, see pinned.go
-	modalRestart   // restarting a daemon older than the window, see restart.go
-	modalClose     // closing an agent mid-turn, see close.go
-	modalPaste     // a paste into another host's pane right after focus moved there, see shared.go
-	modalClipboard // another host's OSC 52 write, see clipboard.go
+	modalUndoTurn   // putting back the files of the review view's turn
+	modalPinned     // closing a pinned tab, see pinned.go
+	modalRestart    // restarting a daemon older than the window, see restart.go
+	modalClose      // closing an agent mid-turn, see close.go
+	modalPaste      // a paste into another host's pane right after focus moved there, see shared.go
+	modalClipboard  // another host's OSC 52 write, see clipboard.go
+	modalSkillshare // the skillshare popup, see skillshare.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -106,6 +107,10 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	}
 	if m.kind == modalTask {
 		u.layoutTask(gtx, st)
+		return
+	}
+	if m.kind == modalSkillshare {
+		u.layoutSkillshare(gtx, st)
 		return
 	}
 	for {

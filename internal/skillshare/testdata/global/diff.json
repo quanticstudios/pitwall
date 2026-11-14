@@ -1,0 +1,51 @@
+{
+  "targets": [
+    {
+      "name": "claude",
+      "mode": "merge",
+      "synced": false,
+      "items": [
+        {
+          "action": "add",
+          "name": "deploy-notes",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "lint-rules",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        }
+      ],
+      "include": [],
+      "exclude": []
+    },
+    {
+      "name": "codex",
+      "mode": "merge",
+      "synced": false,
+      "items": [
+        {
+          "action": "add",
+          "name": "deploy-notes",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        },
+        {
+          "action": "add",
+          "name": "lint-rules",
+          "kind": "skill",
+          "reason": "source only",
+          "is_sync": true
+        }
+      ],
+      "include": [],
+      "exclude": []
+    }
+  ],
+  "duration": "1ms"
+}
