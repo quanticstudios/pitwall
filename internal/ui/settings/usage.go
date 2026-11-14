@@ -72,9 +72,10 @@ func (p *Page) scan(gtx gl.Context) {
 	days, want := u.window(), [2]int{u.gen, u.window()}
 	if !u.scanning && u.of != want {
 		u.scanning = true
+		src := usageSources() // read here: tests swap it, and the scan may outlive a test
 		go func() {
 			now := time.Now()
-			r := flow.NewReport(usageScanner.Scan(usageSources(), flow.Since(now, days)), now, days)
+			r := flow.NewReport(usageScanner.Scan(src, flow.Since(now, days)), now, days)
 			u.mu.Lock()
 			u.report, u.of, u.scanning = &r, want, false
 			u.mu.Unlock()
