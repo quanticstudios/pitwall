@@ -1,12 +1,57 @@
 package daemon
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
+
+func TestCloseDoneWorkersBackgroundTasks(t *testing.T) {
+	for _, kind := range []string{"shell", "monitor", "subagent", "workflow", "teammate", "cloud session", "MCP task"} {
+		t.Run(kind, func(t *testing.T) {
+			d, _ := doneWorkerDaemon(t)
+			start := time.Now()
+			d.checkDoneWorkers(start)
+			claudeHook(t, d, "a", fmt.Sprintf(`{"hook_event_name":"Stop","last_assistant_message":"Waiting","background_tasks":[{"type":%q,"status":"running"}]}`, kind))
+			d.mu.Lock()
+			finished := d.finishedWorker(d.st, d.st.Workspaces[0])
+			i := d.activityIndex("a")
+			working := i >= 0 && d.st.Activities[i].State == model.StateWorking
+			d.mu.Unlock()
+			if finished || !working {
+				t.Fatalf("background task: finished=%v working=%v", finished, working)
+			}
+			d.checkDoneWorkers(start.Add(time.Hour))
+			d.mu.Lock()
+			exists := d.workspace("w") != nil
+			_, clock := d.doneWorkers["w"]
+			d.mu.Unlock()
+			if !exists || clock {
+				t.Fatalf("background task: exists=%v clock=%v", exists, clock)
+			}
+			claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"Task finished"}`)
+			claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"DONE","background_tasks":[]}`)
+			d.checkDoneWorkers(start.Add(2 * time.Hour))
+			d.checkDoneWorkers(start.Add(2*time.Hour + 9*time.Minute))
+			d.mu.Lock()
+			exists = d.workspace("w") != nil
+			d.mu.Unlock()
+			if !exists {
+				t.Fatal("closed before a fresh ten minutes after background completion")
+			}
+			d.checkDoneWorkers(start.Add(2*time.Hour + 10*time.Minute))
+			d.mu.Lock()
+			exists = d.workspace("w") != nil
+			d.mu.Unlock()
+			if exists {
+				t.Fatal("did not close after background completion and a fresh delay")
+			}
+		})
+	}
+}
 
 func doneWorkerDaemon(t *testing.T) (*Daemon, *fakes) {
 	t.Helper()
