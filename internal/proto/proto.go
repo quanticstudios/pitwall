@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 77 added NewSession.ID and ParentTab, NewWorkspace.ID, ParentTab
+// and SessionID, Workspace.RemoteParent, Session.Workers, RemoteWorkers and
+// Reparent: a tab started on another machine once, under its parent here.
 // Level 76 added State.Daemon, Session.Origin, SessionNew.Origin and
 // SetOrigin: a host's part of a shared session names the session it was
 // made for.
@@ -207,7 +210,12 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 76
+const Level = 77
+
+// RemoteWorkerLevel added NewSession.ID and ParentTab, NewWorkspace.ID,
+// ParentTab and SessionID, Workspace.RemoteParent, Session.Workers,
+// RemoteWorkers and Reparent.
+const RemoteWorkerLevel = 77
 
 // OriginLevel added State.Daemon, Session.Origin, SessionNew.Origin and
 // SetOrigin.
@@ -328,6 +336,12 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case RemoteWorkers, Reparent:
+		return RemoteWorkerLevel
+	case NewWorkspace:
+		if m.ID != "" || m.ParentTab != "" || m.SessionID != "" {
+			return RemoteWorkerLevel
+		}
 	case SetOrigin:
 		return OriginLevel
 	case SessionNew:
@@ -339,6 +353,9 @@ func Since(msg any) int {
 	case CloseDoneWorkers:
 		return CloseDoneWorkersLevel
 	case NewSession:
+		if m.ID != "" || m.ParentTab != "" {
+			return RemoteWorkerLevel
+		}
 		if m.Monitor {
 			return MonitorTabLevel
 		}
@@ -475,6 +492,14 @@ type NewSession struct {
 	// Cwd, Cmd and Env. When SessionID has one already, the daemon shows
 	// that one instead: one per session and machine.
 	Monitor bool
+	// ID, when set, is the new tab's id: 16 hex digits the client chose, so
+	// it can repeat a start whose answer it lost. A tab, live or closed,
+	// that already has it with the same session and parent makes the
+	// request succeed with nothing started; any other owner refuses it.
+	ID string
+	// ParentTab is the parent's tab id on another machine's daemon, for a
+	// tab whose ParentPane is not on this one (model.Workspace.RemoteParent).
+	ParentTab string
 }
 
 // SetSessionGroup moves a session into a group; "" ungroups it right after
@@ -542,6 +567,11 @@ type NewWorkspace struct {
 	// Lane is the fleet lane Cmd starts, "small", "normal" or "big", for
 	// its timebox; "" for none. A daemon below LaneLevel ignores it.
 	Lane string
+	// ID and ParentTab are NewSession's.
+	ID, ParentTab string
+	// SessionID, with ProjectID "" and Root, is the session the worktree's
+	// tab opens in when its parent is on another machine.
+	SessionID string
 }
 
 type RenameWorkspace struct {
@@ -955,6 +985,24 @@ type SetOrigin struct {
 	Origin    model.Origin
 }
 
+// RemoteWorkers edits SessionID's Workers, the tabs its tabs started on
+// other machines: Add records ones it does not have yet, Set replaces the
+// ones it has, by ID, and Drop removes ids.
+type RemoteWorkers struct {
+	SessionID string
+	Add, Set  []model.RemoteWorker
+	Drop      []string
+}
+
+// Reparent makes ParentTab, a tab on another machine, the parent of tab
+// WorkspaceID, after that tab's parent there reopened with a new id. The
+// daemon refuses it unless WorkspaceID's session is the part made for
+// Origin.
+type Reparent struct {
+	WorkspaceID, ParentTab string
+	Origin                 model.Origin
+}
+
 // SessionRename renames a session. Names are unique and not empty.
 type SessionRename struct {
 	SessionID string
@@ -1163,6 +1211,7 @@ var Messages = []any{
 	CloseDoneWorkers{},
 	Skillshare{}, SkillshareResult{},
 	SetOrigin{},
+	RemoteWorkers{}, Reparent{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

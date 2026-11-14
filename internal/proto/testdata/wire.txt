@@ -1,4 +1,4 @@
-18.76
+18.77
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -24,12 +24,13 @@ model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.RemoteSession{Host string; Session string; Forget []string}
-model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin}
+model.RemoteWorker{ID string; Host string; Parent string; Since time.Time; Lost string}
+model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin; Workers []model.RemoteWorker}
 model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.TaskRun{Pane string; Base string}
-model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; TaskRun *model.TaskRun; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Monitor bool; Popup *model.Popup}
+model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; TaskRun *model.TaskRun; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; RemoteParent bool; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Monitor bool; Popup *model.Popup}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 procs.Group{Key string; Kind procs.Kind; PID int; Name string; Agent string; Repo string; Branch string; Cores float64; RSS uint64; Threads int; Procs []procs.Proc; Folded int}
 procs.Proc{PID int; PPID int; Comm string; State uint8; Cores float64; RSS uint64; Threads int}
@@ -97,10 +98,10 @@ proto.MonitorWatch{WorkspaceID string; Interval time.Duration}
 proto.MoveGroup{GroupID string; Before string}
 proto.MoveSession{WorkspaceID string; GroupID string; Before string}
 proto.NewGroup{Name string; WorkspaceIDs []string}
-proto.NewSession{Profile string; Name string; Cwd string; GroupID string; SessionID string; Cmd []string; FromPane string; Loose bool; ParentPane string; Env []string; Monitor bool}
+proto.NewSession{Profile string; Name string; Cwd string; GroupID string; SessionID string; Cmd []string; FromPane string; Loose bool; ParentPane string; Env []string; Monitor bool; ID string; ParentTab string}
 proto.NewTab{Profile string; WorkspaceID string; Cwd string; FromPane string}
 proto.NewTask{Task model.Task; Queue bool; FromPane string}
-proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string; ParentPane string; Root string; Env []string; Lane string}
+proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string; ParentPane string; Root string; Env []string; Lane string; ID string; ParentTab string; SessionID string}
 proto.OpenForm{ID string; Pane string; Spec string; Update bool}
 proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
 proto.OpenPopup{WorkspaceID string; Pane string; Cmd []string; Dir string; Width string; Height string; Title string; Path string}
@@ -111,10 +112,12 @@ proto.Press{Pane string; At int64; Label string}
 proto.Prompt{Pane string; Text string}
 proto.Read{Pane string; Screen bool}
 proto.ReadResult{Pane string; Text string; Err string}
+proto.RemoteWorkers{SessionID string; Add []model.RemoteWorker; Set []model.RemoteWorker; Drop []string}
 proto.RenameGroup{GroupID string; Name string}
 proto.RenameTab{WorkspaceID string; TabID string; Pane string; Name string}
 proto.RenameWorkspace{WorkspaceID string; Name string}
 proto.ReopenTab{ID string; AtRoot bool}
+proto.Reparent{WorkspaceID string; ParentTab string; Origin model.Origin}
 proto.Resize{Pane string; Cols int; Rows int; CellW int; CellH int}
 proto.Scroll{Pane string; Lines int; Prompts int}
 proto.Scrollback{Pane string; Lines int}

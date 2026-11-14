@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -77,6 +79,11 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if m.ID != "" {
+		if started, err := d.startedTab(m.ID, m.SessionID, m.ParentTab); started || err != nil {
+			return err
+		}
+	}
 	at, sessions := len(d.st.Workspaces), len(d.st.Sessions)
 	switch {
 	case create != nil:
@@ -123,8 +130,11 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	if m.Name != "" && d.nameTaken(m.SessionID, m.Name, "") {
 		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
-	w := model.Workspace{ID: newID(), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	w := model.Workspace{ID: cmp.Or(m.ID, newID()), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
+	if m.ParentTab != "" && m.ParentPane == "" {
+		w.Parent, w.RemoteParent = m.ParentTab, true
+	}
 	w.Profile = m.Profile
 	w.Monitor = m.Monitor
 	if prep != nil {
@@ -145,6 +155,33 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		go d.refreshStats(ctx, w.ID)
 	}
 	return nil
+}
+
+// startedTab reports whether tab id, asked for in session with parent
+// (proto.NewSession.ID), is there already, live or closed, from the same
+// request. An id that is not 16 hex digits, or another tab's, is an error.
+// Callers hold d.mu.
+func (d *Daemon) startedTab(id, session, parent string) (bool, error) {
+	if _, err := hex.DecodeString(id); err != nil || len(id) != 16 {
+		return false, fmt.Errorf("tab id %q is not 16 hex digits", id)
+	}
+	same := func(w model.Workspace) bool { return w.SessionID == session && w.Parent == parent }
+	taken := fmt.Errorf("tab id %s belongs to another tab", id)
+	if w := d.workspace(id); w != nil {
+		if same(*w) {
+			return true, nil
+		}
+		return false, taken
+	}
+	for _, c := range d.st.Closed {
+		if c.Tab.ID == id && same(c.Tab) {
+			return true, nil
+		}
+		if c.ID == id || c.Tab.ID == id {
+			return false, taken
+		}
+	}
+	return false, nil
 }
 
 // showMonitor shows session's Monitor tab in the windows on that session,

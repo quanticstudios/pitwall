@@ -155,7 +155,7 @@ func (d *Daemon) reopenTab(ctx context.Context, m proto.ReopenTab) error {
 	w.Detached, w.Pinned, w.Chat, w.Status, w.Lane = false, false, "", "", model.Lane{}
 	w.Settled, w.SnoozedUntil, w.SnoozedAt = time.Time{}, time.Time{}, time.Time{}
 	w.UpdatedAt = time.Now()
-	if d.workspace(w.Parent) == nil {
+	if d.workspace(w.Parent) == nil && !w.RemoteParent {
 		w.Parent = ""
 	}
 	if w.NameSet && d.nameTaken(w.SessionID, w.Name, "") {
@@ -185,11 +185,33 @@ func (d *Daemon) reopenTab(ctx context.Context, m proto.ReopenTab) error {
 		return errors.Join(fmt.Errorf("reopen %q", closedTitle(c.Tab)), err)
 	}
 	d.st.Closed = slices.Delete(d.st.Closed, i, i+1)
+	d.repoint(c.Tab.ID, w.ID)
 	d.changed()
 	if branch != "" {
 		go d.refreshStats(ctx, w.ID)
 	}
 	return nil
+}
+
+// repoint makes the workers of tab old, which reopened as tab id, its
+// workers again: the tabs here, and the records of tabs on other machines,
+// whose copy there follows once a window or the CLI compares the two.
+// Callers hold d.mu.
+func (d *Daemon) repoint(old, id string) {
+	for i := range d.st.Workspaces {
+		if w := &d.st.Workspaces[i]; w.Parent == old && !w.RemoteParent {
+			w.Parent = id
+		}
+	}
+	for i := range d.st.Sessions {
+		s := &d.st.Sessions[i]
+		for j := range s.Workers {
+			if s.Workers[j].Parent == old {
+				s.Workers = slices.Clone(s.Workers)
+				s.Workers[j].Parent = id
+			}
+		}
+	}
 }
 
 // reopenSession is the session closed tab c reopens in: its own, else one

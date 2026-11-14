@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -25,7 +26,8 @@ type cliExchange struct {
 	request any
 	state   model.State
 	error   string
-	level   int // the daemon's proto.Level in its StateMsg
+	level   int  // the daemon's proto.Level in its StateMsg
+	drop    bool // close the connection after the request, unanswered
 }
 
 // setHome makes dir the home folder, and on Windows the profile whose
@@ -64,43 +66,12 @@ func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- func() error {
-			nc, err := ln.Accept()
-			if err != nil {
-				return err
-			}
-			defer nc.Close()
-			nc.SetDeadline(time.Now().Add(5 * time.Second))
-			c := proto.NewConn(nc)
-			want := proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "cli"}
-			if got, err := c.Recv(); err != nil || got != want {
-				return fmt.Errorf("Hello = %#v, %v", got, err)
-			}
-			for _, exchange := range exchanges {
-				if exchange.request != nil {
-					got, err := c.Recv()
-					matches := reflect.DeepEqual(got, exchange.request)
-					if check, ok := exchange.request.(func(any) bool); ok && err == nil {
-						matches = check(got)
-					}
-					if err != nil || !matches {
-						return fmt.Errorf("request = %#v, %v; want %#v", got, err, exchange.request)
-					}
-				}
-				if got, err := c.Recv(); err != nil || got != (proto.Sync{}) {
-					return fmt.Errorf("Sync = %#v, %v", got, err)
-				}
-				if exchange.error != "" {
-					if err := c.Send(proto.Error{Message: exchange.error}); err != nil {
-						return err
-					}
-				}
-				if err := c.Send(proto.StateMsg{State: exchange.state, Level: exchange.level}); err != nil {
-					return err
-				}
-			}
-			return nil
-		}()
+		nc, err := ln.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		done <- serveCLI(nc, exchanges)
 	}()
 	t.Cleanup(func() {
 		ln.Close()
@@ -108,6 +79,65 @@ func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 			t.Error(err)
 		}
 	})
+}
+
+// serveCLI is a fake daemon on nc: it takes a CLI's Hello, then answers
+// each of exchanges in turn.
+func serveCLI(nc net.Conn, exchanges []cliExchange) error {
+	defer nc.Close()
+	nc.SetDeadline(time.Now().Add(5 * time.Second))
+	c := proto.NewConn(nc)
+	want := proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "cli"}
+	if got, err := c.Recv(); err != nil || got != want {
+		return fmt.Errorf("Hello = %#v, %v", got, err)
+	}
+	for _, exchange := range exchanges {
+		if exchange.request != nil {
+			got, err := c.Recv()
+			matches := reflect.DeepEqual(got, exchange.request)
+			if check, ok := exchange.request.(func(any) bool); ok && err == nil {
+				matches = check(got)
+			}
+			if err != nil || !matches {
+				return fmt.Errorf("request = %#v, %v; want %#v", got, err, exchange.request)
+			}
+		}
+		if exchange.drop {
+			return nil
+		}
+		if got, err := c.Recv(); err != nil || got != (proto.Sync{}) {
+			return fmt.Errorf("Sync = %#v, %v", got, err)
+		}
+		if exchange.error != "" {
+			if err := c.Send(proto.Error{Message: exchange.error}); err != nil {
+				return err
+			}
+		}
+		if err := c.Send(proto.StateMsg{State: exchange.state, Level: exchange.level}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fakeLocal is a CLI connection to a fake daemon that answers exchanges,
+// for the calls that talk to this machine's daemon and a host's at once.
+func fakeLocal(t *testing.T, exchanges ...cliExchange) *cliConn {
+	t.Helper()
+	a, b := net.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- serveCLI(b, exchanges) }()
+	c, err := helloCLI(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		a.Close()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	return c
 }
 
 func cliOutput(args ...string) (int, string, string) {
@@ -602,21 +632,25 @@ func TestNewOnHostGuardRefusalCleanup(t *testing.T) {
 	for _, cmd := range [][]string{nil, {"claude"}} {
 		t.Run(strings.Join(cmd, " "), func(t *testing.T) {
 			part := hostState("part", "shell", "pane")
-			tab := proto.NewSession{SessionID: "part", Cmd: cmd, Env: []string{"PITWALL_GUARD=1"}}
+			env := []string{"PITWALL_GUARD=1"}
 			refused := part
 			refused.Workspaces = append(slices.Clone(part.Workspaces), model.Workspace{ID: "other", SessionID: "part"})
 			fakeCLI(t,
 				cliExchange{state: model.State{}, level: proto.Level},
 				cliExchange{request: proto.SessionNew{Name: "main"}, state: part, level: proto.Level},
-				cliExchange{request: tab, state: refused, level: proto.Level, error: "guarded tab not started"},
+				cliExchange{request: func(got any) bool {
+					m, ok := got.(proto.NewSession)
+					return ok && m.SessionID == "part" && slices.Equal(m.Cmd, cmd) && slices.Equal(m.Env, env) && len(m.ID) == 16
+				}, state: refused, level: proto.Level, error: "guarded tab not started"},
 				cliExchange{request: proto.CloseTab{WorkspaceID: "shell"}, state: refused, level: proto.Level})
+			local := fakeLocal(t, cliExchange{request: proto.SessionLink{SessionID: "s", Host: "box", Remote: "part"}, level: proto.Level})
 			prev := dialHost
 			t.Cleanup(func() { dialHost = prev })
 			dialHost = func(string) (*cliConn, func(), error) {
 				c, err := dialCLI()
 				return c, func() { c.Close() }, err
 			}
-			_, err := newOnHost(nil, "", &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: cmd, Env: tab.Env}, false)
+			_, err := newOnHost(local, "", &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: cmd, Env: env}, false)
 			if err == nil || !strings.Contains(err.Error(), "guarded tab not started") {
 				t.Fatalf("start = %v", err)
 			}
@@ -651,14 +685,15 @@ func TestAgentHost(t *testing.T) {
 }
 
 // TestNewOnHostAmbiguous checks that new -d --host detaches nothing when
-// another client opened a tab in the same part at the same time: it cannot
-// tell which of the two is its own.
+// another client opened a tab in the same part at the same time on a host
+// that keeps no ids: it cannot tell which of the two is its own.
 func TestNewOnHostAmbiguous(t *testing.T) {
 	part := []model.Session{{ID: "p", Name: "main"}}
 	tab := proto.NewSession{SessionID: "p", Cmd: []string{"sh"}}
+	old := proto.RemoteWorkerLevel - 1
 	fakeCLI(t,
-		cliExchange{state: model.State{Sessions: part, Workspaces: []model.Workspace{{ID: "a", SessionID: "p"}}}, level: proto.Level},
-		cliExchange{request: tab, state: model.State{Sessions: part, Workspaces: []model.Workspace{{ID: "a", SessionID: "p"}, {ID: "b", SessionID: "p"}, {ID: "c", SessionID: "p"}}}, level: proto.Level},
+		cliExchange{state: model.State{Sessions: part, Workspaces: []model.Workspace{{ID: "a", SessionID: "p"}}}, level: old},
+		cliExchange{request: tab, state: model.State{Sessions: part, Workspaces: []model.Workspace{{ID: "a", SessionID: "p"}, {ID: "b", SessionID: "p"}, {ID: "c", SessionID: "p"}}}, level: old},
 	)
 	prev := dialHost
 	t.Cleanup(func() { dialHost = prev })
@@ -731,7 +766,7 @@ func TestNewOnHostOriginLevel(t *testing.T) {
 		t.Fatalf("an agent used a host below OriginLevel: %v", err)
 	}
 	t.Setenv("PITWALL_PANE", "")
-	if err := hostLevel(nil, proto.OriginLevel-1); err != nil {
+	if err := hostLevel(nil, false, proto.OriginLevel-1); err != nil {
 		t.Fatalf("a person's shell: %v", err)
 	}
 }
@@ -745,13 +780,14 @@ func TestNewOnHostConcurrentPart(t *testing.T) {
 	before := model.State{Sessions: []model.Session{part}, Workspaces: []model.Workspace{existing}}
 	after := before
 	after.Workspaces = []model.Workspace{existing, {ID: "new", SessionID: "p"}}
+	old := proto.RemoteWorkerLevel - 1 // a host that keeps no ids
 	fakeCLI(t,
-		cliExchange{state: model.State{}, level: proto.Level},
+		cliExchange{state: model.State{}, level: old},
 		cliExchange{request: func(got any) bool {
 			m, ok := got.(proto.SessionNew)
 			return ok && m.Origin == origin && strings.HasPrefix(m.Name, "main")
-		}, state: before, level: proto.Level},
-		cliExchange{request: proto.NewSession{SessionID: "p", Cmd: []string{"sh"}}, state: after, level: proto.Level},
+		}, state: before, level: old},
+		cliExchange{request: proto.NewSession{SessionID: "p", Cmd: []string{"sh"}}, state: after, level: old},
 	)
 	prev := dialHost
 	t.Cleanup(func() { dialHost = prev })
@@ -763,5 +799,104 @@ func TestNewOnHostConcurrentPart(t *testing.T) {
 	got, err := newOnHost(nil, "here", session, "box", proto.NewSession{Cmd: []string{"sh"}}, false)
 	if err != nil || got != "box:2" {
 		t.Fatalf("new tab %q, %v; existing worker must stay", got, err)
+	}
+}
+
+// hostConns makes dialHost hand out a connection to a fake daemon per
+// call, each answering its own exchanges, and an error once they run out.
+func hostConns(t *testing.T, conns ...[]cliExchange) {
+	t.Helper()
+	prev, prevRetries := dialHost, startRetries
+	t.Cleanup(func() { dialHost, startRetries = prev, prevRetries })
+	startRetries = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	dialHost = func(string) (*cliConn, func(), error) {
+		if len(conns) == 0 {
+			return nil, nil, errors.New("ssh: connect to host box: Connection refused")
+		}
+		c := fakeLocal(t, conns[0]...)
+		conns = conns[1:]
+		return c, func() { c.Close() }, nil
+	}
+}
+
+// From an agent pane, new --host records the worker here, then starts it
+// with its id and parent; a connection that drops before the answer is
+// dialled again and the same start sent, which the host runs once.
+func TestNewOnHostWorkerRetries(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "lp")
+	const id = "0123456789abcdef"
+	origin := model.Origin{Daemon: "here", Session: "s"}
+	part := model.State{Sessions: []model.Session{{ID: "p", Name: "main", Origin: origin}}}
+	started := part
+	started.Workspaces = []model.Workspace{{ID: "other", SessionID: "p"}, {ID: id, SessionID: "p", Parent: "lw", RemoteParent: true}}
+	isTab := func(got any) bool {
+		m, ok := got.(proto.NewSession)
+		return ok && m.ID == id && m.ParentTab == "lw" && m.SessionID == "p"
+	}
+	hostConns(t,
+		[]cliExchange{{state: part, level: proto.Level}, {request: isTab, drop: true}},
+		[]cliExchange{{request: isTab, state: started, level: proto.Level}},
+	)
+	local := fakeLocal(t, cliExchange{request: func(got any) bool {
+		m, ok := got.(proto.RemoteWorkers)
+		w := model.RemoteWorker{ID: id, Host: "box", Parent: "lw"}
+		return ok && m.SessionID == "s" && len(m.Add) == 1 && len(m.Set) == 1 && m.Add[0].ID == w.ID && m.Add[0].Host == w.Host && m.Add[0].Parent == w.Parent && !m.Add[0].Since.IsZero()
+	}, level: proto.Level})
+	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+	got, err := newOnHost(local, "here", session, "box", proto.NewSession{Cmd: []string{"claude"}, ID: id, ParentTab: "lw"}, false)
+	if err != nil || got != "box:2" {
+		t.Fatalf("start after a dropped connection: %q, %v", got, err)
+	}
+}
+
+// A start whose host stays unreachable after the retries names the id to
+// finish it with; one the host refuses leaves no record here.
+func TestNewOnHostWorkerLostOrRefused(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "lp")
+	const id = "0123456789abcdef"
+	origin := model.Origin{Daemon: "here", Session: "s"}
+	part := model.State{Sessions: []model.Session{{ID: "p", Name: "main", Origin: origin}}}
+	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+	isTab := func(got any) bool { m, ok := got.(proto.NewSession); return ok && m.ID == id }
+	isAdd := func(got any) bool { m, ok := got.(proto.RemoteWorkers); return ok && len(m.Add) == 1 }
+	tab := proto.NewSession{Cmd: []string{"claude"}, ID: id, ParentTab: "lw"}
+
+	hostConns(t, []cliExchange{{state: part, level: proto.Level}, {request: isTab, drop: true}})
+	local := fakeLocal(t, cliExchange{request: isAdd, level: proto.Level})
+	_, err := newOnHost(local, "here", session, "box", tab, false)
+	if err == nil || !strings.Contains(err.Error(), "lost box while starting @"+id) || !strings.Contains(err.Error(), "--id "+id) {
+		t.Fatalf("an unreachable host: %v", err)
+	}
+
+	hostConns(t, []cliExchange{{state: part, level: proto.Level}, {request: isTab, state: part, level: proto.Level, error: "guarded tab not started"}})
+	local = fakeLocal(t,
+		cliExchange{request: isAdd, level: proto.Level},
+		cliExchange{request: proto.RemoteWorkers{SessionID: "s", Drop: []string{id}}, level: proto.Level})
+	if _, err := newOnHost(local, "here", session, "box", tab, false); err == nil || !strings.Contains(err.Error(), "guarded tab not started") {
+		t.Fatalf("a refused start: %v", err)
+	}
+}
+
+// A worker needs a host that keeps its id and parent.
+func TestHostLevelWorker(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "")
+	if err := hostLevel(nil, true, proto.RemoteWorkerLevel-1); err == nil || !strings.Contains(err.Error(), "without its id or its parent") {
+		t.Fatalf("a worker on an old host: %v", err)
+	}
+	if err := hostLevel(nil, false, proto.RemoteWorkerLevel-1); err != nil {
+		t.Fatalf("a person's tab on an old host: %v", err)
+	}
+}
+
+// Until wait watches other hosts, a worker of this tab on one fails
+// wait --children instead of letting it succeed without that worker.
+func TestWaitChildrenRemoteStopgap(t *testing.T) {
+	st := cliState()
+	st.Sessions[0].Workers = []model.RemoteWorker{{ID: "w9", Host: "box", Parent: st.Panes[0].WorkspaceID}}
+	fakeWatch(t, proto.StateMsg{State: st, Level: proto.Level})
+	t.Setenv("PITWALL_PANE", st.Panes[0].ID)
+	code, _, stderr := cliOutput("wait", "--children", "--until", "done")
+	if code != waitError || !strings.Contains(stderr, "box:@w9: this pitwall cannot watch workers on another machine yet") {
+		t.Fatalf("wait --children with a remote worker: %d %q", code, stderr)
 	}
 }

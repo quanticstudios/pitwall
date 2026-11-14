@@ -107,6 +107,10 @@ type Workspace struct {
 	// `pitwall worktree new` (proto.NewSession.ParentPane), "" for a tab the
 	// user opened. The sidebar hangs a tab under its parent's top ancestor.
 	Parent string
+	// RemoteParent marks a Parent that is a tab of another machine's
+	// daemon (proto.NewSession.ParentTab): a worker started there with
+	// pitwall new --host. Root then skips the group check.
+	RemoteParent bool `json:",omitempty"`
 	// Status is a line of text a script set with `pitwall status`, shown
 	// under the tab's row; "" for none.
 	Status string
@@ -433,6 +437,21 @@ type Session struct {
 	// Origin is, for a part of another machine's shared session, the
 	// daemon and session it was made for; zero for an ordinary session.
 	Origin Origin `json:",omitzero"`
+	// Workers are the tabs this session's tabs started on other machines,
+	// recorded before the start, so a start the connection lost is known.
+	// They outlive the part they run in, which ends with its last tab.
+	Workers []RemoteWorker `json:",omitempty"`
+}
+
+// RemoteWorker is a tab a session's tab started on another machine.
+type RemoteWorker struct {
+	ID     string // the tab's id there
+	Host   string // the [[hosts]] name
+	Parent string // the tab here that started it
+	Since  time.Time
+	// Lost says why the tab will never show there, such as "never
+	// started"; "" while it may.
+	Lost string `json:",omitempty"`
 }
 
 // Origin names a session on another machine's daemon: the State.Daemon
@@ -824,7 +843,8 @@ func (s *State) Root(w Workspace) string {
 	root := ""
 	for range 16 { // ponytail: depth cap instead of cycle detection; parents only ever point at older tabs
 		i := slices.IndexFunc(s.Workspaces, func(p Workspace) bool { return p.ID == w.Parent })
-		if w.Parent == "" || i < 0 || s.Workspaces[i].SessionID != w.SessionID || s.Workspaces[i].ProjectID != w.ProjectID {
+		// A worker on another machine is in its own group there.
+		if w.Parent == "" || i < 0 || s.Workspaces[i].SessionID != w.SessionID || s.Workspaces[i].ProjectID != w.ProjectID && !w.RemoteParent {
 			break
 		}
 		w = s.Workspaces[i]

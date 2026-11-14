@@ -505,6 +505,10 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 		if err != nil {
 			return waitError, err
 		}
+		// shortcut: a worker on another host fails the wait, until wait can watch other hosts.
+		if r := remoteChild(all); r != nil {
+			return waitError, fmt.Errorf("%s:@%s: this pitwall cannot watch workers on another machine yet", r.Host, r.ID)
+		}
 		if len(only) == 0 {
 			return waitError, errors.New("this tab opened no tabs; open them with pitwall new or pitwall worktree new")
 		}
@@ -644,6 +648,23 @@ func readDoneLine(conn *cliConn, pane string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// remoteChild is a worker the calling pane's tab started on another host
+// (model.Session.Workers), or nil.
+func remoteChild(state model.State) *model.RemoteWorker {
+	i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == os.Getenv("PITWALL_PANE") })
+	if i < 0 {
+		return nil
+	}
+	for _, s := range state.Sessions {
+		for _, w := range s.Workers {
+			if w.Parent == state.Panes[i].WorkspaceID {
+				return &w
+			}
+		}
+	}
+	return nil
 }
 
 // withFinishedWorkers makes retained results visible only to wait --children.

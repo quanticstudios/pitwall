@@ -127,6 +127,63 @@ func (d *Daemon) setOrigin(m proto.SetOrigin) error {
 	return nil
 }
 
+// remoteWorkers edits a session's record of its workers on other
+// machines; see proto.RemoteWorkers. Records older than the closed tabs
+// pitwall keeps go.
+func (d *Daemon) remoteWorkers(m proto.RemoteWorkers) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := d.st.Session(m.SessionID)
+	if s == nil {
+		return fmt.Errorf("no session %s", m.SessionID)
+	}
+	at := func(id string) int {
+		return slices.IndexFunc(s.Workers, func(w model.RemoteWorker) bool { return w.ID == id })
+	}
+	for _, w := range m.Add {
+		if w.ID == "" || w.Host == "" || w.Parent == "" {
+			return errors.New("a remote worker needs an id, a host and a parent")
+		}
+	}
+	s.Workers = slices.Clone(s.Workers)
+	for _, w := range m.Add {
+		if at(w.ID) < 0 {
+			s.Workers = append(s.Workers, w)
+		}
+	}
+	for _, w := range m.Set {
+		if i := at(w.ID); i >= 0 {
+			s.Workers[i] = w
+		}
+	}
+	cut := time.Now().AddDate(0, 0, -model.ClosedDays)
+	s.Workers = slices.DeleteFunc(s.Workers, func(w model.RemoteWorker) bool {
+		return slices.Contains(m.Drop, w.ID) || w.Since.Before(cut)
+	})
+	if len(s.Workers) == 0 {
+		s.Workers = nil
+	}
+	d.changed()
+	return nil
+}
+
+// reparent points a worker of a tab on another machine at that tab's new
+// id; see proto.Reparent.
+func (d *Daemon) reparent(m proto.Reparent) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	w := d.workspace(m.WorkspaceID)
+	if w == nil {
+		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	if s := d.st.Session(w.SessionID); m.Origin == (model.Origin{}) || m.ParentTab == "" || s == nil || s.Origin != m.Origin {
+		return errors.New("only the session that made a tab's part can change its parent")
+	}
+	w.Parent, w.RemoteParent = m.ParentTab, true
+	d.changed()
+	return nil
+}
+
 func (d *Daemon) sessionRename(m proto.SessionRename) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

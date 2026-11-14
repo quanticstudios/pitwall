@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -189,18 +190,26 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 // session. daemon is this machine's State.Daemon. A detached tab is
 // hidden there, as new -d hides one here. It returns the tab's number
 // there, "box:3".
+//
+// The tab gets tab.ID there, a new one when it is "", on a host that keeps
+// ids. A tab with a ParentTab is recorded in session's Workers before it
+// starts, and a start whose connection drops is sent again, which the
+// host's daemon runs once.
 func newOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool) (string, error) {
 	hc, done, err := dialHost(host)
 	if err != nil {
 		return "", err
 	}
-	defer done()
+	defer func() { done() }()
 	m, err := syncMsg(hc)
 	if err != nil {
 		return "", err
 	}
-	if err := hostLevel(tab.Env, m.Level); err != nil {
+	if err := hostLevel(tab.Env, tab.ID != "" || tab.ParentTab != "", m.Level); err != nil {
 		return "", fmt.Errorf("%s: %w", host, err)
+	}
+	if tab.ID == "" && m.Level >= proto.RemoteWorkerLevel {
+		tab.ID = newTabID()
 	}
 	hs := m.State
 	origin := model.Origin{Daemon: daemon, Session: session.ID}
@@ -255,10 +264,46 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 		}
 	}
 	partID, id := part.ID, shell
-	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" || len(tab.Env) > 0 {
+	// The link comes first, so a part a lost connection leaves is known here.
+	if r := session.Remote(host); r == nil || r.Session != partID {
+		if _, err := syncCLI(local, proto.SessionLink{SessionID: session.ID, Host: host, Remote: partID}); err != nil {
+			return "", err
+		}
+	}
+	recorded := slices.ContainsFunc(session.Workers, func(w model.RemoteWorker) bool { return w.ID == tab.ID })
+	if tab.ParentTab != "" {
+		// A retry restarts the record's clock and clears a Lost.
+		w := model.RemoteWorker{ID: tab.ID, Host: host, Parent: tab.ParentTab, Since: time.Now()}
+		if _, err := syncCLI(local, proto.RemoteWorkers{SessionID: session.ID, Add: []model.RemoteWorker{w}, Set: []model.RemoteWorker{w}}); err != nil {
+			return "", err
+		}
+	}
+	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" || len(tab.Env) > 0 || tab.ID != "" {
 		before := hs
 		tab.SessionID = partID
-		if hs, err = syncCLI(hc, tab); err != nil {
+		sm, err := syncMsg(hc, tab)
+		for _, wait := range startRetries {
+			if err == nil || sm.Level != 0 || tab.ID == "" {
+				break // the daemon answered, or a start without an id would run twice
+			}
+			time.Sleep(wait)
+			done()
+			var next *cliConn
+			if next, done, err = dialHost(host); err == nil {
+				hc = next
+				sm, err = syncMsg(hc, tab)
+			} else {
+				done = func() {}
+			}
+		}
+		hs = sm.State
+		if err != nil && sm.Level == 0 && tab.ID != "" {
+			return "", fmt.Errorf("lost %s while starting @%s; it may be running. Run the same command with --id %s to finish starting it: %w", host, tab.ID, tab.ID, err)
+		}
+		if err != nil {
+			if tab.ParentTab != "" && !recorded {
+				syncCLI(local, proto.RemoteWorkers{SessionID: session.ID, Drop: []string{tab.ID}}) // the host refused it: nothing started
+			}
 			// A state accompanying the refusal proves the daemon answered.
 			// Remove only our bootstrap shell; an uncertain connection must
 			// leave any worker it may have started alone.
@@ -269,15 +314,19 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			}
 			return "", err
 		}
-		var made []string
-		for _, w := range hs.Workspaces {
-			if w.SessionID == partID && !slices.ContainsFunc(before.Workspaces, func(o model.Workspace) bool { return o.ID == w.ID }) {
-				made = append(made, w.ID)
+		id = tab.ID
+		if id == "" { // a host that keeps no ids: the tab new in the part
+			var made []string
+			for _, w := range hs.Workspaces {
+				if w.SessionID == partID && !slices.ContainsFunc(before.Workspaces, func(o model.Workspace) bool { return o.ID == w.ID }) {
+					made = append(made, w.ID)
+				}
 			}
-		}
-		id = ""
-		if len(made) == 1 { // more when another client opened one there meanwhile
-			id = made[0]
+			if len(made) == 1 { // more when another client opened one there meanwhile
+				id = made[0]
+			}
+		} else if hs.Workspace(id) == nil {
+			return "", fmt.Errorf("@%s started on %s and has closed already", id, host)
 		}
 		if shell != "" { // the asked-for tab replaces it
 			if hs, err = syncCLI(hc, proto.CloseTab{WorkspaceID: shell}); err != nil {
@@ -285,9 +334,14 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			}
 		}
 	}
-	if r := session.Remote(host); r == nil || r.Session != partID {
-		if _, err := syncCLI(local, proto.SessionLink{SessionID: session.ID, Host: host, Remote: partID}); err != nil {
-			return "", err
+	if origin != (model.Origin{}) {
+		// Best effort: the next call, or a window, compares them again.
+		moves, lost := workerFixes(*session, host, hs, origin, time.Now())
+		for _, mv := range moves {
+			syncCLI(hc, mv)
+		}
+		if len(lost) > 0 {
+			syncCLI(local, proto.RemoteWorkers{SessionID: session.ID, Set: lost})
 		}
 	}
 	if id == "" && detached {
@@ -302,6 +356,18 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 		}
 	}
 	return tabNumber(host, hs.Numbered(partID), id), nil
+}
+
+// startRetries are the waits before each new try of a start on a host
+// whose connection dropped.
+var startRetries = []time.Duration{500 * time.Millisecond, 2 * time.Second, 5 * time.Second}
+
+// newTabID is an id as a daemon makes one, for a tab the CLI starts on
+// another host.
+func newTabID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
@@ -330,7 +396,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force, children, tree, guarded bool
-	var name, sessionName, preset, modelName, hostName string
+	var name, sessionName, preset, modelName, hostName, tabID string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
@@ -346,6 +412,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.StringVar(&preset, "preset", "", "")
 		flags.BoolVar(&guarded, "guard", false, "")
 		flags.StringVar(&hostName, "host", "", "")
+		flags.StringVar(&tabID, "id", "", "")
 	case "kill":
 		flags.BoolVar(&force, "f", false, "")
 	case "attach", "detach", "rename":
@@ -374,6 +441,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	if issue != 0 && cmd == nil {
 		return errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
+	}
+	if tabID != "" && hostName == "" {
+		return errors.New("--id names a tab on another host and goes with --host")
 	}
 	if issue != 0 && hostName != "" {
 		return errors.New("--issue reads the issue from this machine's checkout and cannot be used with --host; pass the prompt after the agent instead")
@@ -419,14 +489,21 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			if err != nil {
 				return errors.New("--host opens a tab in a session here, and there is none: open a tab here first")
 			}
-			if m.Level < proto.SharedLevel || os.Getenv("PITWALL_PANE") != "" && state.Daemon == "" {
+			if m.Level < proto.SharedLevel || os.Getenv("PITWALL_PANE") != "" && (state.Daemon == "" || m.Level < proto.RemoteWorkerLevel) {
 				return errors.New("pitwall's background service here is older than this pitwall and cannot share a session; restart it")
 			}
 			dir := ""
 			if len(args) == 1 {
 				dir = args[0] // a folder on the host
 			}
-			num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars}, detached)
+			// The calling pane's tab is the new tab's parent, as here.
+			parent := ""
+			if pane := os.Getenv("PITWALL_PANE"); pane != "" {
+				if i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 && state.SessionOf(state.Panes[i].WorkspaceID) == session.ID {
+					parent = state.Panes[i].WorkspaceID
+				}
+			}
+			num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars, ID: tabID, ParentTab: parent}, detached)
 			if err != nil {
 				return err
 			}
@@ -545,13 +622,18 @@ func withModel(cmd []string, selection string) ([]string, error) {
 }
 
 // hostLevel is varsLevel for a tab on another host. From a pitwall pane
-// the host must also keep the part of each session apart (OriginLevel).
-func hostLevel(vars []string, level int) error {
+// the host must also keep the part of each session apart (OriginLevel),
+// and a worker, a tab with an id or a parent here, needs both kept
+// (RemoteWorkerLevel).
+func hostLevel(vars []string, worker bool, level int) error {
 	if err := varsLevel(vars, level); err != nil {
 		return err
 	}
 	if os.Getenv("PITWALL_PANE") != "" && level < proto.OriginLevel {
 		return errors.New("the pitwall daemon running there is older than this pitwall and cannot tell this session's tabs from another session's of the same name; update pitwall there or restart its daemon")
+	}
+	if worker && level < proto.RemoteWorkerLevel {
+		return errors.New("the pitwall daemon running there is older than this pitwall and would start this tab without its id or its parent here; update pitwall there or restart its daemon")
 	}
 	return nil
 }

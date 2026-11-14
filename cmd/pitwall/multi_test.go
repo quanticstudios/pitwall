@@ -973,3 +973,63 @@ func TestMultiMonitor(t *testing.T) {
 		t.Fatalf("local got %#v", got)
 	}
 }
+
+// A window that shows both machines points box's worker at its parent's
+// new id, marks a recorded worker box never showed lost, folds box's
+// closed tabs into the shared session, and sends "close finished workers"
+// to each host with a worker of that tab.
+func TestMultiRemoteWorkers(t *testing.T) {
+	now := time.Now()
+	ls, rs := hostState("ls", "lw", "lp"), hostState("rs", "rw", "rp")
+	ls.Daemon = "here"
+	origin := model.Origin{Daemon: "here", Session: "ls"}
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Workers = []model.RemoteWorker{
+		{ID: "rw", Host: "box", Parent: "lw", Since: now},
+		{ID: "missing", Host: "box", Parent: "lw", Since: now.Add(-3 * time.Minute)},
+		{ID: "slow", Host: "box", Parent: "lw", Since: now},
+		{ID: "done", Host: "box", Parent: "lw", Since: now.Add(-3 * time.Minute)},
+	}
+	rs.Sessions[0].Origin = origin
+	rs.Workspaces[0].Parent, rs.Workspaces[0].RemoteParent = "old", true
+	rs.Closed = []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "done", SessionID: "rs", Parent: "lw"}}}
+	m, ld, rd := originWindow(t, ls, rs)
+	want := proto.Reparent{WorkspaceID: "rw", ParentTab: "lw", Origin: origin}
+	if got := next(rd); got != any(want) {
+		t.Fatalf("box got %#v, want %#v", got, want)
+	}
+	var lost []model.RemoteWorker
+	for msg := next(ld); msg != nil; msg = next(ld) {
+		if r, ok := msg.(proto.RemoteWorkers); ok {
+			lost = append(lost, r.Set...)
+		}
+	}
+	if len(lost) != 1 || lost[0].ID != "missing" || lost[0].Lost == "" {
+		t.Fatalf("lost records %+v", lost)
+	}
+	if st := m.State(); len(st.Closed) != 1 || st.Closed[0].Tab.SessionID != "ls" {
+		t.Fatalf("closed %+v", st.Closed)
+	}
+
+	// box's state now shows the worker under its parent here.
+	rs.Workspaces[0].Parent = "lw"
+	m.hosts[1].b.mu.Lock()
+	m.hosts[1].b.state = rs
+	m.hosts[1].b.mu.Unlock()
+	m.merge()
+	if st := m.State(); st.Root(*st.Workspace("rw")) != "lw" {
+		t.Fatal("box's worker does not hang under its parent here")
+	}
+	if err := m.Send(proto.CloseDoneWorkers{WorkspaceID: "lw"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []end{ld, rd} {
+		got := false
+		for msg := next(e); msg != nil; msg = next(e) {
+			got = got || msg == any(proto.CloseDoneWorkers{WorkspaceID: "lw"})
+		}
+		if !got {
+			t.Fatal("a host with a worker of the tab did not get CloseDoneWorkers")
+		}
+	}
+}
