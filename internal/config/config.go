@@ -43,7 +43,7 @@ type Config struct {
 	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
 	DevProxy  DevProxy    `toml:"dev_proxy" doc:"Named URLs for local worktree dev servers."`
 	Popups    []Popup     `toml:"popups" doc:"Commands that open in a popup over the tab, each a [[popups]] table with name, key and command, such as lazygit on a key. See docs/usage.md, Popups."`
-	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is."`
+	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is, except from a pitwall pane. The name local means this machine and is not allowed."`
 	// HostColors is each host's color in a shared session, by [[hosts]] name.
 	HostColors map[string]string `toml:"host_colors" doc:"Each host's color in a shared session, a tab color such as \"teal\", keyed by its [[hosts]] name. A host with none takes one in turn. See docs/remote.md."`
 	// HostClipboard is whether each host's programs may set the clipboard.
@@ -390,7 +390,7 @@ type Settings struct {
 	SendReviewOnRequest bool
 	// ConflictRadar marks tabs whose branches change the same files.
 	ConflictRadar bool
-	// Hosts is [[hosts]] as written.
+	// Hosts is [[hosts]] as written, without one named local.
 	Hosts      []Host
 	HostColors map[string]string
 	// HostClipboard is [host_clipboard] without values other than
@@ -620,7 +620,13 @@ func LoadFile(path string) (Settings, []Problem) {
 		fi = append(fi, issue{"appearance.host_sections", fmt.Sprintf("%q is not divider or sections; using divider", c.Appear.HostSections)})
 	}
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
-	s.Hosts = c.Hosts
+	for i, h := range c.Hosts {
+		if h.Name == "local" {
+			fi = append(fi, issue{fmt.Sprintf("hosts[%d].name", i), "the name local means this machine; rename this entry"})
+			continue
+		}
+		s.Hosts = append(s.Hosts, h)
+	}
 	s.HostColors = c.HostColors
 	for h, v := range c.HostClipboard {
 		if v != "allow" && v != "deny" {

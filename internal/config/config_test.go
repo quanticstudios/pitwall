@@ -319,6 +319,14 @@ func TestHosts(t *testing.T) {
 	if _, probs = LoadFile(write(t, dir, "config.toml", "hosts = \"box\"\n")); msgs(probs) != "config.toml:1: hosts: want an array of tables" {
 		t.Fatalf("not a table: %q", msgs(probs))
 	}
+	// local is this machine in the window, so an entry with that name is ignored.
+	s, probs = LoadFile(write(t, dir, "config.toml", "[[hosts]]\nname = \"local\"\nssh = \"me@box\"\n\n[[hosts]]\nname = \"box\"\n"))
+	if got := msgs(probs); !strings.Contains(got, "hosts[0].name: the name local means this machine") {
+		t.Fatalf("problems: %q", got)
+	}
+	if want := []Host{{Name: "box"}}; !slices.Equal(s.Hosts, want) {
+		t.Fatalf("hosts %v, want %v", s.Hosts, want)
+	}
 }
 
 func TestLoadOverridesAndProblems(t *testing.T) {

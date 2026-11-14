@@ -178,6 +178,9 @@ var dialHost = func(name string) (conn *cliConn, done func(), err error) {
 		return nil, nil, errors.New("--host needs ssh's connection sharing (ControlMaster), which Windows' ssh lacks")
 	}
 	s, _ := config.Load()
+	if err := agentHost(name, s.Hosts); err != nil {
+		return nil, nil, err
+	}
 	r, err := newSSHHost(name, s.Hosts)
 	if err != nil {
 		return nil, nil, err
@@ -193,6 +196,16 @@ var dialHost = func(name string) (conn *cliConn, done func(), err error) {
 		return nil, nil, err
 	}
 	return conn, func() { conn.Close(); r.close() }, nil
+}
+
+// agentHost refuses, in a pitwall pane, a host that is not a [[hosts]]
+// name: an agent starts processes only on machines the user listed. A
+// person at a shell may still give any ssh destination.
+func agentHost(name string, hosts []config.Host) error {
+	if os.Getenv("PITWALL_PANE") == "" || slices.ContainsFunc(hosts, func(h config.Host) bool { return h.Name == name }) {
+		return nil
+	}
+	return fmt.Errorf("in a pitwall pane, --host takes only a [[hosts]] name; add [[hosts]] name = %q to %s", name, config.Path())
 }
 
 // start runs remote-start on the host and returns the daemon's socket

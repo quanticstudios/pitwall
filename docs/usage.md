@@ -2373,13 +2373,39 @@ the bare command. These patterns add to the list. Nothing in `config.toml`
 can lift a built-in one, and a config with problems still leaves the
 built-in list on.
 
-The guard covers Claude Code and Codex through their `PreToolUse` hook, and
-pi, omp and OpenCode 1 through pitwall's extension and plugin, which run
-`pitwall guard` before each shell command. Run `pitwall hooks install`
-after an upgrade so the extension and plugin have the check. OpenCode 2
-runs plugins in one background service that every OpenCode window shares,
-so pitwall can't tell a guarded tab's calls apart there and does not guard
-OpenCode 2. Gemini CLI, Cursor and the other agents have no guard either.
+The guard covers Claude Code and Codex through their `PreToolUse` hook,
+pi and omp through pitwall's extension, and OpenCode 1 through pitwall's
+plugin. A guarded tab fails closed: the daemon that starts it refuses,
+with the fix, unless that agent's guard is installed in the config folder
+it reads. For Claude Code and Codex that is `CLAUDE_CONFIG_DIR` or
+`CODEX_HOME` as the tab, its preset or its profile sets it, else
+`~/.claude` or `~/.codex`.
+For a profile's folder, run `CLAUDE_CONFIG_DIR=<folder> pitwall hooks
+install` (or `CODEX_HOME=`). This holds for a resume after a restart and
+for a worker the fleet's big lane replaces, which keeps the guard of the
+worker it replaces. Relative config paths resolve from the tab's working
+folder, and the default config folder follows the tab's home override.
+The hook must run synchronously for every tool. Guarded Claude Code
+launches refuse `--bare`, `--safe-mode`, `--settings`,
+`--setting-sources` without `user`, and `CLAUDE_CODE_SIMPLE`: those can
+skip or override the user hooks that pitwall checks. Remove those options
+to use the guard. `pitwall doctor` shows a guard line per agent. Codex
+also needs `/hooks` once to trust the hooks, which pitwall cannot check.
+
+pi and omp use `PI_CODING_AGENT_DIR`, else `~/.pi/agent` and
+`~/.omp/agent`. pitwall installs and checks OpenCode's plugin in
+`OPENCODE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/opencode` or
+`~/.config/opencode`. Their current,
+unedited extension or plugin must be present and name an existing
+pitwall executable. Older copies that predate the guard do not count;
+run `pitwall hooks install` with the same directory override to update
+them. pi and omp launches with `--no-extensions` are refused.
+
+OpenCode must report a version in series 1, at least 1.4. OpenCode 2 runs
+plugins in one background service that every OpenCode window shares, so
+pitwall can't tell a guarded tab's calls apart there and refuses it.
+An unknown OpenCode version is refused too. Gemini CLI, Cursor and the
+other agents have no guard.
 
 The guard is a seatbelt, not a sandbox. It reads the command the agent
 asks to run, split on `&&`, `||`, `;`, `|`, `&` and newlines, with leading

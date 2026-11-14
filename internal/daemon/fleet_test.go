@@ -172,7 +172,8 @@ func TestFleetEscalate(t *testing.T) {
 	s = fleetSettings()
 	s.Fleet.Escalate, s.Fleet.Contract = "respawn", contract
 	s.Fleet.Lanes[2].Preset = "Deep"
-	s.Presets = []config.AgentPreset{{Name: "Deep", Agent: "deepagent", Args: []string{"--effort", "max"}, Env: []string{"A=1"}, Guard: true}}
+	hooked := "CLAUDE_CONFIG_DIR=" + hookedDir(t)
+	s.Presets = []config.AgentPreset{{Name: "Deep", Agent: "claude", Args: []string{"--effort", "max"}, Env: []string{"A=1", hooked}, Guard: true}}
 	d, f = setup(&s)
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
@@ -189,7 +190,7 @@ func TestFleetEscalate(t *testing.T) {
 		t.Fatalf("worker tab's panes %+v: want one new pane", panes)
 	}
 	cmd := panes[0].Cmd
-	if len(cmd) != 4 || cmd[0] != "deepagent" || cmd[1] != "--effort" {
+	if len(cmd) != 4 || cmd[0] != "claude" || cmd[1] != "--effort" {
 		t.Fatalf("respawned %q", cmd)
 	}
 	brief := cmd[3]
@@ -198,7 +199,7 @@ func TestFleetEscalate(t *testing.T) {
 			t.Errorf("brief lacks %q:\n%s", w, brief)
 		}
 	}
-	if !slices.Equal(panes[0].Env, []string{"A=1", "PITWALL_GUARD=1"}) {
+	if !slices.Equal(panes[0].Env, []string{"A=1", hooked, "PITWALL_GUARD=1"}) {
 		t.Errorf("env %q", panes[0].Env)
 	}
 	if l := snap.Workspaces[1].Lane; l.Name != "big" || !l.Escalated {
@@ -209,4 +210,41 @@ func TestFleetEscalate(t *testing.T) {
 	if got := f.paneNamed("pa").got(); got != "" || len(d.mail.queue["pa"]) != 0 {
 		t.Fatalf("the parent of a respawned worker: input %q, queue %+v", got, d.mail.queue["pa"])
 	}
+}
+
+// TestFleetRespawnKeepsGuard: a worker started with --guard keeps the
+// guard when the big lane's agent replaces it, though neither the preset
+// nor guard_workers asks for it.
+func TestFleetRespawnKeepsGuard(t *testing.T) {
+	t0 := time.Now()
+	s := fleetSettings()
+	s.Fleet.Escalate = "respawn"
+	s.Fleet.Lanes[2].Preset = "Deep"
+	hooked := "CLAUDE_CONFIG_DIR=" + hookedDir(t)
+	s.Presets = []config.AgentPreset{{Name: "Deep", Agent: "claude", Env: []string{hooked}}}
+	d, _ := fleetDaemon(t, t0, &s)
+	d.o.PR = func(context.Context, string) (*model.PR, error) {
+		return &model.PR{Number: 7, State: model.PROpen, Checks: []model.Check{{Name: "test", State: model.CheckFail}}, Head: "h3"}, nil
+	}
+	d.o.AutoSendFailures = func() bool { return true }
+	d.o.Head = func(context.Context, string) (string, error) { return "h3", nil }
+	d.o.Failures = func(context.Context, string) ([]forge.FailedCheck, error) {
+		return []forge.FailedCheck{{Name: "test", URL: "https://ci/1", Log: "boom"}}, nil
+	}
+	d.mu.Lock()
+	d.prs.sent[prKey("/r", "fix-login")] = []string{"h1", "h2"}
+	d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == "wa" })].Env = []string{"PITWALL_GUARD=1"}
+	d.mu.Unlock()
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	d.pollPRs(context.Background(), t0)
+	for _, p := range snapshot(d).Panes {
+		if p.WorkspaceID == "w" && p.ID != "wa" {
+			if !slices.Equal(p.Env, []string{hooked, "PITWALL_GUARD=1"}) {
+				t.Fatalf("respawned with env %q", p.Env)
+			}
+			return
+		}
+	}
+	t.Fatal("no respawned pane")
 }

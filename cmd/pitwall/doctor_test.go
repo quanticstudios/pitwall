@@ -5,12 +5,14 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -51,7 +53,7 @@ func TestDoctor(t *testing.T) {
 		return code, b.String()
 	}
 	code, out := doctor()
-	for _, want := range []string{"FAIL pitwall on PATH: not found", "info daemon not running", "FAIL hooks: ~/.claude/settings.json needs: added", "fix: pitwall hooks install", "ok   config"} {
+	for _, want := range []string{"FAIL pitwall on PATH: not found", "info daemon not running", "FAIL hooks: ~/.claude/settings.json needs: added", "fix: pitwall hooks install", "FAIL guard: no settings.json", "ok   config"} {
 		if code != 1 || !strings.Contains(out, want) {
 			t.Errorf("exit %d, want 1 and %q:\n%s", code, want, out)
 		}
@@ -69,7 +71,71 @@ func TestDoctor(t *testing.T) {
 	if err := runHooks([]string{"install"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := doctor(); code != 0 || strings.Contains(out, "FAIL") || !strings.Contains(out, "ok   hooks: ~/.claude/skills/pitwall/SKILL.md") {
+	// The hooks run testBin, which does not exist, so a guarded tab would run unguarded.
+	code, out = doctor()
+	fails := 0
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "FAIL") {
+			fails++
+			if !strings.HasPrefix(l, "FAIL guard: ") || !strings.Contains(l, "runs an existing pitwall") {
+				t.Errorf("after setup: %s", l)
+			}
+		}
+	}
+	if code != 1 || fails != 2 || !strings.Contains(out, "ok   hooks: ~/.claude/skills/pitwall/SKILL.md") {
 		t.Errorf("exit %d after setup:\n%s", code, out)
+	}
+}
+
+// TestDoctorGuard: the guard row is ok where a guarded tab may start.
+func TestDoctorGuard(t *testing.T) {
+	home := hooksHome(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeHooksTestFile(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks": `+string(agent.ClaudeHooks(self))+`}`)
+	var rows []string
+	hooksRows(home, func(s string) string { return s }, func(ok bool, what, detail, fix string) {
+		if what == "guard" {
+			rows = append(rows, fmt.Sprint(ok, " ", detail))
+		}
+	})
+	if want := "true claude in " + filepath.Join(home, ".claude"); len(rows) != 1 || rows[0] != want {
+		t.Errorf("guard rows %q, want %q", rows, want)
+	}
+}
+
+func TestDoctorGuardExtensions(t *testing.T) {
+	home := hooksHome(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeHooksTestFile(t, filepath.Join(agent.PiDir(home), "extensions", "pitwall.ts"), string(agent.PiExtension(self)))
+	writeHooksTestFile(t, filepath.Join(agent.OmpDir(home), "extensions", "pitwall.ts"), string(agent.OmpExtension(self)))
+	writeHooksTestFile(t, filepath.Join(agent.OpenCodeDir(home), "plugins", "pitwall.js"), string(agent.OpenCodePlugin(self)))
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\nprintf '%s\\n' \"$GUARD_TEST_VERSION\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	for _, version := range []string{"1.4.0", "2.0.0"} {
+		t.Setenv("GUARD_TEST_VERSION", version)
+		var rows []string
+		hooksRows(home, func(s string) string { return s }, func(ok bool, what, detail, fix string) {
+			if what == "guard" {
+				rows = append(rows, fmt.Sprint(ok, " ", detail))
+			}
+		})
+		if len(rows) != 3 || !strings.HasPrefix(rows[0], "true pi in ") || !strings.HasPrefix(rows[1], "true omp in ") {
+			t.Fatalf("rows %v", rows)
+		}
+		if version == "1.4.0" && !strings.HasPrefix(rows[2], "true opencode in ") {
+			t.Fatalf("OpenCode 1 rows %v", rows)
+		}
+		if version == "2.0.0" && (!strings.HasPrefix(rows[2], "false ") || !strings.Contains(rows[2], "OpenCode 2")) {
+			t.Fatalf("OpenCode 2 rows %v", rows)
+		}
 	}
 }

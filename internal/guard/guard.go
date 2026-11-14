@@ -7,12 +7,20 @@ package guard
 import (
 	"encoding/json"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
 // Env turns the guard on for the agents of a pane: pitwall sets it to 1 in a
 // guarded tab, and the hooks check commands while it is set.
 const Env = "PITWALL_GUARD"
+
+// EnvOn reports whether one environment entry enables the guard. Windows
+// environment names are case-insensitive; every nonempty value enables it.
+func EnvOn(kv string) bool {
+	k, v, ok := strings.Cut(kv, "=")
+	return ok && v != "" && (k == Env || runtime.GOOS == "windows" && strings.EqualFold(k, Env))
+}
 
 // Adapted from forge (MIT): internal/pipeline/permissions.go
 

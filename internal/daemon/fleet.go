@@ -182,6 +182,10 @@ func (d *Daemon) escalate(ctx context.Context, s config.Settings, e escalation) 
 func (d *Daemon) respawn(ctx context.Context, s config.Settings, e escalation, preset config.AgentPreset) error {
 	d.mu.Lock()
 	old := d.panes[e.pane]
+	var guarded bool
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == e.pane }); i >= 0 {
+		guarded = slices.ContainsFunc(d.st.Panes[i].Env, guard.EnvOn)
+	}
 	d.mu.Unlock()
 	if old == nil {
 		return fmt.Errorf("no pane %s", e.pane)
@@ -204,7 +208,7 @@ func (d *Daemon) respawn(ctx context.Context, s config.Settings, e escalation, p
 	}
 	cmd := append(append([]string{preset.Agent}, preset.Args...), brief)
 	env := slices.Clone(preset.Env)
-	if preset.Guard || s.GuardWorkers {
+	if preset.Guard || s.GuardWorkers || guarded {
 		env = append(env, guard.Env+"=1")
 	}
 

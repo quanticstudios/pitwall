@@ -474,6 +474,30 @@ func TestTaskRepeatWorktree(t *testing.T) {
 
 func noHost(string) string { return "" }
 
+func TestTaskGuardGateLevel(t *testing.T) {
+	for _, value := range []string{"1", "yes", "0", ""} {
+		for _, level := range []int{proto.GuardGateLevel - 1, proto.GuardGateLevel} {
+			b := &linked{FakeBackend: NewFakeBackend(), link: Link{Level: level}}
+			u := &ui{b: b}
+			st := b.State()
+			u.nav.sync(&st)
+			u.task.projects = []taskProject{{dir: t.TempDir()}}
+			u.task.agents = []foundAgent{{cmd: "codex", vars: []string{"PITWALL_GUARD=" + value}}}
+			u.task.models = []taskModel{{key: "codex"}}
+			u.task.picked, u.task.modes = []bool{true}, []int{0}
+			u.task.prompt.SetText("go")
+			u.submitTask(&st, true)
+			refused := value != "" && level < proto.GuardGateLevel
+			if refused && (len(b.Sent()) != 0 || !strings.Contains(u.task.err, "checking for pitwall's hooks")) {
+				t.Fatalf("guard=%q level=%d: sent %v, error %q", value, level, b.Sent(), u.task.err)
+			}
+			if !refused && len(b.Sent()) != 1 {
+				t.Fatalf("guard=%q level=%d: sent %v, error %q", value, level, b.Sent(), u.task.err)
+			}
+		}
+	}
+}
+
 func TestTaskFreshWorktreeSchedule(t *testing.T) {
 	for _, level := range []int{proto.TaskWorktreeLevel - 1, proto.Level} {
 		b := &linked{FakeBackend: NewFakeBackend(), link: Link{Level: level}}

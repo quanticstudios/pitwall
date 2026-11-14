@@ -302,9 +302,9 @@ func TestNewSessionEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vars := []string{"PITWALL_GUARD=1", "FOO=bar"}
+	vars := []string{"PITWALL_GUARD=1", "CLAUDE_CONFIG_DIR=" + hookedDir(t), "FOO=bar"}
 	must(t, d.handle(context.Background(), proto.NewSession{Cwd: t.TempDir(), Cmd: []string{"claude"}, Env: vars}))
-	if got := f.pane(0).cfg.Env; !slices.Equal(got[len(got)-2:], vars) {
+	if got := f.pane(0).cfg.Env; !slices.Equal(got[len(got)-3:], vars) {
 		t.Fatalf("started with %q, want %q at the end", got, vars)
 	}
 	st := d.st
@@ -313,7 +313,7 @@ func TestNewSessionEnv(t *testing.T) {
 	if _, err := NewWith(f.options()); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.pane(1).cfg; !slices.Contains(got.Cmd, "--resume") || !slices.Equal(got.Env[len(got.Env)-2:], vars) {
+	if got := f.pane(1).cfg; !slices.Contains(got.Cmd, "--resume") || !slices.Equal(got.Env[len(got.Env)-3:], vars) {
 		t.Fatalf("restored %q with %q, want %q", got.Cmd, got.Env, vars)
 	}
 }

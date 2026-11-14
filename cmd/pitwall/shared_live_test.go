@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/daemon"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -267,5 +269,84 @@ func TestSharedSessionLive(t *testing.T) {
 	}
 	if len(boxTabs()) != 3 {
 		t.Fatalf("box's tabs after a refused kill: %v", boxTabs())
+	}
+
+	// A guarded tab on box, whose home has no pitwall hooks, does not start.
+	boxTabCount := func() int {
+		c, done, err := dialHost("box")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer done()
+		m, err := syncMsg(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(m.State.Workspaces)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	n := boxTabCount()
+	if code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") || !strings.Contains(errOut, "pitwall hooks install") {
+		t.Fatalf("an unhooked guarded tab on box: %d %q", code, errOut)
+	}
+	if got := boxTabCount(); got != n {
+		t.Fatalf("box has %d tabs after a refused guarded start, had %d", got, n)
+	}
+	// The same refusal on first contact must remove the initial shell
+	// created for the new part, leaving box's existing tabs alone.
+	if code, _, errOut := cliOutput("session", "new", "-d", "guard-refusal", home); code != 0 {
+		t.Fatalf("local guard-refusal session: %d %q", code, errOut)
+	}
+	if code, _, errOut := cliOutput("new", "-s", "guard-refusal", "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") {
+		t.Fatalf("guard refusal on a new part: %d %q", code, errOut)
+	}
+	if got := boxTabCount(); got != n {
+		t.Fatalf("box kept an initial shell after refusal: %d tabs, had %d", got, n)
+	}
+	// A remote preset's effective extension directory gates guarded pi.
+	// This is a fake agent; TestGuardPlugins exercises the actual extension.
+	guardDir := filepath.Join(dir, "guard-agent")
+	if err := os.WriteFile(filepath.Join(dir, "bin", "pi"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "here", "config", "pitwall", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte(fmt.Sprintf("[[agents.preset]]\nname = \"guard-pi\"\nagent = \"pi\"\nguard = true\nenv = [%q]\n", "PI_CODING_AGENT_DIR="+guardDir)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	startPi := func(want bool) {
+		t.Helper()
+		code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--preset", "guard-pi")
+		if want && code != 0 || !want && (code == 0 || !strings.Contains(errOut, "guarded tab not started")) {
+			t.Fatalf("guarded pi, want %v: exit %d, %s", want, code, errOut)
+		}
+	}
+	startPi(false)
+	if got := boxTabCount(); got != n {
+		t.Fatalf("unhooked pi left %d tabs, had %d", got, n)
+	}
+	ext := filepath.Join(guardDir, "extensions", "pitwall.ts")
+	if err := os.MkdirAll(filepath.Dir(ext), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ext, agent.PiExtension(self), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	startPi(true)
+	if got := boxTabCount(); got != n+1 {
+		t.Fatalf("hooked pi left %d tabs, want %d", got, n+1)
+	}
+	if err := os.Remove(ext); err != nil {
+		t.Fatal(err)
+	}
+	startPi(false)
+	if got := boxTabCount(); got != n+1 {
+		t.Fatalf("missing extension left %d tabs, want %d", got, n+1)
 	}
 }

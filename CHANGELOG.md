@@ -22,6 +22,12 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A tab started with the guard, here or with `--host`, no longer starts when pitwall's hooks are missing from the agent's config folder, and a worker that takes over after CI fails keeps the guard.
+- A guarded tab starts Claude Code or Codex with pitwall's hook, or pi, omp or OpenCode 1 with the current pitwall extension or plugin. The check uses the tab's home and working folder, requires a synchronous guard, and refuses options that skip it. OpenCode 2 and unknown versions are refused. `pitwall doctor` checks the same guard files, and a guarded agent that cannot be resumed after a restart says why in the window.
+- In a pitwall pane, `pitwall new --host` takes only a `[[hosts]]` name, and a `[[hosts]]` entry named `local` is a config problem and ignored, since `local` means this machine.
+
 ## v0.2.12
 
 - The skillshare popup runs on the focused tab's machine: a tab of box reads box's skills through box's daemon, which also masks MCP secrets there. The header names the machine and picks another, a Machines tab shows each connected machine's version, source and targets with Pull and sync, and the sidebar button shows skillshare's own mark. The button appears when the CLI is on the focused tab's machine, and a host whose pitwall is too old says to update it.
