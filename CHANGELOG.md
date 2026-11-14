@@ -22,6 +22,11 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The skillshare popup runs on the focused tab's machine: a tab of box reads box's skills through box's daemon, which also masks MCP secrets there. The header names the machine and picks another, a Machines tab shows each connected machine's version, source and targets with Pull and sync, and the sidebar button shows skillshare's own mark. The button appears when the CLI is on the focused tab's machine, and a host whose pitwall is too old says to update it.
+- Switching the skillshare popup's machine clears its previous preview and install flow, including with the sidebar hidden. Canceled install work stops on its daemon and releases its audit clone; hook commands stay off the wire, and failed machine checks show an error.
+
 ## v0.2.11
 
 - `pitwall kill` takes `@<id>`, a tab id or a pane id, as the other commands do; it said "no tab matches" before.

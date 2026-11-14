@@ -210,6 +210,9 @@ func paintIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot floa
 	if size <= 0 {
 		return layout.Dimensions{}
 	}
+	if d == icSkillshare {
+		return drawMark(gtx, size)
+	}
 	if rot != 0 {
 		c := f32.Pt(float32(size)/2, float32(size)/2)
 		defer op.Affine(f32.AffineId().Rotate(c, rot)).Push(gtx.Ops).Pop()

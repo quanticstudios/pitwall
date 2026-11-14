@@ -12,6 +12,43 @@ import (
 	"time"
 )
 
+func TestServeStripsHookCommands(t *testing.T) {
+	const secret = "synthetic-hook-secret"
+	cl := Client{Run: func(context.Context, string, ...string) Result {
+		return Result{Stdout: `{"source":{"entries":{"check":{"bindings":{"claude":{"command":"TOKEN=` + secret + ` run"}}}},"projects":{"/project":{"entries":{"check":{"bindings":{"codex":{"env":{"TOKEN":"` + secret + `"}}}}}}}}}`}
+	}}
+	r := cl.Serve(context.Background(), Call{Op: OpRead, Name: "hooks", Scope: Global}, nil)
+	if r.Result.Code != 0 || strings.Contains(r.Result.Stdout, secret) {
+		t.Fatalf("hook command reached the reply: %+v", r.Result)
+	}
+	var read Read
+	if err := read.Parse("hooks", r.Result); err != nil {
+		t.Fatal(err)
+	}
+	items := BuildItems(Global, &read)
+	if len(items) != 2 || !slices.Contains(items[0].Targets, "claude") || !slices.Contains(items[1].Targets, "codex") {
+		t.Fatalf("binding names lost: %+v", items)
+	}
+}
+
+func TestMachineReadFailures(t *testing.T) {
+	for _, name := range []string{"doctor", "diff"} {
+		t.Run(name, func(t *testing.T) {
+			cl := Demo()
+			run := cl.Run
+			cl.Run = func(ctx context.Context, dir string, args ...string) Result {
+				if args[0] == name {
+					return Result{Code: 1, Stderr: "could not read " + name}
+				}
+				return run(ctx, dir, args...)
+			}
+			if card := cl.LoadMachine(context.Background()); !strings.Contains(card.Err, "could not read "+name) {
+				t.Fatalf("failed health read looked successful: %+v", card)
+			}
+		})
+	}
+}
+
 // The fixtures under testdata are skillshare v0.30.7's own --json output,
 // captured in a temp HOME with two targets (claude, codex). global: a new
 // skill (deploy-notes), a disabled one (format-on-save), one with an
@@ -425,7 +462,7 @@ func TestStoreRefresh(t *testing.T) {
 	}
 	var s Store
 	landed := make(chan struct{}, 64)
-	s.Refresh(c, "", true, func() { landed <- struct{}{} })
+	s.Refresh(c.Serve, "", true, func() { landed <- struct{}{} })
 	for range 7 { // 5 reads, 2 checks
 		<-landed
 	}
@@ -454,7 +491,7 @@ func TestStoreRefresh(t *testing.T) {
 		<-block
 		return demo(ctx, dir, args...)
 	}
-	s.Refresh(c, "", false, func() {})
+	s.Refresh(c.Serve, "", false, func() {})
 	if v := s.View(); v.Reads[Global].List == nil || !v.Reads[Global].Pending["list"] {
 		t.Fatal("old answers should stay while a refresh runs")
 	}
@@ -509,7 +546,7 @@ func TestLiveCLI(t *testing.T) {
 	}
 	var s Store
 	done := make(chan struct{}, 64)
-	s.Refresh(c, "", true, func() { done <- struct{}{} })
+	s.Refresh(c.Serve, "", true, func() { done <- struct{}{} })
 	for s.Running() {
 		<-done
 	}
@@ -554,9 +591,9 @@ func TestStoreRefreshChangesProject(t *testing.T) {
 	var s Store
 	changed := make(chan struct{}, 128)
 	notify := func() { changed <- struct{}{} }
-	s.Refresh(c, "/old", false, notify)
+	s.Refresh(c.Serve, "/old", false, notify)
 	<-oldRead
-	s.Refresh(c, "/new", false, notify)
+	s.Refresh(c.Serve, "/new", false, notify)
 	v := s.View()
 	if v.Project != "/new" || !v.Reads[Project].Pending["list"] {
 		t.Fatalf("old project still active: %+v", v)
@@ -606,10 +643,10 @@ func TestStoreRefreshQueuesAnotherRead(t *testing.T) {
 	var s Store
 	changed := make(chan struct{}, 128)
 	notify := func() { changed <- struct{}{} }
-	s.Refresh(c, "", false, notify)
+	s.Refresh(c.Serve, "", false, notify)
 	<-started
-	s.Refresh(c, "", true, notify)
-	s.Refresh(c, "", false, notify)
+	s.Refresh(c.Serve, "", true, notify)
+	s.Refresh(c.Serve, "", false, notify)
 	close(release)
 	for deadline := time.After(5 * time.Second); ; {
 		mu.Lock()
@@ -652,5 +689,23 @@ func TestHookToggle(t *testing.T) {
 	hook.Root = "/other"
 	if got := ToggleArgs(hook, "enable"); got != nil {
 		t.Fatalf("project-root hook cannot use the scoped CLI action: %v", got)
+	}
+}
+
+// ParseGit reads the branch line's tracking counts and counts changed
+// files; a source with work of its own and a remote syncs both ways.
+func TestParseGit(t *testing.T) {
+	g := ParseGit("/src", "## main...origin/main [ahead 1, behind 2]\n M a.md\n?? b.md\n")
+	if g.Branch != "main" || g.Upstream != "origin/main" || g.Ahead != 1 || g.Behind != 2 || g.Dirty != 2 || !g.BothWays() {
+		t.Fatalf("%+v", g)
+	}
+	if l := g.Line(); l != "↓2 behind · 2 uncommitted · ↑1 to push" {
+		t.Fatalf("line %q", l)
+	}
+	if g := ParseGit("/src", "## No commits yet on main\n"); g.Upstream != "" || g.Line() != "no remote" || g.BothWays() {
+		t.Fatalf("no remote: %+v %q", g, g.Line())
+	}
+	if (Git{Read: true}).Line() != "no git" || (Git{}).Line() != "could not be read" {
+		t.Fatal("not a repo, or unread")
 	}
 }

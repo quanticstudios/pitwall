@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 74 added Skillshare, SkillshareResult and State.Skillshare: the
+// skillshare popup runs on the machine of its tab.
 // Level 73 added CloseDoneWorkers and ClosedTab.FinishedWorker.
 // Level 72 added State.DevProxyPort: the port the daemon's dev proxy bound.
 // Level 71 added Task.FreshWorktree and Workspace.TaskRun for disposable task worktrees.
@@ -200,7 +202,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 73
+const Level = 74
 
 // CloseDoneWorkersLevel adds finished-worker cleanup and retained result metadata.
 const CloseDoneWorkersLevel = 73
@@ -311,6 +313,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case Skillshare, SkillshareResult:
+		return SkillshareLevel
 	case CloseDoneWorkers:
 		return CloseDoneWorkersLevel
 	case NewSession:
@@ -1123,6 +1127,7 @@ var Messages = []any{
 	SessionLink{}, SessionOrder{},
 	MonitorWatch{}, MonitorSample{},
 	CloseDoneWorkers{},
+	Skillshare{}, SkillshareResult{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

@@ -145,6 +145,9 @@ adapted block carries a `// Adapted from skillshare (MIT): <path>` comment.
 | `internal/skillshare/ops.go` | `herdr/skillshare/mods/skillshare/operations.js` (sync, update, enable, disable, uninstall) |
 | `internal/skillshare/run.go` | `herdr/skillshare/mods/skillshare/loader.js` (the preview) |
 | `internal/ui/app/skillshare.go` | `herdr/skillshare/mods/skillshare/main.js` (the install steps) |
+| `internal/skillshare/serve.go` | `herdr/skillshare/mods/skillshare/loader.js` and `model.js` (a Machines card, the source's git state) |
+| `internal/ui/app/skillsharemachines.go` | `herdr/skillshare/mods/skillshare/main.js` (the Machines tab) |
+| `internal/ui/sidebar/skillshare-mark.svg` | `herdr/skillshare/mods/skillshare/mark.svg` (skillshare's mark, unchanged) |
 
 ```text
 MIT License

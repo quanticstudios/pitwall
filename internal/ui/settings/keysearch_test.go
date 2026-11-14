@@ -15,7 +15,6 @@ import (
 	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/config"
-	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -34,9 +33,6 @@ func shown(secs []section) map[string][]string {
 // modifier order and spelling, while words still match names, and the
 // page's own search keeps the shortcut sections.
 func TestShortcutSearch(t *testing.T) {
-	old := skillshare.Default
-	skillshare.Default = skillshare.Demo()
-	t.Cleanup(func() { skillshare.Default = old })
 	for _, tc := range []struct {
 		preset, q string
 		want      map[string][]string
@@ -53,7 +49,7 @@ func TestShortcutSearch(t *testing.T) {
 		{"conventional", "review", map[string][]string{"Shortcuts": {"toggle_skillshare", "view_diff", "send_review", "second_opinion"}}},
 		{"conventional", "copy", map[string][]string{"Shortcuts": {"copy", "copy_mode", "hints"}}},
 	} {
-		var p Page
+		p := Page{Skillshare: true}
 		p.s.Keys = config.Preset(tc.preset)
 		p.keySearch.SetText(tc.q)
 		secs, _ := p.keyResults()

@@ -17,8 +17,8 @@ import (
 // ToggleSkillshare is a click on the footer's skillshare button.
 type ToggleSkillshare struct{}
 
-// icSkillshare is lucide sparkles: the skillshare button.
-const icSkillshare = "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0zM20 3v4M22 5h-4"
+// icSkillshare names skillshare's mark: drawIcon draws drawMark for it.
+const icSkillshare = "skillshare-mark"
 
 // footer: the plan limits' meter when it shows, then Open folder as
 // group, the update button when there is one, skillshare while its CLI is

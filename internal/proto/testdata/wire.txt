@@ -1,4 +1,4 @@
-18.73
+18.74
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -24,7 +24,7 @@ model.Program{App string; State string; Kind string; Progress int; Message strin
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.RemoteSession{Host string; Session string; Forget []string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.TaskRun{Pane string; Base string}
@@ -139,6 +139,8 @@ proto.SetSessionGroup{WorkspaceID string; GroupID string}
 proto.SetStatus{WorkspaceID string; Text string}
 proto.SetTabInbox{WorkspaceID string; Settled bool; SnoozedUntil time.Time}
 proto.SetTabOptions{WorkspaceID string; Pinned bool; Color string}
+proto.Skillshare{Pane string; ID uint64; Cancel bool; Call skillshare.Call}
+proto.SkillshareResult{ID uint64; Step string; Done bool; Reply skillshare.Reply}
 proto.StateMsg{State model.State; Level int; Build string}
 proto.Sync{}
 proto.Text{Pane string; Sel vt.Selection}
@@ -159,6 +161,20 @@ sample.Snapshot{Time time.Time; Host sample.Host; CPU sample.CPU; Mem sample.Mem
 session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
 session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill}
 session.Skill{Provider model.Provider; ID string; Name string; Path string}
+skillshare.AuditResult{Unknown bool; Blocked []string; Findings []skillshare.Finding}
+skillshare.Call{Op string; Name string; Scope string; Dir string; Item skillshare.Item; Items []skillshare.Item; Scopes []string; Action string; All bool; Plugins bool; Force bool; Source string; Clone string; Picks []skillshare.Choice; Skills []string; Paths skillshare.Paths}
+skillshare.Choice{Name string; Path string}
+skillshare.Finding{Skill string; Severity string; Pattern string; File string; Snippet string; Line int}
+skillshare.Git{Read bool; Repo bool; Top string; Branch string; Upstream string; Ahead int; Behind int; Dirty int}
+skillshare.Item{Key string; Scope string; Kind skillshare.Kind; Name string; Label string; Rel string; Path string; Src string; Version string; Disabled bool; State skillshare.State; Reason string; Targets []string; Repo string; Update string; Notice bool; Pending bool; Lines []string; Declared bool; Root string}
+skillshare.KV{Key string; Value string}
+skillshare.Machine{Missing bool; Version string; Latest string; Errors int; Warnings int; Targets int; Drift int; Git skillshare.Git; Err string}
+skillshare.Outcome{Text string; Err bool}
+skillshare.Paths{MCP string; Skills string; Agents string}
+skillshare.Plan{Dir string; Choices []skillshare.Choice; Err string}
+skillshare.Preview{Path string; Files []string; Meta []skillshare.KV; Body string; MCP []skillshare.KV; Err string}
+skillshare.Reply{Result skillshare.Result; Preview skillshare.Preview; Outcome skillshare.Outcome; Plan skillshare.Plan; Audit skillshare.AuditResult; Done []string; Err string; Machine skillshare.Machine; Project string}
+skillshare.Result{Stdout string; Stderr string; Code int}
 time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}
 time.Time{wall uint64; ext int64; loc *time.Location}
 time.zone{name string; offset int; isDST bool}

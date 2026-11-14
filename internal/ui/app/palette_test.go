@@ -12,7 +12,6 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/proto"
-	"github.com/quanticstudios/pitwall/internal/skillshare"
 )
 
 // TestFuzzy: the best alignment counts, word starts and runs beat
@@ -37,7 +36,7 @@ func TestFuzzy(t *testing.T) {
 // paletteActions is how many actions the palette lists: all but skillshare
 // while its CLI is not on PATH.
 func paletteActions() int {
-	if skillshare.Default.Installed() {
+	if ssShown {
 		return len(config.Actions())
 	}
 	return len(config.Actions()) - 1

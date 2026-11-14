@@ -46,6 +46,8 @@ type backend struct {
 	pastes  map[string]proto.PasteImageResult // per pane, a PasteImage reply not yet taken
 	imgs    images                            // the images frames place
 	moves   []proto.FocusDir                  // not yet taken by the window
+	ssID    uint64                            // the last Skillshare's ID
+	ssWaits map[uint64]*ssWait                // Skillshare calls waiting for their replies
 	chat    chatCache                         // the transcript of the chat on screen
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
 	// stays across a reconnect, for the view's stale state.
@@ -485,6 +487,15 @@ func (b *backend) recvLoop() {
 		}
 		if focus, ok := msg.(proto.FocusSession); ok {
 			b.pushFocus(focus)
+			continue
+		}
+		if r, ok := msg.(proto.SkillshareResult); ok {
+			b.mu.Lock()
+			step := b.takeSkillshare(r)
+			b.mu.Unlock()
+			if step != nil {
+				step()
+			}
 			continue
 		}
 		b.mu.Lock()

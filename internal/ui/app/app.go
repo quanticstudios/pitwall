@@ -892,6 +892,8 @@ func (u *ui) layout(gtx gl.Context) {
 		u.drawModePill(gtx, area)
 	}
 
+	u.sidebar.SkillshareWaiting = u.tickSkillshare(gtx, &st)
+	u.sidebar.Skillshare = ssShown
 	if edge > 0 {
 		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
 		u.picker.at = image.Pt(edge-sw-1+sw-gtx.Dp(44), gtx.Dp(50)) // under the header's +
@@ -920,8 +922,6 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.BoardOn = u.boardOn
 		u.sidebar.MonitorOn = u.mon.on
 		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(&st), gtx.Now)
-		u.sidebar.Skillshare = ssInstalled()
-		u.sidebar.SkillshareWaiting = u.tickSkillshare(gtx, &st)
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
 		if p := findPane(&st, u.nav.pip); p != nil {

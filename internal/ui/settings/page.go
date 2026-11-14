@@ -35,7 +35,6 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
-	"github.com/quanticstudios/pitwall/internal/skillshare"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -90,6 +89,9 @@ type Page struct {
 	// Limits are the agents' plan limits for Usage, nil before the window
 	// first read them.
 	Limits []flow.Limit
+	// Skillshare shows skillshare's key: the window sets it while the CLI
+	// is on the focused tab's machine.
+	Skillshare bool
 
 	shown  bool
 	cat    int
@@ -1009,7 +1011,7 @@ func (p *Page) shortcuts() []section {
 	}
 	var global, sessions, tab, pane []row
 	for _, a := range config.Actions() {
-		if a.Name == "toggle_skillshare" && !skillshare.Default.Installed() {
+		if a.Name == "toggle_skillshare" && !p.Skillshare {
 			continue // nothing about skillshare shows without it
 		}
 		cs := chordsOf(b, a.Name, tableOf(a))
