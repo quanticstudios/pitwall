@@ -268,4 +268,26 @@ func TestSharedSessionLive(t *testing.T) {
 	if len(boxTabs()) != 3 {
 		t.Fatalf("box's tabs after a refused kill: %v", boxTabs())
 	}
+
+	// A guarded tab on box, whose home has no pitwall hooks, does not start.
+	boxTabCount := func() int {
+		c, done, err := dialHost("box")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer done()
+		m, err := syncMsg(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(m.State.Workspaces)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	n := boxTabCount()
+	if code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") || !strings.Contains(errOut, "pitwall hooks install") {
+		t.Fatalf("an unhooked guarded tab on box: %d %q", code, errOut)
+	}
+	if got := boxTabCount(); got != n {
+		t.Fatalf("box has %d tabs after a refused guarded start, had %d", got, n)
+	}
 }

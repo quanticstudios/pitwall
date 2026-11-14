@@ -14,6 +14,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -135,7 +136,8 @@ func daemonRow(m proto.StateMsg, err error) (ok bool, detail, fix string) {
 
 // hooksRows reports each file `pitwall hooks install` would write: ok when
 // a dry run leaves it unchanged. Claude Code's and Codex's files count only
-// when that agent is installed.
+// when that agent is installed, and each of those gets a guard row: whether
+// a guarded tab of it may start.
 func hooksRows(home string, short func(string) string, report func(ok bool, what, detail, fix string)) {
 	plans, err := planHooks([]string{"install"})
 	if err != nil {
@@ -143,11 +145,20 @@ func hooksRows(home string, short func(string) string, report func(ok bool, what
 		return
 	}
 	var skip []string
-	if dir := agent.ClaudeDir(home); !installed("claude", dir) {
-		skip = append(skip, dir+string(os.PathSeparator))
-	}
-	if dir := agent.CodexDir(home); !installed("codex", dir) {
-		skip = append(skip, dir+string(os.PathSeparator))
+	for _, a := range []struct {
+		provider model.Provider
+		dir, key string
+	}{{model.ProviderClaude, agent.ClaudeDir(home), "CLAUDE_CONFIG_DIR"}, {model.ProviderCodex, agent.CodexDir(home), "CODEX_HOME"}} {
+		if !installed(string(a.provider), a.dir) {
+			skip = append(skip, a.dir+string(os.PathSeparator))
+			continue
+		}
+		// why: the daemon refuses a guarded tab with the same check, so the two cannot disagree.
+		if err := agent.GuardHooked(a.provider, a.dir); err != nil {
+			report(false, "guard", err.Error(), "pitwall hooks install; a profile's dir needs "+a.key+"=<dir> pitwall hooks install")
+		} else {
+			report(true, "guard", string(a.provider)+" in "+short(a.dir), "")
+		}
 	}
 	for _, p := range plans {
 		if slices.ContainsFunc(skip, func(dir string) bool { return strings.HasPrefix(p.path, dir) }) {

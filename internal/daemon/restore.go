@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"log"
 	"slices"
 	"time"
@@ -33,6 +34,9 @@ func (d *Daemon) orderRestores() {
 // immediate and queued launches. Callers hold d.mu.
 func (d *Daemon) restorePane(p model.Pane, saved []model.Activity) error {
 	if err := d.startVT(p.ID, d.o.RestoreCmd(p), p.Cwd, d.portsOf(p.WorkspaceID), p.Env, d.restoredVT(p, d.o.NewVT)); err != nil {
+		if errors.Is(err, errUnguarded) {
+			d.st.Notice = "Not restored: " + err.Error() // why: the pane closes, so the window is the only place to say why
+		}
 		return err
 	}
 	if store.Resumes(p) {

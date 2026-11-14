@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 75 added no message: a daemon at GuardGateLevel refuses a guarded
+// start the guard would not hold in.
 // Level 74 added Skillshare, SkillshareResult and State.Skillshare: the
 // skillshare popup runs on the machine of its tab.
 // Level 73 added CloseDoneWorkers and ClosedTab.FinishedWorker.
@@ -202,7 +204,12 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 74
+const Level = 75
+
+// GuardGateLevel refuses to start a pane with the guard on unless it runs
+// Claude Code or Codex with pitwall's hooks in the config dir it reads. A
+// client sends a guarded start only to a daemon at this level or above.
+const GuardGateLevel = 75
 
 // CloseDoneWorkersLevel adds finished-worker cleanup and retained result metadata.
 const CloseDoneWorkersLevel = 73

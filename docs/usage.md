@@ -2373,13 +2373,23 @@ the bare command. These patterns add to the list. Nothing in `config.toml`
 can lift a built-in one, and a config with problems still leaves the
 built-in list on.
 
-The guard covers Claude Code and Codex through their `PreToolUse` hook, and
-pi, omp and OpenCode 1 through pitwall's extension and plugin, which run
-`pitwall guard` before each shell command. Run `pitwall hooks install`
-after an upgrade so the extension and plugin have the check. OpenCode 2
-runs plugins in one background service that every OpenCode window shares,
-so pitwall can't tell a guarded tab's calls apart there and does not guard
-OpenCode 2. Gemini CLI, Cursor and the other agents have no guard either.
+The guard covers Claude Code and Codex through their `PreToolUse` hook. A
+guarded tab fails closed: the daemon that starts it refuses, with the fix,
+unless the tab runs Claude Code or Codex and pitwall's hook is installed in
+the config folder that agent reads, `CLAUDE_CONFIG_DIR` or `CODEX_HOME` as
+the tab, its preset or its profile sets it, else `~/.claude` or `~/.codex`.
+For a profile's folder, run `CLAUDE_CONFIG_DIR=<folder> pitwall hooks
+install` (or `CODEX_HOME=`). This holds for a resume after a restart and
+for a worker the fleet's big lane replaces, which keeps the guard of the
+worker it replaces. `pitwall doctor` shows a guard line per agent. Codex
+also needs `/hooks` once to trust the hooks, which pitwall cannot check.
+
+pi, omp and OpenCode 1 run pitwall's extension and plugin, which call
+`pitwall guard` before each shell command, but pitwall cannot check at
+start that they are installed and current, so a guarded tab does not start
+them. OpenCode 2 runs plugins in one background service that every
+OpenCode window shares, so pitwall can't tell a guarded tab's calls apart
+there. Gemini CLI, Cursor and the other agents have no guard.
 
 The guard is a seatbelt, not a sandbox. It reads the command the agent
 asks to run, split on `&&`, `||`, `;`, `|`, `&` and newlines, with leading

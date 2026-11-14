@@ -503,12 +503,22 @@ func withModel(cmd []string, selection string) ([]string, error) {
 }
 
 // varsLevel refuses vars, a preset's or the guard's, for a daemon that
-// would drop them.
+// would drop them, and the guard for one that would not check its hooks.
+// Every path that starts a tab calls it.
 func varsLevel(vars []string, level int) error {
 	if len(vars) > 0 && level < proto.EnvLevel {
 		return errors.New("the pitwall daemon running is older than this pitwall and would drop the preset's variables and the guard; they work once it restarts")
 	}
+	if level < proto.GuardGateLevel && slices.ContainsFunc(vars, guardOn) {
+		return errors.New("the pitwall daemon running is older than this pitwall and would start a guarded tab without checking for pitwall's hooks; update pitwall there or restart its daemon")
+	}
 	return nil
+}
+
+// guardOn reports whether kv turns the guard on.
+func guardOn(kv string) bool {
+	v, ok := strings.CutPrefix(kv, guard.Env+"=")
+	return ok && v != ""
 }
 
 // absCmd makes cmd's program an absolute path, found on this shell's

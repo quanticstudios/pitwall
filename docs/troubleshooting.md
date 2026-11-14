@@ -6,6 +6,8 @@ Run `pitwall doctor` first. It prints a line per check and changes nothing:
 info pitwall v0.2.0
 ok   pitwall on PATH: /home/me/.local/bin/pitwall
 ok   daemon: v0.2.0, protocol 16.25
+FAIL guard: /home/me/.claude/settings.json has no PreToolUse hook for every tool that runs an existing pitwall with hook claude
+     fix: pitwall hooks install; a profile's dir needs CLAUDE_CONFIG_DIR=<dir> pitwall hooks install
 FAIL hooks: ~/.claude/settings.json needs: added Notification: '/home/me/.local/bin/pitwall' hook claude and 9 more
      fix: pitwall hooks install --dry-run, then pitwall hooks install
 ok   hooks: ~/.claude/skills/pitwall/SKILL.md
@@ -15,7 +17,8 @@ ok   config: ~/.config/pitwall/config.toml
 It checks that the `pitwall` on your `PATH` is the binary you ran, that the
 daemon answers with the same version and protocol, that every installed
 agent's hooks, plugin or extension, and pitwall skill are in place and
-unedited, and that `config.toml` loads. Over ssh on a Linux host with
+unedited, that a [guarded](usage.md#the-guard) Claude Code or Codex tab
+may start, and that `config.toml` loads. Over ssh on a Linux host with
 systemd, it also checks linger (see [Remote hosts](remote.md)). Each `FAIL`
 names the command that fixes it, and the exit status is 1 while any line
 fails. A daemon that is not running is only `info`: the window starts one.

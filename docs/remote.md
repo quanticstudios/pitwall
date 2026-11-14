@@ -28,7 +28,10 @@ ssh = "me@box.example.com"
 
 `pitwall --host box` then connects to `me@box.example.com`, and the window
 title and the sidebar header say `box`. A name that is not listed goes to
-ssh as it is.
+ssh as it is, except from a pitwall pane: there `pitwall new --host` takes
+only a `[[hosts]]` name, so an agent starts processes only on machines you
+listed. `local` means this machine, so a `[[hosts]]` entry with that name
+is reported as a config problem and ignored.
 
 Set the host up once:
 
@@ -121,7 +124,10 @@ pitwall new --host box -d -- codex        # detached on box, as new -d here
 With `--host`, box finds the command on its own PATH, so `codex` needs to
 be installed there, not here. `--host` refuses `--issue`, which reads the
 issue from a checkout here, and refuses `--guard` and presets with
-variables while box's daemon is too old to keep them. When the window
+variables while box's daemon is too old to keep them or to check the
+guard's hooks. Box's daemon starts a guarded tab only when pitwall's hooks
+are installed in the agent's config folder there (see
+[the guard](usage.md#the-guard)). When the window
 will not open a tab or task on a host, or kill, group or move a shared
 session's tabs, such as while the host is down, it says why in the notice
 at the top of the window. A task started from

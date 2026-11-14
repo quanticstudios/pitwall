@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -535,6 +536,10 @@ guard = true
 	if code, _, stderr := cliOutput("new", "--guard", "--", "sh"); code == 0 || !strings.Contains(stderr, "older than this pitwall") {
 		t.Fatalf("old daemon: %d %s", code, stderr)
 	}
+	fakeCLI(t, cliExchange{state: cliState(), level: proto.GuardGateLevel - 1})
+	if code, _, stderr := cliOutput("new", "--guard", "--", "sh"); code == 0 || !strings.Contains(stderr, "without checking for pitwall's hooks") {
+		t.Fatalf("daemon below GuardGateLevel: %d %s", code, stderr)
+	}
 	if code, _, stderr := cliOutput("new", "--preset", "none"); code == 0 || !strings.Contains(stderr, `no preset "none"`) {
 		t.Fatalf("unknown preset: %d %s", code, stderr)
 	}
@@ -576,6 +581,38 @@ func TestNewOnHostRefuses(t *testing.T) {
 	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}}, false)
 	if err == nil || !strings.Contains(err.Error(), "would drop") {
 		t.Fatalf("an old host took a guarded tab: %v", err)
+	}
+	// A host that keeps the guard's variable but would not check its hooks.
+	fakeCLI(t, cliExchange{state: model.State{}, level: proto.GuardGateLevel - 1})
+	_, err = newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"FOO=1", "PITWALL_GUARD=1"}}, false)
+	if err == nil || !strings.HasPrefix(err.Error(), "box: ") || !strings.Contains(err.Error(), "without checking for pitwall's hooks") {
+		t.Fatalf("a host below GuardGateLevel took a guarded tab: %v", err)
+	}
+}
+
+// TestAgentHost: in a pitwall pane, --host takes only a [[hosts]] name; at
+// a shell any ssh destination goes.
+func TestAgentHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("--host needs ssh's ControlMaster")
+	}
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	os.MkdirAll(filepath.Join(cfg, "pitwall"), 0o700)
+	os.WriteFile(filepath.Join(cfg, "pitwall", "config.toml"), []byte("[[hosts]]\nname = \"box\"\n\n[[hosts]]\nname = \"local\"\n"), 0o600)
+	t.Setenv("PITWALL_PANE", "p1")
+	for _, name := range []string{"me@elsewhere", "local"} {
+		if _, _, err := dialHost(name); err == nil || !strings.Contains(err.Error(), "takes only a [[hosts]] name") {
+			t.Fatalf("an agent pane reached %s: %v", name, err)
+		}
+	}
+	hosts := []config.Host{{Name: "box"}}
+	if err := agentHost("box", hosts); err != nil {
+		t.Fatalf("a [[hosts]] name: %v", err)
+	}
+	t.Setenv("PITWALL_PANE", "")
+	if err := agentHost("me@elsewhere", hosts); err != nil {
+		t.Fatalf("a shell: %v", err)
 	}
 }
 
