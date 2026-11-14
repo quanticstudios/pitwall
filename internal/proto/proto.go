@@ -49,8 +49,9 @@ import (
 // fails until the right number is bumped.
 //
 // Level 77 added NewSession.ID and ParentTab, NewWorkspace.ID, ParentTab
-// and SessionID, Workspace.RemoteParent, Session.Workers, RemoteWorkers and
-// Reparent: a tab started on another machine once, under its parent here.
+// and SessionID, Workspace.RemoteParent and ClientID, ClosedTab.Origin,
+// Session.Workers, RemoteWorkers and Reparent: a tab started on another
+// machine once, under its parent here.
 // Level 76 added State.Daemon, Session.Origin, SessionNew.Origin and
 // SetOrigin: a host's part of a shared session names the session it was
 // made for.
@@ -213,7 +214,8 @@ const Version = 18
 const Level = 77
 
 // RemoteWorkerLevel added NewSession.ID and ParentTab, NewWorkspace.ID,
-// ParentTab and SessionID, Workspace.RemoteParent, Session.Workers,
+// ParentTab and SessionID, Workspace.RemoteParent and ClientID,
+// ClosedTab.Origin, Session.Workers,
 // RemoteWorkers and Reparent.
 const RemoteWorkerLevel = 77
 
@@ -994,8 +996,8 @@ type RemoteWorkers struct {
 	Drop      []string
 }
 
-// Reparent makes ParentTab, a tab on another machine, the parent of tab
-// WorkspaceID, after that tab's parent there reopened with a new id. The
+// Reparent makes ParentTab, a tab on another machine, the parent of live
+// or closed tab WorkspaceID, after that tab's parent reopened with a new id. The
 // daemon refuses it unless WorkspaceID's session is the part made for
 // Origin.
 type Reparent struct {

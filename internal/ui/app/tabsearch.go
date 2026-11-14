@@ -263,6 +263,9 @@ func (u *ui) pickTab(st *model.State, h tabHit) {
 		}
 		u.send(proto.ReopenTab{ID: c.ID, AtRoot: c.Gone})
 		u.nav.reopen = c.ID
+		if c.Tab.ClientID {
+			u.nav.reopen = c.Tab.ID
+		}
 	}
 	p.close()
 }

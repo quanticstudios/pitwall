@@ -408,8 +408,13 @@ func workerFixes(session model.Session, host string, hs model.State, origin mode
 			}
 			continue
 		}
-		closed := slices.ContainsFunc(hs.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == r.ID })
-		if !closed && now.Sub(r.Since) > lostAfter {
+		if i := slices.IndexFunc(hs.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == r.ID }); i >= 0 {
+			if hs.Closed[i].Tab.Parent != r.Parent {
+				moves = append(moves, proto.Reparent{WorkspaceID: r.ID, ParentTab: r.Parent, Origin: origin})
+			}
+			continue
+		}
+		if now.Sub(r.Since) > lostAfter {
 			r.Lost = "never started"
 			lost = append(lost, r)
 		}

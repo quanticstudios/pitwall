@@ -44,7 +44,7 @@ func TestSaveLoad(t *testing.T) {
 		Sessions: []model.Session{{ID: "part", Name: "shared", Origin: model.Origin{Daemon: "other", Session: "origin"},
 			Workers: []model.RemoteWorker{{ID: "w", Host: "box", Parent: "workspace", Since: now, Lost: "never started"}}}},
 		Projects: []model.Project{{ID: "project", Name: "pitwall", Root: "/repo", Kind: model.ProjectGit, Color: "blue", Icon: "git"}},
-		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", NameSet: true, Label: "make", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, UpdatedAt: now, Parent: "far", RemoteParent: true,
+		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", NameSet: true, Label: "make", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, UpdatedAt: now, Parent: "far", RemoteParent: true, ClientID: true,
 			Tabs: []model.Tab{{ID: "t1", Name: "build", Title: "make", Layout: &layout.Node{Dir: layout.Horizontal, Ratios: []float64{0.4, 0.6}, Children: []*layout.Node{
 				{Pane: "p1"}, {Dir: layout.Vertical, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{{Pane: "p2"}, {Pane: "p3"}}},
 			}}}},
@@ -59,6 +59,8 @@ func TestSaveLoad(t *testing.T) {
 		Activities: []model.Activity{{PaneID: "p1", WorkspaceID: "workspace", Provider: model.ProviderClaude, SessionID: "session", State: model.StateWorking, Detail: "saving", UpdatedAt: now}},
 		Stats:      map[string]model.BranchStats{"workspace": {Additions: 10, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 1, Behind: 3}},
 		Tasks:      []model.Task{{ID: "task", SessionID: "s", GroupID: "project", Dir: "/repo", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}},
+		Closed: []model.ClosedTab{{ID: "closed", Tab: model.Workspace{ID: "worker", ClientID: true},
+			Origin: model.Origin{Daemon: "other", Session: "origin"}, ClosedAt: time.Now().Round(0)}},
 	}
 	// Overwrite an existing snapshot as well as creating the first one.
 	for _, state := range []model.State{{}, want} {

@@ -9,7 +9,7 @@ model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; A
 model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; Turns int; Seq int64; UpdatedAt time.Time}
 model.Check{Name string; State model.CheckState}
 model.Clipboard{Seq uint64; Text string}
-model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Group model.Project; PR int; ClosedAt time.Time; Gone bool; FinishedWorker bool}
+model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Origin model.Origin; Group model.Project; PR int; ClosedAt time.Time; Gone bool; FinishedWorker bool}
 model.Form{ID string; WorkspaceID string; PaneID string; Spec string; Title string; Waits bool; OpenedAt time.Time}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.LimitResume{PaneID string; SessionID string; Provider model.Provider; Turn time.Time; Since time.Time; Resets time.Time; Message string; Pending bool; Drafting bool}
@@ -30,7 +30,7 @@ model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.TaskRun{Pane string; Base string}
-model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; TaskRun *model.TaskRun; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; RemoteParent bool; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Monitor bool; Popup *model.Popup}
+model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; TaskRun *model.TaskRun; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; RemoteParent bool; ClientID bool; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Monitor bool; Popup *model.Popup}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 procs.Group{Key string; Kind procs.Kind; PID int; Name string; Agent string; Repo string; Branch string; Cores float64; RSS uint64; Threads int; Procs []procs.Proc; Folded int}
 procs.Proc{PID int; PPID int; Comm string; State uint8; Cores float64; RSS uint64; Threads int}

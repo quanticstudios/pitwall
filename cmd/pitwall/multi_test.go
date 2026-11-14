@@ -992,11 +992,15 @@ func TestMultiRemoteWorkers(t *testing.T) {
 	}
 	rs.Sessions[0].Origin = origin
 	rs.Workspaces[0].Parent, rs.Workspaces[0].RemoteParent = "old", true
-	rs.Closed = []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "done", SessionID: "rs", Parent: "lw"}}}
+	rs.Closed = []model.ClosedTab{{ID: "c", Origin: origin, Tab: model.Workspace{ID: "done", SessionID: "rs", Parent: "old", RemoteParent: true}}}
 	m, ld, rd := originWindow(t, ls, rs)
 	want := proto.Reparent{WorkspaceID: "rw", ParentTab: "lw", Origin: origin}
 	if got := next(rd); got != any(want) {
 		t.Fatalf("box got %#v, want %#v", got, want)
+	}
+	want.WorkspaceID = "done"
+	if got := next(rd); got != any(want) {
+		t.Fatalf("box's closed worker got %#v, want %#v", got, want)
 	}
 	var lost []model.RemoteWorker
 	for msg := next(ld); msg != nil; msg = next(ld) {

@@ -195,7 +195,7 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 // ids. A tab with a ParentTab is recorded in session's Workers before it
 // starts, and a start whose connection drops is sent again, which the
 // host's daemon runs once.
-func newOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool) (string, error) {
+func newOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool) (address string, startErr error) {
 	hc, done, err := dialHost(host)
 	if err != nil {
 		return "", err
@@ -270,6 +270,19 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			return "", err
 		}
 	}
+	if origin != (model.Origin{}) && m.Level >= proto.RemoteWorkerLevel {
+		// Reconcile before a retry: after its parent reopened, the host
+		// must learn the new parent before it can recognize the same start.
+		moves, lost := workerFixes(*session, host, hs, origin, time.Now())
+		for _, mv := range moves {
+			if updated, err := syncCLI(hc, mv); err == nil {
+				hs = updated
+			}
+		}
+		if len(lost) > 0 {
+			syncCLI(local, proto.RemoteWorkers{SessionID: session.ID, Set: lost})
+		}
+	}
 	recorded := slices.ContainsFunc(session.Workers, func(w model.RemoteWorker) bool { return w.ID == tab.ID })
 	if tab.ParentTab != "" {
 		// A retry restarts the record's clock and clears a Lost.
@@ -281,6 +294,13 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" || len(tab.Env) > 0 || tab.ID != "" {
 		before := hs
 		tab.SessionID = partID
+		// Later steps can fail after the start succeeded, such as hiding
+		// its tab or closing the bootstrap shell. Keep the retry id there too.
+		defer func() {
+			if startErr != nil && tab.ID != "" && !strings.Contains(startErr.Error(), "--id "+tab.ID) {
+				startErr = fmt.Errorf("%w; tab @%s on %s; retry the same command with --id %s", startErr, tab.ID, host, tab.ID)
+			}
+		}()
 		sm, err := syncMsg(hc, tab)
 		for _, wait := range startRetries {
 			if err == nil || sm.Level != 0 || tab.ID == "" {
@@ -291,7 +311,16 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			var next *cliConn
 			if next, done, err = dialHost(host); err == nil {
 				hc = next
-				sm, err = syncMsg(hc, tab)
+				// Each connection can reach a different daemon. Check its
+				// level before it receives anything that can start a process.
+				if sm, err = syncMsg(hc); err == nil {
+					if err = hostLevel(tab.Env, true, sm.Level); err != nil {
+						return "", fmt.Errorf("lost %s while starting @%s; it may be running. Retry with --id %s after updating the host: %w", host, tab.ID, tab.ID, err)
+					}
+					sm, err = syncMsg(hc, tab)
+				} else {
+					sm = proto.StateMsg{} // no answer to a start on this connection
+				}
 			} else {
 				done = func() {}
 			}
@@ -332,16 +361,6 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			if hs, err = syncCLI(hc, proto.CloseTab{WorkspaceID: shell}); err != nil {
 				return "", err
 			}
-		}
-	}
-	if origin != (model.Origin{}) {
-		// Best effort: the next call, or a window, compares them again.
-		moves, lost := workerFixes(*session, host, hs, origin, time.Now())
-		for _, mv := range moves {
-			syncCLI(hc, mv)
-		}
-		if len(lost) > 0 {
-			syncCLI(local, proto.RemoteWorkers{SessionID: session.ID, Set: lost})
 		}
 	}
 	if id == "" && detached {

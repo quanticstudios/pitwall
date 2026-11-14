@@ -238,7 +238,8 @@ type Options struct {
 }
 
 type Daemon struct {
-	worktreeDeletes map[string]bool // guarded by mu
+	tabStarts       map[string]chan struct{} // in-flight client-chosen ids; guarded by mu
+	worktreeDeletes map[string]bool          // guarded by mu
 	worktreeJobs    sync.WaitGroup
 	o               Options
 	devProxyStop    func() // startup listener, adopted by Serve or closed by shutdown
@@ -1324,6 +1325,11 @@ func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
 }
 
 func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
+	unlock, err := d.lockTabStart(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == m.ProjectID })
 	var p model.Project
@@ -1375,6 +1381,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	}
 	w := model.Workspace{
 		ID: cmp.Or(m.ID, newID()), SessionID: p.SessionID, ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
+		ClientID:     m.ID != "",
 		WorktreeRoot: owned, RepoRoot: root,
 	}
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
@@ -1395,7 +1402,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		}
 	}
 	d.st.Workspaces = append(d.st.Workspaces, w)
-	var err error
+	err = nil
 	if len(problems) > 0 {
 		err = fmt.Errorf("worktree %s is ready, but: %w", m.Name, errors.Join(problems...))
 	}

@@ -33,6 +33,11 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 // the tab goes into a new session with create's name and origin. prep,
 // when set, fills in the tab before its pane starts, under d.mu.
 func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *model.Session, prep func(*model.Workspace)) error {
+	unlock, err := d.lockTabStart(ctx, m.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if m.Monitor {
 		m.Cwd, m.Cmd, m.Env, m.Loose = "", nil, nil, m.GroupID == ""
 	}
@@ -65,7 +70,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	if rest, ok := strings.CutPrefix(path, "~/"); ok || path == "~" {
 		path = filepath.Join(home, rest) // pitwall new --host box '~/src', home on box
 	}
-	path, err := filepath.Abs(path)
+	path, err = filepath.Abs(path)
 	if err != nil {
 		return err
 	}
@@ -131,6 +136,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
 	w := model.Workspace{ID: cmp.Or(m.ID, newID()), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	w.ClientID = m.ID != ""
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
 	if m.ParentTab != "" && m.ParentPane == "" {
 		w.Parent, w.RemoteParent = m.ParentTab, true
@@ -155,6 +161,39 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		go d.refreshStats(ctx, w.ID)
 	}
 	return nil
+}
+
+// lockTabStart serializes requests for one client-chosen id, including
+// their worktree creation outside d.mu. A disconnected caller can retry
+// while that work is still running without making another worktree.
+func (d *Daemon) lockTabStart(ctx context.Context, id string) (func(), error) {
+	if id == "" {
+		return func() {}, nil
+	}
+	for {
+		d.mu.Lock()
+		if d.tabStarts == nil {
+			d.tabStarts = make(map[string]chan struct{})
+		}
+		if pending := d.tabStarts[id]; pending != nil {
+			d.mu.Unlock()
+			select {
+			case <-pending:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		pending := make(chan struct{})
+		d.tabStarts[id] = pending
+		d.mu.Unlock()
+		return func() {
+			d.mu.Lock()
+			delete(d.tabStarts, id)
+			close(pending)
+			d.mu.Unlock()
+		}, nil
+	}
 }
 
 // startedTab reports whether tab id, asked for in session with parent

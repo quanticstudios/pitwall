@@ -111,6 +111,9 @@ type Workspace struct {
 	// daemon (proto.NewSession.ParentTab): a worker started there with
 	// pitwall new --host. Root then skips the group check.
 	RemoteParent bool `json:",omitempty"`
+	// ClientID keeps a client-chosen ID stable on reopen, so retrying the
+	// original start still finds this tab and its parent's record stays valid.
+	ClientID bool `json:",omitempty"`
 	// Status is a line of text a script set with `pitwall status`, shown
 	// under the tab's row; "" for none.
 	Status string

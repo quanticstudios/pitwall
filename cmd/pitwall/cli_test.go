@@ -835,7 +835,7 @@ func TestNewOnHostWorkerRetries(t *testing.T) {
 	}
 	hostConns(t,
 		[]cliExchange{{state: part, level: proto.Level}, {request: isTab, drop: true}},
-		[]cliExchange{{request: isTab, state: started, level: proto.Level}},
+		[]cliExchange{{state: part, level: proto.Level}, {request: isTab, state: started, level: proto.Level}},
 	)
 	local := fakeLocal(t, cliExchange{request: func(got any) bool {
 		m, ok := got.(proto.RemoteWorkers)
@@ -874,6 +874,72 @@ func TestNewOnHostWorkerLostOrRefused(t *testing.T) {
 		cliExchange{request: proto.RemoteWorkers{SessionID: "s", Drop: []string{id}}, level: proto.Level})
 	if _, err := newOnHost(local, "here", session, "box", tab, false); err == nil || !strings.Contains(err.Error(), "guarded tab not started") {
 		t.Fatalf("a refused start: %v", err)
+	}
+}
+
+// A replacement daemon must prove it can keep ids and check the guard
+// before it receives a retry, even if the previous daemon could.
+func TestNewOnHostRetryChecksLevel(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "lp")
+	const id = "0123456789abcdef"
+	part := model.State{Sessions: []model.Session{{ID: "p", Origin: model.Origin{Daemon: "here", Session: "s"}}}}
+	isTab := func(got any) bool { m, ok := got.(proto.NewSession); return ok && m.ID == id }
+	for _, level := range []int{proto.GuardGateLevel - 1, proto.RemoteWorkerLevel - 1} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			hostConns(t,
+				[]cliExchange{{state: part, level: proto.Level}, {request: isTab, drop: true}},
+				[]cliExchange{{state: part, level: level}},
+			)
+			local := fakeLocal(t, cliExchange{request: func(got any) bool { _, ok := got.(proto.RemoteWorkers); return ok }, level: proto.Level})
+			session := &model.Session{ID: "s", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+			_, err := newOnHost(local, "here", session, "box", proto.NewSession{ID: id, ParentTab: "lw", Cmd: []string{"claude"}, Env: []string{"PITWALL_GUARD=1"}}, false)
+			if err == nil || !strings.Contains(err.Error(), "older") || !strings.Contains(err.Error(), "--id "+id) {
+				t.Fatalf("retry to level %d: %v", level, err)
+			}
+		})
+	}
+}
+
+// A start may succeed while its final detach loses the connection.
+// The error still needs the id so the caller can retry without a new tab.
+func TestNewOnHostFinalStepKeepsID(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "")
+	const id = "0123456789abcdef"
+	part := model.State{Sessions: []model.Session{{ID: "p", Name: "main"}}}
+	started := part
+	started.Workspaces = []model.Workspace{{ID: id, SessionID: "p"}}
+	hostConns(t, []cliExchange{
+		{state: part, level: proto.Level},
+		{request: proto.NewSession{ID: id, SessionID: "p"}, state: started, level: proto.Level},
+		{request: proto.DetachSession{WorkspaceID: id, Detached: true}, drop: true},
+	})
+	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+	_, err := newOnHost(nil, "", session, "box", proto.NewSession{ID: id}, true)
+	if err == nil || !strings.Contains(err.Error(), "--id "+id) {
+		t.Fatalf("failed detach lost the start id: %v", err)
+	}
+}
+
+func TestNewOnHostRetryReparentsFirst(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "lp")
+	const id = "0123456789abcdef"
+	origin := model.Origin{Daemon: "here", Session: "s"}
+	part := model.State{Sessions: []model.Session{{ID: "p", Origin: origin}},
+		Workspaces: []model.Workspace{{ID: id, SessionID: "p", Parent: "old", RemoteParent: true}}}
+	current := part
+	current.Workspaces = slices.Clone(part.Workspaces)
+	current.Workspaces[0].Parent = "new"
+	tab := proto.NewSession{ID: id, SessionID: "p", ParentTab: "new"}
+	hostConns(t, []cliExchange{
+		{state: part, level: proto.Level},
+		{request: proto.Reparent{WorkspaceID: id, ParentTab: "new", Origin: origin}, state: current, level: proto.Level},
+		{request: tab, state: current, level: proto.Level},
+	})
+	local := fakeLocal(t, cliExchange{request: func(got any) bool { _, ok := got.(proto.RemoteWorkers); return ok }, level: proto.Level})
+	session := &model.Session{ID: "s", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}},
+		Workers: []model.RemoteWorker{{ID: id, Host: "box", Parent: "new", Since: time.Now()}}}
+	if _, err := newOnHost(local, "here", session, "box", tab, false); err != nil {
+		t.Fatalf("retry after parent reopened without a window: %v", err)
 	}
 }
 
