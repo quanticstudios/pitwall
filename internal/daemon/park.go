@@ -86,7 +86,7 @@ func (d *Daemon) parkVeto(sp model.Pane) string {
 	case d.live.hookAt[id].IsZero():
 		return "no hook since it started, so pitwall cannot tell when a resume is back"
 	case d.live.background[id]:
-		return "its subagents or workflows run"
+		return "its background tasks run"
 	case d.lim.pending[id] != nil:
 		return "a usage-limit resume waits"
 	case len(d.mail.queue[id]) > 0:
