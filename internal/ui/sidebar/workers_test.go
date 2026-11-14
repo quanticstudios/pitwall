@@ -189,3 +189,31 @@ func TestFleetKeys(t *testing.T) {
 		t.Fatal("Left on the parent did not fold its workers")
 	}
 }
+
+func TestCloseFinishedWorkersMenu(t *testing.T) {
+	h := newWorkersHarness(t, false, true)
+	h.st.Panes = []model.Pane{
+		{ID: "p1", WorkspaceID: "w1", Provider: model.ProviderClaude},
+		{ID: "p2", WorkspaceID: "w2", Provider: model.ProviderCodex},
+	}
+	if hasFinishedWorkers(&h.st, "o") {
+		t.Fatal("working children offered for closing")
+	}
+	h.st.Activities[1].State = model.StateCompleted
+	if !hasFinishedWorkers(&h.st, "o") {
+		t.Fatal("Done child not offered for closing")
+	}
+	h.st.PRs = map[string]model.PR{"w1": {State: model.PROpen}}
+	if hasFinishedWorkers(&h.st, "o") {
+		t.Fatal("open PR offered for closing")
+	}
+	h.st.PRs["w1"] = model.PR{State: model.PRMerged}
+	h.s.CloseDoneWorkers = true
+	h.s.menuWS = "o"
+	h.frame()
+	h.s.menuItem[actCloseDoneWorkers].Click()
+	events := h.frame()
+	if !slices.ContainsFunc(events, func(e Event) bool { v, ok := e.(CloseDoneWorkers); return ok && v.WorkspaceID == "o" }) {
+		t.Fatalf("menu click sent %v", events)
+	}
+}

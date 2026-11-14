@@ -511,9 +511,17 @@ func (d *Daemon) read(m proto.Read) proto.ReadResult {
 	d.mu.Lock()
 	p := d.panes[m.Pane]
 	reply, ok := d.replies[m.Pane]
+	if p == nil && !m.Screen {
+		for _, replies := range d.workerReplies {
+			if r, found := replies[m.Pane]; found {
+				reply, ok = r, true
+				break
+			}
+		}
+	}
 	d.mu.Unlock()
 	switch {
-	case p == nil:
+	case p == nil && (!ok || m.Screen):
 		r.Err = fmt.Sprintf("no pane %s", m.Pane)
 	case m.Screen:
 		r.Text = screenText(p.Snapshot())

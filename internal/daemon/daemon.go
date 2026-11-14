@@ -199,6 +199,8 @@ type Options struct {
 	// ParkIdleAfter reads [agents] park_idle_after, how long an agent sits
 	// idle before the daemon parks it; nil or 0 never parks.
 	ParkIdleAfter func() time.Duration
+	// CloseDoneWorkers reads the live finished-worker delay; 0 disables it.
+	CloseDoneWorkers func() time.Duration
 	// ChatContinue reads [agents] chat_continue_after_restart; nil means
 	// off.
 	ChatContinue func() bool
@@ -278,10 +280,12 @@ type Daemon struct {
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
-	replies map[string]string
-	mail    mail              // see talk.go
-	reviews map[string]string // second opinions: reviewer pane to the pane it reviews; see opinion.go
-	chats   map[string]*chat  // live chats by id; see chats.go
+	replies       map[string]string
+	doneWorkers   map[string]workerClock
+	workerReplies map[string]map[string]string // closed-tab record id: pane replies
+	mail          mail                         // see talk.go
+	reviews       map[string]string            // second opinions: reviewer pane to the pane it reviews; see opinion.go
+	chats         map[string]*chat             // live chats by id; see chats.go
 	// archiving are the chats dropChat closes, until their folder is archived.
 	archiving map[string]chan struct{}
 	// unarchiveMu runs one unarchive at a time: two of one chat would race
@@ -392,6 +396,7 @@ func Defaults() Options {
 		ClaudeContinues:   claudeAutoContinue,
 		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
 		ContinueWhenQuiet: setting(config.Path(), func(s config.Settings) bool { return s.ContinueWhenQuiet }),
+		CloseDoneWorkers:  setting(config.Path(), func(s config.Settings) time.Duration { return s.CloseDoneWorkers }),
 		ParkIdleAfter:     setting(config.Path(), func(s config.Settings) time.Duration { return s.ParkIdleAfter }),
 		ChatContinue:      setting(config.Path(), func(s config.Settings) bool { return s.ChatContinue }),
 		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
@@ -1090,6 +1095,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.forgetTab(m)
 	case proto.DetachSession:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Detached = m.Detached; return nil })
+	case proto.CloseDoneWorkers:
+		return d.closeDoneWorkers(m.WorkspaceID)
 	case proto.KillSession:
 		return d.killSession(m)
 	case proto.FocusSession:

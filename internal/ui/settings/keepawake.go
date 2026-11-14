@@ -54,6 +54,10 @@ func (p *Page) durationRow(f *durationField, r row, control gl.Widget) row {
 // durationEditor is f's field, showing cur and saving with save on Enter
 // or when it loses focus.
 func (p *Page) durationEditor(f *durationField, cur time.Duration, hint string, save func(string)) gl.Widget {
+	return p.durationTextEditor(f, cur.String(), hint, save)
+}
+
+func (p *Page) durationTextEditor(f *durationField, cur, hint string, save func(string)) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
 		e := &f.grace
 		e.SingleLine, e.Submit = true, true
@@ -70,8 +74,8 @@ func (p *Page) durationEditor(f *durationField, cur time.Duration, hint string, 
 		focused := gtx.Focused(e)
 		if submit || f.focused && !focused {
 			save(e.Text())
-		} else if !focused && e.Text() != cur.String() && f.err == "" {
-			e.SetText(cur.String())
+		} else if !focused && e.Text() != cur && f.err == "" {
+			e.SetText(cur)
 		}
 		f.focused = focused
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(140))
@@ -98,4 +102,33 @@ func (p *Page) saveDuration(f *durationField, key, text string, cur, def time.Du
 	} else if d != cur {
 		p.saveValue("agents", key, config.Quote(d.String()))
 	}
+}
+
+func (p *Page) closeDoneWorkersRow() row {
+	cur := p.s.CloseDoneWorkers.String()
+	if p.s.CloseDoneWorkers == 0 {
+		cur = "off"
+	}
+	return p.durationRow(&p.closeWorkers, row{
+		label: "Close finished workers",
+		desc:  "Close worker tabs after all agents read Done with no open PR, focus or input for this long. Default 10m; off disables it. Keeps worktrees and branches.",
+		extra: "close_done_workers cleanup done duration",
+	}, p.durationTextEditor(&p.closeWorkers, cur, "10m or off", p.saveCloseDoneWorkers))
+}
+
+func (p *Page) saveCloseDoneWorkers(text string) {
+	text = strings.TrimSpace(text)
+	p.closeWorkers.err = ""
+	if text == "off" {
+		p.saveValue("agents", "close_done_workers", config.Quote("off"))
+		return
+	}
+	if text != "" {
+		d, err := time.ParseDuration(text)
+		if err != nil || d <= 0 {
+			p.closeWorkers.err = "Use a positive duration such as 10m or 1h, or off."
+			return
+		}
+	}
+	p.saveDuration(&p.closeWorkers, "close_done_workers", text, p.s.CloseDoneWorkers, config.DefaultCloseDoneWorkers)
 }

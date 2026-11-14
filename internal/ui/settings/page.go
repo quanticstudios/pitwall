@@ -129,16 +129,17 @@ type Page struct {
 	copied   string
 	copiedAt time.Time
 
-	er   errorsPage
-	tm   timingPage
-	ph   phonePage
-	nt   notifyPage
-	aw   durationField
-	park durationField
-	fl   fleetPage
-	pr   presetsPage
-	us   usagePage
-	ch   charts // hover and focus in the Timing and Agent errors charts
+	er           errorsPage
+	tm           timingPage
+	ph           phonePage
+	nt           notifyPage
+	aw           durationField
+	park         durationField
+	closeWorkers durationField
+	fl           fleetPage
+	pr           presetsPage
+	us           usagePage
+	ch           charts // hover and focus in the Timing and Agent errors charts
 }
 
 // pending is a recorded chord another action already has.
@@ -1267,6 +1268,7 @@ func (p *Page) agents() []section {
 		extra: "sleep inhibit keep_awake", control: p.toggle("agents", "keep_awake", p.s.KeepAwake)})
 	rows = append(rows, p.keepAwakeGraceRow())
 	rows = append(rows, p.parkIdleRow())
+	rows = append(rows, p.closeDoneWorkersRow())
 	rows = append(rows, row{label: "Resume after limit", desc: "When Claude Code or Codex stops on its plan's usage limit, types continue into it a minute after the limit resets. Defers to Claude's own auto-continue unless its user settings explicitly turn it off; managed or command-line overrides can differ, so keep only one enabled. The tab's pill shows when; typing in the pane or Cancel resume in the tab's menu drops it. A daemon restart drops it too.",
 		extra: "usage limit reset continue resume_after_limit", control: p.toggle("agents", "resume_after_limit", p.s.ResumeAfterLimit)})
 	rows = append(rows, row{label: "Quiet after", desc: "Minutes a working agent's screen may stay still before its row shows quiet 20m in place of the time. 0 turns it off.",

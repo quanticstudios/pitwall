@@ -41,6 +41,7 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 	c := model.ClosedTab{ID: newID(), Pane: p, PR: d.st.PRs[w.ID].Number, ClosedAt: time.Now()}
 	w.Tabs, w.ActiveTab = nil, ""
 	c.Tab = w
+	d.keepWorkerResult(&c, panes)
 	if s := d.st.Session(w.SessionID); s != nil {
 		c.Session = s.Name
 	}
@@ -49,6 +50,7 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 	}
 	c.Gone = !isDir(c.Folder())
 	d.st.Closed = model.PruneClosed(append(d.st.Closed, c), c.ClosedAt)
+	d.pruneWorkerReplies()
 }
 
 // liveCwd is p with the directory its process is in now, while its handle is
@@ -92,6 +94,7 @@ func (d *Daemon) checkClosed() {
 	defer d.mu.Unlock()
 	n := len(d.st.Closed)
 	d.st.Closed = model.PruneClosed(d.st.Closed, time.Now())
+	d.pruneWorkerReplies()
 	moved := n != len(d.st.Closed)
 	for i := range d.st.Closed {
 		if c := &d.st.Closed[i]; c.Gone != gone[c.ID] && dirs[c.ID] != "" {

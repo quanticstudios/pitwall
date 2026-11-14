@@ -188,7 +188,12 @@ func readCommand(args []string, out io.Writer) error {
 	}
 	_, p, err := resolvePane(m.State, session.ID, args[0])
 	if err != nil {
-		return err
+		id, absolute := strings.CutPrefix(args[0], "@")
+		if !absolute || *screen || id == "" {
+			return err
+		}
+		// Stable pane ids can address a retained reply after its tab closes.
+		p.ID = id
 	}
 	text, err := readPane(conn, proto.Read{Pane: p.ID, Screen: *screen})
 	if err != nil {

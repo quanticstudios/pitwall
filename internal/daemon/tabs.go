@@ -245,6 +245,7 @@ func (d *Daemon) focusSession(m proto.FocusSession) error {
 		w.ActiveTab = m.TabID
 	}
 	w.Detached = false
+	delete(d.doneWorkers, w.ID)
 	d.changed()
 	m.SessionID = w.SessionID
 	d.forward(w.SessionID, m)
