@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -211,16 +212,43 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 	part := partOn(hs, session, host, origin, os.Getenv("PITWALL_PANE") == "")
 	shell := "" // a new part's first tab, a shell
 	if part == nil {
-		if hs, err = syncCLI(hc, proto.SessionNew{Name: session.Name, Cwd: tab.Cwd, Origin: origin}); err != nil {
+		name := session.Name
+		if origin != (model.Origin{}) {
+			// A repeated SessionNew can return a part another client made.
+			// Only our unique creation name proves its shell is ours to close.
+			name += "-" + rand.Text()
+		}
+		if hs, err = syncCLI(hc, proto.SessionNew{Name: name, Cwd: tab.Cwd, Origin: origin}); err != nil {
 			return "", err
 		}
 		if part = hs.PartOf(origin); origin == (model.Origin{}) {
 			part = hs.SessionNamed(session.Name)
 		}
-		if part == nil || len(hs.Numbered(part.ID)) != 1 {
+		if part == nil {
 			return "", fmt.Errorf("%s made no part of session %s", host, session.Name)
 		}
-		shell = hs.Numbered(part.ID)[0].ID
+		if part.Name == name {
+			if len(hs.Numbered(part.ID)) != 1 {
+				return "", fmt.Errorf("%s's new part of session %s changed before its initial shell could be identified", host, session.Name)
+			}
+			shell = hs.Numbered(part.ID)[0].ID
+			if origin != (model.Origin{}) {
+				id := part.ID
+				for tries := 0; ; tries++ {
+					name = session.Name
+					for n := 2; hs.SessionNamed(name) != nil && hs.SessionNamed(name).ID != id; n++ {
+						name = session.Name + "-" + strconv.Itoa(n)
+					}
+					hs, err = syncCLI(hc, proto.SessionRename{SessionID: id, Name: name})
+					if err == nil {
+						break
+					}
+					if taken := hs.SessionNamed(name); tries >= 2 || taken == nil || taken.ID == id {
+						return "", err
+					}
+				}
+			}
+		}
 	} else if part.Origin != origin {
 		if hs, err = syncCLI(hc, proto.SetOrigin{SessionID: part.ID, Origin: origin}); err != nil {
 			return "", err

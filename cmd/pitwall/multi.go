@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"reflect"
 	"runtime"
@@ -57,6 +58,9 @@ type multi struct {
 	// pendingHere is the sessions of other hosts a SessionNew here is making
 	// shared: by name, the host and its session there.
 	pendingHere map[string][2]string
+	// claimTabs wait for a host's state to confirm SetOrigin before a tab
+	// starts or its part is linked here. Send only queues the claim.
+	claimTabs []claimedTab
 	// asked is the SessionLink last sent for a session and host, and when,
 	// so a merge before this machine's state shows it does not send it
 	// again within a few seconds.
@@ -78,6 +82,14 @@ type told struct {
 type asked struct {
 	sig, from string // what was asked, and the record it was asked against
 	at        time.Time
+}
+
+type claimedTab struct {
+	host, part string
+	origin     model.Origin
+	request    app.NewTabOn
+	epoch      int
+	at         time.Time
 }
 
 // hostLink is one daemon of a multi.
@@ -277,6 +289,9 @@ func (m *multi) merge() {
 	forget, folded, shared := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, ss := range local.Sessions {
 		for _, r := range ss.Remotes {
+			if h := m.byName(r.Host); h != nil && h.b.Link().Epoch > 0 && !m.ownsPart(h, local, ss.ID, r.Session) {
+				continue
+			}
 			if fold[r.Host] == nil {
 				fold[r.Host] = map[string]string{}
 			}
@@ -416,7 +431,7 @@ func (m *multi) reconcile(local model.State) {
 			switch {
 			case part == nil:
 				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host})
-			case o != (model.Origin{}) && part.Origin != o && part.Origin != (model.Origin{}):
+			case part.Origin != o && part.Origin != (model.Origin{}):
 				// why: a part made for another session, joined by name
 				// before parts had an Origin, would close with this one.
 				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host})
@@ -476,6 +491,7 @@ func (m *multi) reconcile(local model.State) {
 		}
 	}
 	m.tellShown()
+	m.openClaimedTabs()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// A killed shared session ends here once no part is left, which
@@ -499,7 +515,7 @@ func (m *multi) reconcile(local model.State) {
 			}
 			hs := h.b.State()
 			key := [2]string{r.Session, "kill"}
-			if hs.Session(r.Session) != nil && time.Since(m.asked[key].at) > 5*time.Second {
+			if hs.Session(r.Session) != nil && m.ownsPart(h, local, ss.ID, r.Session) && time.Since(m.asked[key].at) > 5*time.Second {
 				if h.b.Send(proto.SessionKill{SessionID: r.Session}) == nil {
 					m.asked[key] = asked{at: time.Now()}
 				}
@@ -508,6 +524,24 @@ func (m *multi) reconcile(local model.State) {
 	}
 	for name, ref := range m.pendingHere {
 		if x := local.SessionNamed(name); x != nil {
+			h := m.byName(ref[0])
+			if h == nil || !up(h) {
+				continue
+			}
+			hs := h.b.State()
+			part := hs.Session(ref[1])
+			if part == nil || x.Origin != (model.Origin{}) {
+				delete(m.pendingHere, name)
+				continue
+			}
+			if o := m.origin(h, local, x.ID); o != (model.Origin{}) && part.Origin != o {
+				if part.Origin != (model.Origin{}) {
+					delete(m.pendingHere, name)
+				} else {
+					h.b.Send(proto.SetOrigin{SessionID: part.ID, Origin: o})
+				}
+				continue
+			}
 			link(proto.SessionLink{SessionID: x.ID, Host: ref[0], Remote: ref[1]})
 			m.pushFocus(proto.FocusSession{SessionID: x.ID})
 			delete(m.pendingHere, name)
@@ -800,7 +834,7 @@ func (m *multi) eachPart(id string, f func(*hostLink, model.RemoteSession)) {
 		return
 	}
 	for _, r := range ss.Remotes {
-		if h := m.byName(r.Host); h != nil && h != m.hosts[0] && up(h) {
+		if h := m.byName(r.Host); h != nil && h != m.hosts[0] && up(h) && m.ownsPart(h, st, id, r.Session) {
 			f(h, r)
 		}
 	}
@@ -894,9 +928,7 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 	origin := m.origin(h, local, ss.ID)
 	if x := partOn(hs, ss, h.name, origin, true); x != nil {
 		if x.Origin != origin {
-			if err := h.b.Send(proto.SetOrigin{SessionID: x.ID, Origin: origin}); err != nil {
-				return err
-			}
+			return m.claimTab(h, x.ID, origin, v)
 		}
 		if r := ss.Remote(h.name); r == nil || r.Session != x.ID {
 			if err := m.hosts[0].b.Send(proto.SessionLink{SessionID: ss.ID, Host: h.name, Remote: x.ID}); err != nil {
@@ -930,6 +962,65 @@ func (m *multi) origin(h *hostLink, local model.State, session string) model.Ori
 	return model.Origin{Daemon: local.Daemon, Session: session}
 }
 
+// ownsPart permits session-wide operations only after the host confirms
+// ownership. An unstamped part may be claimed by another machine while
+// its SetOrigin is still queued; its tabs must stay out of this session.
+func (m *multi) ownsPart(h *hostLink, local model.State, session, part string) bool {
+	o := m.origin(h, local, session)
+	hs := h.b.State()
+	p := hs.Session(part)
+	return p != nil && p.Origin == o
+}
+
+func (m *multi) claimTab(h *hostLink, part string, origin model.Origin, request app.NewTabOn) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := h.b.Send(proto.SetOrigin{SessionID: part, Origin: origin}); err != nil {
+		return err
+	}
+	m.claimTabs = append(m.claimTabs, claimedTab{host: h.name, part: part, origin: origin, request: request, epoch: h.b.Link().Epoch, at: time.Now()})
+	return nil
+}
+
+// openClaimedTabs consumes only claims confirmed on a live connection.
+// A rejected claim never links the part or starts the queued tab.
+func (m *multi) openClaimedTabs() {
+	m.mu.Lock()
+	var ready []app.NewTabOn
+	kept := m.claimTabs[:0]
+	for _, c := range m.claimTabs {
+		h := m.byName(c.host)
+		if h == nil || !up(h) {
+			kept = append(kept, c)
+			continue
+		}
+		hs := h.b.State()
+		p := hs.Session(c.part)
+		if p != nil && p.Origin == (model.Origin{}) {
+			// A lost connection drops its unsent queue. A new connection,
+			// or a claim still unconfirmed after five seconds, retries it.
+			if c.epoch != h.b.Link().Epoch || time.Since(c.at) > 5*time.Second {
+				if h.b.Send(proto.SetOrigin{SessionID: c.part, Origin: c.origin}) == nil {
+					c.epoch, c.at = h.b.Link().Epoch, time.Now()
+				}
+			}
+			kept = append(kept, c)
+			continue
+		}
+		if p != nil && p.Origin == c.origin {
+			ready = append(ready, c.request)
+		}
+	}
+	clear(m.claimTabs[len(kept):])
+	m.claimTabs = kept
+	m.mu.Unlock()
+	for _, request := range ready {
+		if err := m.newTabOn(request); err != nil {
+			log.Printf("open tab after claiming session part: %v", err)
+		}
+	}
+}
+
 // newTaskOn starts or queues a task on a host, in that host's part of
 // the window's shared session; the session's id here would start it on
 // this machine. A host with no part yet, or one down, refuses it.
@@ -946,7 +1037,7 @@ func (m *multi) newTaskOn(v app.NewTaskOn) error {
 		local := m.hosts[0].b.State()
 		if ss := local.Session(t.Task.SessionID); ss != nil {
 			r := ss.Remote(h.name)
-			if r == nil {
+			if r == nil || !m.ownsPart(h, local, ss.ID, r.Session) {
 				return fmt.Errorf("open a tab on %s first, then start the task", h.name)
 			}
 			t.Task.SessionID = r.Session
@@ -1007,11 +1098,21 @@ func (m *multi) shareHere(owner, h *hostLink, tab proto.NewSession) error {
 	if ss == nil {
 		return fmt.Errorf("no session %s on %s", tab.SessionID, owner.name)
 	}
-	if ss.Origin != (model.Origin{}) {
-		return fmt.Errorf("session %s on %s is the part of a session of another machine; open the tab from that session", ss.Name, owner.name)
-	}
 	local := m.hosts[0].b.State()
-	if x := local.SessionNamed(ss.Name); x != nil {
+	x := local.SessionNamed(ss.Name)
+	if ss.Origin != (model.Origin{}) {
+		x = local.Session(ss.Origin.Session)
+		if ss.Origin.Daemon != local.Daemon || x == nil {
+			return fmt.Errorf("session %s on %s is the part of a session of another machine; open the tab from that session", ss.Name, owner.name)
+		}
+	}
+	if x != nil {
+		if x.Origin != (model.Origin{}) {
+			return fmt.Errorf("session %s here is already another machine's part", x.Name)
+		}
+		if o := m.origin(owner, local, x.ID); o != (model.Origin{}) && ss.Origin != o {
+			return m.claimTab(owner, ss.ID, o, app.NewTabOn{Host: h.name, Tab: tab})
+		}
 		if err := h.b.Send(proto.SessionLink{SessionID: x.ID, Host: owner.name, Remote: ss.ID}); err != nil {
 			return err
 		}

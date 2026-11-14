@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -318,5 +319,53 @@ func TestPartOrigin(t *testing.T) {
 	st = d.state()
 	if st.PartOf(a) != nil || st.PartOf(b) == nil || len(st.Numbered(pb.ID)) != 1 {
 		t.Fatalf("after killing one part: %+v", st.Sessions)
+	}
+}
+
+// Folder inspection happens outside d.mu. Requests reaching that point
+// together must still choose one part per origin and distinct free names.
+func TestPartOriginConcurrent(t *testing.T) {
+	for _, sameOrigin := range []bool{true, false} {
+		t.Run(map[bool]string{true: "same origin, different names", false: "different origins, same name"}[sameOrigin], func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			o := f.options()
+			entered, release := make(chan struct{}, 2), make(chan struct{})
+			o.Branch = func(context.Context, string) (string, bool) {
+				entered <- struct{}{}
+				<-release
+				return "", false
+			}
+			d := newDaemon(t, o)
+			a := proto.SessionNew{Name: "work", Cwd: t.TempDir(), Origin: model.Origin{Daemon: "here", Session: "s1"}}
+			b := a
+			if sameOrigin {
+				b.Name = "renamed"
+			} else {
+				b.Origin.Session = "s2"
+			}
+			var wg sync.WaitGroup
+			errs := make(chan error, 2)
+			for _, request := range []proto.SessionNew{a, b} {
+				wg.Go(func() { errs <- d.handle(context.Background(), request) })
+			}
+			<-entered
+			<-entered
+			close(release)
+			wg.Wait()
+			for range 2 {
+				must(t, <-errs)
+			}
+			st := d.state()
+			want := 2
+			if sameOrigin {
+				want = 1
+			}
+			if len(st.Sessions) != want || len(st.Workspaces) != want || st.PartOf(a.Origin) == nil || st.PartOf(b.Origin) == nil {
+				t.Fatalf("sessions %+v; tabs %d, want %d", st.Sessions, len(st.Workspaces), want)
+			}
+			if !sameOrigin && (st.SessionNamed("work") == nil || st.SessionNamed("work-2") == nil) {
+				t.Fatalf("parts did not choose free names: %+v", st.Sessions)
+			}
+		})
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -85,7 +84,7 @@ func (d *Daemon) sessionNew(ctx context.Context, m proto.SessionNew) error {
 		}
 	}
 	d.mu.Unlock()
-	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &name, nil)
+	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &model.Session{Name: name}, nil)
 }
 
 // partNew makes the part m.Origin names, under m.Name or the first of
@@ -99,26 +98,8 @@ func (d *Daemon) partNew(ctx context.Context, m proto.SessionNew) error {
 		d.mu.Unlock()
 		return nil
 	}
-	name := strings.TrimSpace(m.Name)
-	if name == "" {
-		name = d.freshName()
-	}
-	for n, base := 2, name; d.st.SessionNamed(name) != nil; n++ {
-		name = base + "-" + strconv.Itoa(n)
-	}
 	d.mu.Unlock()
-	err := d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &name, func(w *model.Workspace) {
-		d.st.Session(w.SessionID).Origin = m.Origin
-	})
-	if err != nil {
-		d.mu.Lock()
-		made := d.st.PartOf(m.Origin) != nil // by a request that raced this one to the name
-		d.mu.Unlock()
-		if made {
-			return nil
-		}
-	}
-	return err
+	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &model.Session{Name: strings.TrimSpace(m.Name), Origin: m.Origin}, nil)
 }
 
 // setOrigin stamps a part made before parts had an Origin.
@@ -344,7 +325,7 @@ func (d *Daemon) firstSession(ctx context.Context, cwd, name string) error {
 	}
 	if s == nil {
 		d.mu.Unlock()
-		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &name, nil)
+		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &model.Session{Name: name}, nil)
 	}
 	id := s.ID
 	// A shared session may have its tabs on other hosts only.

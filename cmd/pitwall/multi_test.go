@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"runtime"
 	"slices"
@@ -281,6 +282,176 @@ func next(e end) any {
 		if _, ping := m.(proto.Sync); !ping {
 			return m
 		}
+	}
+}
+
+// originWindow has real send queues but no background merges, so tests
+// control exactly when the window learns whether its claim succeeded.
+func originWindow(t *testing.T, ls, rs model.State) (*multi, end, end) {
+	t.Helper()
+	local, ld := localBackend(t, ls)
+	remote, rd := localBackend(t, rs)
+	m := &multi{hosts: []*hostLink{{b: local}, {name: "box", b: remote}},
+		focus: make(chan proto.FocusSession, 1), clipSeq: map[*hostLink]uint64{},
+		pending: map[[2]string]string{}, pendingHere: map[string][2]string{},
+		asked: map[[2]string]asked{}, told: map[string]told{}}
+	m.cur = m.hosts[0]
+	m.merge()
+	return m, ld, rd
+}
+
+func TestMultiOriginOperations(t *testing.T) {
+	for _, origin := range []model.Origin{{}, {Daemon: "other", Session: "os"}} {
+		t.Run(fmt.Sprint(origin), func(t *testing.T) {
+			ls, rs := hostState("ls", "lw", "lp"), hostState("rs", "rw", "rp")
+			ls.Daemon = "here"
+			ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+			ls.Sessions[0].Killing = true // a kill persisted across a lost connection
+			rs.Sessions[0].Origin = origin
+			m, _, rd := originWindow(t, ls, rs)
+			if st := m.State(); st.Workspace("rw").SessionID != "rs" {
+				t.Error("unconfirmed or foreign part folded into this session")
+			}
+			if err := m.Send(proto.SessionRename{SessionID: "ls", Name: "renamed"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Send(proto.SessionKill{SessionID: "ls"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Send(app.NewTaskOn{Host: "box", Task: proto.NewTask{Task: model.Task{SessionID: "ls"}}}); err == nil {
+				t.Error("task accepted through an unconfirmed or foreign link")
+			}
+			for msg := next(rd); msg != nil; msg = next(rd) {
+				if _, claim := msg.(proto.SetOrigin); !claim {
+					t.Fatalf("operation reached an unconfirmed or foreign part: %#v", msg)
+				}
+			}
+		})
+	}
+}
+
+func TestMultiClaimBeforeTab(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		for _, accepted := range []bool{false, true} {
+			t.Run(fmt.Sprintf("reverse=%v/accepted=%v", reverse, accepted), func(t *testing.T) {
+				ls, rs := hostState("ls", "lw", "lp"), hostState("rs", "rw", "rp")
+				ls.Daemon = "here"
+				m, ld, rd := originWindow(t, ls, rs)
+				request := app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls", Name: "worker"}}
+				if reverse {
+					request.Host, request.Tab.SessionID = "", "rs"
+				}
+				if err := m.Send(request); err != nil {
+					t.Fatal(err)
+				}
+				claim, ok := next(rd).(proto.SetOrigin)
+				if !ok || claim.SessionID != "rs" || claim.Origin != (model.Origin{Daemon: "here", Session: "ls"}) {
+					t.Fatalf("claim %#v", claim)
+				}
+				if msg := next(ld); msg != nil {
+					t.Fatalf("local operation before claim accepted: %#v", msg)
+				}
+				if msg := next(rd); msg != nil {
+					t.Fatalf("remote operation before claim accepted: %#v", msg)
+				}
+				rs.Sessions = slices.Clone(rs.Sessions)
+				rs.Sessions[0].Origin = claim.Origin
+				if !accepted {
+					rs.Sessions[0].Origin.Daemon = "other"
+				}
+				remote := m.hosts[1].b
+				remote.mu.Lock()
+				remote.state = rs
+				remote.mu.Unlock()
+				m.merge()
+				if !accepted {
+					if msg := next(ld); msg != nil {
+						t.Fatalf("linked or started after losing the claim: %#v", msg)
+					}
+					if msg := next(rd); msg != nil {
+						t.Fatalf("started after losing the claim: %#v", msg)
+					}
+					return
+				}
+				if link, ok := next(ld).(proto.SessionLink); !ok || link.Remote != "rs" || link.SessionID != "ls" {
+					t.Fatalf("link after claim %#v", link)
+				}
+				dest, session := rd, "rs"
+				if reverse {
+					dest, session = ld, "ls"
+				}
+				if tab, ok := next(dest).(proto.NewSession); !ok || tab.Name != "worker" || tab.SessionID != session {
+					t.Fatalf("tab after claim %#v", tab)
+				}
+			})
+		}
+	}
+}
+
+func TestMultiClaimReconnect(t *testing.T) {
+	ls, rs := hostState("ls", "lw", "lp"), hostState("rs", "rw", "rp")
+	ls.Daemon = "here"
+	m, _, rd := originWindow(t, ls, rs)
+	if err := m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls"}}); err != nil {
+		t.Fatal(err)
+	}
+	claim := next(rd)
+	if _, ok := claim.(proto.SetOrigin); !ok {
+		t.Fatalf("claim %#v", claim)
+	}
+	// The first connection lost its outgoing claim. The new connection
+	// still sees an unstamped part and must retry without another click.
+	remote := m.hosts[1].b
+	remote.mu.Lock()
+	remote.link.Epoch++
+	remote.mu.Unlock()
+	m.merge()
+	if got := next(rd); got != claim {
+		t.Fatalf("claim after reconnect %#v, want %#v", got, claim)
+	}
+	m.merge()
+	if got := next(rd); got != nil {
+		t.Fatalf("unthrottled retry %#v", got)
+	}
+}
+
+// A local session made for a remote session must claim the remote part
+// before linking it, just like opening a tab in an existing local session.
+func TestMultiPendingHereOrigin(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		t.Run(fmt.Sprint(accepted), func(t *testing.T) {
+			ls, rs := hostState("ls", "lw", "lp"), hostState("rs", "rw", "rp")
+			ls.Daemon = "here"
+			m, ld, rd := originWindow(t, ls, rs)
+			m.pendingHere["main"] = [2]string{"box", "rs"}
+			m.merge()
+			claim, ok := next(rd).(proto.SetOrigin)
+			if !ok || claim.Origin != (model.Origin{Daemon: "here", Session: "ls"}) {
+				t.Fatalf("claim %#v", claim)
+			}
+			if msg := next(ld); msg != nil {
+				t.Fatalf("linked before claim accepted: %#v", msg)
+			}
+			rs.Sessions = slices.Clone(rs.Sessions)
+			rs.Sessions[0].Origin = claim.Origin
+			if !accepted {
+				rs.Sessions[0].Origin.Daemon = "other"
+			}
+			remote := m.hosts[1].b
+			remote.mu.Lock()
+			remote.state = rs
+			remote.mu.Unlock()
+			m.merge()
+			msg := next(ld)
+			if !accepted && msg != nil {
+				t.Fatalf("linked after rejected claim: %#v", msg)
+			}
+			if accepted {
+				if link, ok := msg.(proto.SessionLink); !ok || link.Remote != "rs" || link.SessionID != "ls" {
+					t.Fatalf("link after accepted claim %#v", msg)
+				}
+			}
+		})
 	}
 }
 

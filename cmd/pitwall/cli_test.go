@@ -78,7 +78,12 @@ func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 			}
 			for _, exchange := range exchanges {
 				if exchange.request != nil {
-					if got, err := c.Recv(); err != nil || !reflect.DeepEqual(got, exchange.request) {
+					got, err := c.Recv()
+					matches := reflect.DeepEqual(got, exchange.request)
+					if check, ok := exchange.request.(func(any) bool); ok && err == nil {
+						matches = check(got)
+					}
+					if err != nil || !matches {
 						return fmt.Errorf("request = %#v, %v; want %#v", got, err, exchange.request)
 					}
 				}
@@ -728,5 +733,35 @@ func TestNewOnHostOriginLevel(t *testing.T) {
 	t.Setenv("PITWALL_PANE", "")
 	if err := hostLevel(nil, proto.OriginLevel-1); err != nil {
 		t.Fatalf("a person's shell: %v", err)
+	}
+}
+
+// Another client finished creating the part after our first state. Its
+// sole worker is not our bootstrap shell, even though SessionNew succeeds.
+func TestNewOnHostConcurrentPart(t *testing.T) {
+	origin := model.Origin{Daemon: "here", Session: "s"}
+	part := model.Session{ID: "p", Name: "main", Origin: origin}
+	existing := model.Workspace{ID: "worker", SessionID: "p"}
+	before := model.State{Sessions: []model.Session{part}, Workspaces: []model.Workspace{existing}}
+	after := before
+	after.Workspaces = []model.Workspace{existing, {ID: "new", SessionID: "p"}}
+	fakeCLI(t,
+		cliExchange{state: model.State{}, level: proto.Level},
+		cliExchange{request: func(got any) bool {
+			m, ok := got.(proto.SessionNew)
+			return ok && m.Origin == origin && strings.HasPrefix(m.Name, "main")
+		}, state: before, level: proto.Level},
+		cliExchange{request: proto.NewSession{SessionID: "p", Cmd: []string{"sh"}}, state: after, level: proto.Level},
+	)
+	prev := dialHost
+	t.Cleanup(func() { dialHost = prev })
+	dialHost = func(string) (*cliConn, func(), error) {
+		c, err := dialCLI()
+		return c, func() { c.Close() }, err
+	}
+	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+	got, err := newOnHost(nil, "here", session, "box", proto.NewSession{Cmd: []string{"sh"}}, false)
+	if err != nil || got != "box:2" {
+		t.Fatalf("new tab %q, %v; existing worker must stay", got, err)
 	}
 }
