@@ -137,6 +137,21 @@ func Check(ctx context.Context, c *http.Client, url, current string) (Release, b
 	return rel, Newer(rel.Tag, current), nil
 }
 
+// Tagged is release tag on the releases page that latest, a URL ending in
+// /releases/latest such as LatestURL, belongs to. It makes no request: a
+// tag that was never released fails in Install, before any write. tag must
+// be a release tag, so it cannot change the URL's path.
+func Tagged(latest, tag string) (Release, error) {
+	if releaseRe.FindStringSubmatch(tag) == nil {
+		return Release{}, fmt.Errorf("%q is not a release tag such as v0.2.13", tag)
+	}
+	base, ok := strings.CutSuffix(latest, "/latest")
+	if !ok {
+		return Release{}, fmt.Errorf("%s does not end in /latest", latest)
+	}
+	return Release{Tag: tag, Base: base + "/download/" + tag + "/"}, nil
+}
+
 // Install downloads rel's archive of bin, "pitwall" or "pitwall-core", for
 // this platform, checks it against the release's checksums.txt, and
 // replaces exe (through symlinks) with the bin inside. On any error exe is

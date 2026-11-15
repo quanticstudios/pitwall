@@ -142,6 +142,19 @@ nothing and only moves the daemon onto the binary, so run it after
 `brew upgrade` or `scripts/install.sh`. With no daemon running it stops
 after the install.
 
+`pitwall update --version vX` installs release `vX` instead of the latest,
+older or newer, such as `pitwall update --version v0.2.13` to go back one
+release. It checks that the release has this binary's archive and that it
+matches `checksums.txt` before it writes anything, then hands the daemon
+over as above. When the handoff fails, the old daemon keeps serving and the
+command to force it is `pitwall update --restart --version vX`, since a
+plain `pitwall update --restart` would install the latest release again.
+A package manager's binary installs nothing here either. On Windows the
+release installs and the daemon keeps running on the old build until
+`pitwall update --restart --version vX`.
+`PITWALL_VERSION=vX` with the [install script](../README.md#install)
+installs a version without touching the daemon.
+
 Windows will not replace a running program, so there the update renames
 `pitwall.exe` to `pitwall.exe.old` and puts the new one in its place. The
 next window deletes `pitwall.exe.old` once nothing runs it; while the daemon

@@ -35,7 +35,10 @@ import (
 // daemon, with their screens and scrollback. In "refused" the release's
 // daemon refuses the handoff, and the update must fail naming update
 // --restart while v0.0.1's daemon keeps serving and all three keep running.
-// In "explicit restart" update --restart must restart the daemon.
+// In "explicit restart" update --restart must restart the daemon. The
+// "back" runs start v0.0.2's daemon and run v0.0.2's update --version
+// v0.0.1, an older release that a plain update would not install: it hands
+// over, a refusal keeps v0.0.2's daemon, and --restart forces it.
 func TestUpdateDrill(t *testing.T) {
 	if os.Getenv("PITWALL_TEST_GUARD") != "" {
 		// why: go build there gets an empty build cache under the temporary
@@ -52,6 +55,12 @@ func TestUpdateDrill(t *testing.T) {
 	t.Run("refused", func(t *testing.T) { drill(t, run) })
 	run.restart = true
 	t.Run("explicit restart", func(t *testing.T) { drill(t, run) })
+	back := drillRun{daemon: run.release, release: run.daemon, tag: "v0.0.1", flavor: binName, version: true}
+	t.Run("back", func(t *testing.T) { drill(t, back) })
+	back.refuse = true
+	t.Run("back refused", func(t *testing.T) { drill(t, back) })
+	back.restart = true
+	t.Run("back restart", func(t *testing.T) { drill(t, back) })
 }
 
 // TestReleaseHandoff runs the last release's own pitwall update, and this
@@ -159,6 +168,7 @@ type drillRun struct {
 	flavor    string // pitwall or pitwall-core
 	refuse    bool   // the release's daemon refuses the handoff
 	restart   bool   // run update --restart
+	version   bool   // run update --version tag
 	published bool   // the updater is a published release's, which restarts on a refused handoff
 }
 
@@ -293,6 +303,9 @@ func drill(t *testing.T, r drillRun) {
 	if r.restart {
 		args = append(args, "--restart")
 	}
+	if r.version {
+		args = append(args, "--version", r.tag)
+	}
 	out, err := exec.Command(upd, args...).CombinedOutput()
 	kept := r.refuse && !r.restart && !r.published // the update keeps the old daemon and fails
 	if (err != nil) != kept {
@@ -317,7 +330,11 @@ func drill(t *testing.T, r drillRun) {
 		t.Errorf("the installed %s says %q, want %q", r.flavor, v, want)
 	}
 	if kept {
-		for _, want := range []string{"could not take over (", refusal, "The old daemon keeps serving", r.flavor + " update --restart restarts it"} {
+		again := r.flavor + " update --restart restarts it"
+		if r.version {
+			again = r.flavor + " update --restart --version " + r.tag + " restarts it"
+		}
+		for _, want := range []string{"could not take over (", refusal, "The old daemon keeps serving", again} {
 			if !strings.Contains(string(out), want) {
 				t.Errorf("pitwall update did not say %q", want)
 			}
