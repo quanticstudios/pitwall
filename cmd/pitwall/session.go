@@ -81,6 +81,9 @@ func sessionsCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		(command == "rename" && (len(pos) < 1 || len(pos) > 2)) {
 		return errors.New(sessionUsage)
 	}
+	if command == "new" && !detached && !canOpenWindow {
+		return codeError{2, errors.New("pitwall-core has no window; add -d to create the session detached")}
+	}
 	conn, err := dialCLI()
 	if errors.Is(err, errNotRunning) && command == "ls" {
 		if asJSON {
@@ -134,6 +137,9 @@ func sessionsCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	case "attach":
 		s, err := resolveSession(state, pos[0])
 		if err != nil {
+			return err
+		}
+		if err := needsWindow(state, s.ID); err != nil {
 			return err
 		}
 		if s.Windows > 0 {

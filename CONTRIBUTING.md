@@ -47,6 +47,16 @@ sh scripts/apk_test.sh
 sh scripts/apk-release_test.sh
 ```
 
+A change to `cmd/pitwall` also has to build and pass as pitwall-core, the
+binary without the window (see [docs/development.md](docs/development.md#pitwall-core)):
+
+```sh
+CGO_ENABLED=0 mise exec -- go vet -tags nogui ./cmd/pitwall
+CGO_ENABLED=0 mise exec -- env GOFLAGS=-tags=nogui go test ./cmd/pitwall ./internal/update
+sh scripts/core-imports.sh
+sh scripts/core-imports_test.sh
+```
+
 ### macOS
 
 Install Git, Go 1.27.1 and the Xcode Command Line Tools. In your shell, run:

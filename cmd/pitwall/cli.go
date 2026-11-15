@@ -168,9 +168,19 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	}
 	if err != nil {
 		fmt.Fprintln(errOut, "pitwall:", err)
+		var c codeError
+		if errors.As(err, &c) {
+			return c.code
+		}
 		return 1
 	}
 	return 0
+}
+
+// codeError is an error a command exits with code for, not 1.
+type codeError struct {
+	code int
+	error
 }
 
 // withIssue is cmd with GitHub issue n of the repository at dir as its
@@ -686,6 +696,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	var request any
 	switch command {
 	case "attach":
+		if err := needsWindow(state, w.SessionID); err != nil {
+			return err
+		}
 		after, err := syncCLI(conn, proto.FocusSession{WorkspaceID: w.ID})
 		if err != nil {
 			return err

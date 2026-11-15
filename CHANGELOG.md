@@ -28,6 +28,7 @@ takes `--dry-run`.
 - A Claude Code tab whose turn ended now goes to Done when the Stop hook lists only Claude Code's own background work, such as an auto-mode scan, a dream or an idle teammate. Only shell commands, the Monitor tool, MCP monitors and tasks, subagents and workflows keep it Working, and while they do its card shows the turn's last reply instead of an old status line. A later SubagentStop that lists none of them left also moves the tab to Done. The full reply stays available to `pitwall read`, and a requested review is delivered when the tab reaches Done.
 - A guarded tab starts only after its hook binary runs and denies a test command, and pitwall's pi, omp and OpenCode guard denies a command when `pitwall guard` cannot run. Run `pitwall hooks install` again if you use the guard with pi, omp or OpenCode.
 - On Linux the daemon's socket, `$PITWALL_SOCKET`, answers the web protocol's `hello` as JSON lines, with no token; the control commands come next.
+- `CGO_ENABLED=0 go build -tags nogui -o pitwall-core ./cmd/pitwall` builds pitwall-core, a static binary with the daemon and every command but the window, for servers, containers and arm64 boards.
 
 ## v0.2.13
 

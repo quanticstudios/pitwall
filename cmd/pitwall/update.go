@@ -24,6 +24,11 @@ func runUpdate(args []string, w io.Writer) error {
 	if len(args) > 0 {
 		return errors.New("usage: pitwall update")
 	}
+	if binName != "pitwall" {
+		// why: update.Install fetches the desktop archive, which would
+		// replace this binary with one that needs GUI libraries.
+		return errors.New("pitwall-core update is not available in this build; reinstall with get.sh --core")
+	}
 	log.SetOutput(io.Discard) // startDaemon's lines, for a window's gui.log
 	exe, err := os.Executable()
 	if err != nil {

@@ -35,3 +35,12 @@ func versionString() string {
 	}
 	return "dev-" + rev
 }
+
+// versionLine is what --version prints after "pitwall": the version, then
+// " (core)" for pitwall-core. Scripts read the first two fields.
+func versionLine() string {
+	if binName != "pitwall" {
+		return versionString() + " (core)"
+	}
+	return versionString()
+}

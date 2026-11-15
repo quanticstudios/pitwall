@@ -65,6 +65,41 @@ jobs:
           sh scripts/apk_test.sh
           sh scripts/apk-release_test.sh
 
+  # pitwall-core: the daemon and every command but the window. No apt step,
+  # so a runtime dependency on a GUI library fails here; every go command,
+  # a go build inside a test too, builds the core.
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: "0"
+      GOFLAGS: -tags=nogui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./cmd/pitwall
+      - name: Build a static binary for amd64 and arm64
+        run: |
+          go build -o "$RUNNER_TEMP/pitwall-core" ./cmd/pitwall
+          linked=$(ldd "$RUNNER_TEMP/pitwall-core" 2>&1 || true)
+          case "$linked" in
+            *'not a dynamic executable'*) ;;
+            *) printf 'pitwall-core links:\n%s\n' "$linked"; exit 1 ;;
+          esac
+          "$RUNNER_TEMP/pitwall-core" --version
+          GOARCH=arm64 go build -o /dev/null ./cmd/pitwall
+      - name: Imports
+        run: |
+          sh scripts/core-imports.sh
+          sh scripts/core-imports_test.sh
+      - name: List the tests that run
+        run: go test -list . ./cmd/pitwall ./internal/update
+      - run: go test -count=1 -timeout 15m ./cmd/pitwall ./internal/update
+
   changelog:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04

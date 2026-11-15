@@ -440,6 +440,9 @@ func TestCLISessions(t *testing.T) {
 	// new prints the name and opens a window unless -d, which may follow
 	// the name.
 	for _, detached := range []bool{false, true} {
+		if !detached && !canOpenWindow {
+			continue // TestCoreNoWindow
+		}
 		after := cliState()
 		after.Sessions = append(after.Sessions, model.Session{ID: "s3", Name: "docs"})
 		dir := t.TempDir()
@@ -477,6 +480,9 @@ func TestCLISessions(t *testing.T) {
 		if code, out, stderr := cliOutput(tc.args...); code != 0 || out != "" || stderr != "" {
 			t.Fatalf("%v: %d %s %s", tc.args, code, out, stderr)
 		}
+	}
+	if !canOpenWindow {
+		return // TestCoreNoWindow
 	}
 	// attach to a session no window shows opens one.
 	fakeCLI(t, cliExchange{state: state})

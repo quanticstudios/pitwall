@@ -13,14 +13,11 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	gioapp "gioui.org/app"
 	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -29,7 +26,6 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
-	"github.com/quanticstudios/pitwall/internal/ui/app"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -199,26 +195,10 @@ func main() {
 	var err error
 	switch cmd {
 	case "--version", "-v", "version":
-		fmt.Println("pitwall", versionString())
+		fmt.Println("pitwall", versionLine())
 		return
-	case "":
-		bundleEnv()
-		onMain(cmd, func() error { return runGUI("") })
-		return
-	case "-s":
-		if len(os.Args) != 3 || os.Args[2] == "" {
-			fmt.Fprint(os.Stderr, usage)
-			os.Exit(2)
-		}
-		onMain(cmd, func() error { return runGUI(os.Args[2]) })
-		return
-	case "--host":
-		host, session, ok := parseHost(os.Args[2:])
-		if !ok {
-			fmt.Fprint(os.Stderr, usage)
-			os.Exit(2)
-		}
-		onMain(cmd, func() error { return runHostGUI(host, session) })
+	case "", "-s", "--host":
+		runWindow(cmd, os.Args[min(2, len(os.Args)):])
 		return
 	case "remote-start":
 		err = runRemoteStart(os.Args[2:], os.Stdout)
@@ -271,20 +251,6 @@ func main() {
 		os.Exit(2)
 	}
 	exit(cmd, err)
-}
-
-// onMain runs a GUI command. macOS needs the main thread for [NSApp run]
-// (gioapp.Main), or Gio's new window waits forever for the app to launch.
-func onMain(cmd string, f func() error) {
-	if runtime.GOOS != "darwin" {
-		exit(cmd, f())
-		return
-	}
-	go func() {
-		exit(cmd, f())
-		os.Exit(0)
-	}()
-	gioapp.Main()
 }
 
 func exit(cmd string, err error) {
@@ -559,151 +525,11 @@ func printHooks() error {
 	return nil
 }
 
-// runGUI opens a window on the session named session, else the most
-// recently used session no window shows, else a new session in the current
-// folder. When a named session has a window already, it raises that window
-// and exits instead.
-func runGUI(session string) error {
-	hideConsole()
-	w, _ := logs.Start(filepath.Join(stateDir(), "gui.log"), "gui", versionString(), true)
-	defer w.Close(time.Second)
-	log.Printf("gui starting")
-	if err := crashOutput(); err != nil {
-		log.Printf("crash output: %q", err)
-	}
-	app.Version, app.Relaunch, app.InstallHooks = versionString(), launchGUI, installHooks
-	if runtime.GOOS != "windows" { // Windows keeps the restart
-		app.HandOff = func() error {
-			exe, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			return handOff(exe)
-		}
-	}
-	app.NoteFirstRun() // before the daemon starts and saves its state
-	conn, initial, err := guiDial(session, false)
-	var b *backend
-	var refused incompatible
-	switch {
-	case errors.As(err, &refused):
-		// The window asks before the restart, which stops every program
-		// in a pane.
-		log.Printf("gui: %q; asking to restart it", err)
-		b = newBackend(nil, "")
-		b.link.State = app.LinkRestart
-	case err != nil:
-		log.Printf("gui: %q", err)
-		return err
-	default:
-		defer conn.Close()
-		log.Printf("connected to the daemon")
-		target, raise := guiTarget(initial.State, session)
-		if raise && os.Getenv("PITWALL_ATTACH") == "" {
-			return conn.Send(proto.FocusSession{SessionID: target.ID})
-		}
-		b = newBackend(conn, target.ID)
-		b.state, b.link.Level, b.link.Build = initial.State, initial.Level, initial.Build
-		go b.recvLoop()
-		go b.sendLoop()
-	}
-	b.name, b.redial = session, guiDial
-	var ab app.Backend = b
-	if s, _ := config.Load(); app.Host == "" {
-		if hosts, closeHosts := windowHosts(s.Hosts); len(hosts) > 0 {
-			defer closeHosts()
-			ab = newMulti(b, hosts)
-		}
-	}
-	err = app.Run(ab)
-	log.Printf("window closed: %s", outcome(err))
-	return err
-}
-
 // incompatible is a daemon's refusal of this client's proto.Version.
 type incompatible struct{ version int }
 
 func (e incompatible) Error() string {
 	return fmt.Sprintf("the daemon speaks protocol version %d and this pitwall %d", e.version, proto.Version)
-}
-
-// dialOrStart completes the GUI handshake, starting a daemon when none
-// runs. A daemon of another proto.Version keeps running, reported as
-// incompatible, unless restart is set: then it gets one graceful restart,
-// so it saves its state, and a daemon of this version replaces it.
-func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, error) {
-	path, err := socketPath()
-	if err != nil {
-		return nil, proto.StateMsg{}, err
-	}
-	nc, err := net.Dial("unix", path)
-	if err != nil {
-		nc, err = startDaemon(path)
-		if err != nil {
-			return nil, proto.StateMsg{}, err
-		}
-	}
-	conn, initial, err := guiHandshake(nc, cwd(), session)
-	switch {
-	case err == nil && restart && app.Behind(initial.Level, initial.Build):
-		// Same Version, older Level or release: the user asked to finish
-		// an upgrade.
-		conn.Close()
-		err = fmt.Errorf("the daemon is %q at protocol level %d and this pitwall %q at %d", initial.Build, initial.Level, app.Version, proto.Level)
-	case err == nil:
-		return conn, initial, nil
-	case !errors.As(err, new(incompatible)):
-		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %w; see daemon.log (pitwall logs)", err)
-	}
-	if !restart {
-		return nil, proto.StateMsg{}, err
-	}
-	log.Printf("restarting the daemon: %q", err)
-	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
-		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
-	}
-	nc, err = startDaemon(path)
-	if err != nil {
-		return nil, proto.StateMsg{}, err
-	}
-	conn, initial, err = guiHandshake(nc, cwd(), session)
-	if err != nil {
-		return nil, proto.StateMsg{}, fmt.Errorf("replacement daemon handshake failed: %w", err)
-	}
-	return conn, initial, nil
-}
-
-func guiHandshake(nc net.Conn, cwd, session string) (*proto.Conn, proto.StateMsg, error) {
-	conn := proto.NewConn(nc)
-	fail := func(err error) (*proto.Conn, proto.StateMsg, error) {
-		conn.Close()
-		return nil, proto.StateMsg{}, err
-	}
-	if err := nc.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		return fail(err)
-	}
-	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd, Session: session}); err != nil {
-		return fail(err)
-	}
-	for {
-		msg, err := conn.Recv()
-		if err != nil {
-			return fail(err)
-		}
-		switch m := msg.(type) {
-		case proto.StateMsg:
-			if err := nc.SetDeadline(time.Time{}); err != nil {
-				return fail(err)
-			}
-			return conn, m, nil
-		case proto.Error:
-			if v, ok := proto.RefusedVersion(m); ok {
-				return fail(incompatible{v})
-			}
-			// The daemon could not open the session; its state follows.
-			log.Printf("daemon: %q", m.Message)
-		}
-	}
 }
 
 func stopIncompatibleDaemon(path string) error {
@@ -800,22 +626,4 @@ func outcome(err error) string {
 		return "ok"
 	}
 	return strconv.Quote(err.Error())
-}
-
-// crashOutput sends the runtime's crash traces to crash.log as well as
-// stderr, which a window started from a launcher has nowhere to show.
-func crashOutput() error {
-	f, err := logs.OpenFile(filepath.Join(stateDir(), "crash.log"), logs.MaxSize)
-	if err != nil {
-		return err
-	}
-	defer f.Close() // SetCrashOutput keeps a duplicate
-	return debug.SetCrashOutput(f, debug.CrashOptions{})
-}
-
-// cwd is where the GUI was launched; the daemon opens the first session
-// there. A host's daemon, which gets "", opens it in the home folder there.
-func cwd() string {
-	d, _ := os.Getwd()
-	return d
 }
