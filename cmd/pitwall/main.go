@@ -264,7 +264,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "fork", "wait", "split", "popup", "prompt", "send", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
+	case "ls", "adopt", "new", "fork", "wait", "split", "popup", "prompt", "send", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

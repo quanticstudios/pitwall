@@ -481,3 +481,17 @@ func TestNoTypeSafeCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// main hands adopt to the CLI, which answers with adopt's own error
+// instead of the usage text and exit 2.
+func TestMainRunsAdopt(t *testing.T) {
+	fakeCLI(t, cliExchange{state: cliState()})
+	cmd := exec.Command(os.Args[0], "adopt", "--all")
+	cmd.Env = append(os.Environ(), "PITWALL_TEST_MAIN=1")
+	var out, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &stderr
+	err := cmd.Run()
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 || !strings.Contains(stderr.String(), "adopt must run inside a pitwall pane") {
+		t.Fatalf("%v: %s %s", err, out.String(), stderr.String())
+	}
+}
