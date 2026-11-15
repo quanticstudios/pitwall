@@ -318,6 +318,8 @@ type Daemon struct {
 	served    context.Context // Serve's, ended when the daemon stops
 	gate      acceptGate
 	handedOff bool
+	// lines serves the socket's JSON clients (lines.go), set by Serve.
+	lines *web.Server
 
 	// prog is, per pane, its OSC 7501 records, and progSeq numbers program
 	// reports as they arrive; see program.go. prog is guarded by mu.
@@ -575,10 +577,12 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	defer cancel()
 	d.mu.Lock()
 	d.ln, d.stop, d.served = ln, cancel, ctx
+	d.lines = &web.Server{Version: Build}
 	d.awakeWake = make(chan struct{}, 1)
 	d.mu.Unlock()
 	context.AfterFunc(ctx, func() {
 		ln.Close()
+		d.lines.Close()
 		d.mu.Lock()
 		d.stopRestores()
 		d.mu.Unlock()
@@ -772,7 +776,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 // and PaneExited pushes, and "watch" the first and last of those; every kind
 // gets Error replies to failed requests. Any Hello.Level of proto.Version is
 // served; see proto.Version for what that asks of a new message type. A hook
-// of any Version is served too, its AgentEvents alone.
+// of any Version is served too, its AgentEvents alone. On Linux a client
+// that opens with '{' speaks the web protocol as JSON lines instead.
 func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	var skillshareCalls skillshareCalls
 	defer skillshareCalls.close()
@@ -787,6 +792,14 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	stop := context.AfterFunc(ctx, func() { nc.Close() })
 	defer stop()
 
+	isJSON, err := jsonClient(nc)
+	if err != nil {
+		return
+	}
+	if isJSON {
+		d.lines.ServeLines(nc)
+		return
+	}
 	m, err := conn.Recv()
 	if err != nil {
 		return

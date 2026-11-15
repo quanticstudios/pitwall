@@ -9,12 +9,15 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -396,5 +399,56 @@ func TestRejects(t *testing.T) {
 				t.Errorf("errors do not mention %q:\n%s", c.want, all)
 			}
 		})
+	}
+}
+
+// sshForward is an ssh -L in a doc or an example; its spec is group 1.
+var sshForward = regexp.MustCompile("ssh\\b[^\\n`]*?\\s-L\\s*[\"']?([^\\s`'\"]+)")
+
+// socketToTCP returns the ssh -L specs in text that put a unix socket on a
+// local TCP port ([bind:]port:socket), which would hand the daemon's socket
+// to anything that can reach the port. A socket forwarded to a socket, and
+// a port to a port, are fine.
+func socketToTCP(text string) (all, bad []string) {
+	isPort := func(s string) bool { _, err := strconv.Atoi(s); return err == nil }
+	for _, m := range sshForward.FindAllStringSubmatch(text, -1) {
+		f := strings.Split(m[1], ":")
+		all = append(all, m[1])
+		if !isPort(f[len(f)-1]) && slices.ContainsFunc(f[:len(f)-1], isPort) {
+			bad = append(bad, m[1])
+		}
+	}
+	return all, bad
+}
+
+// TestDocsForwardUnixSockets: no doc or example teaches forwarding the
+// daemon's socket to a TCP port; the fixtures pin that the phone's tunnel
+// passes and a socket-to-TCP forward does not.
+func TestDocsForwardUnixSockets(t *testing.T) {
+	err := filepath.WalkDir("../../docs", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if _, bad := socketToTCP(string(data)); len(bad) > 0 {
+			t.Errorf("%s forwards a socket to a TCP port: %q; forward it to a socket in a private folder", path, bad)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for file, want := range map[string]int{"forward-allowed.md": 0, "forward-refused.md": 1} {
+		data, err := os.ReadFile(filepath.Join("testdata", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		all, bad := socketToTCP(string(data))
+		if len(all) < 2 || len(bad) != want {
+			t.Errorf("%s: %d forwards, %d refused (%q), want %d refused", file, len(all), len(bad), bad, want)
+		}
 	}
 }

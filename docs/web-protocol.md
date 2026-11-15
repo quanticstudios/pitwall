@@ -117,6 +117,57 @@ A client that gets 4002 does not retry with the same version. A client
 that gets 1001 or loses the connection reconnects with backoff and
 [resyncs](#resync).
 
+<a id="local-socket"></a>
+### The local socket
+
+On Linux the daemon's own Unix socket, `$PITWALL_SOCKET` in every pane,
+speaks this protocol too, as JSON lines. The daemon reads the first byte
+of each connection without taking it: `{` starts a JSON client, and
+anything else is one of pitwall's own clients, as before. macOS and
+Windows serve only pitwall's own clients there for now.
+
+- Each frame is one JSON object on one line, ended by `\n`, both ways.
+  The server never puts a line break inside a frame. Blank lines are
+  skipped. A line over 16 MiB ends the connection with 1009.
+- `hello` needs no `token`, and one sent is ignored. Whoever can open the
+  socket is trusted, as pitwall's own commands are: the socket's folder
+  belongs to the user with mode 0700, and the daemon refuses a folder that
+  other users can open.
+- The first byte must come within 10 s, and `hello` within 10 s after it.
+- Where WebSocket sends a close frame, the socket sends a `close` line
+  with the same code and reason, then closes:
+
+```json
+{"type": "close", "code": 4002, "reason": "pitwall speaks protocol 1, client sent 2: update aide or pitwall"}
+```
+
+- It serves no chats and no pull request commands, so `welcome` lists no
+  capabilities yet and every command gets `unsupported`. The control
+  commands come next.
+- A daemon from before the JSON socket closes the connection on the first
+  line, so a client that reads EOF right after its `hello` has an older
+  pitwall.
+
+A minimal session, with `socat`:
+
+```sh
+printf '%s\n' '{"type":"hello","protocol":1,"client":{"name":"script"}}' |
+  socat - UNIX-CONNECT:"$PITWALL_SOCKET"
+```
+
+To reach another machine's daemon, forward its socket to a socket in a
+folder only you can open, never to a TCP port, which any local user could
+connect to. `pitwall remote-start` on that machine prints the socket's
+path there as the last field of its line:
+
+```sh
+mkdir -m 700 -p ~/.pitwall-hosts
+ssh -fN -L ~/.pitwall-hosts/box.sock:/run/user/1000/pitwall/pitwall.sock box
+```
+
+OpenSSH creates the local socket with mode 0600 (`StreamLocalBindMask`
+0177).
+
 <a id="frames"></a>
 ## Frames
 
@@ -298,8 +349,19 @@ Each connection has one outgoing queue. When it passes 256 messages or
    most one snapshot per chat.
 3. Deltas numbered after that snapshot follow as usual.
 
-`result` and `error` messages are never dropped. They are bounded by the
-client's own commands. The server does not merge deltas per client; that
+`result`, `error` and `removed` messages are kept while the connection is
+open. At 64 queued frames or 8 MiB the server stops reading commands
+until fewer than half are left. Before queuing a reply it also waits for
+space for that reply, so the next result cannot push the queue past the
+limit. Asynchronous chat removals cannot wait on the daemon; if one
+cannot fit, the connection closes with 1008 and the client resyncs.
+
+On the [local socket](#local-socket) a single result over 4 MiB is sent
+as `tooLarge` instead. If the request ID makes even that error result
+exceed 4 MiB, the connection closes with 1009. WebSocket keeps its large
+chat replies: one reply may exceed 8 MiB when no other result, error or
+removal is queued. Further replies wait for it to leave the queue.
+The server does not merge deltas per client; that
 would break the rule that `seq` steps by one.
 
 A client whose writes block for 30 s is closed with 1008 (`client too
@@ -818,6 +880,7 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | `provider` | the provider refused; `message` has its words |
 | `invalid` | the command is malformed: a missing field, a bad value, too many attachments |
 | `forge` | `gh` failed; `message` has its words |
+| `tooLarge` | the result is over 4 MiB, on the [local socket](#local-socket) |
 | `jev` | deprecated: this server never sends it |
 
 A client treats a code it does not know as a failure with `message` to

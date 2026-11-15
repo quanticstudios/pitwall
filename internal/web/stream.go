@@ -9,6 +9,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 
@@ -59,6 +60,18 @@ var (
 	maxQueueBytes = 4 << 20
 )
 
+// The bound on frames that are never dropped: at either, the reader
+// stops taking commands until the writer brings the queue under half, so
+// a client that sends and does not read is held back by its own socket.
+// One result over maxResultBytes is tooLarge on the lines transport.
+// WebSocket permits one larger reply by itself for existing chat clients.
+// Vars for tests.
+var (
+	maxFrames      = 64
+	maxFrameBytes  = 8 << 20
+	maxResultBytes = 4 << 20
+)
+
 // out is one entry of a connection's queue.
 type out struct {
 	frame []byte           // result, error, removed: never dropped
@@ -80,10 +93,24 @@ type sub struct {
 var _ Sink = (*conn)(nil)
 
 func (c *conn) push(o out) {
+	if c.overloaded {
+		return
+	}
+	if o.frame != nil && !c.room(len(o.frame)) {
+		// Sink callbacks run under the daemon's lock and cannot wait.
+		// Close outside that lock and c.mu; reconnecting clients resync.
+		c.overloaded = true
+		go c.close(1008, "client too slow")
+		return
+	}
 	c.q = append(c.q, o)
 	if o.batch.Chat != "" {
 		c.held++
 		c.bytes += o.size
+	}
+	if o.frame != nil {
+		c.frames++
+		c.fbytes += len(o.frame)
 	}
 	select {
 	case c.wake <- struct{}{}:
@@ -92,10 +119,54 @@ func (c *conn) push(o out) {
 }
 
 func (c *conn) reply(v any) {
+	if data := c.replyFrame(v); data != nil && c.lockFrame(len(data)) {
+		c.push(out{frame: data})
+		c.mu.Unlock()
+	}
+}
+
+// replyFrame applies the lines result limit to replies and subscription
+// acknowledgements alike. nil means the connection had to close.
+func (c *conn) replyFrame(v any) []byte {
 	data, _ := json.Marshal(v)
+	if c.lines && len(data) > maxResultBytes {
+		m, _ := v.(map[string]any)
+		id, _ := m["id"].(string)
+		data = mustJSON(result(id, "tooLarge", fmt.Sprintf("the result is %d bytes, over the socket's %d", len(data), maxResultBytes)))
+		if len(data) > maxResultBytes {
+			// The id itself cannot fit in even an error result.
+			c.close(1009, "result id over the socket's result limit")
+			return nil
+		}
+	}
+	return data
+}
+
+// lockFrame waits for capacity without holding mu while the writer drains.
+// A true result leaves mu locked so admission and push stay atomic.
+func (c *conn) lockFrame(size int) bool {
 	c.mu.Lock()
-	c.push(out{frame: data})
-	c.mu.Unlock()
+	for !c.overloaded && !c.room(size) {
+		c.mu.Unlock()
+		select {
+		case <-c.drained:
+		case <-c.dead:
+			return false
+		}
+		c.mu.Lock()
+	}
+	if c.overloaded {
+		c.mu.Unlock()
+		return false
+	}
+	return true
+}
+
+// room checks admission with the frame's actual size. Callers hold mu.
+// Existing WebSocket clients can read large chat replies: one such frame
+// may exceed the byte limit, with no other never-dropped frame queued.
+func (c *conn) room(size int) bool {
+	return c.frames < maxFrames && (c.fbytes+size <= maxFrameBytes || !c.lines && c.frames == 0)
 }
 
 func (c *conn) Deltas(d proto.ChatDeltas) {
@@ -113,6 +184,27 @@ func (c *conn) Deltas(d proto.ChatDeltas) {
 		return
 	}
 	c.push(out{batch: d, size: size})
+}
+
+// wait pauses reading at either queue limit until both are under half;
+// false when the writer stopped first. reply separately admits frames by
+// their actual sizes, since the next command's reply may not fit yet.
+func (c *conn) wait() bool {
+	c.mu.Lock()
+	full := c.frames >= maxFrames || c.fbytes >= maxFrameBytes
+	for full {
+		c.mu.Unlock()
+		select {
+		case <-c.drained:
+		case <-c.dead:
+			return false
+		}
+		c.mu.Lock()
+		full = c.frames > maxFrames/2 || c.fbytes > maxFrameBytes/2
+	}
+	ok := !c.overloaded
+	c.mu.Unlock()
+	return ok
 }
 
 // overflow drops every queued delta and list for one snapshot per chat
@@ -171,7 +263,11 @@ func (s *Server) command(c *conn, typ, id string, msg []byte) bool {
 			c.reply(result(id, code(err), err.Error()))
 			return true
 		}
-		c.mu.Lock()
+		frame := c.replyFrame(result(id, "", ""))
+		if frame == nil || !c.lockFrame(len(frame)) {
+			s.Chats.Unsubscribe(m.SessionID, c)
+			return true
+		}
 		su := c.subs[m.SessionID]
 		if su == nil {
 			su = &sub{}
@@ -179,7 +275,7 @@ func (s *Server) command(c *conn, typ, id string, msg []byte) bool {
 		}
 		su.pending = true
 		c.q = slices.DeleteFunc(c.q, func(o out) bool { return o.base == m.SessionID })
-		c.push(out{frame: mustJSON(result(id, "", ""))})
+		c.push(out{frame: frame})
 		c.push(out{base: m.SessionID, after: m.After})
 		c.mu.Unlock()
 		return true
@@ -190,9 +286,12 @@ func (s *Server) command(c *conn, typ, id string, msg []byte) bool {
 		c.mu.Unlock()
 	case "subscribeSessions":
 		s.Chats.WatchList(c, true)
-		c.mu.Lock()
+		frame := c.replyFrame(result(id, "", ""))
+		if frame == nil || !c.lockFrame(len(frame)) {
+			return true
+		}
 		c.list, c.listFull = true, true
-		c.push(out{frame: mustJSON(result(id, "", ""))})
+		c.push(out{frame: frame})
 		c.push(out{list: true})
 		c.mu.Unlock()
 		return true
@@ -217,7 +316,8 @@ func (s *Server) unsubscribeAll(c *conn) {
 	s.Chats.WatchList(c, false)
 }
 
-// writer writes c's queue until done closes or a write fails.
+// writer writes c's queue until done closes and it is empty, or a write
+// fails.
 func (s *Server) writer(c *conn, done <-chan struct{}) error {
 	var sent map[string]listed // the list as the client has it
 	for {
@@ -227,15 +327,29 @@ func (s *Server) writer(c *conn, done <-chan struct{}) error {
 			select {
 			case <-c.wake:
 			case <-done:
-				return nil
+				c.mu.Lock()
+				if len(c.q) == 0 { // else what the last commands queued goes out first
+					c.mu.Unlock()
+					return nil
+				}
+				continue
 			}
 			c.mu.Lock()
 		}
 		o := c.q[0]
+		c.q[0] = out{} // release the frame when it leaves the queue
 		c.q = c.q[1:]
 		if o.batch.Chat != "" {
 			c.held--
 			c.bytes -= o.size
+		}
+		if o.frame != nil {
+			c.frames--
+			c.fbytes -= len(o.frame)
+			select {
+			case c.drained <- struct{}{}:
+			default:
+			}
 		}
 		var frame []byte
 		switch {

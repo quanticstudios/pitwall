@@ -430,3 +430,23 @@ func TestLevel63Peer(t *testing.T) {
 		t.Errorf("old reader of a new approve: %+v", m)
 	}
 }
+
+// A daemon from before the JSON socket reads a JSON line as a gob frame
+// whose length is past the limit, and drops the connection.
+func TestRecvRejectsJSONFrame(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go io.WriteString(a, `{"type":"hello","protocol":1,"client":{"name":"script"}}`+"\n")
+	if m, err := NewConn(b).Recv(); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("got %v, %v; want the frame size refused", m, err)
+	}
+}
+
+// The daemon tells JSON from gob by the first byte: a gob frame's length
+// never starts with '{'.
+func TestFrameSizeBelowJSON(t *testing.T) {
+	if maxFrameSize >= 0x7b<<24 {
+		t.Fatalf("maxFrameSize %#x reaches '{' (%#x)", maxFrameSize, 0x7b<<24)
+	}
+}

@@ -49,20 +49,31 @@ var (
 )
 
 type conn struct {
-	name string // hello's client.name
-	nc   net.Conn
-	br   *bufio.Reader
-	wmu  sync.Mutex
+	name  string // hello's client.name
+	nc    net.Conn
+	br    *bufio.Reader
+	lines bool // JSON lines on the daemon's socket, not WebSocket (lines.go)
+	wmu   sync.Mutex
 
 	// The outgoing queue and the subscriptions, see stream.go.
-	mu       sync.Mutex
-	q        []out
-	held     int // pushed delta batches in q
-	bytes    int // and their size
-	subs     map[string]*sub
-	list     bool // subscribed to the session list
-	listFull bool // the next list frame is the whole list
-	wake     chan struct{}
+	mu         sync.Mutex
+	q          []out
+	held       int  // pushed delta batches in q
+	bytes      int  // and their size
+	frames     int  // results, errors and removed in q, see wait
+	fbytes     int  // and their size
+	overloaded bool // an asynchronous frame could not fit; connection is closing
+	subs       map[string]*sub
+	list       bool // subscribed to the session list
+	listFull   bool // the next list frame is the whole list
+	wake       chan struct{}
+	drained    chan struct{} // the writer took a frame
+	dead       chan struct{} // closed when the writer stops
+}
+
+func newConn(nc net.Conn, br *bufio.Reader, lines bool) *conn {
+	return &conn{nc: nc, br: br, lines: lines, subs: map[string]*sub{},
+		wake: make(chan struct{}, 1), drained: make(chan struct{}, 1), dead: make(chan struct{})}
 }
 
 // upgrade answers a WebSocket upgrade request and takes the connection
@@ -83,7 +94,7 @@ func upgrade(w http.ResponseWriter, r *http.Request) (*conn, error) {
 	}
 	sum := sha1.Sum([]byte(key + wsGUID))
 	nc.SetDeadline(time.Time{}) // drop the server's header timeout
-	c := &conn{nc: nc, br: brw.Reader, subs: map[string]*sub{}, wake: make(chan struct{}, 1)}
+	c := newConn(nc, brw.Reader, false)
 	_, err = c.writeRaw(writeTimeout, []byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "+
 		base64.StdEncoding.EncodeToString(sum[:])+"\r\n\r\n"))
 	if err != nil {
@@ -108,6 +119,9 @@ func headerHas(h http.Header, name, token string) bool {
 // read returns the next text or binary message, answering pings on the
 // way. A close from the client is a closeErr with code 1000.
 func (c *conn) read() ([]byte, error) {
+	if c.lines {
+		return c.readLine()
+	}
 	var msg []byte
 	inMsg := false
 	for {
@@ -173,6 +187,10 @@ func (c *conn) read() ([]byte, error) {
 // write sends one unfragmented frame. A client that takes more than
 // writeTimeout to read it loses the connection.
 func (c *conn) write(op byte, p []byte) error {
+	if c.lines {
+		_, err := c.writeRaw(writeTimeout, p, []byte{'\n'})
+		return err
+	}
 	hdr := []byte{0x80 | op}
 	switch n := len(p); {
 	case n < 126:
@@ -198,6 +216,11 @@ func (c *conn) writeRaw(timeout time.Duration, bufs ...[]byte) (int64, error) {
 // connection without waiting for the client's. A client that does not
 // read gets a second to take the frame.
 func (c *conn) close(code int, reason string) {
+	if c.lines {
+		c.writeRaw(time.Second, mustJSON(map[string]any{"type": "close", "code": code, "reason": reason}), []byte{'\n'})
+		c.nc.Close()
+		return
+	}
 	p := append(binary.BigEndian.AppendUint16(nil, uint16(code)), reason...)
 	c.writeRaw(time.Second, []byte{0x80 | opClose, byte(len(p))}, p)
 	c.nc.Close()
