@@ -239,6 +239,8 @@ func TestControlStartIDAfterArchivePruned(t *testing.T) {
 	}
 }
 
+// A full start history evicts an identity whose tab left the reopen
+// archive instead of refusing every later start for good.
 func TestControlStartIDHistoryFull(t *testing.T) {
 	d, _, sock := controlDaemon(t, func(*Options) {})
 	d.mu.Lock()
@@ -249,16 +251,42 @@ func TestControlStartIDHistoryFull(t *testing.T) {
 	d.mu.Unlock()
 	c := dialJSON(t, sock)
 	c.hello(t)
-	dir := t.TempDir()
-	before := len(d.state().Panes)
-	if r := c.call(t, fmt.Sprintf(`{"type":"newTab","id":"n","dir":%q,"session":"s","startId":"fedcba9876543210"}`, dir)); r["code"] != "conflict" {
-		t.Fatalf("a full history admitted a new id: %v", r)
+	req := fmt.Sprintf(`{"type":"newTab","id":"n","dir":%q,"session":"s","cmd":["sleep","60"],"startId":"fedcba9876543210"}`, t.TempDir())
+	first := c.call(t, req)
+	if first["ok"] != true || dataOf(first)["pane"] == nil {
+		t.Fatalf("a full history refused a new id: %v", first)
 	}
-	if r := c.call(t, fmt.Sprintf(`{"type":"newTab","id":"r","dir":%q,"session":"s","startId":"0000000000000001"}`, dir)); r["ok"] != true || dataOf(r)["closed"] != true {
-		t.Fatalf("a full history refused a known retry: %v", r)
+	if r := c.call(t, req); r["ok"] != true || dataOf(r)["pane"] != dataOf(first)["pane"] {
+		t.Fatalf("retry after eviction: %v, originally %v", r, first)
 	}
-	if st := d.state(); len(st.Panes) != before || len(st.Starts) != maxStartIDs {
-		t.Fatal("a full-history request started a process or changed history")
+	d.mu.Lock()
+	n, kept := len(d.st.Starts), d.st.Starts["fedcba9876543210"]
+	d.mu.Unlock()
+	if n != maxStartIDs || kept.SessionID != "s" {
+		t.Fatalf("history holds %d ids, the new one %+v", n, kept)
+	}
+}
+
+// Clients never read the start history, which grows with every JSON start,
+// so it stays out of state pushes and Syncs; saves and handoffs keep it.
+func TestControlStartIDStaysOffClients(t *testing.T) {
+	const id = "00000000000000a1"
+	d, _, sock := controlDaemon(t, func(*Options) {})
+	c := dialJSON(t, sock)
+	c.hello(t)
+	if r := c.call(t, fmt.Sprintf(`{"type":"newTab","id":"n","dir":%q,"session":"s","startId":%q}`, t.TempDir(), id)); r["ok"] != true {
+		t.Fatal(r)
+	}
+	cli := dial(t, sock, "cli")
+	cli.send(proto.Sync{})
+	if st := cli.waitState("the new tab", func(s model.State) bool { return s.Workspace(id) != nil }); st.Starts != nil {
+		t.Fatalf("a client got the start history: %v", st.Starts)
+	}
+	d.mu.Lock()
+	saved := d.saveSnapshot()
+	d.mu.Unlock()
+	if _, ok := saved.Starts[id]; !ok {
+		t.Fatalf("the saved state lost the start history: %v", saved.Starts)
 	}
 }
 

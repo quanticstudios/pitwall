@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -29,7 +30,9 @@ type ctlWatch struct {
 func (h ctlHub) State() model.State {
 	h.d.mu.Lock()
 	defer h.d.mu.Unlock()
-	return h.d.snapshot()
+	s := h.d.snapshot()
+	s.Starts = maps.Clone(h.d.st.Starts) // newTab matches retries against it
+	return s
 }
 
 func (h ctlHub) Read(pane string, screen bool) (string, error) {

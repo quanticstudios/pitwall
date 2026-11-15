@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,7 +32,9 @@ func newDaemon(t *testing.T, o Options) *Daemon {
 func (d *Daemon) state() model.State {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.snapshot()
+	s := d.snapshot()
+	s.Starts = maps.Clone(d.st.Starts)
+	return s
 }
 
 func (f *fakes) closed(i int) bool {

@@ -1019,9 +1019,9 @@ closed since answers `closed: true`. The tab gets it as its id, so
 `@` and it addresses the tab. Without `startId` the daemon picks one.
 Successful start identities persist separately from the reopen archive,
 so pruning that archive cannot make a retry open another tab. The history
-holds at most 65,536 identities. At capacity, a new id answers `conflict`
-and starts nothing; retries of known ids still work. Keep the daemon's
-saved state to preserve this guarantee across restarts and handoffs.
+holds at most 65,536 identities. At capacity, a new start drops one whose
+tab is neither open nor in the reopen archive. Keep the daemon's saved
+state to preserve this guarantee across restarts and handoffs.
 
 The guard follows the CLI: `guard`, or a preset with `guard = true`,
 starts the agent with `PITWALL_GUARD=1` once the daemon has checked

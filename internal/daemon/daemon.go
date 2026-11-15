@@ -2709,10 +2709,11 @@ func (d *Daemon) saveState(history bool) error {
 	return nil
 }
 
-// saveSnapshot is snapshot with each live pane's current directory, so a
-// restart relaunches the shell where the user left it.
+// saveSnapshot is snapshot with the start history and each live pane's
+// current directory, so a restart relaunches the shell where the user left it.
 func (d *Daemon) saveSnapshot() model.State {
 	s := d.snapshot()
+	s.Starts = maps.Clone(d.st.Starts)
 	s.Activities = append(s.Activities, d.restoreActivities()...)
 	for i, p := range s.Panes {
 		if h := d.panes[p.ID]; h != nil && !p.Exited {
@@ -2767,7 +2768,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Tasks = slices.Clone(s.Tasks)
 	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
 	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place
-	s.Starts = maps.Clone(s.Starts)
+	s.Starts = nil                    // grows with every JSON start, and no client reads it
 	s.Forms = slices.Clone(s.Forms)
 	for i := range s.Closed {
 		s.Closed[i].Pane.History = nil

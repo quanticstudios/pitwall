@@ -246,24 +246,30 @@ func (d *Daemon) startedTab(id, session, parent string) (bool, error) {
 		}
 		return false, taken
 	}
-	if len(d.st.Starts) >= maxStartIDs {
-		return false, errors.New("start id history is full; refusing a new start")
-	}
 	return false, nil
 }
 
-// Bound retained identities without making an evicted id reusable. New
-// ids fail closed at capacity, while retries of existing ids still work.
+// maxStartIDs bounds the start history. A full history evicts an id whose
+// tab is neither open nor in the reopen archive: one that closed at least
+// that archive's 200 closes ago, far past any retry.
 const maxStartIDs = 65_536
 
 // rememberStart retains a successfully created tab's original identity.
-// Callers hold d.mu and have already checked the history's capacity.
+// Callers hold d.mu.
 func (d *Daemon) rememberStart(w model.Workspace, parentPane string) {
 	if !w.ClientID {
 		return
 	}
 	if d.st.Starts == nil {
 		d.st.Starts = map[string]model.TabStart{}
+	}
+	if _, ok := d.st.Starts[w.ID]; !ok && len(d.st.Starts) >= maxStartIDs {
+		for id := range d.st.Starts {
+			if d.workspace(id) == nil && !slices.ContainsFunc(d.st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == id }) {
+				delete(d.st.Starts, id)
+				break
+			}
+		}
 	}
 	start := model.TabStart{SessionID: w.SessionID, Parent: w.Parent, ParentPane: parentPane}
 	if s := d.st.Session(w.SessionID); s != nil {
