@@ -2383,6 +2383,12 @@ with the fix, unless that agent's guard is installed in the config folder
 it reads. For Claude Code and Codex that is `CLAUDE_CONFIG_DIR` or
 `CODEX_HOME` as the tab, its preset or its profile sets it, else
 `~/.claude` or `~/.codex`.
+Before every guarded start, the daemon also runs the pitwall the hook
+names as `pitwall guard` on `git push origin main`, which every guard
+denies, and starts the tab only when it exits 2 within 3 seconds. A
+binary that cannot start on that machine, such as a desktop build on a
+server without its graphics libraries, refuses the tab with the reason.
+`pitwall doctor` and the host check run the same test.
 For a profile's folder, run `CLAUDE_CONFIG_DIR=<folder> pitwall hooks
 install` (or `CODEX_HOME=`). This holds for a resume after a restart and
 for a worker the fleet's big lane replaces, which keeps the guard of the
@@ -2393,14 +2399,22 @@ launches refuse `--bare`, `--safe-mode`, `--settings`,
 `--setting-sources` without `user`, and `CLAUDE_CODE_SIMPLE`: those can
 skip or override the user hooks that pitwall checks. Remove those options
 to use the guard. `pitwall doctor` shows a guard line per agent. Codex
-also needs `/hooks` once to trust the hooks, which pitwall cannot check.
+also needs `/hooks` once to trust the hooks, which pitwall cannot check. Claude Code and Codex
+decide for themselves what a hook that cannot run means, and both let the
+tool run, so a pitwall that breaks after a guarded tab started goes
+unnoticed there until the next guarded start tests it.
 
 pi and omp use `PI_CODING_AGENT_DIR`, else `~/.pi/agent` and
 `~/.omp/agent`. pitwall installs and checks OpenCode's plugin in
 `OPENCODE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/opencode` or
 `~/.config/opencode`. Their current,
-unedited extension or plugin must be present and name an existing
-pitwall executable. Older copies that predate the guard do not count;
+unedited extension or plugin must be present and name a pitwall that
+passes the same test. When that pitwall cannot answer later, because it
+was removed, exits with another status than 0 or 2, is killed or takes
+over 5 seconds, the extension or plugin denies the command with
+`pitwall guard could not check this command (<why>); denied because the
+tab is guarded`. Copies from v0.2.13 and earlier allowed the command
+there, and copies that predate the guard have none, so neither counts;
 run `pitwall hooks install` with the same directory override to update
 them. pi and omp launches with `--no-extensions` are refused.
 

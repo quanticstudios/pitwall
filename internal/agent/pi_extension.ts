@@ -30,29 +30,33 @@ function text(message: any): string {
 }
 
 // check runs `pitwall guard` on a shell command in a guarded tab and resolves
-// to the reason it denies it, or "" when it allows it or cannot run.
+// to the reason it denies it, or "" when it allows it. A guard that cannot
+// answer denies: it could not start, timed out, or exited with neither 0 nor 2.
 function check(command: string): Promise<string> {
 	return new Promise<string>((resolve) => {
 		let reason = "";
+		const deny = (why: string) => resolve(`pitwall guard could not check this command (${why}); denied because the tab is guarded`);
 		try {
 			const child = spawn(bin, ["guard"], { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
 			const timer = setTimeout(() => {
 				kill(child);
-				resolve("");
+				deny("no answer in 5s");
 			}, 5000);
 			child.stderr?.on("data", (d: Buffer) => (reason += d));
-			child.on("error", () => {
+			child.on("error", (e: Error) => {
 				clearTimeout(timer);
-				resolve("");
+				deny(e.message);
 			});
-			child.on("close", (code: number | null) => {
+			child.on("close", (code: number | null, signal: string | null) => {
 				clearTimeout(timer);
-				resolve(code === 2 ? reason.trim() || "pitwall guard: denied" : "");
+				if (code === 0) resolve("");
+				else if (code === 2) resolve(reason.trim() || "pitwall guard: denied");
+				else deny(signal ? `killed by ${signal}` : `exit ${code}`);
 			});
 			child.stdin?.on("error", () => {});
 			child.stdin?.end(JSON.stringify({ tool_input: { command } }));
-		} catch {
-			resolve("");
+		} catch (e) {
+			deny(String(e));
 		}
 	});
 }

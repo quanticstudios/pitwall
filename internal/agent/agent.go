@@ -750,6 +750,7 @@ var piReleased = []string{
 	"66a661de319a73aa4e500c5357b694e72370138ef5bdbabc5faaead7470d647b", // v0.1.0-alpha.7 to beta.18
 	"68f2cee0198007bb7d620c8eb866d0017dd9a6ed02a93621a08b6ca72d0af741", // v0.1.1
 	"e498d49b0defcf672784d88bcd50c2997be90acc99633b83cb7332b2366e7d0a", // v0.1.2
+	"bbe1dd8f8a3d311cf49789fea297d4296c660d7de2a17519a766315be3a88441", // v0.1.3 to v0.2.13, a guard that allowed what it could not check
 }
 
 // IsPiExtension reports whether b is exactly what PiExtension returns for
@@ -799,6 +800,7 @@ var openCodeReleased = []string{
 	"765995ca8593576244fd4d147bd7d69497ae7cf6f5ee9f173333455c28534da1", // v0.1.0-beta.3 to v0.1.1
 	"3dc21c6709b78b409a79ba301932553bb1e9ff3484ed1e50ea74b48873c7f280", // main after v0.1.1, before OpenCode 2, and v0.1.2
 	"a40d8dde4d811c98b7b4eceb52476cffd8669b6ea129a3b2ed5fe3129b3c5bdf", // main after v0.1.2, OpenCode 2
+	"527e7f4227e44fcd3274947713d1f1f40ee93354cd89e5a8f5245f4267225f22", // v0.1.3 to v0.2.13, a guard that allowed what it could not check
 }
 
 //go:embed pitwall_skill.md

@@ -79,13 +79,13 @@ func TestDoctor(t *testing.T) {
 	if err := runHooks([]string{"install"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	// The hooks run testBin, which does not exist, so a guarded tab would run unguarded.
+	// The hooks run testBin, which does not exist, so the guard's probe cannot run it.
 	code, out = doctor()
 	fails := 0
 	for _, l := range strings.Split(out, "\n") {
 		if strings.HasPrefix(l, "FAIL") {
 			fails++
-			if !strings.HasPrefix(l, "FAIL guard: ") || !strings.Contains(l, "runs an existing pitwall") {
+			if !strings.HasPrefix(l, "FAIL guard: ") || !strings.Contains(l, testBin+" cannot run") {
 				t.Errorf("after setup: %s", l)
 			}
 		}

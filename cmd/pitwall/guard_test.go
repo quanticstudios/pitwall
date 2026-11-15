@@ -13,6 +13,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// init runs `pitwall guard` when a guard probe runs this test binary, as
+// it does for the hooks the doctor and worktree tests name it in.
+func init() {
+	if len(os.Args) == 2 && os.Args[1] == "guard" {
+		os.Exit(runGuard(os.Stdin, os.Stdout, os.Stderr))
+	}
+}
+
 // guardConfig points config.Load at a config.toml with guard_deny.
 func guardConfig(t *testing.T) {
 	t.Helper()
