@@ -241,6 +241,10 @@ func TestGuardGate(t *testing.T) {
 	if err := os.WriteFile(allows, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	allowsWant := allows
+	if runtime.GOOS == "windows" {
+		allowsWant = "cannot run" // no shell scripts there: the probe fails closed another way
+	}
 	if err := os.WriteFile(filepath.Join(allowing, "settings.json"), []byte(`{"hooks": `+string(agent.ClaudeHooks(allows))+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +267,7 @@ func TestGuardGate(t *testing.T) {
 		{"a shell", hooked, nil, []string{"PITWALL_GUARD=1"}, "not a shell"},
 		{"guard set to anything", hooked, []string{"aider"}, []string{"PITWALL_GUARD=yes"}, "not aider"},
 		{"hooks in the env's dir", "", []string{"claude"}, []string{"PITWALL_GUARD=1", "CLAUDE_CONFIG_DIR=" + hooked}, ""},
-		{"a hook binary that does not deny", "", []string{"claude"}, []string{"PITWALL_GUARD=1", "CLAUDE_CONFIG_DIR=" + allowing}, allows},
+		{"a hook binary that does not deny", "", []string{"claude"}, []string{"PITWALL_GUARD=1", "CLAUDE_CONFIG_DIR=" + allowing}, allowsWant},
 		{"bare Claude", hooked, []string{"claude", "--bare"}, []string{"PITWALL_GUARD=1"}, "--bare"},
 		{"safe mode Claude", hooked, []string{"claude", "--safe-mode"}, []string{"PITWALL_GUARD=1"}, "--safe-mode"},
 		{"Claude without user settings", hooked, []string{"claude", "--setting-sources=project,local"}, []string{"PITWALL_GUARD=1"}, "--setting-sources"},
