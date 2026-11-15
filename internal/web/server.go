@@ -39,9 +39,13 @@ type Server struct {
 	// Usage, when set, answers readUsage with the plan limits and
 	// the calls since since.
 	Usage func(since time.Time) Usage
+	// Control serves the control commands (control.go); nil serves none.
+	// Only the daemon's own socket sets it.
+	Control Control
 
 	mu     sync.Mutex
 	conns  map[*conn]bool
+	ctl    map[*conn]*ctl
 	closed bool
 }
 
@@ -141,6 +145,7 @@ func (s *Server) run(c *conn, from string) {
 		}
 	}()
 	err = s.serve(c)
+	s.endControl(c)
 	close(done)
 	if c.lines {
 		<-c.dead // a script that sent its commands and closed its end still reads the results
@@ -250,6 +255,9 @@ func (s *Server) capabilities() []string {
 	if _, ok := s.Chats.(Forge); ok {
 		out = append(out, forgeCommands...)
 	}
+	if s.Control != nil {
+		out = append(out, controlCommands...)
+	}
 	return out
 }
 
@@ -279,7 +287,7 @@ func (s *Server) serve(c *conn) error {
 		case f.ID == "":
 			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame has no id"})
 		case s.Chats != nil && (s.command(c, f.Type, f.ID, msg) || s.chatCommand(c, f.Type, f.ID, msg) || s.forgeCommand(c, f.Type, f.ID, msg)):
-		case s.usage(c, f.Type, f.ID, msg):
+		case s.usage(c, f.Type, f.ID, msg), s.control(c, f.Type, f.ID, msg):
 		default:
 			c.reply(result(f.ID, "unsupported", fmt.Sprintf("pitwall does not serve %q yet", f.Type)))
 		}

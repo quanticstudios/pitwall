@@ -27,6 +27,7 @@ ENG-2708 pull requests.
 - [Backpressure](#backpressure)
 - [Commands](#commands)
 - [Pull requests](#pull-requests)
+- [Control](#control)
 - [Results and errors](#results)
 - [aide's SessionTransport](#transport)
 - [Versioning](#versioning)
@@ -141,9 +142,9 @@ Windows serve only pitwall's own clients there for now.
 {"type": "close", "code": 4002, "reason": "pitwall speaks protocol 1, client sent 2: update aide or pitwall"}
 ```
 
-- It serves no chats and no pull request commands, so `welcome` lists no
-  capabilities yet and every command gets `unsupported`. The control
-  commands come next.
+- It serves no chats and no pull request commands. `welcome` lists the
+  [control](#control) commands, and every other command gets
+  `unsupported`. Neither TCP listener serves the control commands.
 - A daemon from before the JSON socket closes the connection on the first
   line, so a client that reads EOF right after its `hello` has an older
   pitwall.
@@ -177,7 +178,7 @@ OpenSSH creates the local socket with mode 0600 (`StreamLocalBindMask`
   connection. The server answers each command with exactly one `result`
   that carries the same `id`.
 - The server sends `welcome`, `result`, `error`, and the pushed messages
-  `sessions`, `sessionsChanged`, `deltas` and `removed`.
+  `sessions`, `sessionsChanged`, `deltas`, `removed` and `tabs`.
 - The server handles one connection's commands in the order they arrive,
   but results can come back in another order, since commands to different
   chats run on different chat loops. Pushed messages for one chat keep
@@ -865,6 +866,136 @@ and polls the pull request again at once, so the list shows it merged. It
 answers `conflict` when the pull request is not open. Confirming is the
 client's, as pitwall's merge dialog is.
 
+<a id="control"></a>
+## Control
+
+On the [local socket](#local-socket) only, programs drive pitwall's tabs
+as its commands for agents do ([agent-skill.md](agent-skill.md)). Each
+command does what the CLI command in the table does, with the CLI's own
+code, and its result's `data` holds what that command prints.
+
+| Command | CLI | Data on success |
+| --- | --- | --- |
+| `listTabs` | `pitwall ls --json` | `session`, `tabs` |
+| `subscribeTabs`, `unsubscribeTabs` | none | none; `tabs` frames follow |
+| `readPane` | `pitwall read` | `text` |
+| `scrollback` | `pitwall scrollback` | `text` |
+| `waitPane` | `pitwall wait` | `outcome`, and `state`, `question` or `exit` |
+
+A program outside a pane has no pane or session of its own, so a request
+names them:
+
+- `pane` is an address as `pitwall read` takes it: `#N` or `N` for a tab's
+  main pane, `TAB.N` for its Nth pane, a title or a unique title prefix,
+  or `@` and a pane id from `listTabs`, which stays valid while tabs move.
+- `session` is a session's id, its exact name or a unique prefix of its
+  name. While more than one session is open, an address other than `@` and
+  an id needs it, so `#1` cannot reach a tab in another session than the
+  one the program meant. `listTabs` and `subscribeTabs` without it take
+  the most recently used session, and their data names it.
+- A key the command does not take is `invalid`.
+
+A worker that a tab started on another host (`pitwall new --host`) shows
+in `listTabs` as a stale row: `stale: true`, `state: "unknown"`, its
+`host`, `addr` `@` and its id, and no panes. This daemon records the
+worker but not its state. For its state, forward that host's socket as
+in [The local socket](#local-socket) and ask that daemon. An address of
+such a worker, or `box:3` for a host's tab, answers `remote` and names
+the host.
+
+### listTabs
+
+`tabs` are the rows of `pitwall ls --json`, the same fields with the same
+meanings ([agent-skill.md](agent-skill.md)). `children` (a pane id) lists
+only the tabs that pane's tab opened, as `ls --children` run in that pane
+does; `orphans` lists workers whose parent tab is gone, as
+`ls --orphans`. Rows never carry a command line or an environment.
+
+```json
+{"type": "listTabs", "id": "c1", "session": "work"}
+```
+
+```json
+{"type": "result", "id": "c1", "ok": true, "data": {"session": {"id": "4f1c2a9e", "name": "work"}, "tabs": [{"n": 1, "id": "a3f2", "title": "fix-login", "group": "pitwall", "cwd": "/home/me/src/pitwall", "branch": "fix-login", "agent": "claude", "state": "working", "question": "", "exit_code": null, "panes": 1, "detached": false, "pane_list": [{"n": 1, "id": "p7c1", "agent": "claude", "state": "working", "question": "", "exit_code": null, "queued": 0, "since": "2026-11-15T09:12:00Z"}], "parent": "", "since": "2026-11-15T09:12:00Z", "pr_state": "", "quiet_since": null, "status": "", "host": "", "addr": "#1", "stale": false}, {"n": 0, "id": "b9e0", "title": "", "group": "", "cwd": "", "branch": "", "agent": "", "state": "unknown", "question": "", "exit_code": null, "panes": 0, "detached": false, "pane_list": [], "parent": "a3f2", "since": null, "pr_state": "", "quiet_since": null, "status": "", "host": "box", "addr": "@b9e0", "stale": true}]}}
+```
+
+### subscribeTabs and unsubscribeTabs
+
+After its result, `subscribeTabs` pushes a `tabs` frame with the
+session's tabs as `listTabs` gives them, then another each time they
+change. Changes close together come as one frame, and a client that
+reads slowly gets the latest list rather than every one. A second
+`subscribeTabs` replaces the first; `unsubscribeTabs` stops them.
+
+```json
+{"type": "subscribeTabs", "id": "c2", "session": "work"}
+```
+
+```json
+{"type": "tabs", "session": {"id": "4f1c2a9e", "name": "work"}, "tabs": []}
+```
+
+```json
+{"type": "unsubscribeTabs", "id": "c3"}
+```
+
+### readPane and scrollback
+
+`readPane` is the reply the pane's agent last finished, or with `screen`
+the text on the pane's screen. `scrollback` is the pane's history and
+screen; `lines` keeps only the last lines, at most 10,000. A text over
+4 MiB is `tooLarge`: ask for fewer `lines`.
+
+```json
+{"type": "readPane", "id": "c4", "session": "work", "pane": "#1", "screen": true}
+```
+
+```json
+{"type": "result", "id": "c4", "ok": true, "data": {"text": "$ go test ./...\nok  \tgithub.com/quanticstudios/pitwall/internal/web\t1.2s"}}
+```
+
+```json
+{"type": "scrollback", "id": "c5", "pane": "@p7c1", "lines": 200}
+```
+
+### waitPane
+
+`waitPane` answers once the pane gets to `until`, as `pitwall wait` does:
+`done` (its agent finished a turn), `idle`, `blocked` or `exit`. It
+remembers what it saw while it waits, so `done` after an interrupted turn
+that ended idle still counts. `outcome` says why it ended:
+
+| `outcome` | Means | Also in `data` |
+| --- | --- | --- |
+| `reached` | the pane got to `until` | `state` |
+| `blocked` | its agent waits on a person | `question` |
+| `exited` | its process ended | `exit`: `code`, `unknown`, `signal` |
+| `closed` | the pane closed without an exit code, on purpose | none |
+
+`exit.code` is the program's own, so a program that exits 2 is `exited`
+with `code` 2. `unknown` means the daemon restarted while it ran;
+`signal` that a signal ended it, with a negative `code`. With
+`timeoutMs`, a wait that has not ended by then answers `timeout`. It is
+0 for no timer, or at most 9223372036854 milliseconds. Up to
+64 waits can be pending on one connection; more answer `busy`. A client
+that closes its sending side gets no result of a pending wait.
+
+```json
+{"type": "waitPane", "id": "c6", "session": "work", "pane": "#2", "until": "exit", "timeoutMs": 600000}
+```
+
+```json
+{"type": "result", "id": "c6", "ok": true, "data": {"outcome": "exited", "exit": {"code": 3, "unknown": false, "signal": false}}}
+```
+
+```json
+{"type": "result", "id": "c7", "ok": false, "code": "timeout", "message": "timed out after 10m0s"}
+```
+
+`docs/examples` has two clients that list the tabs and read a pane:
+[`control.py`](examples/control.py) (Python, standard library) and
+[`control.sh`](examples/control.sh) (bash, `socat` and `jq`).
+
 <a id="results"></a>
 ## Results and errors
 
@@ -873,14 +1004,17 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 
 | Code | Means |
 | --- | --- |
-| `not-found` | no such chat, request or turn |
+| `not-found` | no such chat, request, turn, session, tab or pane |
 | `conflict` | someone answered first, the chat is archived, the tab is pinned |
-| `busy` | the chat cannot take this now, for example `rewind` while a turn runs |
+| `busy` | the chat cannot take this now, for example `rewind` while a turn runs; 64 `waitPane` already pending |
 | `unsupported` | this provider cannot, or this server does not know the command |
 | `provider` | the provider refused; `message` has its words |
 | `invalid` | the command is malformed: a missing field, a bad value, too many attachments |
 | `forge` | `gh` failed; `message` has its words |
 | `tooLarge` | the result is over 4 MiB, on the [local socket](#local-socket) |
+| `ambiguous` | a [control](#control) address or session matches more than one |
+| `remote` | a control address names a tab on another host |
+| `timeout` | a `waitPane` passed its `timeoutMs` |
 | `jev` | deprecated: this server never sends it |
 
 A client treats a code it does not know as a failure with `message` to

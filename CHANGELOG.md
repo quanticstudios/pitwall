@@ -30,6 +30,7 @@ takes `--dry-run`.
 - On Linux the daemon's socket, `$PITWALL_SOCKET`, answers the web protocol's `hello` as JSON lines, with no token; the control commands come next.
 - `CGO_ENABLED=0 go build -tags nogui -o pitwall-core ./cmd/pitwall` builds pitwall-core, a static binary with the daemon and every command but the window, for servers, containers and arm64 boards.
 - Releases include pitwall-core for Linux amd64 and arm64. `curl -fsSL .../get.sh | sh -s -- --core` installs it and links `pitwall` to it when that name is free, and `pitwall-core update` installs the next pitwall-core and hands the running daemon over.
+- On Linux, `listTabs`, `readPane`, `scrollback` and `waitPane` on `$PITWALL_SOCKET` do what `ls --json`, `read`, `scrollback` and `wait` do, and `subscribeTabs` pushes the tab list as it changes; `docs/examples` has a Python and a shell client.
 
 ## v0.2.13
 

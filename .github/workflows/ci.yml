@@ -34,7 +34,7 @@ jobs:
       - name: Install Gio's build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev socat jq
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)

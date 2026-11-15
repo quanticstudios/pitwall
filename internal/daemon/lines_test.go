@@ -85,9 +85,9 @@ func answers(t *testing.T, sock string) {
 	}
 }
 
-// TestJSONSocket: the socket answers a JSON hello with welcome and no
-// capabilities, refuses a bad protocol with a close line, serves no chat
-// command, and gob clients on it work as before.
+// TestJSONSocket: the socket answers a JSON hello with welcome and the
+// control commands alone, refuses a bad protocol with a close line, serves
+// no chat command, and gob clients on it work as before.
 func TestJSONSocket(t *testing.T) {
 	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
 	defer stop()
@@ -102,8 +102,8 @@ func TestJSONSocket(t *testing.T) {
 		}
 	}
 	c := dialJSON(t, sock)
-	if caps := c.hello(t)["capabilities"].([]any); len(caps) != 0 {
-		t.Fatalf("capabilities %v, want none", caps)
+	if caps := fmt.Sprint(c.hello(t)["capabilities"]); caps != fmt.Sprint(controlCommands) {
+		t.Fatalf("capabilities %v, want %v", caps, controlCommands)
 	}
 	for i, typ := range []string{"subscribeSessions", "listSessions", "start", "mergePR", "readUsage"} {
 		c.line(t, fmt.Sprintf(`{"type":%q,"id":"%d"}`, typ, i))
@@ -113,7 +113,7 @@ func TestJSONSocket(t *testing.T) {
 	}
 	answers(t, sock)
 	c.line(t, `{"type":"listTabs","id":"x"}`) // the JSON client still works
-	if r := c.next(t); r["id"] != "x" {
+	if r := c.next(t); r["id"] != "x" || r["ok"] != true {
 		t.Fatalf("after gob: %v", r)
 	}
 }
@@ -134,14 +134,14 @@ func TestSilentJSONClient(t *testing.T) {
 	}
 }
 
-// TestJSONFlood: a JSON client that sends 10,000 bad frames and reads
+// TestJSONFlood: a JSON client that sends 10,000 listTabs and reads
 // nothing is no longer read from, and gob clients are answered meanwhile.
 func TestJSONFlood(t *testing.T) {
 	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
 	defer stop()
 	c := dialJSON(t, sock)
 	c.hello(t)
-	frame := []byte(`{"type":"listTabs"` + strings.Repeat(" ", 1000) + "}\n") // 10 MB in all
+	frame := []byte(`{"type":"listTabs","id":"f"` + strings.Repeat(" ", 1000) + "}\n") // 10 MB in all
 	wrote := make(chan error, 1)
 	go func() {
 		for range 10_000 {

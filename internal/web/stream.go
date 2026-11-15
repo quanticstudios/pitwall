@@ -75,6 +75,7 @@ var (
 // out is one entry of a connection's queue.
 type out struct {
 	frame []byte           // result, error, removed: never dropped
+	tabs  bool             // a replaceable control tabs list in frame
 	batch proto.ChatDeltas // pushed deltas of batch.Chat
 	size  int              // batch's bytes
 	base  string           // a chat whose deltas after `after`, or snapshot, the writer reads
@@ -147,9 +148,10 @@ func (c *conn) replyFrame(v any) []byte {
 func (c *conn) lockFrame(size int) bool {
 	c.mu.Lock()
 	for !c.overloaded && !c.room(size) {
+		drained := c.drained
 		c.mu.Unlock()
 		select {
-		case <-c.drained:
+		case <-drained:
 		case <-c.dead:
 			return false
 		}
@@ -193,9 +195,10 @@ func (c *conn) wait() bool {
 	c.mu.Lock()
 	full := c.frames >= maxFrames || c.fbytes >= maxFrameBytes
 	for full {
+		drained := c.drained
 		c.mu.Unlock()
 		select {
-		case <-c.drained:
+		case <-drained:
 		case <-c.dead:
 			return false
 		}
@@ -205,6 +208,14 @@ func (c *conn) wait() bool {
 	ok := !c.overloaded
 	c.mu.Unlock()
 	return ok
+}
+
+// signalDrained wakes every admission waiter, including asynchronous
+// waits and subscriptions. Callers hold c.mu. A single buffered notice
+// can be consumed by the reader while other producers remain asleep.
+func (c *conn) signalDrained() {
+	close(c.drained)
+	c.drained = make(chan struct{})
 }
 
 // overflow drops every queued delta and list for one snapshot per chat
@@ -346,10 +357,7 @@ func (s *Server) writer(c *conn, done <-chan struct{}) error {
 		if o.frame != nil {
 			c.frames--
 			c.fbytes -= len(o.frame)
-			select {
-			case c.drained <- struct{}{}:
-			default:
-			}
+			c.signalDrained()
 		}
 		var frame []byte
 		switch {
