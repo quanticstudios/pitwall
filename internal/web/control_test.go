@@ -567,6 +567,9 @@ func TestControlSessions(t *testing.T) {
 // TestControlNoProcessFields: no control result carries a command line,
 // an environment, a process or the monitor.
 func TestControlNoProcessFields(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
+	}
 	f, c := controlServer(t)
 	forbidden := regexp.MustCompile(`(?i)^(cmd|command|env|environ|args|argv|pid|process|processes|monitor|resume)`)
 	var frames []map[string]any
@@ -761,6 +764,9 @@ func TestNoControlOnWebSocket(t *testing.T) {
 // TestControlDrive: each command that starts or drives a tab asks the
 // daemon what the CLI command asks, after the same checks.
 func TestControlDrive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
+	}
 	type tc struct {
 		req, code string
 		want      any // the request the daemon gets; nil for none
@@ -852,6 +858,9 @@ func TestControlGuardedTab(t *testing.T) {
 // TestControlWorkerGuard: [agents] guard_workers guards an agent a pane
 // starts, not a shell, and not a tab opened from outside a pane.
 func TestControlWorkerGuard(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
+	}
 	f, c := controlServer(t)
 	f.edit(func(f *fakeControl) { f.settings.GuardWorkers = true })
 	for _, tc := range []struct{ req, env string }{
