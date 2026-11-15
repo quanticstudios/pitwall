@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.2.13
 
 - A tab started with the guard, here or with `--host`, no longer starts when pitwall's hooks are missing from the agent's config folder, and a worker that takes over after CI fails keeps the guard.
 - A guarded tab starts Claude Code or Codex with pitwall's hook, or pi, omp or OpenCode 1 with the current pitwall extension or plugin. The check uses the tab's home and working folder, requires a synchronous guard, and refuses options that skip it. OpenCode 2 and unknown versions are refused. `pitwall doctor` checks the same guard files, and a guarded agent that cannot be resumed after a restart says why in the window.
