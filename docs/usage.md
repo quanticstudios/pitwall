@@ -271,10 +271,13 @@ A working agent whose screen has not changed for 20 minutes shows
 agent can hang mid-turn, and Gemini CLI never reports a failed turn, so
 Working alone does not mean busy. If a hooked Claude Code or Codex turn
 shows its input box without a form or busy indicator for that whole interval,
-pitwall marks it Done even if its Stop hook never arrives. A Stop hook that
-reports a running background task, such as a shell command, a
-monitor or a subagent, keeps Working until the main session resumes work
-or reports completion. Work hooks restart the interval; idle reminders and slash commands do not. Set the minutes with
+pitwall marks it Done even if its Stop hook never arrives. A Claude Code
+Stop hook that reports a running shell command from Bash or the Monitor
+tool, an MCP monitor or task, a subagent or a workflow keeps Working, with the turn's last
+reply on the card, until the main session resumes work, reports completion,
+or a later SubagentStop lists none of those still running. Claude Code's own
+background work, such as auto-mode scans, dreams, memory imports, teammates
+and cloud sessions, and task types pitwall does not know never keep Working. Work hooks restart the interval; idle reminders and slash commands do not. Set the minutes with
 `quiet_after` under `[agents]` in `config.toml`, or **Quiet after** in
 Settings; 0 turns it off. With `continue_when_quiet = true` (**Continue when quiet**), pitwall
 also types `continue` and Enter into a quiet agent, once. It does so only
@@ -2561,7 +2564,8 @@ quarter of the time when that is shorter. It never parks:
 - a pane a window shows, the focused one included
 - an agent asking for approval, a question or a plan, or showing a form
 - a running turn, which covers a guarded tab's command in progress
-- a turn whose Stop hook reports a running background task
+- a turn whose Stop hook reports a running background task that wakes the
+  agent, as [Watching agents](#watching-agents) lists
 - a pane with work of its own still running besides the agent and its
   stdio MCP servers: a background tool's shell, a dev server, a watcher,
   or a `cmd &` that outlived the shell that started it. A stdio server is a

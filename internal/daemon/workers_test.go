@@ -10,12 +10,12 @@ import (
 )
 
 func TestCloseDoneWorkersBackgroundTasks(t *testing.T) {
-	for _, kind := range []string{"shell", "monitor", "subagent", "workflow", "teammate", "cloud session", "MCP task"} {
+	for _, kind := range []string{"shell", "monitor", "subagent", "workflow", "MCP task"} {
 		t.Run(kind, func(t *testing.T) {
 			d, _ := doneWorkerDaemon(t)
 			start := time.Now()
 			d.checkDoneWorkers(start)
-			claudeHook(t, d, "a", fmt.Sprintf(`{"hook_event_name":"Stop","last_assistant_message":"Waiting","background_tasks":[{"type":%q,"status":"running"}]}`, kind))
+			claudeHook(t, d, "a", fmt.Sprintf(`{"hook_event_name":"Stop","last_assistant_message":"Waiting","background_tasks":[{"type":%q,"status":"running","server":"mcp"}]}`, kind))
 			d.mu.Lock()
 			finished := d.finishedWorker(d.st, d.st.Workspaces[0])
 			i := d.activityIndex("a")
@@ -50,6 +50,56 @@ func TestCloseDoneWorkersBackgroundTasks(t *testing.T) {
 				t.Fatal("did not close after background completion and a fresh delay")
 			}
 		})
+	}
+}
+
+// A Stop that waits on Claude Code's own work, which never wakes the agent,
+// leaves the worker Done, with the turn's reply as the summary.
+func TestCloseDoneWorkersOwnBackgroundWork(t *testing.T) {
+	d, _ := doneWorkerDaemon(t)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"APK built.","background_tasks":[{"type":"auto-mode scan","status":"running"},{"type":"dream","status":"running"},{"type":"teammate","status":"running"}]}`)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	a := d.st.Activities[d.activityIndex("a")]
+	if a.State != model.StateCompleted || a.Detail != "APK built." || d.live.background["a"] {
+		t.Fatalf("activity %q %q, background %v; want completed", a.State, a.Detail, d.live.background["a"])
+	}
+}
+
+// A Stop that keeps a tab Working shows the turn's reply, and a later
+// SubagentStop whose list has no such task left ends the turn.
+func TestBackgroundEndsOnSubagentStop(t *testing.T) {
+	d, _ := doneWorkerDaemon(t)
+	state := func() (model.Activity, bool) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex("a")], d.live.background["a"]
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"build it"}`)
+	// A foreground subagent ending mid-turn changes nothing.
+	claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop","agent_id":"f1","last_assistant_message":"sub","background_tasks":[]}`)
+	if a, _ := state(); a.State != model.StateWorking {
+		t.Fatalf("mid-turn SubagentStop: %q, want working", a.State)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"Started the build on box.","background_tasks":[{"type":"shell","status":"running"}]}`)
+	if a, bg := state(); a.State != model.StateWorking || a.Detail != "Started the build on box." || !bg {
+		t.Fatalf("Stop with a shell: %q %q background %v", a.State, a.Detail, bg)
+	}
+	// Claude Code's own work does not hold the turn either.
+	claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop","agent_id":"s1","agent_type":"","last_assistant_message":"memo","background_tasks":[{"type":"shell","status":"running"}]}`)
+	if a, _ := state(); a.State != model.StateWorking {
+		t.Fatalf("SubagentStop while the shell runs: %q, want working", a.State)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop","agent_id":"s1","agent_type":"","last_assistant_message":"memo","background_tasks":[{"type":"dream","status":"running"}]}`)
+	a, bg := state()
+	if a.State != model.StateCompleted || a.Detail != "Started the build on box." || bg {
+		t.Fatalf("SubagentStop after the shell: %q %q background %v; want completed with the Stop's reply", a.State, a.Detail, bg)
+	}
+	d.mu.Lock()
+	reply := d.replies["a"]
+	d.mu.Unlock()
+	if reply == "memo" {
+		t.Fatal("kept the subagent's message as the tab's reply")
 	}
 }
 

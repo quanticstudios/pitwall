@@ -60,6 +60,7 @@ type payload struct {
 	BackgroundTasks  []struct {
 		Type   string `json:"type"`
 		Status string `json:"status"`
+		Server string `json:"server"`
 	} `json:"background_tasks"`
 
 	// Gemini CLI fields: AfterAgent's reply, and what a ToolPermission
@@ -112,7 +113,8 @@ type payload struct {
 //	Notification idle_prompt, others        no change (an idle reminder must not undo completed)
 //	Stop                                    completed, Detail = the start of the last message,
 //	                                        even when the turn ends on a question;
-//	                                        working while any background task runs
+//	                                        working, Detail the same, while a background
+//	                                        task that wakes the agent runs (wakesAgent)
 //	StopFailure (Claude)                    error, Detail = the API error text
 //	SubagentStop                            no change (the main turn is still going)
 //	SessionStart                            no change: Claude and Codex fire it when
@@ -309,7 +311,8 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		return "", "", false, false
 	case "Stop":
 		if p.backgroundRunning() {
-			return model.StateWorking, "", false, true
+			// why: a Working card with no Detail shows the tab's old status line instead of this reply.
+			return model.StateWorking, summary(p.LastMessage), false, true
 		}
 		return model.StateCompleted, summary(p.LastMessage), false, true
 	case "StopFailure":
@@ -333,11 +336,51 @@ func BackgroundRunning(b []byte) bool {
 	return err == nil && !sideFork(p) && p.Event == "Stop" && p.backgroundRunning()
 }
 
+// BackgroundEnded reports a SubagentStop whose background_tasks list shows
+// no task that wakes the agent: background work a Stop waited on is over,
+// though no new turn will say so.
+func BackgroundEnded(b []byte) bool {
+	p, err := decode(b)
+	return err == nil && !sideFork(p) && p.Event == "SubagentStop" && p.BackgroundTasks != nil && !p.backgroundRunning()
+}
+
+// BackgroundTasks is a Stop's background_tasks as type/status pairs, for the
+// log; nothing else of the payload.
+func BackgroundTasks(b []byte) []string {
+	p, err := decode(b)
+	if err != nil || p.Event != "Stop" {
+		return nil
+	}
+	var out []string
+	for _, t := range p.BackgroundTasks {
+		out = append(out, t.Type+"/"+t.Status)
+	}
+	return out
+}
+
 func (p payload) backgroundRunning() bool {
 	for _, t := range p.BackgroundTasks {
-		if t.Status == "running" {
+		if t.Status == "running" && wakesAgent(t.Type, t.Server) {
 			return true
 		}
+	}
+	return false
+}
+
+// wakesAgent reports a background task type whose end wakes Claude Code
+// with a task notification. Seen on Claude Code 2.1.323: shell (Bash and the
+// Monitor tool), subagent. Its task registry also lists workflows and MCP
+// tasks as user work. It lists its own work too (dream, auto-mode scan,
+// memory import, code, cloud session) and teammates, which stay running
+// while idle; none of those wake the turn, and nor does an unknown type.
+// A monitor counts only with an MCP server: one without is a WebSocket
+// monitor, which Claude Code keeps running for itself.
+func wakesAgent(typ, server string) bool {
+	switch typ {
+	case "shell", "subagent", "workflow", "MCP task":
+		return true
+	case "monitor":
+		return server != ""
 	}
 	return false
 }

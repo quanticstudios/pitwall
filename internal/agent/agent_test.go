@@ -66,8 +66,16 @@ func TestDerive(t *testing.T) {
 		{"claude_notification_idle", claude, none, false, none, ""},
 		{"claude_stop", claude, model.StateWorking, true, model.StateCompleted, "Fixed the token check. All tests pass."},
 		{"claude_stop_question", claude, model.StateWorking, true, model.StateCompleted, "Refactored the auth module. Should I also update the tests?"},
-		{"claude_stop_background", claude, model.StateWorking, false, none, ""}, // stays working
-		{"claude_stop_background", claude, model.StatePendingApproval, true, model.StateWorking, ""},
+		{"claude_stop_background", claude, model.StateWorking, true, model.StateWorking, "Started three reviewers in the background."}, // stays working, with the reply
+		{"claude_stop_background", claude, model.StatePendingApproval, true, model.StateWorking, "Started three reviewers in the background."},
+		{"claude_stop_bg_shell", claude, model.StateWorking, true, model.StateWorking, "Started the 40-second sleep in the background."},
+		{"claude_stop_bg_monitor_tool", claude, model.StateWorking, true, model.StateWorking, "Monitor started."},
+		{"claude_stop_bg_subagent", claude, model.StateWorking, true, model.StateWorking, "Launched the background agent."},
+		{"claude_stop_bg_mcp_monitor", claude, model.StateWorking, true, model.StateWorking, "Watching the deploy."},
+		{"claude_stop_bg_own_work", claude, model.StateWorking, true, model.StateCompleted, "Done. The APK is in dist/."},
+		{"claude_stop_bg_unknown", claude, model.StateWorking, true, model.StateCompleted, "Done."},
+		{"claude_stop_bg_pending", claude, model.StateWorking, true, model.StateCompleted, "Done."},
+		{"claude_subagent_stop_bg_none", claude, model.StateWorking, false, none, ""},
 		{"claude_stop_failure", claude, model.StateWorking, true, model.StateError, "API Error: Rate limit reached"},
 		{"claude_subagent_stop", claude, model.StateWorking, false, none, ""},
 		{"claude_subagent_stop", claude, model.StateCompleted, false, none, ""},
@@ -125,8 +133,9 @@ func TestDerive(t *testing.T) {
 }
 
 func TestBackgroundRunning(t *testing.T) {
-	for _, kind := range []string{"shell", "monitor", "subagent", "workflow", "teammate", "cloud session", "MCP task", "future task"} {
-		for _, status := range []string{"running", "completed", "failed", "killed", ""} {
+	wakes := map[string]bool{"shell": true, "subagent": true, "workflow": true, "MCP task": true}
+	for _, kind := range []string{"shell", "monitor", "subagent", "workflow", "teammate", "cloud session", "MCP task", "dream", "auto-mode scan", "memory import", "code", "future task"} {
+		for _, status := range []string{"running", "pending", "completed", ""} {
 			t.Run(kind+"/"+status, func(t *testing.T) {
 				b, err := json.Marshal(map[string]any{
 					"hook_event_name":  "Stop",
@@ -135,7 +144,7 @@ func TestBackgroundRunning(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := status == "running"
+				want := status == "running" && wakes[kind]
 				if got := BackgroundRunning(b); got != want {
 					t.Errorf("BackgroundRunning = %v, want %v", got, want)
 				}
@@ -149,6 +158,43 @@ func TestBackgroundRunning(t *testing.T) {
 				}
 			})
 		}
+	}
+	for name, want := range map[string]bool{
+		"claude_stop_bg_shell": true, "claude_stop_bg_monitor_tool": true, "claude_stop_bg_subagent": true, "claude_stop_bg_mcp_monitor": true,
+		"claude_stop_bg_own_work": false, "claude_stop_bg_unknown": false, "claude_stop_bg_pending": false, "claude_stop": false,
+		"claude_subagent_stop_bg_running": false, // only a Stop holds the tab
+	} {
+		if got := BackgroundRunning(fixture(t, name)); got != want {
+			t.Errorf("%s: BackgroundRunning = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestBackgroundEnded(t *testing.T) {
+	for name, want := range map[string]bool{
+		"claude_subagent_stop_bg_none":    true,
+		"claude_subagent_stop_bg_own":     true,
+		"claude_subagent_stop":            true,
+		"claude_subagent_stop_bg_running": false,
+		"claude_stop":                     false, // a Stop decides for itself
+		"claude_pre_tool_use":             false,
+	} {
+		if got := BackgroundEnded(fixture(t, name)); got != want {
+			t.Errorf("%s: BackgroundEnded = %v, want %v", name, got, want)
+		}
+	}
+	if BackgroundEnded([]byte(`{"hook_event_name":"SubagentStop","agent_id":"a"}`)) {
+		t.Error("a SubagentStop without background_tasks ended background work")
+	}
+}
+
+func TestBackgroundTasks(t *testing.T) {
+	got := strings.Join(BackgroundTasks(fixture(t, "claude_stop_background")), " ")
+	if got != "subagent/running shell/running" {
+		t.Errorf("BackgroundTasks = %q", got)
+	}
+	if BackgroundTasks(fixture(t, "claude_subagent_stop_bg_running")) != nil || BackgroundTasks(fixture(t, "claude_stop")) != nil {
+		t.Error("BackgroundTasks listed tasks of a SubagentStop or an empty Stop")
 	}
 }
 
