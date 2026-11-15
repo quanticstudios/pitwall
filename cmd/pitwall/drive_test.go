@@ -102,12 +102,24 @@ func TestCLIWait(t *testing.T) {
 		{"shell exit", []string{"--until", "exit"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 7)}, 7, "exit 7\n"},
 		{"shell done is exit", []string{"--until", "done"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 0)}, 0, "exit 0\n"},
 		{"timeout", []string{"--until", "done", "--timeout", "50ms"}, []any{driveState(claude, model.StateWorking, false, 0)}, 124, ""},
+		// A program's own exit codes are its exit, never blocked (2) or a timeout (124).
+		{"shell exit 2", []string{"--until", "done"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 2)}, 2, "exit 2\n"},
+		{"shell exit 3", []string{"--until", "exit"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 3)}, 3, "exit 3\n"},
+		{"shell exit 124", []string{"--until", "done"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 124)}, 124, "exit 124\n"},
+		{"killed", []string{"--until", "exit"}, []any{driveState("", "", true, -1)}, 1, "exit -1\n"},
+		{"closed", []string{"--until", "exit"}, []any{gone}, 1, ""},
+		{"parked", []string{"--until", "done"}, []any{driveState(claude, model.StateParked, false, 0)}, 0, "parked\n"},
+		{"pr-open until idle", []string{"--until", "idle"}, []any{driveState(claude, model.StateWorking, false, 0), driveState(claude, model.StatePROpen, false, 0)}, 0, "pr-open\n"},
+		{"idle from the start", []string{"--until", "done", "--timeout", "50ms"}, []any{driveState(claude, "", false, 0)}, 124, ""},
 		{"bad until", []string{"--until", "later"}, nil, 1, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.code != 1 {
+			if tc.code != 1 || tc.msgs != nil {
 				fakeWatch(t, tc.msgs...)
 			}
+			old := exitGrace
+			exitGrace = 50 * time.Millisecond // "closed" sends no exit code
+			t.Cleanup(func() { exitGrace = old })
 			// The tab first, flags after it, as scripts write it.
 			code, out, stderr := cliOutput(append([]string{"wait", "build"}, tc.args...)...)
 			if code != tc.code || out != tc.out {
@@ -142,38 +154,6 @@ func TestCLIListJSON(t *testing.T) {
 		`"parent":"","since":"2026-01-02T03:04:05Z","pr_state":"checks_failing","quiet_since":"2026-10-26T12:00:00Z","status":"CI 3/7","host":"","addr":"#1","stale":false}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
-	}
-}
-
-func TestPaneState(t *testing.T) {
-	for _, tc := range []struct {
-		pane  model.Pane
-		state model.AgentState
-		agent string
-		want  string
-	}{
-		{model.Pane{ID: "p"}, "", "", "running"},
-		{model.Pane{ID: "p"}, model.StateTerminalRunning, "", "working"},
-		{model.Pane{ID: "p", Cmd: []string{"/usr/bin/claude", "fix it"}}, "", "claude", ""},
-		{model.Pane{ID: "p", Cmd: []string{"claude"}, Provider: model.ProviderClaude}, "", "claude", "idle"},
-		{model.Pane{ID: "p", Provider: model.ProviderCodex}, model.StateConnecting, "codex", "working"},
-		{model.Pane{ID: "p", Provider: model.ProviderCodex}, model.StatePlanReady, "codex", "blocked"},
-		{model.Pane{ID: "p", Provider: model.ProviderCodex}, model.StateCompleted, "codex", "done"},
-		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StateCompleted, "pi", "done"},
-		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StatePROpen, "pi", "pr-open"},
-		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StateError, "pi", "done"},
-		{model.Pane{ID: "p", Provider: model.ProviderClaude}, model.StateParked, "claude", "parked"},
-		{model.Pane{ID: "p", Cmd: []string{"/usr/bin/pi", "fix it"}}, "", "pi", ""},
-		{model.Pane{ID: "p", Provider: "gemini"}, "", "gemini", "idle"},
-		{model.Pane{ID: "p", Provider: model.ProviderCodex, Exited: true}, model.StateWorking, "codex", "exited"},
-	} {
-		st := model.State{Panes: []model.Pane{tc.pane}}
-		if tc.state != "" {
-			st.Activities = []model.Activity{{PaneID: "p", State: tc.state}}
-		}
-		if agent, got, _ := paneState(st, tc.pane); agent != tc.agent || got != tc.want {
-			t.Errorf("%+v %s: %q %q, want %q %q", tc.pane, tc.state, agent, got, tc.agent, tc.want)
-		}
 	}
 }
 
@@ -238,69 +218,6 @@ func TestCLINewRelativePath(t *testing.T) {
 	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: dir, SessionID: "m", Cmd: []string{filepath.Join(dir, "bin", tool)}}, state: after})
 	if code, out, stderr := cliOutput("new", "--", "tool"); code != 0 || out != "#3\n" {
 		t.Fatalf("%d: %s %s", code, out, stderr)
-	}
-}
-
-func TestResolvePane(t *testing.T) {
-	st := driveState(model.ProviderCodex, "", false, 0).State
-	st.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{{Pane: "shell"}, {Pane: "p"}, {Pane: "q"}}}
-	st.Panes = append(st.Panes, model.Pane{ID: "shell", WorkspaceID: "w"}, model.Pane{ID: "q", WorkspaceID: "w"})
-	// A tab whose title ends in .N is that tab, not a pane of tab "v1".
-	st.Workspaces = append(st.Workspaces, model.Workspace{ID: "v", SessionID: "m", Name: "v1.2", NameSet: true, Tabs: []model.Tab{{ID: "tv", Layout: &layout.Node{Pane: "vp"}}}})
-	st.Sessions[0].Order = []string{"g", "v"}
-	st.Panes = append(st.Panes, model.Pane{ID: "vp", WorkspaceID: "v"})
-	for _, tc := range []struct{ addr, want, err string }{
-		{"build", "p", ""}, // the main pane: the agent, not the first pane
-		{"1", "p", ""},
-		{"#1", "p", ""},
-		{"#1.1", "shell", ""},
-		{"1.3", "q", ""},
-		{"bui.2", "p", ""},
-		{"build.3", "q", ""},
-		{"v1.2", "vp", ""},
-		{"v1.2.1", "vp", ""},
-		{"#2.1", "vp", ""},
-		{"1.4", "", "no pane 4; it has 3"},
-		{"1.0", "", "no pane 0"},
-		{"#3.1", "", "no tab #3"},
-		{"nope.1", "", "no tab matches"},
-	} {
-		_, p, err := resolvePane(st, "m", tc.addr)
-		if tc.err != "" {
-			if err == nil || !strings.Contains(err.Error(), tc.err) {
-				t.Errorf("%s: %v %v, want an error with %q", tc.addr, p.ID, err, tc.err)
-			}
-			continue
-		}
-		if err != nil || p.ID != tc.want {
-			t.Errorf("%s: %q %v, want %q", tc.addr, p.ID, err, tc.want)
-		}
-	}
-}
-
-// A live pane beats an exited one, and an agent beats a shell among each.
-func TestMainPane(t *testing.T) {
-	deadClaude := model.Pane{ID: "dead", Provider: model.ProviderClaude, Exited: true}
-	shell := model.Pane{ID: "shell"}
-	codex := model.Pane{ID: "codex", Provider: model.ProviderCodex}
-	deadShell := model.Pane{ID: "deadshell", Exited: true}
-	for _, tc := range []struct {
-		panes []model.Pane
-		want  string
-	}{
-		{[]model.Pane{deadClaude, shell, codex}, "codex"},
-		{[]model.Pane{deadClaude, shell}, "shell"},
-		{[]model.Pane{deadShell, deadClaude}, "dead"},
-		{[]model.Pane{deadShell}, "deadshell"},
-		// An agent read from the screen is an agent too.
-		{[]model.Pane{shell, {ID: "gemini", Provider: "gemini"}}, "gemini"},
-	} {
-		if got := mainPane(tc.panes); got == nil || got.ID != tc.want {
-			t.Errorf("%v: %v, want %s", tc.panes, got, tc.want)
-		}
-	}
-	if mainPane(nil) != nil {
-		t.Error("no panes, a pane")
 	}
 }
 

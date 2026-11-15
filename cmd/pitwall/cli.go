@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -24,6 +23,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/guard"
@@ -829,143 +829,36 @@ func absCmd(cmd []string) error {
 	return err
 }
 
-// currentSession is the session tab commands act on: the one named name
-// (exactly, else by unique prefix), else the session of $PITWALL_PANE,
-// else the most recently used one.
+// envCaller is the caller this process is: session as -s named it, in
+// the pane $PITWALL_PANE names.
+func envCaller(session string) control.Caller {
+	return control.Caller{Session: session, Pane: os.Getenv("PITWALL_PANE")}
+}
+
+// currentSession is control.CurrentSession for the calling pane: the
+// session named name, else the pane's, else the most recently used one.
 func currentSession(state model.State, name string) (model.Session, error) {
-	if name != "" {
-		return resolveSession(state, name)
-	}
-	if pane := os.Getenv("PITWALL_PANE"); pane != "" {
-		for _, p := range state.Panes {
-			if p.ID == pane {
-				if s := state.Session(state.SessionOf(p.WorkspaceID)); s != nil {
-					return *s, nil
-				}
-			}
-		}
-	}
-	if s := state.Recent(); s != nil {
-		return *s, nil
-	}
-	return model.Session{}, errors.New("no session is open")
+	return control.CurrentSession(state, envCaller(name))
 }
 
-// resolveSession finds a session by exact name, then by unique prefix.
-func resolveSession(state model.State, name string) (model.Session, error) {
-	if s := state.SessionNamed(name); s != nil {
-		return *s, nil
-	}
-	var found []model.Session
-	for _, s := range state.Sessions {
-		if strings.HasPrefix(s.Name, name) {
-			found = append(found, s)
-		}
-	}
-	switch len(found) {
-	case 0:
-		return model.Session{}, fmt.Errorf("no session matches %q (see pitwall session ls)", name)
-	case 1:
-		return found[0], nil
-	}
-	var names []string
-	for _, s := range found {
-		names = append(names, s.Name)
-	}
-	return model.Session{}, fmt.Errorf("ambiguous session %q; matches %s", name, strings.Join(names, ", "))
-}
+// resolveSession is control.ResolveSession.
+var resolveSession = control.ResolveSession
 
-// resolveTab finds a tab by @ and its id or one of its panes' ids, in any
-// session, or a tab of session by its id, then by its number in
-// pitwall ls ("3" or "#3"), then by exact title, then by a unique title
-// prefix. With no name it is the tab of $PITWALL_PANE, in whichever session.
+// resolveTab is control.ResolveTab for the calling pane: with no name it
+// is that pane's tab.
 func resolveTab(state model.State, session, name string) (model.Workspace, error) {
-	if name == "" {
-		pane := os.Getenv("PITWALL_PANE")
-		for _, p := range state.Panes {
-			if pane != "" && p.ID == pane {
-				for _, w := range state.Workspaces {
-					if w.ID == p.WorkspaceID {
-						return w, nil
-					}
-				}
-			}
-		}
-		if pane != "" {
-			return model.Workspace{}, fmt.Errorf("pane %q has no tab in daemon state", pane)
-		}
-		return model.Workspace{}, errors.New("specify a tab name outside a pitwall pane (see pitwall ls)")
-	}
-	if id, ok := strings.CutPrefix(name, "@"); ok {
-		if i := slices.IndexFunc(state.Workspaces, func(w model.Workspace) bool { return w.ID == id }); i >= 0 {
-			return state.Workspaces[i], nil
-		}
-		w, _, err := resolvePane(state, session, name)
-		return w, err
-	}
-	tabs := numbered(state, session)
-	if i := slices.IndexFunc(tabs, func(w model.Workspace) bool { return w.ID == name }); i >= 0 {
-		return tabs[i], nil
-	}
-	if n, err := strconv.Atoi(strings.TrimPrefix(name, "#")); err == nil {
-		if n < 1 || n > len(tabs) {
-			return model.Workspace{}, fmt.Errorf("no tab #%d (see pitwall ls)", n)
-		}
-		return tabs[n-1], nil
-	}
-	var exact, prefixed []int
-	for i, w := range tabs {
-		switch t := tabTitle(w); {
-		case t == name:
-			exact = append(exact, i)
-		case strings.HasPrefix(t, name):
-			prefixed = append(prefixed, i)
-		}
-	}
-	matches := exact
-	if len(matches) == 0 {
-		matches = prefixed
-	}
-	switch len(matches) {
-	case 0:
-		return model.Workspace{}, fmt.Errorf("no tab matches %q (see pitwall ls)", name)
-	case 1:
-		return tabs[matches[0]], nil
-	}
-	var nums []string
-	for _, i := range matches {
-		nums = append(nums, "#"+strconv.Itoa(i+1))
-	}
-	return model.Workspace{}, fmt.Errorf("ambiguous tab %q; matches %s", name, strings.Join(nums, ", "))
+	return control.ResolveTab(state, envCaller(""), session, name)
 }
 
 // numbered is model.State.Numbered.
 func numbered(state model.State, session string) []model.Workspace { return state.Numbered(session) }
 
-// tabTitle is what the sidebar shows for a tab: its chosen name, else its
-// label.
-func tabTitle(w model.Workspace) string {
-	if w.NameSet {
-		return w.Name
-	}
-	return cmp.Or(w.Label, w.Name)
-}
+// tabTitle is control.Title.
+var tabTitle = control.Title
 
-// childTabs is the set of tabs the calling pane's tab opened (their
-// Parent), for --children.
+// childTabs is control.ChildTabs for the calling pane.
 func childTabs(state model.State) (map[string]bool, error) {
-	pane := os.Getenv("PITWALL_PANE")
-	i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == pane })
-	if pane == "" || i < 0 {
-		return nil, errors.New("--children must run inside a pitwall pane (PITWALL_PANE is not set)")
-	}
-	out := map[string]bool{}
-	for _, w := range state.Workspaces {
-		if w.Parent != "" && w.Parent == state.Panes[i].WorkspaceID {
-			out[w.ID] = true
-		}
-	}
-	return out, nil
+	return control.ChildTabs(state, envCaller(""))
 }
 
 // listTabs prints one row per tab of session, or of only when it is not

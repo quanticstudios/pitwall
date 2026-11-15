@@ -18,6 +18,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/agent`       | Claude/Codex hook payload to `model.Activity`                  |
 | `internal/session`     | Chats' events, deltas, snapshots (`Reduce`, `Apply`), `Driver` |
 | `internal/guard`       | The deny list a guarded tab's hooks check commands against     |
+| `internal/control`     | ls --json rows, tab and pane addresses, the wait evaluator     |
 | `internal/progstatus`  | OSC 7501 (Program Status Protocol) parser and record store     |
 | `internal/gitstat`     | Worktrees and branch stats via `git`                           |
 | `internal/store`       | Persist state, snapshots, resume commands                      |

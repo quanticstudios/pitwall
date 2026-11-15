@@ -9,12 +9,12 @@ import (
 	"io"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -750,9 +750,4 @@ func lostLine(rec model.RemoteWorker, hs model.State, now time.Time) string {
 }
 
 // hostAddr is how a tab is addressed: #N here, box:N on a host.
-func hostAddr(host string, n int) string {
-	if host == "" {
-		return "#" + strconv.Itoa(n)
-	}
-	return host + ":" + strconv.Itoa(n)
-}
+var hostAddr = control.Addr
