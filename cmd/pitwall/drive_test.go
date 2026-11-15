@@ -372,7 +372,7 @@ func TestCLIWaitChildrenBackgroundTasks(t *testing.T) {
 	for _, kind := range []string{"shell", "monitor"} {
 		for _, until := range []string{"idle", "done"} {
 			t.Run(kind+"/"+until, func(t *testing.T) {
-				payload := fmt.Sprintf(`{"hook_event_name":"Stop","background_tasks":[{"type":%q,"status":"running"}]}`, kind)
+				payload := fmt.Sprintf(`{"hook_event_name":"Stop","background_tasks":[{"type":%q,"status":"running","server":"mcp"}]}`, kind)
 				a, ok := agent.Derive(nil, model.ProviderClaude, []byte(payload), time.Now())
 				if !ok {
 					t.Fatal("Stop hook did not produce an activity")

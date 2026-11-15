@@ -1878,7 +1878,18 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if q := d.quiet[p.ID]; q != nil && mapped && activity.State != "" {
 		q.since = now
 	}
-	if agent.BackgroundRunning(m.Payload) {
+	if tasks := agent.BackgroundTasks(m.Payload); len(tasks) > 0 {
+		log.Printf("pane %s: Stop with background tasks %s", p.ID, strings.Join(tasks, " "))
+	}
+	// why: no new turn follows when the work a Stop waited on ends without waking the agent; a SubagentStop may be the only sign.
+	bgEnded := d.live.background[p.ID] && prev != nil && prev.State == model.StateWorking && agent.BackgroundEnded(m.Payload)
+	if bgEnded {
+		next, derived = *prev, true
+		next.State, next.UpdatedAt = model.StateCompleted, now
+		delete(d.live.background, p.ID)
+	}
+	bgRunning := agent.BackgroundRunning(m.Payload)
+	if bgRunning {
 		if d.live.background == nil {
 			d.live.background = map[string]bool{}
 		}
@@ -1903,8 +1914,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if derived && !keep {
 		d.recordExplanation(p.ID, m.Provider, next.State, "hook", agent.ScreenTrace{})
 		changed = true
-		if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
+		// why: a later SubagentStop can end the hold without another main-turn reply.
+		msg := agent.LastMessage(m.Payload)
+		if !bgEnded && msg != "" && (next.State == model.StateCompleted || bgRunning) {
 			d.keepReply(p.ID, msg)
+		}
+		if next.State == model.StateCompleted && (bgEnded || msg != "") {
 			d.relayReview(p.ID)
 		}
 		if next.State == model.StateError {
@@ -1927,7 +1942,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			if next.State == model.StateCompleted && (prev == nil || prev.State != model.StateCompleted) {
 				go d.refreshStats(ctx, p.WorkspaceID)
 			}
-			if next.State == model.StateCompleted || next.State == model.StateError {
+			if (next.State == model.StateCompleted || next.State == model.StateError) && !bgEnded {
 				if msg, resets, ok := agent.UsageLimit(agent.LastMessage(m.Payload), resumeNow()); ok && d.resumeOn() {
 					id, turn := p.ID, next.UpdatedAt
 					d.lim.seenMsg(id, msg)
