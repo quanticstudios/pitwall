@@ -881,10 +881,20 @@ code, and its result's `data` holds what that command prints.
 | `readPane` | `pitwall read` | `text` |
 | `scrollback` | `pitwall scrollback` | `text` |
 | `waitPane` | `pitwall wait` | `outcome`, and `state`, `question` or `exit` |
+| `newTab` | `pitwall new` | `tab`, `pane`, or `tab` and `closed` |
+| `splitPane` | `pitwall split` | `pane` |
+| `sendPane` | `pitwall send` | none |
+| `promptPane` | `pitwall prompt` | none, or with `wait` `outcome` and `reply` or `question` |
+| `killTab`, `renameTab`, `detachTab` | `pitwall kill`, `rename`, `detach` | none |
+| `focusTab` | `pitwall attach`, without opening a window | none |
+| `tabNew`, `tabClose` | `pitwall tab new`, `tab close` in that pane | `tab`, none |
+| `setStatus` | `pitwall status` | none |
 
 A program outside a pane has no pane or session of its own, so a request
 names them:
 
+- `tab` is a tab's address as `pitwall kill` takes it, the same as
+  `pane` without `TAB.N`; `@` and a tab id from `listTabs` works too.
 - `pane` is an address as `pitwall read` takes it: `#N` or `N` for a tab's
   main pane, `TAB.N` for its Nth pane, a title or a unique title prefix,
   or `@` and a pane id from `listTabs`, which stays valid while tabs move.
@@ -992,6 +1002,135 @@ that closes its sending side gets no result of a pending wait.
 {"type": "result", "id": "c7", "ok": false, "code": "timeout", "message": "timed out after 10m0s"}
 ```
 
+### newTab
+
+`newTab` opens a tab in `dir`, an absolute path, running `cmd`, a
+preset's agent before `cmd`, or a shell, as `pitwall new` does with
+`-n` (`name`), `-d` (`detached`), `--preset`, `--model` and `--guard`.
+The daemon finds the program on its own `PATH`. `parentPane`, a pane id,
+is the agent that asks for the tab, as `$PITWALL_PANE` is for the CLI:
+its tab becomes the new tab's parent, and with `[agents] guard_workers`
+on, an agent it starts runs under the guard.
+
+`startId` is 16 hex digits the client picks, so a request it retries
+after a dropped connection, a timeout or a daemon handoff opens one tab:
+a retry of a tab that is open answers that tab, and one of a tab that
+closed since answers `closed: true`. The tab gets it as its id, so
+`@` and it addresses the tab. Without `startId` the daemon picks one.
+
+The guard follows the CLI: `guard`, or a preset with `guard = true`,
+starts the agent with `PITWALL_GUARD=1` once the daemon has checked
+that its hooks deny a `git push`. A start the guard cannot cover is
+`refused` with the reason and starts nothing.
+
+```json
+{"type": "newTab", "id": "c8", "session": "work", "dir": "/home/me/src/pitwall", "cmd": ["claude"], "name": "fix-login", "guard": true, "startId": "9f2c4e1a7b3d5c60"}
+```
+
+```json
+{"type": "result", "id": "c8", "ok": true, "data": {"tab": "9f2c4e1a7b3d5c60", "pane": "p7c1"}}
+```
+
+```json
+{"type": "result", "id": "c8", "ok": false, "code": "refused", "message": "guarded tab not started: no settings.json, so pitwall's hooks are not installed in /home/me/.claude; run CLAUDE_CONFIG_DIR=/home/me/.claude pitwall hooks install"}
+```
+
+### splitPane, tabNew and the guard
+
+`splitPane` opens a pane beside the active split's last pane of `tab`,
+or below it with `down`, running `cmd` or a shell. `tabNew` opens a
+shell tab after the tab of `pane`, as `pitwall tab new` run there does.
+
+A tab is guarded when one of its panes started with the guard. There a
+split gets `PITWALL_GUARD=1` and the same check as `newTab`, so a split
+of an agent the guard covers runs under it, and a split of a shell or
+another program is `refused`. `tabNew` from a guarded tab is `refused`,
+since its shell is out of the guard's reach.
+
+```json
+{"type": "splitPane", "id": "c9", "session": "work", "tab": "#1", "down": true, "cmd": ["make", "test"]}
+```
+
+```json
+{"type": "result", "id": "c9", "ok": true, "data": {"pane": "p8d2"}}
+```
+
+```json
+{"type": "tabNew", "id": "c10", "pane": "@p7c1"}
+```
+
+### sendPane and promptPane
+
+`sendPane` queues `text` for the pane's agent, as `pitwall send` does;
+the daemon types it once the agent sits at its prompt. `fromPane` is the
+sending agent's pane id, which the message's header names, and which
+may send one pane at most 20 messages until the user types there.
+
+`promptPane` waits for the agent's turn to end, then types `text`, as
+`pitwall prompt` does. Without `wait` it answers once it typed. With
+`wait` it answers once the turn the prompt started ends: `outcome`
+`reached` with `reply`, the turn's last message, or `blocked` with the
+agent's `question`. A blocked agent before the prompt answers `blocked`
+too, and nothing is typed. A pane that exits answers as `waitPane`
+does. A turn that has not started 30 seconds after the prompt answers
+`timeout`, as does the whole of it past `timeoutMs`. Pending prompts
+count toward the 64 waits a connection may have.
+
+```json
+{"type": "sendPane", "id": "c11", "pane": "@p7c1", "text": "the build is green", "fromPane": "p8d2"}
+```
+
+```json
+{"type": "promptPane", "id": "c12", "pane": "@p7c1", "text": "run the tests", "wait": true, "timeoutMs": 1800000}
+```
+
+```json
+{"type": "result", "id": "c12", "ok": true, "data": {"outcome": "reached", "state": "done", "reply": "All 214 tests pass."}}
+```
+
+### killTab, renameTab, detachTab and focusTab
+
+These do what `pitwall kill`, `rename` and `detach` do to `tab`.
+`killTab` asks nothing first: a pinned tab is `conflict`. `focusTab`
+brings a detached tab back and asks the windows showing its session to
+show it, as `pitwall attach` does without opening a window.
+
+```json
+{"type": "renameTab", "id": "c13", "session": "work", "tab": "#1", "title": "fix-login"}
+```
+
+```json
+{"type": "killTab", "id": "c14", "tab": "@9f2c4e1a7b3d5c60"}
+```
+
+```json
+{"type": "detachTab", "id": "c15", "tab": "@9f2c4e1a7b3d5c60"}
+```
+
+```json
+{"type": "focusTab", "id": "c16", "tab": "@9f2c4e1a7b3d5c60"}
+```
+
+```json
+{"type": "tabClose", "id": "c17", "pane": "@p8d2"}
+```
+
+### setStatus
+
+With `text`, `setStatus` sets the line under the row of the pane's tab;
+an empty or missing `text` clears it. With `state`, it reports the
+pane's program state instead, as `pitwall status <state>` run in the
+pane does, with `app`, `progress` (working or blocked only) and
+`message` ([Programs and scripts](agent-report.md#programs-and-scripts)). It stays until another report replaces or clears it, or the pane exits.
+
+```json
+{"type": "setStatus", "id": "c18", "pane": "@p8d2", "text": "deploying to staging"}
+```
+
+```json
+{"type": "setStatus", "id": "c19", "pane": "@p8d2", "state": "working", "app": "deploy", "progress": 40}
+```
+
 `docs/examples` has two clients that list the tabs and read a pane:
 [`control.py`](examples/control.py) (Python, standard library) and
 [`control.sh`](examples/control.sh) (bash, `socat` and `jq`).
@@ -1005,7 +1144,7 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | Code | Means |
 | --- | --- |
 | `not-found` | no such chat, request, turn, session, tab or pane |
-| `conflict` | someone answered first, the chat is archived, the tab is pinned |
+| `conflict` | someone answered first, the chat is archived, the tab is pinned, a tab has that name; a control command the daemon refused, with its words |
 | `busy` | the chat cannot take this now, for example `rewind` while a turn runs; 64 `waitPane` already pending |
 | `unsupported` | this provider cannot, or this server does not know the command |
 | `provider` | the provider refused; `message` has its words |
@@ -1014,7 +1153,8 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | `tooLarge` | the result is over 4 MiB, on the [local socket](#local-socket) |
 | `ambiguous` | a [control](#control) address or session matches more than one |
 | `remote` | a control address names a tab on another host |
-| `timeout` | a `waitPane` passed its `timeoutMs` |
+| `timeout` | a `waitPane` or `promptPane` passed its `timeoutMs`, or the prompted turn never started |
+| `refused` | the guard cannot cover a `newTab`, `splitPane` or `tabNew`; nothing started |
 | `jev` | deprecated: this server never sends it |
 
 A client treats a code it does not know as a failure with `message` to

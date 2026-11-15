@@ -772,44 +772,19 @@ func shownInWindows(host string) bool {
 	return slices.ContainsFunc(s.Hosts, func(h config.Host) bool { return h.Name == host && h.Window })
 }
 
-// launch is the command and environment of a tab that new, worktree new
-// or queue add opens: preset's agent and args before rest, else rest, its
-// program made absolute; preset's variables, and guard.Env when guarded or
-// the preset asks for the guard. With here false the program is left as
-// it is: it runs on another host, whose daemon finds it on its own PATH.
+// launch is control.Launch with this user's presets, its program made
+// absolute. With here false the program is left as it is: it runs on
+// another host, whose daemon finds it on its own PATH.
 func launch(preset string, guarded bool, rest []string, here bool) (cmd, vars []string, err error) {
-	cmd = rest
-	if preset != "" {
-		s, _ := config.Load()
-		p, ok := s.FindPreset(preset)
-		if !ok {
-			return nil, nil, fmt.Errorf("no preset %q in %s", preset, config.Path())
-		}
-		cmd = append(append([]string{p.Agent}, p.Args...), rest...)
-		vars, guarded = slices.Clone(p.Env), guarded || p.Guard
-	}
-	if guarded {
-		if len(cmd) == 0 {
-			return nil, nil, errors.New("--guard needs an agent to run: --guard -- claude")
-		}
-		vars = append(vars, guard.Env+"=1")
-	}
-	if len(cmd) > 0 && here {
+	s, _ := config.Load()
+	if cmd, vars, err = control.Launch(s, preset, guarded, rest); err == nil && len(cmd) > 0 && here {
 		err = absCmd(cmd)
 	}
 	return cmd, vars, err
 }
 
-// withModel applies a CLI model override after resolving a preset.
-func withModel(cmd []string, selection string) ([]string, error) {
-	if strings.TrimSpace(selection) == "" {
-		return cmd, nil
-	}
-	if len(cmd) == 0 {
-		return nil, errors.New("--model needs an agent to run: --model opus -- claude")
-	}
-	return append([]string{cmd[0]}, config.WithModel(cmd[0], cmd[1:], selection)...), nil
-}
+// withModel is control.WithModel.
+var withModel = control.WithModel
 
 // hostLevel is varsLevel for a tab on another host. From a pitwall pane
 // the host must also keep the part of each session apart (OriginLevel),

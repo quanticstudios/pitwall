@@ -1,12 +1,15 @@
 package daemon
 
 // The daemon's side of the control commands on the JSON socket
-// (internal/web/control.go): copies of the state, pane text, and
-// notices of changes and pane exits.
+// (internal/web/control.go): copies of the state, pane text, notices of
+// changes and pane exits, and the requests that start and drive tabs.
 
 import (
+	"context"
 	"errors"
+	"io/fs"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/web"
@@ -60,4 +63,38 @@ func (h ctlHub) Watch(changed func(), exited func(string, int)) func() {
 		delete(h.d.ctlWatch, w)
 		h.d.mu.Unlock()
 	}
+}
+
+func (h ctlHub) Settings() config.Settings {
+	if h.d.o.Fleet == nil {
+		return config.Settings{}
+	}
+	return h.d.o.Fleet()
+}
+
+func (h ctlHub) Do(ctx context.Context, req any) error {
+	return ctlFail(h.d.handle(ctx, req))
+}
+
+func (h ctlHub) OpenPane(m proto.OpenPane, env []string) (string, error) {
+	id, err := h.d.openPaneEnv(m, "", env)
+	return id, ctlFail(err)
+}
+
+func (h ctlHub) NewTab(ctx context.Context, m proto.NewTab) (string, error) {
+	id := newID()
+	return id, ctlFail(h.d.newTabID(ctx, m, id))
+}
+
+// ctlFail is err with the control result code that says what failed.
+func ctlFail(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errUnguarded):
+		return web.ControlError("refused", err.Error())
+	case errors.Is(err, fs.ErrNotExist):
+		return web.ControlError("not-found", err.Error())
+	}
+	return web.ControlError("conflict", err.Error())
 }

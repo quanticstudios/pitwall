@@ -1615,26 +1615,33 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 }
 
 func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
+	_, err := d.openPaneEnv(m, path, nil)
+	return err
+}
+
+// openPaneEnv opens the pane m asks for, with the scrollback in path when
+// set and extra added to its environment, and returns its id.
+func (d *Daemon) openPaneEnv(m proto.OpenPane, path string, extra []string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(m.WorkspaceID)
 	if w == nil {
-		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+		return "", fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
 	if w.Chat != "" {
-		return errors.New("a chat tab has no panes")
+		return "", errors.New("a chat tab has no panes")
 	}
 	if w.Monitor {
-		return errors.New("a Monitor tab has no panes")
+		return "", errors.New("a Monitor tab has no panes")
 	}
 	var t *model.Tab
 	if ti := tabIndex(w, m.TabID); ti >= 0 {
 		t = &w.Tabs[ti]
 	} else if m.TabID != "" {
-		return fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
+		return "", fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
 	}
 	if m.Target != "" && (t == nil || !slices.Contains(layout.Panes(t.Layout), m.Target)) {
-		return fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
+		return "", fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
 	}
 	// A split opens where the pane it splits is, which a cd may have moved
 	// away from the session's folder.
@@ -1645,9 +1652,9 @@ func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
 		}
 	}
 	id := newID()
-	env := d.profileEnv(w)
+	env := append(d.profileEnv(w), extra...)
 	if err := d.start(id, m.Cmd, cwd, w.Ports, env); err != nil {
-		return err
+		return "", err
 	}
 	if path != "" {
 		d.cleanScrollback(id, d.panes[id], path)
@@ -1665,7 +1672,7 @@ func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
 		t.Layout = d.o.Split(t.Layout, m.Target, id, m.Dir)
 	}
 	d.changed()
-	return nil
+	return id, nil
 }
 
 // closePane closes a pane, and its tab and session when it was their last.

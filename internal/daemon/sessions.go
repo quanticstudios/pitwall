@@ -85,8 +85,10 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if m.ID != "" {
-		if started, err := d.startedTab(m.ID, m.SessionID, m.ParentTab); started || err != nil {
-			return err
+		// A retry that names its session and parent, as remote starts do,
+		// matches before resolving them: its session may have closed with it.
+		if started, _ := d.startedTab(m.ID, m.SessionID, m.ParentTab); started {
+			return nil
 		}
 	}
 	at, sessions := len(d.st.Workspaces), len(d.st.Sessions)
@@ -126,6 +128,18 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 			m.GroupID = d.projectAt(m.SessionID, path)
 		}
 	}
+	parent := d.parentTab(m.ParentPane, m.SessionID)
+	if m.ParentTab != "" && m.ParentPane == "" {
+		parent = m.ParentTab // a tab on another machine
+	}
+	if m.ID != "" {
+		// A retry that leaves its session or parent for the daemon to find
+		// compares against what they resolve to.
+		if started, err := d.startedTab(m.ID, m.SessionID, parent); started || err != nil {
+			d.st.Sessions = d.st.Sessions[:sessions] // drop one made for this tab
+			return err
+		}
+	}
 	if m.Monitor && d.showMonitor(m.SessionID) {
 		return nil
 	}
@@ -137,10 +151,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	}
 	w := model.Workspace{ID: cmp.Or(m.ID, newID()), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	w.ClientID = m.ID != ""
-	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
-	if m.ParentTab != "" && m.ParentPane == "" {
-		w.Parent, w.RemoteParent = m.ParentTab, true
-	}
+	w.Parent, w.RemoteParent = parent, m.ParentTab != "" && m.ParentPane == ""
 	w.Profile = m.Profile
 	w.Monitor = m.Monitor
 	if prep != nil {

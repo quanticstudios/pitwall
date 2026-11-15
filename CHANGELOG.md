@@ -34,6 +34,7 @@ takes `--dry-run`.
 - A host with only pitwall-core works with `pitwall --host` and `new --host`; hooks written through a `pitwall` link or by the other binary count as installed; `doctor` warns when pitwall and pitwall-core in one folder differ.
 - Restarting the daemon from the window hands the panes to the new version with their programs running. `pitwall update` no longer stops programs when the handoff fails: the old daemon keeps serving, and `pitwall update --restart` restarts it. A daemon started from this release refuses the handoff when systemd runs it as a service, since the unit would stop its panes. Updating from v0.2.13 or earlier with panes you want to keep: install with the install script first, then run `pitwall update`. Old daemons under systemd lack the guard: install the binary without running `update`, then restart the unit when you can stop its panes.
 - `pitwall update --version vX` installs release vX, older or newer, and hands the running daemon to it.
+- On Linux, programs open, split, prompt, send to and close tabs over `$PITWALL_SOCKET`, with the same guard as the CLI and `startId` retries that never open a second tab.
 
 ## v0.2.13
 
