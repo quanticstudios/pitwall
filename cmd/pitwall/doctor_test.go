@@ -239,3 +239,21 @@ func TestCLIVersionRefusal(t *testing.T) {
 		t.Errorf("exit %d\n got %q\nwant %q", code, errOut.String(), want)
 	}
 }
+
+func TestPathFixOtherCore(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
+	core := filepath.Join(dir, "pitwall-core")
+	for _, path := range []string{core, filepath.Join(other, "pitwall-core")} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", other)
+	if got := pathFix(core); !strings.Contains(got, ", and add "+dir+" to PATH") {
+		t.Fatalf("another core on PATH hides this install's PATH fix: %s", got)
+	}
+	t.Setenv("PATH", dir)
+	if got := pathFix(core); strings.Contains(got, ", and add ") {
+		t.Fatalf("this core is already on PATH: %s", got)
+	}
+}

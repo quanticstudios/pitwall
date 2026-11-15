@@ -803,9 +803,9 @@ func TestHooksOwnedPaths(t *testing.T) {
 			hookExecutable = func() (string, error) { return core, nil }
 			settings := filepath.Join(home, ".claude", "settings.json")
 			pi := filepath.Join(home, ".pi", "agent", "extensions", "pitwall.ts")
-			writeHooksTestFile(t, settings, `{"hooks": `+string(agent.ClaudeHooks(c.bin))+`}`)
+			writeHooksTestFile(t, settings, `{"hooks": `+string(agent.ClaudeHooks(c.bin))+`,"statusLine":{"type":"command","command":`+quoteJSON(agent.ClaudeStatusline(c.bin, "echo status"))+`}}`)
 			writeHooksTestFile(t, pi, string(agent.PiExtension(c.bin)))
-			plans, err := planHooks([]string{"install"})
+			plans, err := planHooks([]string{"install", "--statusline"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -825,6 +825,15 @@ func TestHooksOwnedPaths(t *testing.T) {
 			_, err = os.Stat(pi)
 			if kept == c.ours || (err == nil) == c.ours {
 				t.Errorf("after uninstall: settings keep %s: %v, pi extension kept: %v", c.bin, kept, err == nil)
+			}
+			if c.ours {
+				var root struct{ StatusLine struct{ Command string } }
+				if err := json.Unmarshal(readHooksTestFile(t, settings), &root); err != nil {
+					t.Fatal(err)
+				}
+				if root.StatusLine.Command != "echo status" {
+					t.Errorf("uninstall did not restore the wrapped statusline: %q", root.StatusLine.Command)
+				}
 			}
 		})
 	}

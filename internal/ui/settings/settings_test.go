@@ -1,10 +1,12 @@
 package settings
 
 import (
+	"encoding/json"
 	"image"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -91,10 +93,23 @@ func TestMatches(t *testing.T) {
 
 func TestHookStatus(t *testing.T) {
 	home := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "pitwall")
+	core := filepath.Join(filepath.Dir(bin), "pitwall-core")
+	for _, path := range []string{bin, core} {
+		if err := os.WriteFile(path, nil, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previous := hookExecutable
+	hookExecutable = func() (string, error) { return bin, nil }
+	t.Cleanup(func() { hookExecutable = previous })
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
-	os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"model":"x","hooks":`+string(agent.ClaudeHooks("/opt/bin/pitwall"))+`}`), 0o644)
+	os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"model":"x","hooks":`+string(agent.ClaudeHooks(bin))+`}`), 0o644)
 	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
-	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/my pitwall/pitwall' hook codex"}]}]}}`), 0o644)
+	var codexHooks map[string]json.RawMessage
+	json.Unmarshal(agent.CodexHooks(bin), &codexHooks)
+	partial, _ := json.Marshal(map[string]any{"hooks": map[string]json.RawMessage{"Stop": codexHooks["Stop"]}})
+	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), partial, 0o644)
 	hs := hookStatus(home)
 	if hs[0].Have == 0 || hs[0].Have != hs[0].Want || hs[0].Err != "" {
 		t.Errorf("claude: %+v", hs[0])
@@ -107,19 +122,74 @@ func TestHookStatus(t *testing.T) {
 	}
 	t.Setenv("PI_CODING_AGENT_DIR", "")
 	os.MkdirAll(filepath.Join(home, ".pi", "agent", "extensions"), 0o755)
-	os.WriteFile(filepath.Join(home, ".pi", "agent", "extensions", "pitwall.ts"), agent.PiExtension("/opt/bin/pitwall"), 0o644)
+	os.WriteFile(filepath.Join(home, ".pi", "agent", "extensions", "pitwall.ts"), agent.PiExtension(bin), 0o644)
 	if got := HooksInstalled(home); !got["claude"] || got["codex"] || !got["pi"] {
 		t.Errorf("HooksInstalled = %v", got)
 	}
 	os.MkdirAll(filepath.Join(home, ".cursor"), 0o755)
-	os.WriteFile(filepath.Join(home, ".cursor", "hooks.json"), []byte(`{"version":1,"hooks":`+string(agent.CursorHooks("/opt/bin/pitwall"))+`}`), 0o644)
+	os.WriteFile(filepath.Join(home, ".cursor", "hooks.json"), []byte(`{"version":1,"hooks":`+string(agent.CursorHooks(bin))+`}`), 0o644)
 	if got := HooksInstalled(home); !got["cursor-agent"] {
 		t.Errorf("HooksInstalled without Cursor's: %v", got)
 	}
 	// pitwall-core's hooks count as pitwall's.
-	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(`{"hooks":`+string(agent.CodexHooks("/opt/bin/pitwall-core"))+`}`), 0o644)
+	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(`{"hooks":`+string(agent.CodexHooks(core))+`}`), 0o644)
 	if got := HooksInstalled(home); !got["codex"] {
 		t.Errorf("HooksInstalled with pitwall-core's: %v", got)
+	}
+}
+
+func TestHookStatusOwnedPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	dir := t.TempDir()
+	core, desktop := filepath.Join(dir, "pitwall-core"), filepath.Join(dir, "pitwall")
+	other := filepath.Join(t.TempDir(), "pitwall-core")
+	for _, path := range []string{core, desktop, other} {
+		if err := os.WriteFile(path, nil, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "current")
+	if err := os.Symlink(core, link); err != nil {
+		t.Fatal(err)
+	}
+	previous := hookExecutable
+	hookExecutable = func() (string, error) { return desktop, nil }
+	t.Cleanup(func() { hookExecutable = previous })
+	for _, c := range []struct {
+		name, bin string
+		installed bool
+	}{
+		{"self", desktop, true},
+		{"sibling", core, true},
+		{"link", link, true},
+		{"other", other, false},
+		{"missing", filepath.Join(t.TempDir(), "pitwall-core"), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("PI_CODING_AGENT_DIR", "")
+			files := map[string][]byte{
+				filepath.Join(home, ".claude", "settings.json"):                 []byte(`{"hooks":` + string(agent.ClaudeHooks(c.bin)) + `}`),
+				filepath.Join(home, ".cursor", "hooks.json"):                    []byte(`{"version":1,"hooks":` + string(agent.CursorHooks(c.bin)) + `}`),
+				filepath.Join(home, ".pi", "agent", "extensions", "pitwall.ts"): agent.PiExtension(c.bin),
+			}
+			for path, data := range files {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := HooksInstalled(home)
+			for _, name := range []string{"claude", "cursor-agent", "pi"} {
+				if got[name] != c.installed {
+					t.Errorf("%s installed = %v, want %v", name, got[name], c.installed)
+				}
+			}
+		})
 	}
 }
 

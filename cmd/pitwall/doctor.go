@@ -228,7 +228,7 @@ func pathFix(self string) string {
 		return fix
 	}
 	fix = "ln -s pitwall-core " + shellQuote(link) + "; agents and hooks run pitwall"
-	if _, err := exec.LookPath("pitwall-core"); err != nil {
+	if core, err := exec.LookPath("pitwall-core"); err != nil || !owns(self, core) {
 		fix += ", and add " + dir + " to PATH"
 	}
 	return fix

@@ -28,6 +28,38 @@ type hookFile struct {
 	Edited      bool // a plugin pitwall wrote whole, edited since; install leaves it
 }
 
+var hookExecutable = os.Executable
+
+// ownsHookBinary follows links so the settings page agrees with hooks
+// install about this binary and the other flavor beside it.
+func ownsHookBinary(bin string) bool {
+	self, err := hookExecutable()
+	if err != nil || !filepath.IsAbs(bin) {
+		return false
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		return false
+	}
+	real, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		return false
+	}
+	if real == self {
+		return true
+	}
+	var other string
+	switch filepath.Base(self) {
+	case "pitwall":
+		other = "pitwall-core"
+	case "pitwall-core":
+		other = "pitwall"
+	default:
+		return false
+	}
+	return real == filepath.Join(filepath.Dir(self), other)
+}
+
 // hookStatus reads (never writes) the agents' hook configs under home:
 // Claude Code's and Codex's always, Gemini CLI's, OpenCode's, pi's and
 // omp's when the agent is installed, as `pitwall hooks install` decides.
@@ -77,7 +109,7 @@ func installed(name, dir string) bool {
 }
 
 // checkPlugin reports a plugin file pitwall writes whole: installed when
-// some pitwall binary wrote it and nobody edited it since.
+// this install wrote it and nobody edited it since.
 func checkPlugin(name, cmd, path string, is func([]byte) bool) hookFile {
 	h := hookFile{Agent: name, Cmd: cmd, Path: path, Want: 1}
 	switch data, err := os.ReadFile(path); {
@@ -85,7 +117,12 @@ func checkPlugin(name, cmd, path string, is func([]byte) bool) hookFile {
 	case err != nil:
 		h.Err = err.Error()
 	case is(data):
-		h.Have = 1
+		_, rest, _ := strings.Cut(string(data), "const bin = ")
+		literal, _, _ := strings.Cut(rest, ";\n")
+		var bin string
+		if json.Unmarshal([]byte(literal), &bin) == nil && ownsHookBinary(bin) {
+			h.Have = 1
+		}
 	default:
 		h.Edited = true
 	}
@@ -103,7 +140,7 @@ type hookCommands struct {
 type hookGroups map[string][]hookCommands
 
 // checkHooks counts the events in generated whose hooks in path include a
-// command that runs a pitwall binary with suffix, wherever it lives.
+// command that runs this install's binary with suffix.
 func checkHooks(name, path string, generated []byte, suffix string) hookFile {
 	h := hookFile{Agent: name, Cmd: strings.TrimPrefix(suffix, " hook "), Path: path}
 	var want hookGroups
@@ -161,13 +198,19 @@ func readHooks(h *hookFile, root any) bool {
 	return true
 }
 
-// runsPitwall reports whether one of cmds runs a pitwall or pitwall-core
-// binary with suffix, wherever it lives.
+// runsPitwall reports whether one of cmds runs this install with suffix.
 func runsPitwall(cmds []command, suffix string) bool {
 	return slices.ContainsFunc(cmds, func(c command) bool {
-		cmd := strings.Trim(strings.TrimSuffix(c.Command, suffix), `'"`)
-		base := filepath.Base(cmd)
-		return strings.HasSuffix(c.Command, suffix) && (base == "pitwall" || base == "pitwall-core")
+		cmd, ok := strings.CutSuffix(c.Command, suffix)
+		if !ok {
+			return false
+		}
+		if q, ok := strings.CutPrefix(cmd, "'"); ok {
+			cmd = strings.ReplaceAll(strings.TrimSuffix(q, "'"), `'\''`, "'")
+		} else {
+			cmd = strings.Trim(cmd, `"`)
+		}
+		return ownsHookBinary(cmd)
 	})
 }
 
