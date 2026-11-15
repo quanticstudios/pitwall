@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http/httptest"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -258,6 +259,9 @@ func TestControlTabsCancelAdmission(t *testing.T) {
 }
 
 func TestControlTabsReplaceSlowReader(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("needs a loopback socket that blocks on a 2 MiB frame; the daemon serves control on Linux only")
+	}
 	f := &fakeControl{st: twoSessions()}
 	f.st.Workspaces[1].Name = strings.Repeat("x", 2<<20)
 	s := &Server{Control: f}
