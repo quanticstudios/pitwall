@@ -7,6 +7,7 @@ The install commands are in the [README](../README.md#install).
 | Linux (glibc 2.35 or newer)    | x86_64, arm64  | used every day             |
 | macOS                          | arm64, x86_64  | new and not yet run        |
 | Windows 10 1809 or newer, 11   | x86_64, arm64  | new and not yet run        |
+| Linux, `pitwall-core`          | x86_64, arm64  | new; no window             |
 
 pitwall is developed on Linux (Hyprland) and works on any Wayland or X11
 desktop. Releases are tagged `v0.2.N`: `v0.2.0` starts the line and each later one bumps the patch number. Config and saved state carry
@@ -67,6 +68,37 @@ Known gaps on Windows:
 The Linux release archive
 holds them as `pitwall.desktop` and `pitwall.svg` next to the binary, and
 `scripts/install.sh` installs them when you build from source as below.
+
+## Servers and containers
+
+`pitwall-core` is the daemon and every command but the window. It is a
+static binary with no cgo, so it needs no GUI or C library, and runs on a
+server, in a container or on an arm64 board. Releases include it for Linux
+x86_64 and arm64. Install it with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh -s -- --core
+```
+
+or with `PITWALL_CORE=1` set. `PITWALL_VERSION` and `PITWALL_INSTALL_DIR`
+work as above. The script installs `pitwall-core` and, when that folder has
+no `pitwall`, links `pitwall` to it, so hooks, agents and `pitwall --host`
+from a desktop find it by that name. It never replaces another `pitwall`;
+it prints the `ln -sf` command that would. On macOS `--core` stops with an
+error: there is no macOS core.
+
+Then run `pitwall-core hooks install`. `pitwall-core daemon` runs the
+daemon in the foreground, as a container's entry point would, and
+`pitwall-core remote-start` starts it in the background unless one runs.
+`pitwall-core new -d -- claude` opens a tab without a window, and `ls`,
+`read`, `send` and `wait` drive it. The commands that open a window refuse
+before they change anything: `session new` needs `-d`, and `attach` only
+focuses a window that already shows the session. From a desktop,
+`pitwall --host box` opens a window on the host's daemon
+([remote.md](remote.md)).
+
+`pitwall-core update` installs the latest `pitwall-core` archive, never the
+desktop one, and hands the daemon over as `pitwall update` does below.
 
 ## Updates
 

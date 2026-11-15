@@ -17,17 +17,12 @@ import (
 	"github.com/quanticstudios/pitwall/internal/update"
 )
 
-// runUpdate installs the latest release over this binary, unless a package
-// manager owns it, then moves the daemon onto the binary with finishUpdate.
+// runUpdate installs the latest release of this binary's flavor, binName,
+// over it, unless a package manager owns it, then moves the daemon onto the binary with finishUpdate.
 // PITWALL_UPDATE_URL replaces update.LatestURL, for the release drill.
 func runUpdate(args []string, w io.Writer) error {
 	if len(args) > 0 {
-		return errors.New("usage: pitwall update")
-	}
-	if binName != "pitwall" {
-		// why: update.Install fetches the desktop archive, which would
-		// replace this binary with one that needs GUI libraries.
-		return errors.New("pitwall-core update is not available in this build; reinstall with get.sh --core")
+		return fmt.Errorf("usage: %s update", binName)
 	}
 	log.SetOutput(io.Discard) // startDaemon's lines, for a window's gui.log
 	exe, err := os.Executable()
@@ -45,10 +40,10 @@ func runUpdate(args []string, w io.Writer) error {
 		case err != nil:
 			return fmt.Errorf("check for a release: %w", err)
 		case newer:
-			if err := update.Install(ctx, http.DefaultClient, rel, exe); err != nil {
+			if err := update.Install(ctx, http.DefaultClient, rel, exe, binName); err != nil {
 				return fmt.Errorf("install %s: %w", rel.Tag, err)
 			}
-			fmt.Fprintf(w, "Installed pitwall %s over %s.\n", rel.Tag, want)
+			fmt.Fprintf(w, "Installed %s %s over %s.\n", binName, rel.Tag, want)
 			want = rel.Tag
 		case rel.Tag == "":
 			fmt.Fprintf(w, "pitwall %s is not a release, so it checks for none.\n", want)
@@ -58,7 +53,11 @@ func runUpdate(args []string, w io.Writer) error {
 	}
 	m, err := doctorDaemon()
 	if errors.Is(err, errNotRunning) {
-		fmt.Fprintf(w, "No daemon runs; the next window starts %s.\n", want)
+		starter := "the next window"
+		if !canOpenWindow {
+			starter = binName + " daemon"
+		}
+		fmt.Fprintf(w, "No daemon runs; %s starts %s.\n", starter, want)
 		return nil
 	}
 	if _, refused := proto.RefusedVersion(proto.Error{Message: fmt.Sprint(err)}); err != nil && !refused {

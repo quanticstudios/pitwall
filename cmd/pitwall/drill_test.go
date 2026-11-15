@@ -1,4 +1,4 @@
-//go:build unix && !nogui
+//go:build unix
 
 package main
 
@@ -27,13 +27,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// TestUpdateDrill is the release drill. It builds this pitwall as v0.0.1 and
-// v0.0.2, serves v0.0.2 as the latest release, and starts v0.0.1's daemon
-// in temporary directories with an agent TUI, a dev server and a test loop
-// in panes. Then it runs v0.0.1's pitwall update. In "handoff" all three
-// must keep running under v0.0.2's daemon, with their screens and
-// scrollback. In "restart" the release's daemon refuses the handoff, and
-// the update must say so and restart the daemon.
+// TestUpdateDrill is the release drill. It builds this pitwall, or under
+// nogui this pitwall-core, as v0.0.1 and v0.0.2, serves v0.0.2 as the
+// latest release, and starts v0.0.1's daemon in temporary directories with
+// an agent TUI, a dev server and a test loop in panes. Then it runs
+// v0.0.1's update. In "handoff" all three must keep running under v0.0.2's
+// daemon, with their screens and scrollback. In "restart" the release's
+// daemon refuses the handoff, and the update must say so and restart the
+// daemon.
 func TestUpdateDrill(t *testing.T) {
 	if os.Getenv("PITWALL_TEST_GUARD") != "" {
 		// why: go build there gets an empty build cache under the temporary
@@ -42,16 +43,75 @@ func TestUpdateDrill(t *testing.T) {
 	}
 	bins := t.TempDir()
 	for _, v := range []string{"v0.0.1", "v0.0.2"} {
-		out, err := exec.Command("go", "build", "-o", filepath.Join(bins, v), "-ldflags", "-X main.version="+v, ".").CombinedOutput()
-		if err != nil {
-			t.Fatalf("go build %s: %v\n%s", v, err, out)
-		}
+		buildPitwall(t, filepath.Join(bins, v), v, binName != "pitwall")
 	}
-	t.Run("handoff", func(t *testing.T) { drill(t, bins, false) })
-	t.Run("restart", func(t *testing.T) { drill(t, bins, true) })
+	run := drillRun{daemon: filepath.Join(bins, "v0.0.1"), release: filepath.Join(bins, "v0.0.2"), tag: "v0.0.2", flavor: binName}
+	t.Run("handoff", func(t *testing.T) { drill(t, run) })
+	run.refuse = true
+	t.Run("restart", func(t *testing.T) { drill(t, run) })
 }
 
-func drill(t *testing.T, bins string, refuse bool) {
+// TestReleaseHandoff runs the last release's own pitwall update, and this
+// checkout's pitwall-core update, against a daemon of that release, the way
+// users will update to this checkout. The handoff CI job sets
+// PITWALL_BASELINE to the release's Linux binary and fails on a skip.
+func TestReleaseHandoff(t *testing.T) {
+	base := os.Getenv("PITWALL_BASELINE")
+	if base == "" {
+		t.Skip("PITWALL_BASELINE names no release binary")
+	}
+	if os.Getenv("PITWALL_TEST_GUARD") != "" {
+		t.Skip("inside the guarded run")
+	}
+	bins := t.TempDir()
+	desktop, core, coreOld := filepath.Join(bins, "pitwall"), filepath.Join(bins, "pitwall-core"), filepath.Join(bins, "pitwall-core-v0.0.1")
+	buildPitwall(t, desktop, "v99.0.0", false)
+	buildPitwall(t, core, "v99.0.0", true)
+	buildPitwall(t, coreOld, "v0.0.1", true)
+	// a: the release's update installs this desktop build and hands over.
+	t.Run("release-update", func(t *testing.T) {
+		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall"})
+	})
+	// b: this build refuses the handoff; the release's update restarts, as
+	// its release notes say.
+	t.Run("release-update-refused", func(t *testing.T) {
+		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall", refuse: true})
+	})
+	// d: pitwall-core's update fetches the core archive and hands the
+	// release's daemon over to it.
+	t.Run("core-update", func(t *testing.T) {
+		drill(t, drillRun{daemon: base, updater: coreOld, release: core, tag: "v99.0.0", flavor: "pitwall-core"})
+	})
+}
+
+// buildPitwall builds this checkout as version into out; with core, as
+// pitwall-core, whatever GOFLAGS says.
+func buildPitwall(t *testing.T, out, version string, core bool) {
+	t.Helper()
+	args := []string{"build", "-o", out, "-ldflags", "-X main.version=" + version}
+	if core {
+		args = append(args, "-tags", "nogui")
+	}
+	cmd := exec.Command("go", append(args, ".")...)
+	if core {
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build %s: %v\n%s", version, err, out)
+	}
+}
+
+// drillRun is one update the drill runs.
+type drillRun struct {
+	daemon  string // a binary whose daemon serves the panes first; it runs the update unless updater is set
+	updater string // a pitwall-core that runs the update instead, next to daemon
+	release string // the binary served as release tag, in flavor's archive
+	tag     string
+	flavor  string // pitwall or pitwall-core
+	refuse  bool   // the release's daemon refuses the handoff
+}
+
+func drill(t *testing.T, r drillRun) {
 	dir := t.TempDir()
 	// why: a socket path must fit in 104 bytes on macOS, and $TMPDIR there is long.
 	run, err := os.MkdirTemp("/tmp", "pwdrill")
@@ -59,31 +119,46 @@ func drill(t *testing.T, bins string, refuse bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(run) })
+	// why: the daemon rewrites installed agent skills at start; an older
+	// release's daemon would write its own over the real ones.
 	for k, v := range map[string]string{
 		"HOME": filepath.Join(dir, "home"), "XDG_STATE_HOME": filepath.Join(dir, "state"),
 		"XDG_CONFIG_HOME": filepath.Join(dir, "config"), "XDG_CACHE_HOME": filepath.Join(dir, "cache"),
+		"CLAUDE_CONFIG_DIR": filepath.Join(dir, "claude"), "CODEX_HOME": filepath.Join(dir, "codex"),
+		"PI_CODING_AGENT_DIR": filepath.Join(dir, "pi"), "OPENCODE_CONFIG_DIR": filepath.Join(dir, "opencode"),
 		"XDG_RUNTIME_DIR": run, "SHELL": "/bin/sh", "PITWALL_SOCKET": "", "PITWALL_PANE": "",
 	} {
 		t.Setenv(k, v)
 	}
-	release := filepath.Join(bins, "v0.0.2")
-	if refuse {
+	release := r.release
+	if r.refuse {
 		release = filepath.Join(dir, "refusing")
-		script := "#!/bin/sh\nif [ \"$2\" = --handoff ]; then printf 'drill: the release refuses' >&3; exit 1; fi\nexec " + filepath.Join(bins, "v0.0.2") + " \"$@\"\n"
+		script := "#!/bin/sh\nif [ \"$2\" = --handoff ]; then printf 'drill: the release refuses' >&3; exit 1; fi\nexec " + r.release + " \"$@\"\n"
 		if err := os.WriteFile(release, []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PITWALL_UPDATE_URL", serveRelease(t, "v0.0.2", release)+"/releases/latest")
+	t.Setenv("PITWALL_UPDATE_URL", serveRelease(t, r.flavor, r.tag, release)+"/releases/latest")
 
-	bin := filepath.Join(dir, "bin", "pitwall")
-	os.MkdirAll(filepath.Dir(bin), 0o755)
-	data, err := os.ReadFile(filepath.Join(bins, "v0.0.1"))
-	if err != nil {
-		t.Fatal(err)
+	install := func(src, name string) string {
+		t.Helper()
+		bin := filepath.Join(dir, "bin", name)
+		os.MkdirAll(filepath.Dir(bin), 0o755)
+		data, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bin, data, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return bin
 	}
-	if err := os.WriteFile(bin, data, 0o755); err != nil {
-		t.Fatal(err)
+	// bin serves the panes until the update, upd runs it and serves them after.
+	bin := install(r.daemon, r.flavor)
+	upd := bin
+	if r.updater != "" {
+		bin = install(r.daemon, "pitwall")
+		upd = install(r.updater, "pitwall-core")
 	}
 	daemonLog, err := os.Create(filepath.Join(dir, "daemon.out"))
 	if err != nil {
@@ -150,20 +225,27 @@ func drill(t *testing.T, bins string, refuse bool) {
 	before := get(t, addr)
 	turn := counter(t, bin, dir, "agent", `turn (\d+)`)
 
-	out, err := exec.Command(bin, "update").CombinedOutput()
+	out, err := exec.Command(upd, "update").CombinedOutput()
 	if err != nil {
 		t.Fatalf("pitwall update: %v\n%s", err, out)
 	}
 	t.Logf("pitwall update:\n%s", out)
-	if !strings.Contains(string(out), "Installed pitwall v0.0.2 over v0.0.1.") {
-		t.Error("pitwall update did not say it installed v0.0.2")
+	if want := "Installed " + r.flavor + " " + r.tag + " over "; !strings.Contains(string(out), want) {
+		t.Errorf("pitwall update did not say %q", want)
 	}
-	until(t, "the daemon to run v0.0.2", func() bool {
+	until(t, "the daemon to run "+r.tag, func() bool {
 		m, err := doctorDaemon()
-		return err == nil && m.Build == "v0.0.2"
+		return err == nil && m.Build == r.tag
 	})
+	want := "pitwall " + r.tag + "\n"
+	if r.flavor == "pitwall-core" {
+		want = "pitwall " + r.tag + " (core)\n"
+	}
+	if v := pitwall(t, upd, dir, "--version"); v != want {
+		t.Errorf("the installed %s says %q, want %q", r.flavor, v, want)
+	}
 
-	if refuse {
+	if r.refuse {
 		for _, want := range []string{"could not take over (drill: the release refuses)", "The daemon restarted."} {
 			if !strings.Contains(string(out), want) {
 				t.Errorf("pitwall update did not say %q", want)
@@ -189,17 +271,19 @@ func drill(t *testing.T, bins string, refuse bool) {
 	if !found(t, loopPane, "test run 1 ok") {
 		t.Error("the loop's first line left its scrollback in the update")
 	}
-	n := counter(t, bin, dir, "loop", `test run (\d+) ok`)
-	until(t, "the loop to keep running", func() bool { return counter(t, bin, dir, "loop", `test run (\d+) ok`) > n })
-	until(t, "the agent to keep drawing", func() bool { return counter(t, bin, dir, "agent", `turn (\d+)`) > turn })
-	if screen := pitwall(t, bin, dir, "read", "agent", "--screen"); !strings.Contains(screen, "Claude Code drill") {
+	n := counter(t, upd, dir, "loop", `test run (\d+) ok`)
+	until(t, "the loop to keep running", func() bool { return counter(t, upd, dir, "loop", `test run (\d+) ok`) > n })
+	until(t, "the agent to keep drawing", func() bool { return counter(t, upd, dir, "agent", `turn (\d+)`) > turn })
+	if screen := pitwall(t, upd, dir, "read", "agent", "--screen"); !strings.Contains(screen, "Claude Code drill") {
 		t.Errorf("the agent's screen lost its header:\n%s", screen)
 	}
 }
 
-// serveRelease serves bin as release tag, the way GitHub serves releases
-// to update.Check and update.Install, and returns the server's URL.
-func serveRelease(t *testing.T, tag, bin string) string {
+// serveRelease serves bin as release tag in flavor's Linux or macOS
+// archive, the way GitHub serves releases to update.Check and
+// update.Install, and returns the server's URL. Only that archive is
+// there, so an update that asks for the other flavor fails.
+func serveRelease(t *testing.T, flavor, tag, bin string) string {
 	data, err := os.ReadFile(bin)
 	if err != nil {
 		t.Fatal(err)
@@ -207,11 +291,11 @@ func serveRelease(t *testing.T, tag, bin string) string {
 	var arc bytes.Buffer
 	zw := gzip.NewWriter(&arc)
 	tw := tar.NewWriter(zw)
-	tw.WriteHeader(&tar.Header{Name: "pitwall", Mode: 0o755, Size: int64(len(data)), Typeflag: tar.TypeReg})
+	tw.WriteHeader(&tar.Header{Name: flavor, Mode: 0o755, Size: int64(len(data)), Typeflag: tar.TypeReg})
 	tw.Write(data)
 	tw.Close()
 	zw.Close()
-	name := fmt.Sprintf("pitwall_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	name := fmt.Sprintf("%s_%s_%s.tar.gz", flavor, runtime.GOOS, runtime.GOARCH)
 	sum := sha256.Sum256(arc.Bytes())
 	files := map[string][]byte{
 		"/releases/download/" + tag + "/" + name:       arc.Bytes(),

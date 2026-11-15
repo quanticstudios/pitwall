@@ -62,6 +62,9 @@ jobs:
           sh -n scripts/get.sh
           sh scripts/get_test.sh
           sh scripts/release_test.sh
+          sh scripts/release-check_test.sh
+          sh scripts/sandbox_test.sh
+          sh -n scripts/core-smoke.sh
           sh scripts/apk_test.sh
           sh scripts/apk-release_test.sh
 
@@ -92,6 +95,8 @@ jobs:
           esac
           "$RUNNER_TEMP/pitwall-core" --version
           GOARCH=arm64 go build -o /dev/null ./cmd/pitwall
+      - name: Smoke test, as the release runs it
+        run: sh scripts/core-smoke.sh "$RUNNER_TEMP/pitwall-core"
       - name: Imports
         run: |
           sh scripts/core-imports.sh
@@ -99,6 +104,46 @@ jobs:
       - name: List the tests that run
         run: go test -list . ./cmd/pitwall ./internal/update
       - run: go test -count=1 -timeout 15m ./cmd/pitwall ./internal/update
+
+  # The last release's own pitwall update, and this pitwall-core's update,
+  # against a daemon of that release, with programs in its panes
+  # (TestReleaseHandoff). The release is the first "## v" heading of
+  # CHANGELOG.md, so it changes only when a PR rebases onto a newer main.
+  handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # why: the release is a desktop binary, and the test builds this one.
+      - name: Install Gio's build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev
+      - name: Download the last release
+        run: |
+          tag=$(awk '/^## v/ { print $2; exit }' CHANGELOG.md)
+          echo "Baseline release: $tag"
+          mkdir "$RUNNER_TEMP/baseline"
+          cd "$RUNNER_TEMP/baseline"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+          curl -fsSLO "$url/pitwall_linux_amd64.tar.gz"
+          curl -fsSLO "$url/checksums.txt"
+          grep ' pitwall_linux_amd64.tar.gz$' checksums.txt | sha256sum -c -
+          tar -xzf pitwall_linux_amd64.tar.gz pitwall
+          ./pitwall --version
+      - name: TestReleaseHandoff
+        env:
+          PITWALL_BASELINE: ${{ runner.temp }}/baseline/pitwall
+        run: |
+          set -o pipefail
+          go test -count=1 -v -run '^TestReleaseHandoff$' ./cmd/pitwall | tee "$RUNNER_TEMP/handoff.log"
+          # why: the test skips without its baseline; a skip must fail here.
+          grep -q -- '^--- PASS: TestReleaseHandoff ' "$RUNNER_TEMP/handoff.log"
 
   changelog:
     if: github.event_name == 'pull_request'
