@@ -25,8 +25,18 @@ func init() {
 // install` writes run an existing pitwall on every PreToolUse.
 func TestGuardHooked(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "it's pitwall")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 2\n"), 0o700); err != nil {
+	// The probe executes the fixture directly, including on Windows. Copy
+	// this test executable so the apostrophe and space still exercise quoting.
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "it's pitwall"+filepath.Ext(exe))
+	if err := os.WriteFile(bin, body, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	settings := func(hooks []byte, extra string) string {
