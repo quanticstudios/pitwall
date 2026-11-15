@@ -27,6 +27,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # why: internal/agent runs the generated pi and OpenCode guards, and fails without node here.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - name: Install Gio's build dependencies
         run: |
           sudo apt-get update

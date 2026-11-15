@@ -27,6 +27,16 @@ Codex still needs `/hooks` once to trust its hooks, which doctor cannot see.
 - **The window does not open from the launcher.** Errors are sent as a
   desktop notification (an alert on macOS, a message box on Windows); run
   `pitwall` in a terminal to see them.
+- **A guarded tab will not start, naming a pitwall binary.** Before a
+  guarded start the daemon runs the pitwall that the agent's hook,
+  extension or plugin names as `pitwall guard` on `git push origin main`,
+  and needs exit status 2. The refusal says what happened: `cannot run`
+  (the file is missing, not executable, or its libraries or interpreter
+  are missing), `did not answer in 3s`, `allowed git push origin main`,
+  or `exited N`. Test it by hand with
+  `echo '{"tool_input":{"command":"git push origin main"}}' | <binary> guard; echo $?`,
+  which prints the deny reason and 2. Then run `pitwall hooks install`
+  with a pitwall that passes, so the hooks name it.
 - **An agent's state is missing or late.** Check `pitwall hooks install` was
   run with the installed binary, and in Codex run `/hooks` once.
 - **The window freezes or is reported as not responding.** When one window
