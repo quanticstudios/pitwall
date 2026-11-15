@@ -290,6 +290,10 @@ func TestSharedSessionLive(t *testing.T) {
 		return len(m.State.Workspaces)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	// On box's PATH, so the host check reaches the guard.
+	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	n := boxTabCount()
 	if code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") || !strings.Contains(errOut, "pitwall hooks install") {
 		t.Fatalf("an unhooked guarded tab on box: %d %q", code, errOut)
@@ -453,7 +457,8 @@ func TestSharedSessionLive(t *testing.T) {
 	})
 	// The same start again with its id finds it there and starts nothing.
 	n = boxTabCount()
-	code, out, errOut = cliOutput("new", "-s", ls.Name, "--host", "box", "--id", worker.ID, "--", "sleep", "60")
+	// The existing id is authoritative even if its program is now unavailable.
+	code, out, errOut = cliOutput("new", "-s", ls.Name, "--host", "box", "--id", worker.ID, "--", "worker-no-longer-installed")
 	if code != 0 || !strings.HasPrefix(out, "#box:") || boxTabCount() != n || len(workers()) != 1 {
 		t.Fatalf("a repeated start: %d %q %q; box tabs %d, had %d", code, out, errOut, boxTabCount(), n)
 	}
@@ -508,6 +513,13 @@ func TestSharedSessionLive(t *testing.T) {
 	}
 	if bs := boxState(); bs.Workspace(twoID) != nil {
 		t.Fatalf("%s still open on box after kill", two)
+	}
+	// A retry of a closed id also reaches idempotent reconciliation, even
+	// when the command cannot pass a fresh preflight. It never starts again.
+	n = boxTabCount()
+	code, _, errOut = cliOutput("new", "-s", ls.Name, "--host", "box", "--id", twoID, "--", "worker-no-longer-installed")
+	if code == 0 || !strings.Contains(errOut, "has closed already") || boxTabCount() != n {
+		t.Fatalf("a closed start retry: %d %q; box tabs %d, had %d", code, errOut, boxTabCount(), n)
 	}
 	t.Setenv("PITWALL_PANE", "")
 

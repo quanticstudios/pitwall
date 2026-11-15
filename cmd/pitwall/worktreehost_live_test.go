@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"os"
@@ -201,10 +202,11 @@ host = "box"
 		t.Fatalf("no worktree here: %v", err)
 	}
 
-	// A repository box does not have: the clone command, and nothing made.
+	// A repository box does not have: box's check gives the clone command,
+	// and nothing is pushed or made.
 	n = len(box().Workspaces)
 	code, _, errOut = worktreeOutput("new", "w4", "--host", "box", "--repo", "nowhere", "--", "sh")
-	if code == 0 || !strings.Contains(errOut, "box has no repository at ~/nowhere") || !strings.Contains(errOut, "ssh box git clone https://example.com/app.git ~/nowhere") ||
+	if code == 0 || !strings.Contains(errOut, "no git repository at ~/nowhere") || !strings.Contains(errOut, "fix on box: git clone https://example.com/app.git ~/nowhere") ||
 		len(box().Workspaces) != n || len(workers()) != 2 {
 		t.Fatalf("a missing repository: %d %q; box has %d tabs, had %d", code, errOut, len(box().Workspaces), n)
 	}
@@ -225,6 +227,10 @@ host = "box"
 
 	// A guard refusal must leave no worker or worktree claiming its id.
 	const refusedID = "fedcba9876543210"
+	// On box's PATH, so the host check reaches the guard.
+	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	configDir := filepath.Join(home, ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	n = len(box().Workspaces)
@@ -242,11 +248,16 @@ host = "box"
 	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"hooks":`+string(agent.ClaudeHooks(os.Args[0]))+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	// Box's check warns that claude has no login there, and starts it.
+	var warned bytes.Buffer
+	prevWarnings := hostWarnings
+	t.Cleanup(func() { hostWarnings = prevWarnings })
+	hostWarnings = &warned
 	if code, _, errOut := worktreeOutput("new", "guarded", "--host", "box", "--repo", "box/app", "--id", refusedID, "--guard", "--", "claude"); code != 0 || len(box().Workspaces) != n+1 {
 		t.Fatalf("retry after refusal: %d %q", code, errOut)
+	}
+	if !strings.Contains(warned.String(), "pitwall: box: no claude login in "+configDir) {
+		t.Errorf("no login warning: %q", warned.String())
 	}
 
 	// A person's shell has a session but no parent tab on either machine.

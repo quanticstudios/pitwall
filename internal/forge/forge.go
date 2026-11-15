@@ -66,10 +66,17 @@ func gh(ctx context.Context, dir string, args ...string) ([]byte, error) {
 // ghCmd is gh with args in dir, with no terminal, prompt or color, and with
 // the git gh runs itself as guarded as pitwall's own.
 func ghCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	return ghCmdEnv(ctx, dir, nil, args...)
+}
+
+func ghCmdEnv(ctx context.Context, dir string, env []string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = dir
 	nowindow.Set(cmd)
-	env, err := gitstat.Env(ctx, dir, append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1"))
+	if env == nil {
+		env = os.Environ()
+	}
+	env, err := gitstat.Env(ctx, dir, append(env, "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1"))
 	cmd.Env = env
 	// why: with no git there is none to guard, and gh answers much without it.
 	if err != nil && !errors.Is(err, exec.ErrNotFound) {

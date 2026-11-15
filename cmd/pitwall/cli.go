@@ -25,6 +25,7 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -205,8 +206,9 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 // msg, with the tab's id, name, command, parent and part from it, after
 // push, when set, has put the worktree's commit on the host.
 type hostWorktree struct {
-	msg  proto.NewWorkspace
-	push func(id string) error
+	msg   proto.NewWorkspace
+	push  func(id string) error
+	clone string // origin's URL here, for the host check's clone command
 }
 
 // startOnHost is newOnHost, starting a worktree's tab when wt is set. When
@@ -235,12 +237,26 @@ func startOnHost(local *cliConn, daemon string, session *model.Session, host str
 	if err := check(m.Level); err != nil {
 		return "", fmt.Errorf("%s: %w", host, err)
 	}
+	// The host checks the start before anything is pushed, made or recorded.
+	// An existing id is reconciled by the daemon without starting a process.
+	// Its executable or credentials may have changed since the original start.
+	knownID := tab.ID != "" && (m.State.Workspace(tab.ID) != nil || slices.ContainsFunc(m.State.Closed, func(c model.ClosedTab) bool { return c.ID == tab.ID || c.Tab.ID == tab.ID }))
+	if (len(tab.Cmd) > 0 || wt != nil) && m.Level >= proto.HostCheckLevel && !knownID {
+		req := proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env, Cwd: tab.Cwd}
+		if wt != nil {
+			req.Repo, req.Clone = wt.msg.Root, wt.clone
+			req.Cwd = filepath.Join(req.Repo, ".worktrees", gitstat.Slug(tab.Name))
+		}
+		if err := hostCheck(hc, host, req); err != nil {
+			return "", err
+		}
+	}
 	if tab.ID == "" && m.Level >= proto.RemoteWorkerLevel {
 		tab.ID = newTabID()
 	}
 	// The commit goes first: a host without the repository gets no part,
 	// record or tab. A retry pushes the same commit to the same ref.
-	if wt != nil && wt.push != nil {
+	if wt != nil && wt.push != nil && !knownID {
 		if err := wt.push(tab.ID); err != nil {
 			return "", err
 		}
@@ -409,6 +425,50 @@ func startOnHost(local *cliConn, daemon string, session *model.Session, host str
 		}
 	}
 	return tabNumber(host, hs.Numbered(partID), id), problem
+}
+
+// hostWarnings receives what a host check says a worker would start
+// without. Tests replace it.
+var hostWarnings io.Writer = os.Stderr
+
+// hostCheck asks host's daemon, on hc, whether the worker req describes can
+// start there. It prints warnings to hostWarnings, and returns the
+// problems that stop it, each with its fix, as one error.
+func hostCheck(hc *cliConn, host string, req proto.HostCheck) error {
+	// The host runs up to three 10-second calls to origin and GitHub.
+	if err := hc.socket.SetDeadline(time.Now().Add(time.Minute)); err != nil {
+		return err
+	}
+	if err := hc.Send(req); err != nil {
+		return err
+	}
+	for {
+		msg, err := hc.Recv()
+		if err != nil {
+			return err
+		}
+		switch r := msg.(type) {
+		case proto.Error:
+			return errors.New(r.Message)
+		case proto.HostCheckResult:
+			var b strings.Builder
+			for _, p := range r.Problems {
+				line := "\n  " + p.What
+				if p.Fix != "" {
+					line += "\n    fix on " + host + ": " + p.Fix
+				}
+				if p.Warn {
+					fmt.Fprintf(hostWarnings, "pitwall: %s: %s\n", host, strings.TrimPrefix(line, "\n  "))
+				} else {
+					b.WriteString(line)
+				}
+			}
+			if b.Len() > 0 {
+				return fmt.Errorf("%s cannot start this worker; nothing was started:%s", host, b.String())
+			}
+			return nil
+		}
+	}
 }
 
 // startRetries are the waits before each new try of a start on a host

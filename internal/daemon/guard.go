@@ -17,13 +17,11 @@ import (
 // could not hold in it.
 var errUnguarded = errors.New("guarded tab not started")
 
-// guardGate refuses a pane whose environment turns the guard on when the
-// guard would not run in it: its program has no checked guard, or
-// pitwall's hook, extension or plugin is missing from the config dir it
-// reads. env is what the pane gets on top of the daemon's own environment,
-// so a later entry wins, as it does for the process.
-func guardGate(cmd, env []string, cwd string) error {
-	get := func(k string) string {
+// envGet reads a variable as a pane with env gets it on top of the
+// daemon's own environment, so a later entry wins, as it does for the
+// process.
+func envGet(env []string) func(string) string {
+	return func(k string) string {
 		for i := len(env) - 1; i >= 0; i-- {
 			name, v, ok := strings.Cut(env[i], "=")
 			if ok && (name == k || runtime.GOOS == "windows" && strings.EqualFold(name, k)) {
@@ -32,28 +30,20 @@ func guardGate(cmd, env []string, cwd string) error {
 		}
 		return os.Getenv(k)
 	}
-	if get(guard.Env) == "" {
-		return nil // the hook guards only while it is set, to anything
-	}
-	program, provider := "a shell", model.Provider("")
-	if len(cmd) > 0 {
-		program, provider = filepath.Base(cmd[0]), agent.Identify("", cmd[0])
-	}
+}
+
+// agentDir is the config dir provider's agent reads, started in cwd with
+// the environment get reads, and the variable that sets it; "" for a
+// program with no pitwall hooks.
+func agentDir(provider model.Provider, get func(string) string, cwd string) (key, dir string) {
 	homeKey := "HOME"
 	if runtime.GOOS == "windows" {
 		homeKey = "USERPROFILE"
 	}
 	home := get(homeKey)
-	var key, dir string
 	switch provider {
 	case model.ProviderClaude:
 		key, dir = "CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude")
-		if get("CLAUDE_CODE_SIMPLE") != "" {
-			return fmt.Errorf("%w: CLAUDE_CODE_SIMPLE skips Claude Code's hooks; unset it to use the guard", errUnguarded)
-		}
-		if err := guardClaudeArgs(cmd[1:]); err != nil {
-			return fmt.Errorf("%w: %v", errUnguarded, err)
-		}
 	case model.ProviderCodex:
 		key, dir = "CODEX_HOME", filepath.Join(home, ".codex")
 	case model.ProviderPi, model.ProviderOmp:
@@ -62,15 +52,6 @@ func guardGate(cmd, env []string, cwd string) error {
 			folder = ".omp"
 		}
 		key, dir = "PI_CODING_AGENT_DIR", filepath.Join(home, folder, "agent")
-		for _, arg := range cmd[1:] {
-			flag, _, _ := strings.Cut(arg, "=")
-			if arg == "--" {
-				break
-			}
-			if flag == "--no-extensions" || flag == "-ne" {
-				return fmt.Errorf("%w: %s disables pitwall's guard extension", errUnguarded, flag)
-			}
-		}
 	case model.ProviderOpenCode:
 		key, dir = "XDG_CONFIG_HOME", filepath.Join(home, ".config")
 		if v := get(key); filepath.IsAbs(v) {
@@ -79,7 +60,7 @@ func guardGate(cmd, env []string, cwd string) error {
 		dir = filepath.Join(dir, "opencode")
 		key = "OPENCODE_CONFIG_DIR"
 	default:
-		return fmt.Errorf("%w: the guard covers Claude Code, Codex, pi, omp and OpenCode 1, not %s", errUnguarded, program)
+		return "", ""
 	}
 	if v := get(key); v != "" {
 		dir = v
@@ -94,13 +75,51 @@ func guardGate(cmd, env []string, cwd string) error {
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(cwd, dir)
 	}
+	return key, dir
+}
+
+// guardGate returns why the guard would not run in a pane whose
+// environment turns it on, nil when it would or the pane is not guarded:
+// its program has no checked guard, or pitwall's hook, extension or plugin
+// is missing from the config dir it reads. env is what the pane gets on
+// top of the daemon's own environment.
+func guardGate(cmd, env []string, cwd string) error {
+	get := envGet(env)
+	if get(guard.Env) == "" {
+		return nil // the hook guards only while it is set, to anything
+	}
+	program, provider := "a shell", model.Provider("")
+	if len(cmd) > 0 {
+		program, provider = filepath.Base(cmd[0]), agent.Identify("", cmd[0])
+	}
+	switch provider {
+	case model.ProviderClaude:
+		if get("CLAUDE_CODE_SIMPLE") != "" {
+			return errors.New("CLAUDE_CODE_SIMPLE skips Claude Code's hooks; unset it to use the guard")
+		}
+		if err := guardClaudeArgs(cmd[1:]); err != nil {
+			return err
+		}
+	case model.ProviderPi, model.ProviderOmp:
+		for _, arg := range cmd[1:] {
+			flag, _, _ := strings.Cut(arg, "=")
+			if arg == "--" {
+				break
+			}
+			if flag == "--no-extensions" || flag == "-ne" {
+				return fmt.Errorf("%s disables pitwall's guard extension", flag)
+			}
+		}
+	}
+	key, dir := agentDir(provider, get, cwd)
+	if key == "" {
+		return fmt.Errorf("the guard covers Claude Code, Codex, pi, omp and OpenCode 1, not %s", program)
+	}
 	if err := agent.GuardHooked(provider, dir); err != nil {
-		return fmt.Errorf("%w: %v; run %s=%s pitwall hooks install", errUnguarded, err, key, dir)
+		return fmt.Errorf("%v; run %s=%s pitwall hooks install", err, key, dir)
 	}
 	if provider == model.ProviderOpenCode {
-		if err := agent.GuardOpenCode(cmd[0], cwd, env); err != nil {
-			return fmt.Errorf("%w: %v", errUnguarded, err)
-		}
+		return agent.GuardOpenCode(cmd[0], cwd, env)
 	}
 	return nil
 }

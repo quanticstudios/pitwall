@@ -47,9 +47,15 @@ import (
 // config cannot be read, the command fails to start with that error, and git
 // does not run.
 func Command(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	return CommandEnv(ctx, dir, nil, args...)
+}
+
+// CommandEnv is Command with the supplied process environment, or the
+// daemon's environment when env is nil. Repository programs remain guarded.
+func CommandEnv(ctx context.Context, dir string, env []string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, guardArgs(args)...)...)
 	nowindow.Set(cmd)
-	env, err := Env(ctx, dir, nil)
+	env, err := Env(ctx, dir, env)
 	cmd.Env = env
 	if err != nil {
 		cmd.Err = err

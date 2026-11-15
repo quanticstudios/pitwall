@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -60,6 +61,13 @@ func TestDoctor(t *testing.T) {
 	}
 	if strings.Contains(out, ".codex") {
 		t.Errorf("codex is not installed, but:\n%s", out)
+	}
+	// A host's login check, for the agent here: a note, not a failure.
+	if runtime.GOOS != "darwin" && !strings.Contains(out, "info no claude login in "+filepath.Join(home, ".claude")+"; start claude once and log in") {
+		t.Errorf("no login note:\n%s", out)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
 	bin := t.TempDir()

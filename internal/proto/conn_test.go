@@ -154,6 +154,8 @@ func allMessages() []any {
 		SetOrigin{SessionID: "s", Origin: model.Origin{Daemon: "d", Session: "o"}},
 		RemoteWorkers{SessionID: "s", Add: []model.RemoteWorker{{ID: "w", Host: "box", Parent: "p", Since: time.Unix(1, 0).UTC()}}, Set: []model.RemoteWorker{{ID: "v", Host: "box", Parent: "p", Lost: "never started"}}, Drop: []string{"x"}},
 		Reparent{WorkspaceID: "w", ParentTab: "p", Origin: model.Origin{Daemon: "d", Session: "o"}},
+		HostCheck{Cmd: []string{"claude"}, Env: []string{"PITWALL_GUARD=1"}, Repo: "~/app", Clone: "https://example.com/app.git", Cwd: "~/app/.worktrees/fix"},
+		HostCheckResult{Problems: []HostProblem{{What: "claude is not on the daemon's PATH", Fix: "install it"}, {What: "no login", Warn: true}}},
 		SessionOrder{SessionID: "s", Order: []string{"a", "b"}},
 		MonitorWatch{WorkspaceID: "w", Interval: 2 * time.Second},
 		MonitorSample{
