@@ -19,6 +19,12 @@ if [ "$root" = / ]; then
     exit 2
 fi
 for d in bin home run state config cache claude codex pi opencode; do
+    # why: a reused sandbox may have a link to real config. mkdir and
+    # chmod both follow it, and the command would then write outside root.
+    if [ -L "$root/$d" ]; then
+        printf 'sandbox.sh: %s must not be a symlink\n' "$root/$d" >&2
+        exit 2
+    fi
     mkdir -p "$root/$d"
     chmod 700 "$root/$d"
 done

@@ -53,6 +53,25 @@ if [ "$(stat -c %a "$box/claude" 2>/dev/null || stat -f %Lp "$box/claude")" != 7
     fail=1
 fi
 
+# Reusing a sandbox must not follow a config or home symlink outside it,
+# even to chmod the target. Check every directory the helper creates.
+for d in bin home run state config cache claude codex pi opencode; do
+    root=$tmp/link-$d
+    outside=$tmp/outside-$d
+    mkdir "$root" "$outside"
+    chmod 755 "$outside"
+    ln -s "$outside" "$root/$d"
+    if sh "$here/sandbox.sh" "$root" -- /bin/sh -c 'touch "$1/ran"' sh "$outside" 2>/dev/null; then
+        printf 'sandbox followed the %s symlink\n' "$d" >&2
+        fail=1
+    fi
+    mode=$(stat -c %a "$outside" 2>/dev/null || stat -f %Lp "$outside")
+    if [ -e "$outside/ran" ] || [ "$mode" != 755 ]; then
+        printf 'sandbox touched the %s symlink target\n' "$d" >&2
+        fail=1
+    fi
+done
+
 # A bad call starts nothing.
 for args in "$tmp/x" "/ -- true" "$tmp/x true"; do
     # shellcheck disable=SC2086 # split on purpose: each case is a word list
