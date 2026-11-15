@@ -18,11 +18,13 @@ import (
 )
 
 // runUpdate installs the latest release of this binary's flavor, binName,
-// over it, unless a package manager owns it, then moves the daemon onto the binary with finishUpdate.
+// over it, unless a package manager owns it, then moves the daemon onto the
+// binary with finishUpdate; --restart lets that restart the daemon.
 // PITWALL_UPDATE_URL replaces update.LatestURL, for the release drill.
 func runUpdate(args []string, w io.Writer) error {
-	if len(args) > 0 {
-		return fmt.Errorf("usage: %s update", binName)
+	restart := len(args) == 1 && args[0] == "--restart"
+	if len(args) > 0 && !restart {
+		return fmt.Errorf("usage: %s update [--restart]", binName)
 	}
 	log.SetOutput(io.Discard) // startDaemon's lines, for a window's gui.log
 	exe, err := os.Executable()
@@ -72,7 +74,7 @@ func runUpdate(args []string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return finishUpdate(w, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
+	return finishUpdate(w, restart, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
 }
 
 // printSibling names the other flavor next to exe, and the command that
@@ -92,14 +94,18 @@ func printSibling(w io.Writer, exe, want string) {
 	fmt.Fprintf(w, "%s next to it is %s and updates on its own: %s update\n", other, v, other)
 }
 
-// finishUpdate moves the daemon onto the pitwall just installed: through
-// handOff, which keeps every program in a pane running, else through
-// restart, which resumes agents and stops the rest. It says which on w.
-func finishUpdate(w io.Writer, handOff, restart func() error) error {
+// finishUpdate moves the daemon onto the pitwall just installed through
+// handOff, which keeps every program in a pane running. When that fails the
+// old daemon keeps serving, and only with force does restart replace it,
+// which resumes agents and stops the rest. It says which on w.
+func finishUpdate(w io.Writer, force bool, handOff, restart func() error) error {
 	err := handOff()
 	if err == nil {
 		fmt.Fprintln(w, "The new daemon took over; every program in a pane kept running.")
 		return nil
+	}
+	if !force {
+		return fmt.Errorf("the new daemon could not take over (%v). The old daemon keeps serving, and the programs in its panes keep running on the old build. %s update --restart restarts it: agents resume, other programs in panes stop", err, binName)
 	}
 	fmt.Fprintf(w, "The new daemon could not take over (%v), so pitwall restarts the daemon: agents resume, other programs in panes stop.\n", err)
 	if err := restart(); err != nil {

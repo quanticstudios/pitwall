@@ -32,9 +32,10 @@ import (
 // latest release, and starts v0.0.1's daemon in temporary directories with
 // an agent TUI, a dev server and a test loop in panes. Then it runs
 // v0.0.1's update. In "handoff" all three must keep running under v0.0.2's
-// daemon, with their screens and scrollback. In "restart" the release's
-// daemon refuses the handoff, and the update must say so and restart the
-// daemon.
+// daemon, with their screens and scrollback. In "refused" the release's
+// daemon refuses the handoff, and the update must fail naming update
+// --restart while v0.0.1's daemon keeps serving and all three keep running.
+// In "explicit restart" update --restart must restart the daemon.
 func TestUpdateDrill(t *testing.T) {
 	if os.Getenv("PITWALL_TEST_GUARD") != "" {
 		// why: go build there gets an empty build cache under the temporary
@@ -48,7 +49,9 @@ func TestUpdateDrill(t *testing.T) {
 	run := drillRun{daemon: filepath.Join(bins, "v0.0.1"), release: filepath.Join(bins, "v0.0.2"), tag: "v0.0.2", flavor: binName}
 	t.Run("handoff", func(t *testing.T) { drill(t, run) })
 	run.refuse = true
-	t.Run("restart", func(t *testing.T) { drill(t, run) })
+	t.Run("refused", func(t *testing.T) { drill(t, run) })
+	run.restart = true
+	t.Run("explicit restart", func(t *testing.T) { drill(t, run) })
 }
 
 // TestReleaseHandoff runs the last release's own pitwall update, and this
@@ -64,8 +67,11 @@ func TestReleaseHandoff(t *testing.T) {
 		t.Skip("inside the guarded run")
 	}
 	bins := t.TempDir()
-	desktop, core, coreOld := filepath.Join(bins, "pitwall"), filepath.Join(bins, "pitwall-core"), filepath.Join(bins, "pitwall-core-v0.0.1")
+	desktop := filepath.Join(bins, "pitwall")
+	desktopRefused := filepath.Join(bins, "pitwall-refused")
+	core, coreOld := filepath.Join(bins, "pitwall-core"), filepath.Join(bins, "pitwall-core-v0.0.1")
 	buildPitwall(t, desktop, "v99.0.0", false)
+	buildRefusingPitwall(t, desktopRefused)
 	buildPitwall(t, core, "v99.0.0", true)
 	buildPitwall(t, coreOld, "v0.0.1", true)
 	// a: the release's update installs this desktop build and hands over.
@@ -75,7 +81,13 @@ func TestReleaseHandoff(t *testing.T) {
 	// b: this build refuses the handoff; the release's update restarts, as
 	// its release notes say.
 	t.Run("release-update-refused", func(t *testing.T) {
-		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall", refuse: true})
+		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall", refuse: true, published: true})
+	})
+	// c: the migration path. This build replaces the release's binary, as
+	// get.sh does, and its update meets a refused handoff: the release's
+	// daemon keeps serving and every program keeps running.
+	t.Run("migration-refused", func(t *testing.T) {
+		drill(t, drillRun{daemon: base, updater: desktopRefused, release: desktopRefused, tag: "v99.0.0", flavor: "pitwall", refuse: true})
 	})
 	// d: pitwall-core's update fetches the core archive and hands the
 	// release's daemon over to it.
@@ -86,12 +98,13 @@ func TestReleaseHandoff(t *testing.T) {
 
 // buildPitwall builds this checkout as version into out; with core, as
 // pitwall-core, whatever GOFLAGS says.
-func buildPitwall(t *testing.T, out, version string, core bool) {
+func buildPitwall(t *testing.T, out, version string, core bool, flags ...string) {
 	t.Helper()
 	args := []string{"build", "-o", out, "-ldflags", "-X main.version=" + version}
 	if core {
 		args = append(args, "-tags", "nogui")
 	}
+	args = append(args, flags...)
 	cmd := exec.Command("go", append(args, ".")...)
 	if core {
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -101,14 +114,52 @@ func buildPitwall(t *testing.T, out, version string, core bool) {
 	}
 }
 
+// buildRefusingPitwall builds a candidate with an incompatible handoff
+// protocol. A shell wrapper cannot simulate refusal once preinstalled:
+// os.Executable inside its exec'd binary bypasses the wrapper.
+func buildRefusingPitwall(t *testing.T, out string) {
+	t.Helper()
+	source, err := filepath.Abs("../../internal/daemon/handoff.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	replacement := filepath.Join(dir, "handoff.go")
+	changed := regexp.MustCompile(`const handoffVersion = \d+`).ReplaceAll(b, []byte("const handoffVersion = 999"))
+	if bytes.Equal(b, changed) {
+		t.Fatal("handoff version fixture did not change the protocol")
+	}
+	if err := os.WriteFile(replacement, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlay := filepath.Join(dir, "overlay.json")
+	data, err := json.Marshal(map[string]any{"Replace": map[string]string{source: replacement}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlay, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	buildPitwall(t, out, "v99.0.0", false, "-overlay", overlay)
+}
+
 // drillRun is one update the drill runs.
 type drillRun struct {
-	daemon  string // a binary whose daemon serves the panes first; it runs the update unless updater is set
-	updater string // a pitwall-core that runs the update instead, next to daemon
-	release string // the binary served as release tag, in flavor's archive
-	tag     string
-	flavor  string // pitwall or pitwall-core
-	refuse  bool   // the release's daemon refuses the handoff
+	daemon string // a binary whose daemon serves the panes first; it runs the update unless updater is set
+	// updater runs the update instead, installed as flavor once the panes
+	// run: next to daemon as pitwall-core, or over it as pitwall. When it is
+	// release, the latest build is already installed, as after get.sh.
+	updater   string
+	release   string // the binary served as release tag, in flavor's archive
+	tag       string
+	flavor    string // pitwall or pitwall-core
+	refuse    bool   // the release's daemon refuses the handoff
+	restart   bool   // run update --restart
+	published bool   // the updater is a published release's, which restarts on a refused handoff
 }
 
 func drill(t *testing.T, r drillRun) {
@@ -131,7 +182,10 @@ func drill(t *testing.T, r drillRun) {
 		t.Setenv(k, v)
 	}
 	release := r.release
-	if r.refuse {
+	refusal := "drill: the release refuses"
+	if r.refuse && r.updater == r.release {
+		refusal = "handoff request" // preinstalled candidate has another handoffVersion
+	} else if r.refuse {
 		release = filepath.Join(dir, "refusing")
 		script := "#!/bin/sh\nif [ \"$2\" = --handoff ]; then printf 'drill: the release refuses' >&3; exit 1; fi\nexec " + r.release + " \"$@\"\n"
 		if err := os.WriteFile(release, []byte(script), 0o755); err != nil {
@@ -140,6 +194,7 @@ func drill(t *testing.T, r drillRun) {
 	}
 	t.Setenv("PITWALL_UPDATE_URL", serveRelease(t, r.flavor, r.tag, release)+"/releases/latest")
 
+	// install renames, as get.sh does, so it can replace a running binary.
 	install := func(src, name string) string {
 		t.Helper()
 		bin := filepath.Join(dir, "bin", name)
@@ -148,17 +203,18 @@ func drill(t *testing.T, r drillRun) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(bin, data, 0o755); err != nil {
+		if err := os.WriteFile(bin+".new", data, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(bin+".new", bin); err != nil {
 			t.Fatal(err)
 		}
 		return bin
 	}
 	// bin serves the panes until the update, upd runs it and serves them after.
 	bin := install(r.daemon, r.flavor)
-	upd := bin
 	if r.updater != "" {
 		bin = install(r.daemon, "pitwall")
-		upd = install(r.updater, "pitwall-core")
 	}
 	daemonLog, err := os.Create(filepath.Join(dir, "daemon.out"))
 	if err != nil {
@@ -224,19 +280,35 @@ func drill(t *testing.T, r drillRun) {
 	}
 	before := get(t, addr)
 	turn := counter(t, bin, dir, "agent", `turn (\d+)`)
-
-	out, err := exec.Command(upd, "update").CombinedOutput()
+	original, err := doctorDaemon()
 	if err != nil {
-		t.Fatalf("pitwall update: %v\n%s", err, out)
+		t.Fatalf("ask the original daemon its build: %v", err)
 	}
-	t.Logf("pitwall update:\n%s", out)
-	if want := "Installed " + r.flavor + " " + r.tag + " over "; !strings.Contains(string(out), want) {
+
+	upd := bin
+	if r.updater != "" {
+		upd = install(r.updater, r.flavor)
+	}
+	args := []string{"update"}
+	if r.restart {
+		args = append(args, "--restart")
+	}
+	out, err := exec.Command(upd, args...).CombinedOutput()
+	kept := r.refuse && !r.restart && !r.published // the update keeps the old daemon and fails
+	if (err != nil) != kept {
+		t.Fatalf("pitwall %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	t.Logf("pitwall %s:\n%s", strings.Join(args, " "), out)
+	installed := "Installed " + r.flavor + " " + r.tag + " over "
+	if r.updater == r.release {
+		installed = "pitwall " + r.tag + " is the latest release."
+		if strings.Contains(string(out), "Installed ") {
+			t.Error("migration update installed again after the installer had replaced the binary")
+		}
+	}
+	if want := installed; !strings.Contains(string(out), want) {
 		t.Errorf("pitwall update did not say %q", want)
 	}
-	until(t, "the daemon to run "+r.tag, func() bool {
-		m, err := doctorDaemon()
-		return err == nil && m.Build == r.tag
-	})
 	want := "pitwall " + r.tag + "\n"
 	if r.flavor == "pitwall-core" {
 		want = "pitwall " + r.tag + " (core)\n"
@@ -244,6 +316,46 @@ func drill(t *testing.T, r drillRun) {
 	if v := pitwall(t, upd, dir, "--version"); v != want {
 		t.Errorf("the installed %s says %q, want %q", r.flavor, v, want)
 	}
+	if kept {
+		for _, want := range []string{"could not take over (", refusal, "The old daemon keeps serving", r.flavor + " update --restart restarts it"} {
+			if !strings.Contains(string(out), want) {
+				t.Errorf("pitwall update did not say %q", want)
+			}
+		}
+		if err := syscall.Kill(old.Process.Pid, 0); err != nil {
+			t.Errorf("the old daemon (pid %d) stopped: %v", old.Process.Pid, err)
+		}
+		for name, pid := range map[string]int{"agent": tuiPID, "loop": loopPID, "server": serverPID} {
+			if err := syscall.Kill(pid, 0); err != nil {
+				t.Errorf("%s (pid %d) stopped in the update: %v", name, pid, err)
+			}
+		}
+		if after := get(t, addr); after <= before {
+			t.Errorf("the dev server answered %d after %d", after, before)
+		}
+		m, err := doctorDaemon()
+		if err != nil || m.Build != original.Build {
+			t.Fatalf("retained daemon: build %q, err %v; want %q", m.Build, err, original.Build)
+		}
+		// Use the original executable: the installed one has been replaced.
+		// Reading advancing output proves the daemon still serves its panes,
+		// rather than merely leaving their processes alive while frozen.
+		n := counter(t, r.daemon, dir, "loop", `test run (\d+) ok`)
+		until(t, "the retained daemon to read new loop output", func() bool {
+			return counter(t, r.daemon, dir, "loop", `test run (\d+) ok`) > n
+		})
+		until(t, "the retained daemon to read new agent output", func() bool {
+			return counter(t, r.daemon, dir, "agent", `turn (\d+)`) > turn
+		})
+		if !found(t, loopPane, "test run 1 ok") {
+			t.Error("the retained daemon lost the loop's scrollback")
+		}
+		return
+	}
+	until(t, "the daemon to run "+r.tag, func() bool {
+		m, err := doctorDaemon()
+		return err == nil && m.Build == r.tag
+	})
 
 	if r.refuse {
 		for _, want := range []string{"could not take over (drill: the release refuses)", "The daemon restarted."} {

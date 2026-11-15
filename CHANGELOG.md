@@ -32,6 +32,7 @@ takes `--dry-run`.
 - Releases include pitwall-core for Linux amd64 and arm64. `curl -fsSL .../get.sh | sh -s -- --core` installs it and links `pitwall` to it when that name is free, and `pitwall-core update` installs the next pitwall-core and hands the running daemon over.
 - On Linux, `listTabs`, `readPane`, `scrollback` and `waitPane` on `$PITWALL_SOCKET` do what `ls --json`, `read`, `scrollback` and `wait` do, and `subscribeTabs` pushes the tab list as it changes; `docs/examples` has a Python and a shell client.
 - A host with only pitwall-core works with `pitwall --host` and `new --host`; hooks written through a `pitwall` link or by the other binary count as installed; `doctor` warns when pitwall and pitwall-core in one folder differ.
+- Restarting the daemon from the window hands the panes to the new version with their programs running. `pitwall update` no longer stops programs when the handoff fails: the old daemon keeps serving, and `pitwall update --restart` restarts it. A daemon started from this release refuses the handoff when systemd runs it as a service, since the unit would stop its panes. Updating from v0.2.13 or earlier with panes you want to keep: install with the install script first, then run `pitwall update`. Old daemons under systemd lack the guard: install the binary without running `update`, then restart the unit when you can stop its panes.
 
 ## v0.2.13
 

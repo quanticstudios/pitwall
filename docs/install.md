@@ -125,11 +125,18 @@ Installed pitwall v0.2.1 over v0.2.0.
 The new daemon took over; every program in a pane kept running.
 ```
 
-If the handoff fails, the old daemon keeps serving and `pitwall update`
-restarts it instead, as **Restart now** does: agents resume, other programs
-in panes stop. It prints why the handoff failed first. The Update button
-does not restart on its own: it shows why in the notice at the top of the
-window, and "Restart to finish" asks before restarting. On a build from
+If the handoff fails, the old daemon keeps serving and every program in a
+pane keeps running on the old build. `pitwall update` prints why the handoff
+failed and exits 1. `pitwall update --restart` tries the handoff again and,
+when it fails, restarts the daemon as **Restart now** does: agents resume,
+other programs in panes stop. Until then, a release that changed the
+protocol's major version cannot drive the old daemon from the command line.
+Daemons started from this release refuse the handoff when systemd runs
+them as a service
+([remote.md](remote.md#keep-the-daemon-running-across-reboots)). The Update
+button does not restart on its own either: it shows why in the notice at
+the top of the window, and "Restart to finish" asks, then tries the handoff
+again before it restarts. On a build from
 source, or a binary a package manager owns, `pitwall update` installs
 nothing and only moves the daemon onto the binary, so run it after
 `brew upgrade` or `scripts/install.sh`. With no daemon running it stops
@@ -140,8 +147,21 @@ Windows will not replace a running program, so there the update renames
 next window deletes `pitwall.exe.old` once nothing runs it; while the daemon
 still does, the next update uses `pitwall.exe.old1`, and so on.
 
+`pitwall update` from v0.2.13 or earlier runs that release's own code,
+which restarts the daemon when the handoff fails. To keep the panes running
+through that update, install the new release with the
+[install script](../README.md#install), which leaves the daemon alone, then
+run the new `pitwall update`, which hands the daemon over or keeps it.
+This migration path applies to daemons running outside systemd services.
+A daemon from v0.2.13 or earlier has no systemd refusal guard: even the new
+updater can hand it over, after which systemd kills its panes. If systemd
+runs that old daemon, install the new binary without running `update`, then
+run `systemctl --user restart pitwall` when you can stop the programs in
+panes. Agents resume. Use `systemctl restart <unit>` for a system service.
+
 Windows has no handoff. There the update leaves the daemon running, so
-tabs keep their processes, and `pitwall update` restarts it. Most releases
+tabs keep their processes, and `pitwall update` exits 1 naming
+`pitwall update --restart`, which restarts it. Most releases
 work with the daemon already running; when one cannot, the new window asks
 before restarting it, as after any upgrade (see
 [Upgrades](state.md#upgrades)).

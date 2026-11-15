@@ -147,8 +147,31 @@ then a daemon starting finds the new one on the socket and stops.
 
 On any answer but `ok`, or none within a minute (the new daemon is then
 killed, which before `Started` resumes the old one), the old daemon is
-still serving. `pitwall update` restarts it as **Restart now** does; a
-window leaves that to "Restart to finish". Windows skips the handoff.
+still serving, and it keeps serving: `pitwall update` prints the reason,
+names `pitwall update --restart` and exits 1. Only `update --restart`, a
+window's **Restart now** and "Restart to finish" go on to restart it; the
+window's two try the handoff first too. Windows skips the handoff.
+
+The old daemon refuses a handoff when:
+
+- the request's `handoffVersion` differs from its own;
+- it runs as a systemd service: on Linux its `/proc/self/cgroup` unified
+  path ends in `<unit>.service` and its parent process is `systemd`. The
+  panes would stay in the unit's cgroup, and systemd stops the unit, killing
+  them, once the old daemon exits. The reason names the unit and its
+  `systemctl restart`. A daemon in a `session-*.scope` or `app-*.scope`
+  hands off;
+- a pane cannot be frozen or saved, for example one that is exiting.
+
+The new daemon gives up when the bundle is of another `handoffVersion`, a
+snapshot has an unknown `vt.SnapshotVersion`, the bundle carries chats, or
+a step times out.
+
+The systemd refusal belongs to the running old daemon. Daemons from
+v0.2.13 or earlier do not have it and can hand off even to a new updater;
+systemd then kills their panes. For such a service, install the binary
+without running `update`, then restart the unit when you can stop the
+programs in panes. See [Updates](install.md#updates).
 
 `TestUpdateDrill` in `cmd/pitwall/drill_test.go` is the release drill. It
 builds this tree as v0.0.1 and v0.0.2, serves v0.0.2 as a release from a
@@ -157,5 +180,7 @@ directories with an agent TUI on the alternate screen, a dev server and a
 test loop. After v0.0.1's `pitwall update` it checks that all three kept
 their processes, the server still answers, the loop's first line is still
 in its scrollback, and the TUI keeps drawing. A second run serves a release
-whose daemon refuses the handoff and checks that the update says so and
-restarts the daemon. CI runs it on Linux and macOS.
+whose daemon refuses the handoff and checks that the update fails naming
+`--restart` while v0.0.1's daemon and all three programs keep running. A
+third runs `pitwall update --restart` against the same release and checks
+that it restarts the daemon. CI runs it on Linux and macOS.
