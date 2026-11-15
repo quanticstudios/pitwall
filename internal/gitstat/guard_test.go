@@ -19,6 +19,28 @@ import (
 
 // Adapted from tuios (MIT): internal/childproc/git_test.go
 
+func TestCommandEnvKeepsRepositoryGuard(t *testing.T) {
+	p := newProbes(t)
+	repo := t.TempDir()
+	mustPlain(t, repo, "init", "--quiet")
+	mustPlain(t, repo, "config", "core.fsmonitor", p.script("local-fsmonitor"))
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, []byte("[user]\nname = Worker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "GIT_CONFIG_GLOBAL="+global, "GIT_CONFIG_NOSYSTEM=1")
+	ctx := context.Background()
+	if out, err := CommandEnv(ctx, repo, env, "config", "--get", "user.name").Output(); err != nil || strings.TrimSpace(string(out)) != "Worker" {
+		t.Fatalf("worker config = %q, %v", out, err)
+	}
+	if out, err := CommandEnv(ctx, repo, env, "status", "--porcelain").CombinedOutput(); err != nil {
+		t.Fatalf("status: %v: %s", err, out)
+	}
+	if ran := p.ran(); len(ran) != 0 {
+		t.Fatalf("repository programs ran: %v", ran)
+	}
+}
+
 // probes writes shell scripts that record their name when git runs them.
 type probes struct {
 	t      *testing.T

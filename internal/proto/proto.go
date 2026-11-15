@@ -225,7 +225,7 @@ const HostCheckLevel = 79
 // NewSession or NewWorkspace would start it: Cmd on the daemon's PATH,
 // pitwall's hooks and the agent's login in the config dir Env over the
 // daemon's environment names, and with Repo set, a git work tree there
-// whose origin git can read and push to, and gh can open a pull request
+// whose origin git can read and attempt a dry-run push to, and gh can open a pull request
 // on when it is on GitHub. A leading ~/ in Repo is the daemon's home
 // folder. Clone, origin's URL on the asking machine, goes in the clone
 // command a missing Repo's fix gives. The daemon answers this client alone
@@ -233,6 +233,7 @@ const HostCheckLevel = 79
 type HostCheck struct {
 	Cmd, Env    []string
 	Repo, Clone string
+	Cwd         string // the worker's launch directory, including a leading ~/
 }
 
 // HostCheckResult is what would stop a HostCheck's worker, or with Warn

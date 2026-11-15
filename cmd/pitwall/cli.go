@@ -25,6 +25,7 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -237,10 +238,14 @@ func startOnHost(local *cliConn, daemon string, session *model.Session, host str
 		return "", fmt.Errorf("%s: %w", host, err)
 	}
 	// The host checks the start before anything is pushed, made or recorded.
-	if (len(tab.Cmd) > 0 || wt != nil) && m.Level >= proto.HostCheckLevel {
-		req := proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env}
+	// An existing id is reconciled by the daemon without starting a process.
+	// Its executable or credentials may have changed since the original start.
+	knownID := tab.ID != "" && (m.State.Workspace(tab.ID) != nil || slices.ContainsFunc(m.State.Closed, func(c model.ClosedTab) bool { return c.ID == tab.ID || c.Tab.ID == tab.ID }))
+	if (len(tab.Cmd) > 0 || wt != nil) && m.Level >= proto.HostCheckLevel && !knownID {
+		req := proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env, Cwd: tab.Cwd}
 		if wt != nil {
 			req.Repo, req.Clone = wt.msg.Root, wt.clone
+			req.Cwd = filepath.Join(req.Repo, ".worktrees", gitstat.Slug(tab.Name))
 		}
 		if err := hostCheck(hc, host, req); err != nil {
 			return "", err
@@ -251,7 +256,7 @@ func startOnHost(local *cliConn, daemon string, session *model.Session, host str
 	}
 	// The commit goes first: a host without the repository gets no part,
 	// record or tab. A retry pushes the same commit to the same ref.
-	if wt != nil && wt.push != nil {
+	if wt != nil && wt.push != nil && !knownID {
 		if err := wt.push(tab.ID); err != nil {
 			return "", err
 		}

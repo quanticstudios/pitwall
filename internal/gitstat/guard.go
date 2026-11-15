@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/gitenv"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
@@ -47,9 +48,15 @@ import (
 // config cannot be read, the command fails to start with that error, and git
 // does not run.
 func Command(ctx context.Context, dir string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, guardArgs(args)...)...)
+	return CommandEnv(ctx, dir, nil, args...)
+}
+
+// CommandEnv is Command with the supplied process environment, or the
+// daemon's environment when env is nil. Repository programs remain guarded.
+func CommandEnv(ctx context.Context, dir string, env []string, args ...string) *exec.Cmd {
+	cmd := childproc.CommandContext(ctx, dir, env, "git", append([]string{"-C", dir}, guardArgs(args)...)...)
 	nowindow.Set(cmd)
-	env, err := Env(ctx, dir, nil)
+	env, err := Env(ctx, dir, env)
 	cmd.Env = env
 	if err != nil {
 		cmd.Err = err
@@ -219,7 +226,7 @@ func parseConfig(out []byte) ([]configEntry, error) {
 // why: the error wraps only a git that did not start. A caller of Command reads
 // exit status 1 as an answer, such as no such ref, which a failed read is not.
 func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd := childproc.CommandContext(ctx, dir, env, "git", append([]string{"-C", dir}, args...)...)
 	nowindow.Set(cmd)
 	cmd.Env = gitenv.Clean(env)
 	var stdout, stderr bytes.Buffer

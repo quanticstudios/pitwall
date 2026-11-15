@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -35,13 +36,29 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 	if rest, ok := strings.CutPrefix(repo, "~/"); ok {
 		repo = filepath.Join(home, rest) // as newWorkspace expands NewWorkspace.Root
 	}
+	cwd := cmp.Or(m.Cwd, repo, home)
+	if rest, ok := strings.CutPrefix(cwd, "~/"); ok || cwd == "~" {
+		cwd = filepath.Join(home, rest)
+	}
+	get := envGet(m.Env)
+	_, cwdErr := os.Stat(cwd)
+	pending := repo != "" && errors.Is(cwdErr, os.ErrNotExist)
 	if len(m.Cmd) > 0 {
-		cwd, get := cmp.Or(repo, home), envGet(m.Env)
 		provider := agent.Identify("", m.Cmd[0])
 		key, dir := agentDir(provider, get, cwd)
 		// why: panes start with exec.Command, which looks cmd[0] up on the daemon's own PATH.
-		if _, err := exec.LookPath(m.Cmd[0]); err != nil {
+		program := m.Cmd[0]
+		relativeProgram := !filepath.IsAbs(program) && strings.ContainsAny(program, `/\`)
+		if relativeProgram {
+			program = filepath.Join(cwd, program)
+		}
+		_, pathErr := exec.LookPath(program)
+		if pathErr != nil && !(pending && relativeProgram) {
 			add(false, "install it, or add its folder to the PATH pitwall's daemon starts with (docs/remote.md)", "%s is not on the daemon's PATH", m.Cmd[0])
+		} else if rel, err := filepath.Rel(cwd, dir); pending && (relativeProgram || err == nil && filepath.IsLocal(rel)) {
+			// Checkout and worktree links can supply these files. startVT
+			// still checks the final hooks before any pane can run.
+			add(true, "ensure the command and hooks exist in the prepared worktree; the start-time guard still applies", "agent preflight deferred until the worktree exists")
 		} else {
 			if err := guardGate(m.Cmd, m.Env, cwd); err != nil {
 				add(false, "", "%v: %v", errUnguarded, err)
@@ -56,7 +73,8 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 	if repo == "" {
 		return out
 	}
-	if err := gitstat.Command(ctx, repo, "rev-parse", "--is-inside-work-tree").Run(); err != nil {
+	env := append(os.Environ(), m.Env...)
+	if result, err := gitstat.CommandEnv(ctx, repo, env, "rev-parse", "--is-inside-work-tree").Output(); err != nil || strings.TrimSpace(string(result)) != "true" {
 		fix := "clone the repository there"
 		if m.Clone != "" {
 			fix = "git clone " + m.Clone + " " + m.Repo
@@ -67,9 +85,20 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 	remote := func(args ...string) (int, string) {
 		ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 		defer cancel()
-		cmd := gitstat.Command(ctx, repo, args...)
+		cmd := gitstat.CommandEnv(ctx, repo, env, args...)
+		defer childproc.Bound(cmd)()
 		// What a worker's git push uses, failing instead of asking for a password.
-		cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+		ssh := get("GIT_SSH_COMMAND")
+		if ssh == "" {
+			// Preserve the trusted transport CommandEnv retained from git config.
+			out, _ := gitstat.CommandEnv(ctx, repo, env, "config", "--get", "core.sshCommand").Output()
+			ssh = strings.TrimSpace(string(out))
+		}
+		if ssh == "" && get("GIT_SSH") != "" {
+			ssh = "'" + strings.ReplaceAll(get("GIT_SSH"), "'", `'\''`) + "'"
+		}
+		ssh = cmp.Or(ssh, "ssh") + " -o BatchMode=yes"
+		cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND="+ssh)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		err := cmd.Run()
@@ -94,10 +123,14 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 	// A dry run asks origin to accept the push without sending it.
 	if code, msg := remote("push", "--dry-run", "--no-verify", "--quiet", "origin", "HEAD:refs/heads/pitwall-check-"+strings.ToLower(rand.Text()[:8])); code != 0 {
 		add(false, login+", with write access", "git cannot push to origin: %s", msg)
+	} else {
+		// A server can accept receive-pack but reject the actual update.
+		// Without an actual write, a successful dry run does not prove permission.
+		add(true, "confirm this worker's git credentials can push to origin", "push permission not checked: git's dry run succeeded, but origin may still refuse a write")
 	}
 	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 	defer cancel()
-	if gh, err := forge.PushAccess(ctx, repo); err != nil {
+	if gh, err := forge.PushAccessEnv(ctx, repo, env); err != nil {
 		add(false, "gh auth login there, with an account that can push to "+gh, "%v", err)
 	}
 	return out

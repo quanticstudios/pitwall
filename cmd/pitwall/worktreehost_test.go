@@ -141,7 +141,7 @@ func TestHostCheck(t *testing.T) {
 	hostWarnings = &warned
 	session := &model.Session{ID: "s", Name: "main"}
 	tab := proto.NewSession{Name: "fix", Cmd: []string{"claude"}, Env: []string{"CLAUDE_CONFIG_DIR=/p"}, ParentTab: "lw"}
-	want := proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env, Repo: "~/app", Clone: "https://example.com/app.git"}
+	want := proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env, Repo: "~/app", Clone: "https://example.com/app.git", Cwd: filepath.Join("~/app", ".worktrees", "fix")}
 	problems := []proto.HostProblem{
 		{What: "no claude login in /p", Fix: "start claude there once and log in", Warn: true},
 		{What: "git cannot push to origin: read only", Fix: "set up the ssh key"},
@@ -157,6 +157,12 @@ func TestHostCheck(t *testing.T) {
 	}
 	if got := warned.String(); got != "pitwall: box: no claude login in /p\n    fix on box: start claude there once and log in\n" {
 		t.Errorf("warnings %q", got)
+	}
+	// A plain new carries its launch directory too, without a repository check.
+	tab.Cwd = "~/project"
+	hostConns(t, []cliExchange{{state: model.State{}, level: proto.HostCheckLevel}, {request: proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env, Cwd: tab.Cwd}, checked: []proto.HostProblem{{What: "missing hooks", Fix: "install hooks"}}}})
+	if _, err := startOnHost(nil, "here", session, "box", tab, false, nil); err == nil || !strings.Contains(err.Error(), "missing hooks") {
+		t.Fatalf("plain new directory check: %v", err)
 	}
 	// A host one level lower is asked nothing: its next request is the part.
 	hostConns(t, []cliExchange{{state: model.State{}, level: proto.HostCheckLevel - 1}, {request: func(got any) bool { _, ok := got.(proto.SessionNew); return ok }, drop: true}})

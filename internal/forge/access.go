@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 )
 
@@ -15,17 +15,24 @@ import (
 // repo is that repository, "" when origin is not on GitHub, which needs
 // no gh.
 func PushAccess(ctx context.Context, dir string) (repo string, err error) {
-	out, err := gitstat.Command(ctx, dir, "config", "--get", "remote.origin.url").Output()
+	return PushAccessEnv(ctx, dir, nil)
+}
+
+// PushAccessEnv is PushAccess using env for git and gh, or the daemon's
+// environment when env is nil.
+func PushAccessEnv(ctx context.Context, dir string, env []string) (repo string, err error) {
+	out, err := gitstat.CommandEnv(ctx, dir, env, "config", "--get", "remote.origin.url").Output()
 	if err != nil {
 		return "", nil // no origin: the git checks report it
 	}
 	if repo, err = githubRepository(strings.TrimSpace(string(out))); err != nil {
 		return "", nil
 	}
-	if _, err := exec.LookPath("gh"); err != nil {
-		return repo, fmt.Errorf("gh is not installed")
+	cmd := ghCmdEnv(ctx, dir, env, "api", "repos/"+repo, "--jq", ".permissions.push")
+	if cmd.Err != nil {
+		return repo, fmt.Errorf("gh cannot start: %w", cmd.Err)
 	}
-	cmd := ghCmd(ctx, dir, "api", "repos/"+repo, "--jq", ".permissions.push")
+	defer childproc.Bound(cmd)()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err = cmd.Output()

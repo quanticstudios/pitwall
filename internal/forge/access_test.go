@@ -47,4 +47,12 @@ func TestPushAccess(t *testing.T) {
 			t.Errorf("origin %q, gh %q: %v, want %q", c.origin, c.answer, err, c.want)
 		}
 	}
+	// The daemon may have another account. Use the worker's token and HOME,
+	// preserving gh's noninteractive flags and git's repository safeguards.
+	if err := os.WriteFile(answer, []byte("[ \"$GH_TOKEN\" = worker ] && [ \"$HOME\" = '"+repo+"' ] && [ \"$GH_PROMPT_DISABLED\" = 1 ] || exit 1\necho true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PushAccessEnv(context.Background(), repo, append(os.Environ(), "GH_TOKEN=worker", "HOME="+repo)); err != nil {
+		t.Fatalf("worker credentials: %v", err)
+	}
 }
