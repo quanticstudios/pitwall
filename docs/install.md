@@ -149,9 +149,18 @@ matches `checksums.txt` before it writes anything, then hands the daemon
 over as above. When the handoff fails, the old daemon keeps serving and the
 command to force it is `pitwall update --restart --version vX`, since a
 plain `pitwall update --restart` would install the latest release again.
+The installed older release may not understand `--version` or `--restart`.
+If it rejects that retry, reinstall a newer updater that supports these
+flags at the same path without touching the daemon, then run
+`pitwall update --restart --version vX` in one invocation. The
+[install script](../README.md#install) leaves the daemon alone; use the same
+install directory and, for pitwall-core, `--core`. This also applies after a
+refused downgrade across protocol levels. Avoid running the older release's
+plain `update`, which installs the latest release.
 A package manager's binary installs nothing here either. On Windows the
 release installs and the daemon keeps running on the old build until
-`pitwall update --restart --version vX`.
+an updater that supports these flags runs
+`pitwall update --restart --version vX` in one invocation.
 `PITWALL_VERSION=vX` with the [install script](../README.md#install)
 installs a version without touching the daemon.
 

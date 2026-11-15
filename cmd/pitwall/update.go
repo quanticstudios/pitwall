@@ -61,7 +61,14 @@ func runUpdate(args []string, w io.Writer) error {
 	if tag != "" {
 		force += " --version " + tag // a plain update would install the latest instead
 	}
-	return finishUpdate(w, restart, force, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
+	err = finishUpdate(w, restart, force, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
+	if err != nil && !restart && tag != "" {
+		// The retry runs the binary just installed, which may be older than
+		// these flags. Restoring a capable updater needs no backup state and
+		// leaves the daemon alone until the explicit restart invocation.
+		return fmt.Errorf("%w. If the installed release rejects these flags, reinstall an updater that supports --version without touching the daemon, then run %s in one invocation", err, force)
+	}
+	return err
 }
 
 // updateArgs reads update's arguments: --restart, and --version with a tag.

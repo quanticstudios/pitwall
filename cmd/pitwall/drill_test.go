@@ -46,8 +46,54 @@ func TestUpdateDrill(t *testing.T) {
 		t.Skip("inside the guarded run")
 	}
 	bins := t.TempDir()
+	// Model a release without --version at the previous protocol level,
+	// than just relabeling this checkout. A refused downgrade's retry then
+	// runs an updater that cannot understand the flag we used to install it.
+	replace := make(map[string]string)
+	for file, change := range map[string]func([]byte) []byte{
+		"../../internal/proto/proto.go": func(b []byte) []byte {
+			return bytes.Replace(b, fmt.Appendf(nil, "const Level = %d", proto.Level), fmt.Appendf(nil, "const Level = %d", proto.Level-1), 1)
+		},
+		"update.go": func(b []byte) []byte {
+			const signature = "func updateArgs(args []string) (restart bool, tag string, err error) {"
+			return bytes.Replace(b, []byte(signature), []byte(signature+`
+	for _, arg := range args {
+		if arg == "--version" { return false, "", errors.New("usage: pitwall update [--restart]") }
+	}`), 1)
+		},
+	} {
+		source, err := filepath.Abs(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed := change(b)
+		if bytes.Equal(b, changed) {
+			t.Fatalf("old release fixture did not change %s", file)
+		}
+		replacement := filepath.Join(bins, filepath.Base(file))
+		if err := os.WriteFile(replacement, changed, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		replace[source] = replacement
+	}
+	data, err := json.Marshal(map[string]any{"Replace": replace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay := filepath.Join(bins, "old-release.json")
+	if err := os.WriteFile(overlay, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, v := range []string{"v0.0.1", "v0.0.2"} {
-		buildPitwall(t, filepath.Join(bins, v), v, binName != "pitwall")
+		var flags []string
+		if v == "v0.0.1" {
+			flags = []string{"-overlay", overlay}
+		}
+		buildPitwall(t, filepath.Join(bins, v), v, binName != "pitwall", flags...)
 	}
 	run := drillRun{daemon: filepath.Join(bins, "v0.0.1"), release: filepath.Join(bins, "v0.0.2"), tag: "v0.0.2", flavor: binName}
 	t.Run("handoff", func(t *testing.T) { drill(t, run) })
@@ -366,6 +412,26 @@ func drill(t *testing.T, r drillRun) {
 		})
 		if !found(t, loopPane, "test run 1 ok") {
 			t.Error("the retained daemon lost the loop's scrollback")
+		}
+		if r.version {
+			if !strings.Contains(string(out), "reinstall an updater that supports --version without touching the daemon") {
+				t.Fatal("the refused downgrade gave no recovery for a release without --version")
+			}
+			// The installed old release cannot run the suggested retry. Put a
+			// capable updater back, as the install script does without touching
+			// the daemon, then request the downgrade and restart together.
+			if retry, err := exec.Command(upd, "update", "--restart", "--version", r.tag).CombinedOutput(); err == nil || !bytes.Contains(retry, []byte("usage:")) {
+				t.Fatalf("old updater accepted --version: %v\n%s", err, retry)
+			}
+			install(r.daemon, r.flavor)
+			if retry, err := exec.Command(upd, "update", "--restart", "--version", r.tag).CombinedOutput(); err != nil || !bytes.Contains(retry, []byte("The daemon restarted.")) {
+				t.Fatalf("forced downgrade after restoring updater: %v\n%s", err, retry)
+			}
+			until(t, "the forced downgrade to run "+r.tag, func() bool {
+				m, err := doctorDaemon()
+				return err == nil && m.Build == r.tag && m.Level == proto.Level-1
+			})
+			until(t, "the forced downgrade to stop the loop", func() bool { return syscall.Kill(loopPID, 0) != nil })
 		}
 		return
 	}
