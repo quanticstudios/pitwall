@@ -124,8 +124,8 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 		if Version != "" {
 			v += " " + Version
 		}
-		title = v + " needs to restart its background service; programs running in panes will stop."
-		body = "Agents resume after the restart. Later closes this window and leaves everything running."
+		title = v + " needs to restart its background service."
+		body = "Restarting hands every pane to it with its program still running; if that fails, programs in panes stop and agents resume. Later closes this window and leaves everything running."
 		ok, later = "Restart now", "Later"
 		okKind = kit.Danger
 	}

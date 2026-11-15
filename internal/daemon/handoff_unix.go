@@ -60,6 +60,13 @@ func (d *Daemon) handOff(nc net.Conn, conn *proto.Conn) error {
 	if r, ok := m.(handoffRequest); !ok || r.Version != handoffVersion {
 		return fmt.Errorf("handoff request %#v, want version %d", m, handoffVersion)
 	}
+	if unit, user := supervised(); unit != "" {
+		systemctl := "systemctl"
+		if user {
+			systemctl += " --user"
+		}
+		return fmt.Errorf("this daemon runs as the systemd unit %s; a handoff would leave its panes in a unit that stops. Run %s restart %s (agents resume, other programs stop)", unit, systemctl, unit)
+	}
 	// why: d.mu stays held until the end, so no request, exit or timer
 	// changes state or panes after they were sent.
 	d.sendMu.Lock()

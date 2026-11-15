@@ -145,19 +145,21 @@ arrive then.
 
 A release that changes the protocol's major version cannot use the running
 daemon. Its first window asks: "pitwall <version> needs to restart its
-background service; programs running in panes will stop." Nothing stops
-until you choose:
+background service." Nothing stops until you choose:
 
-- **Restart now** has the old daemon save its state and stop, then starts
-  the new one. Tabs come back as after a reboot, with agents resumed.
+- **Restart now** first hands the old daemon's panes to the new one, their
+  programs still running, as `pitwall update` does. When that fails, it has
+  the old daemon save its state and stop, then starts the new one. Tabs come
+  back as after a reboot, with agents resumed.
 - **Later** closes the window and leaves the old daemon and its programs
   running. Windows still open from before the upgrade keep working. Run
   `pitwall` again when you are ready to restart; it asks again.
 
 `pitwall update` and the Update button skip that question on Linux and
 macOS: the new daemon takes over the old one's panes without stopping them,
-whatever the protocol versions. Only when that fails does pitwall fall back
-to the restart above ([Updates](install.md#updates)).
+whatever the protocol versions. When that fails, the old daemon keeps
+serving until you choose the restart above or run `pitwall update
+--restart` ([Updates](install.md#updates)).
 
 A window from before the upgrade whose daemon was restarted by a newer one
 reopens itself on the installed binary. CLI commands of the other major

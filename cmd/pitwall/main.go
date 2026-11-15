@@ -171,9 +171,10 @@ const usage = `usage:
                              vim at the edge of its windows (see docs/keys.md)
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
   pitwall doctor             check the install, the daemon, hooks and config; changes nothing
-  pitwall update             install the latest release over this binary, then hand the
+  pitwall update [--restart] install the latest release over this binary, then hand the
                              running daemon's panes to it, their programs still running;
-                             if that fails, restart the daemon (see docs/usage.md)
+                             if that fails, the old daemon keeps serving, and --restart
+                             restarts it instead (see docs/install.md#updates)
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
   pitwall snapshots [restore <name>]
                              list the saved tabs' snapshots, or stop the daemon

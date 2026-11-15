@@ -57,7 +57,8 @@ func (u *ui) restartBody(gtx gl.Context) gl.Dimensions {
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted,
 				"It still runs the pitwall from before the update, so the new features that need it do nothing yet. "+
-					"Restarting stops every program running in a pane; agents resume where they left off.")
+					"Restarting hands every pane to the new version with its program still running. "+
+					"If that fails, it stops the programs in panes; agents resume where they left off.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {

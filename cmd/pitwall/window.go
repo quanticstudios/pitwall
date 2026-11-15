@@ -81,13 +81,7 @@ func runGUI(session string) error {
 	}
 	app.Version, app.Relaunch, app.InstallHooks = versionString(), launchGUI, installHooks
 	if runtime.GOOS != "windows" { // Windows keeps the restart
-		app.HandOff = func() error {
-			exe, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			return handOff(exe)
-		}
+		app.HandOff = handOffSelf
 	}
 	app.NoteFirstRun() // before the daemon starts and saves its state
 	conn, initial, err := guiDial(session, false)
@@ -128,10 +122,21 @@ func runGUI(session string) error {
 	return err
 }
 
+// handOffSelf moves the daemon's panes to this binary's daemon, their
+// programs still running; a var for tests.
+var handOffSelf = func() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return handOff(exe)
+}
+
 // dialOrStart completes the GUI handshake, starting a daemon when none
 // runs. A daemon of another proto.Version keeps running, reported as
-// incompatible, unless restart is set: then it gets one graceful restart,
-// so it saves its state, and a daemon of this version replaces it.
+// incompatible, unless restart is set: then it hands its panes to this
+// binary's daemon, or when it cannot, gets one graceful restart, so it
+// saves its state, and a daemon of this version replaces it.
 func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, error) {
 	path, err := socketPath()
 	if err != nil {
@@ -159,11 +164,18 @@ func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, err
 	if !restart {
 		return nil, proto.StateMsg{}, err
 	}
-	log.Printf("restarting the daemon: %q", err)
-	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
-		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
+	log.Printf("replacing the daemon: %q", err)
+	if hErr := handOffSelf(); hErr == nil {
+		log.Printf("the daemon handed its panes over")
+		nc, err = net.Dial("unix", path)
+	} else {
+		// The user chose Restart, whose text says programs in panes stop.
+		log.Printf("handoff: %q; restarting the daemon", hErr)
+		if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
+			return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
+		}
+		nc, err = startDaemon(path)
 	}
-	nc, err = startDaemon(path)
 	if err != nil {
 		return nil, proto.StateMsg{}, err
 	}

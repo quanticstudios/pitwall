@@ -37,6 +37,7 @@ func TestDialOrStartAsksBeforeRestart(t *testing.T) {
 	t.Setenv("PITWALL_SOCKET", "")
 	for _, mode := range []string{"raw", "error", "silent", "empty", "stuck"} {
 		t.Run(mode, func(t *testing.T) {
+			handoffs := stubHandOff(t, errors.New("the old daemon cannot hand off"))
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("SHELL", "/bin/sh")
@@ -102,6 +103,9 @@ func TestDialOrStartAsksBeforeRestart(t *testing.T) {
 				return
 			}
 			conn, initial, err := dialOrStart("", true)
+			if *handoffs != 1 {
+				t.Fatalf("restart tried %d handoffs, want 1 before the stop", *handoffs)
+			}
 			// "empty" is a daemon from before the pid was written: it is
 			// found through /proc/locks and replaced like the others.
 			if mode == "stuck" {
@@ -216,6 +220,7 @@ func TestDialOrStartRestartsOlderDaemon(t *testing.T) {
 	app.Version = "v0.1.1"
 	for _, mode := range []string{"behind", "older"} {
 		t.Run(mode, func(t *testing.T) {
+			stubHandOff(t, errors.New("the old daemon refused"))
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("SHELL", "/bin/sh")
@@ -274,6 +279,54 @@ func TestDialOrStartRestartsOlderDaemon(t *testing.T) {
 				t.Fatal("the old daemon still runs")
 			}
 		})
+	}
+}
+
+// stubHandOff makes the window's handoff return err and counts its calls.
+func stubHandOff(t *testing.T, err error) *int {
+	n := new(int)
+	old := handOffSelf
+	handOffSelf = func() error { *n++; return err }
+	t.Cleanup(func() { handOffSelf = old })
+	return n
+}
+
+// The window's Restart hands the daemon's panes over first, and stops the
+// daemon only when that fails (TestDialOrStartRestartsOlderDaemon).
+func TestRestartHandsOverFirst(t *testing.T) {
+	t.Setenv("PITWALL_SOCKET", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	handoffs := stubHandOff(t, nil)
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "PITWALL_TEST_OLD=behind")
+	ready, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	defer cmd.Process.Kill()
+	var line [6]byte
+	if _, err := io.ReadFull(ready, line[:]); err != nil {
+		t.Fatalf("start old daemon: %v", err)
+	}
+	conn, _, err := dialOrStart("", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if *handoffs != 1 {
+		t.Fatalf("%d handoffs, want 1", *handoffs)
+	}
+	select {
+	case err := <-exited:
+		t.Fatalf("the restart stopped the daemon after a handoff: %v", err)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
