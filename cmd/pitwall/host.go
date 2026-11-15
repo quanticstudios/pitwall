@@ -21,15 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
-	"github.com/quanticstudios/pitwall/internal/ui/app"
 )
-
-// guiDial is how a window connects and reconnects: dialOrStart, or a
-// remote's dial for pitwall --host.
-var guiDial = dialOrStart
-
-// hostArgs open another window on the same host: --host <name>, or none.
-var hostArgs []string
 
 // remoteMark starts the line remote-start prints. pitwall --host reads it
 // from the host's pitwall of any version, so its fields never change:
@@ -47,22 +39,6 @@ func parseHost(args []string) (host, session string, ok bool) {
 		return args[0], args[2], true
 	}
 	return "", "", false
-}
-
-// runHostGUI is runGUI on the daemon of an ssh host, which it starts when
-// none runs there.
-func runHostGUI(host, session string) error {
-	if runtime.GOOS == "windows" {
-		return errors.New("pitwall --host needs ssh's connection sharing (ControlMaster), which Windows' ssh lacks")
-	}
-	s, _ := config.Load()
-	r, err := newSSHHost(host, s.Hosts)
-	if err != nil {
-		return err
-	}
-	defer r.close()
-	app.Host, guiDial, hostArgs = host, r.dial, []string{"--host", host}
-	return runGUI(session)
 }
 
 // sshHost is a daemon on an ssh host. One ssh connection, shared through
@@ -162,22 +138,6 @@ func startCommand(restart bool) string {
 		cmd += " --restart"
 	}
 	return `sh -c 'PATH="$PATH:$HOME/.local/bin" exec ` + cmd + `'`
-}
-
-// dial is dialOrStart on the host: it makes sure a daemon runs there,
-// forwards its socket here and completes the GUI handshake. After the link
-// drops, the backend calls it again, which opens a new ssh connection when
-// the old one died.
-func (r *sshHost) dial(session string, restart bool) (*proto.Conn, proto.StateMsg, error) {
-	nc, err := r.socket(restart)
-	if err != nil {
-		return nil, proto.StateMsg{}, err
-	}
-	conn, initial, err := guiHandshake(nc, "", session)
-	if err != nil && !errors.As(err, new(incompatible)) {
-		err = fmt.Errorf("daemon handshake on %s failed: %w; see daemon.log there (pitwall logs)", r.name, err)
-	}
-	return conn, initial, err
 }
 
 // socket makes sure a daemon runs on the host, forwards its socket here

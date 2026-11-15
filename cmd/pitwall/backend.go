@@ -1,3 +1,5 @@
+//go:build !nogui
+
 package main
 
 import (
@@ -81,9 +83,6 @@ var errNotConnected = errors.New("not connected to the daemon")
 // errOlderDaemon is Send's error for a message type the daemon's
 // proto.Level predates; nothing is sent.
 var errOlderDaemon = errors.New("the daemon is older than this window")
-
-// The waits between reconnect tries double from retryMin up to retryMax.
-var retryMin, retryMax = 500 * time.Millisecond, 30 * time.Second
 
 // newBackend queues a FocusSession for the window's first session, and the
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.

@@ -1,31 +1,10 @@
 package main
 
 import (
-	"os"
-	"os/exec"
-	"slices"
+	"fmt"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
-
-// launchGUI opens a window on session in a process of its own, showing tab
-// workspaceID when set.
-var launchGUI = func(session, workspaceID string) error {
-	bin, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(bin, append(slices.Clone(hostArgs), "-s", session)...)
-	if workspaceID != "" {
-		cmd.Env = append(os.Environ(), "PITWALL_ATTACH="+workspaceID)
-	}
-	detach(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go cmd.Wait()
-	return nil
-}
 
 // attachGUI opens a window on the tab's session unless one shows it: that
 // window got the FocusSession already and raises itself.
@@ -35,4 +14,15 @@ func attachGUI(state model.State, session, workspaceID string) error {
 		return nil
 	}
 	return launchGUI(s.Name, workspaceID)
+}
+
+// needsWindow is why pitwall-core refuses to show session, which it can
+// only do by raising a window that shows it already, or nil. It runs
+// before any request, so a refusal changes nothing.
+func needsWindow(state model.State, session string) error {
+	s := state.Session(session)
+	if canOpenWindow || s == nil || s.Windows > 0 {
+		return nil
+	}
+	return fmt.Errorf("no window shows session %s, and pitwall-core cannot open one; open it with the desktop pitwall", s.Name)
 }

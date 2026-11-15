@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
-	"github.com/quanticstudios/pitwall/internal/ui/app"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
 
@@ -18,9 +17,6 @@ const webUsage = `usage:
 Turn the web listener on with [web] enabled = true in config.toml; see
 docs/web-protocol.md.
 `
-
-// openURL opens a URL in the default browser; a var for tests.
-var openURL = app.OpenURL
 
 // runWeb is `pitwall web <cmd>`; it returns the exit status.
 func runWeb(args []string, stdout, stderr io.Writer) int {
