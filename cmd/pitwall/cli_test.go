@@ -28,6 +28,9 @@ type cliExchange struct {
 	error   string
 	level   int  // the daemon's proto.Level in its StateMsg
 	drop    bool // close the connection after the request, unanswered
+	// checked answers a proto.HostCheck request with these problems, and
+	// no state. A HostCheck no exchange expects finds none.
+	checked []proto.HostProblem
 }
 
 // setHome makes dir the home folder, and on Windows the profile whose
@@ -91,9 +94,18 @@ func serveCLI(nc net.Conn, exchanges []cliExchange) error {
 	if got, err := c.Recv(); err != nil || got != want {
 		return fmt.Errorf("Hello = %#v, %v", got, err)
 	}
+	level := 0 // in the last StateMsg
 	for _, exchange := range exchanges {
 		if exchange.request != nil {
 			got, err := c.Recv()
+			for _, check := got.(proto.HostCheck); check && err == nil && exchange.checked == nil; _, check = got.(proto.HostCheck) {
+				if level < proto.HostCheckLevel {
+					return fmt.Errorf("HostCheck to a daemon at level %d", level)
+				}
+				if err = c.Send(proto.HostCheckResult{}); err == nil {
+					got, err = c.Recv()
+				}
+			}
 			matches := reflect.DeepEqual(got, exchange.request)
 			if check, ok := exchange.request.(func(any) bool); ok && err == nil {
 				matches = check(got)
@@ -104,6 +116,12 @@ func serveCLI(nc net.Conn, exchanges []cliExchange) error {
 		}
 		if exchange.drop {
 			return nil
+		}
+		if exchange.checked != nil {
+			if err := c.Send(proto.HostCheckResult{Problems: exchange.checked}); err != nil {
+				return err
+			}
+			continue
 		}
 		if got, err := c.Recv(); err != nil || got != (proto.Sync{}) {
 			return fmt.Errorf("Sync = %#v, %v", got, err)
@@ -116,6 +134,7 @@ func serveCLI(nc net.Conn, exchanges []cliExchange) error {
 		if err := c.Send(proto.StateMsg{State: exchange.state, Level: exchange.level}); err != nil {
 			return err
 		}
+		level = exchange.level
 	}
 	return nil
 }

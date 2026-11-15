@@ -934,6 +934,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(d.worktreeQuery(ctx, q)) // a reply to this client alone
 			continue
 		}
+		if h, ok := m.(proto.HostCheck); ok {
+			c.queue(proto.HostCheckResult{Problems: CheckStart(ctx, h)}) // a reply to this client alone
+			continue
+		}
 		if s, ok := m.(proto.Scrollback); ok {
 			if hello.Level < proto.Since(s) {
 				c.queue(proto.Error{Message: "scrollback needs protocol level 56"})
@@ -2158,6 +2162,7 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 
 func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBlock, env []string, newVT vt.NewFunc) error {
 	if err := guardGate(cmd, env, cwd); err != nil {
+		err = fmt.Errorf("%w: %v", errUnguarded, err)
 		log.Printf("pane %s: %v", id, err)
 		return err
 	}

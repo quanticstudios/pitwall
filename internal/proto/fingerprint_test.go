@@ -204,3 +204,12 @@ func TestSinceRemoteWorker(t *testing.T) {
 		t.Errorf("Since(NewWorkspace{}) = %d, want 0", got)
 	}
 }
+
+// An older daemon cannot answer a host check, so a client sends none.
+func TestSinceHostCheck(t *testing.T) {
+	for _, m := range []any{HostCheck{}, HostCheckResult{}} {
+		if got := Since(m); got != HostCheckLevel {
+			t.Errorf("Since(%#v) = %d, want %d", m, got, HostCheckLevel)
+		}
+	}
+}

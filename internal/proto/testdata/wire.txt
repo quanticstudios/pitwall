@@ -1,4 +1,4 @@
-18.78
+18.79
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -89,6 +89,9 @@ proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollM
 proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64; Images []vt.Placement}
 proto.GroupByFolder{WorkspaceID string}
 proto.Hello{Version int; Level int; Kind string; Cwd string; Session string}
+proto.HostCheck{Cmd []string; Env []string; Repo string; Clone string}
+proto.HostCheckResult{Problems []proto.HostProblem}
+proto.HostProblem{What string; Fix string; Warn bool}
 proto.Image{Pane string; Key uint64}
 proto.ImageResult{Pane string; Image vt.Image}
 proto.Input{Pane string; Data []uint8}

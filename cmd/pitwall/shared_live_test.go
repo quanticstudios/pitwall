@@ -290,6 +290,10 @@ func TestSharedSessionLive(t *testing.T) {
 		return len(m.State.Workspaces)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	// On box's PATH, so the host check reaches the guard.
+	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	n := boxTabCount()
 	if code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") || !strings.Contains(errOut, "pitwall hooks install") {
 		t.Fatalf("an unhooked guarded tab on box: %d %q", code, errOut)

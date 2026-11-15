@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 79 added HostCheck and HostCheckResult: whether a worker another
+// machine asks for can start here.
 // Level 78 added NewWorkspace.Timebox and Nudge, model.Lane.Timebox and
 // Nudge, and a leading ~/ in NewWorkspace.Root: a worktree for a worker
 // whose parent is on another machine, with its lane's rules.
@@ -214,7 +216,37 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 78
+const Level = 79
+
+// HostCheckLevel added HostCheck and HostCheckResult.
+const HostCheckLevel = 79
+
+// HostCheck asks whether a worker would start here with Cmd and Env, as
+// NewSession or NewWorkspace would start it: Cmd on the daemon's PATH,
+// pitwall's hooks and the agent's login in the config dir Env over the
+// daemon's environment names, and with Repo set, a git work tree there
+// whose origin git can read and push to, and gh can open a pull request
+// on when it is on GitHub. A leading ~/ in Repo is the daemon's home
+// folder. Clone, origin's URL on the asking machine, goes in the clone
+// command a missing Repo's fix gives. The daemon answers this client alone
+// with a HostCheckResult.
+type HostCheck struct {
+	Cmd, Env    []string
+	Repo, Clone string
+}
+
+// HostCheckResult is what would stop a HostCheck's worker, or with Warn
+// set, what it would start without, each with its Fix: a command to run
+// on the checked machine, or what to change there.
+type HostCheckResult struct {
+	Problems []HostProblem
+}
+
+// HostProblem is one line of a HostCheckResult.
+type HostProblem struct {
+	What, Fix string
+	Warn      bool
+}
 
 // WorktreeHostLevel added NewWorkspace.Timebox and Nudge, model.Lane.Timebox
 // and Nudge, and ~/ expansion in NewWorkspace.Root.
@@ -345,6 +377,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case HostCheck, HostCheckResult:
+		return HostCheckLevel
 	case RemoteWorkers, Reparent:
 		return RemoteWorkerLevel
 	case NewWorkspace:
@@ -1229,6 +1263,7 @@ var Messages = []any{
 	Skillshare{}, SkillshareResult{},
 	SetOrigin{},
 	RemoteWorkers{}, Reparent{},
+	HostCheck{}, HostCheckResult{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

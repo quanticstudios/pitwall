@@ -32,6 +32,9 @@ func newWorktreeOnHost(ctx context.Context, conn *cliConn, out, errOut io.Writer
 		return err
 	}
 	wt := &hostWorktree{msg: proto.NewWorkspace{Root: dir, From: from, Lane: lane}}
+	if url, err := gitstat.Command(ctx, root, "remote", "get-url", "origin").Output(); err == nil {
+		wt.clone = string(bytes.TrimSpace(url))
+	}
 	if from.Kind == model.FromNew {
 		sha, err := gitstat.Commit(ctx, root, from.Ref)
 		if err != nil {

@@ -76,6 +76,21 @@ func runDoctor(w io.Writer) int {
 	}
 
 	hooksRows(home, short, report)
+	// The rest of what a host checks before it starts a worker (proto.HostCheck).
+	for _, a := range []struct {
+		provider model.Provider
+		dir      string
+	}{{model.ProviderClaude, agent.ClaudeDir(home)}, {model.ProviderCodex, agent.CodexDir(home)}} {
+		if !installed(string(a.provider), a.dir) {
+			continue
+		}
+		if _, err := exec.LookPath(string(a.provider)); err != nil {
+			info(fmt.Sprintf("%s is not on PATH, so a tab cannot start it", a.provider))
+		}
+		if err := agent.LoggedIn(a.provider, a.dir, os.Getenv); err != nil {
+			info(fmt.Sprintf("%v; start %s once and log in before a worker uses it", err, a.provider))
+		}
+	}
 
 	s, probs := config.Load()
 	for _, p := range probs {

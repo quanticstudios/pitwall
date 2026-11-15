@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -126,5 +127,40 @@ func TestWorktreeHostProblem(t *testing.T) {
 		if got != c.want || err == nil || !strings.Contains(err.Error(), "setup failed") || c.want != "" && strings.Contains(err.Error(), "retry") {
 			t.Errorf("tab with parent %s: %q, %v; want %q", c.parent, got, err, c.want)
 		}
+	}
+}
+
+// The host checks a worker before anything is pushed, made or recorded:
+// a problem stops the start with its fix, a warning only prints, and a
+// host below HostCheckLevel gets no check.
+func TestHostCheck(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "lp")
+	var warned bytes.Buffer
+	prev := hostWarnings
+	t.Cleanup(func() { hostWarnings = prev })
+	hostWarnings = &warned
+	session := &model.Session{ID: "s", Name: "main"}
+	tab := proto.NewSession{Name: "fix", Cmd: []string{"claude"}, Env: []string{"CLAUDE_CONFIG_DIR=/p"}, ParentTab: "lw"}
+	want := proto.HostCheck{Cmd: tab.Cmd, Env: tab.Env, Repo: "~/app", Clone: "https://example.com/app.git"}
+	problems := []proto.HostProblem{
+		{What: "no claude login in /p", Fix: "start claude there once and log in", Warn: true},
+		{What: "git cannot push to origin: read only", Fix: "set up the ssh key"},
+	}
+	hostConns(t, []cliExchange{{state: model.State{}, level: proto.HostCheckLevel}, {request: want, checked: problems}})
+	pushed := false
+	wt := &hostWorktree{msg: proto.NewWorkspace{Root: "~/app"}, clone: "https://example.com/app.git", push: func(string) error { pushed = true; return nil }}
+	// A nil local connection: recording the worker here would panic.
+	_, err := startOnHost(nil, "here", session, "box", tab, false, wt)
+	if err == nil || !strings.Contains(err.Error(), "box cannot start this worker; nothing was started:\n  git cannot push to origin: read only\n    fix on box: set up the ssh key") ||
+		strings.Contains(err.Error(), "login") || pushed {
+		t.Fatalf("a failed check: %v, pushed %v", err, pushed)
+	}
+	if got := warned.String(); got != "pitwall: box: no claude login in /p\n    fix on box: start claude there once and log in\n" {
+		t.Errorf("warnings %q", got)
+	}
+	// A host one level lower is asked nothing: its next request is the part.
+	hostConns(t, []cliExchange{{state: model.State{}, level: proto.HostCheckLevel - 1}, {request: func(got any) bool { _, ok := got.(proto.SessionNew); return ok }, drop: true}})
+	if _, err := startOnHost(nil, "here", session, "box", tab, false, &hostWorktree{msg: proto.NewWorkspace{Root: "~/app"}}); err == nil {
+		t.Fatal("a dropped connection succeeded")
 	}
 }
