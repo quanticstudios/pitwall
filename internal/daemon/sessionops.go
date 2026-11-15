@@ -102,7 +102,10 @@ func (d *Daemon) partNew(ctx context.Context, m proto.SessionNew) error {
 	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &model.Session{Name: strings.TrimSpace(m.Name), Origin: m.Origin}, nil)
 }
 
-// setOrigin stamps a part made before parts had an Origin.
+// setOrigin stamps a part made before parts had an Origin, or moves a
+// part to another session of the daemon that made it, as pitwall adopt
+// does once that session is gone there. A part never moves to another
+// daemon's session.
 func (d *Daemon) setOrigin(m proto.SetOrigin) error {
 	if m.Origin.Daemon == "" || m.Origin.Session == "" {
 		return errors.New("a session's origin names a daemon and a session")
@@ -116,11 +119,19 @@ func (d *Daemon) setOrigin(m proto.SetOrigin) error {
 	if s.Origin == m.Origin {
 		return nil
 	}
-	if s.Origin != (model.Origin{}) {
+	if s.Origin != (model.Origin{}) && s.Origin.Daemon != m.Origin.Daemon {
 		return fmt.Errorf("session %s is the part of another machine's session", s.Name)
 	}
 	if o := d.st.PartOf(m.Origin); o != nil {
 		return fmt.Errorf("session %s is already that session's part", o.Name)
+	}
+	if old := s.Origin; old != (model.Origin{}) {
+		// Its closed tabs move with it, so the new session can reparent them.
+		for i := range d.st.Closed {
+			if c := &d.st.Closed[i]; c.Tab.SessionID == s.ID && c.Origin == old {
+				c.Origin = m.Origin
+			}
+		}
 	}
 	s.Origin = m.Origin
 	d.changed()

@@ -196,7 +196,7 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 // starts, and a start whose connection drops is sent again, which the
 // host's daemon runs once.
 func newOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool) (address string, startErr error) {
-	hc, done, err := dialHost(host)
+	hc, done, err := dialHost(host, "cli")
 	if err != nil {
 		return "", err
 	}
@@ -270,19 +270,9 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			return "", err
 		}
 	}
-	if origin != (model.Origin{}) && m.Level >= proto.RemoteWorkerLevel {
-		// Reconcile before a retry: after its parent reopened, the host
-		// must learn the new parent before it can recognize the same start.
-		moves, lost := workerFixes(*session, host, hs, origin, time.Now())
-		for _, mv := range moves {
-			if updated, err := syncCLI(hc, mv); err == nil {
-				hs = updated
-			}
-		}
-		if len(lost) > 0 {
-			syncCLI(local, proto.RemoteWorkers{SessionID: session.ID, Set: lost})
-		}
-	}
+	// Reconcile before a retry: after its parent reopened, the host must
+	// learn the new parent before it can recognize the same start.
+	hs = reconcileWorkers(local, hc, *session, host, hs, origin, m.Level)
 	recorded := slices.ContainsFunc(session.Workers, func(w model.RemoteWorker) bool { return w.ID == tab.ID })
 	if tab.ParentTab != "" {
 		// A retry restarts the record's clock and clears a Lost.
@@ -309,7 +299,7 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			time.Sleep(wait)
 			done()
 			var next *cliConn
-			if next, done, err = dialHost(host); err == nil {
+			if next, done, err = dialHost(host, "cli"); err == nil {
 				hc = next
 				// Each connection can reach a different daemon. Check its
 				// level before it receives anything that can start a process.
@@ -414,7 +404,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var asJSON, detached, force, children, tree, guarded bool
+	var asJSON, detached, force, children, tree, guarded, orphans, all bool
 	var name, sessionName, preset, modelName, hostName, tabID string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
@@ -423,6 +413,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.BoolVar(&asJSON, "json", false, "")
 		flags.BoolVar(&children, "children", false, "")
 		flags.BoolVar(&tree, "tree", false, "")
+		flags.BoolVar(&orphans, "orphans", false, "")
+	case "adopt":
+		flags.BoolVar(&all, "all", false, "")
 	case "new":
 		flags.StringVar(&name, "n", "", "")
 		flags.StringVar(&modelName, "model", "", "")
@@ -442,7 +435,8 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if (command == "ls" && len(args) != 0) ||
+	if (command == "ls" && (len(args) != 0 || orphans && (children || tree))) ||
+		(command == "adopt" && (len(args) == 0) == !all) ||
 		((command == "new" || command == "attach" || command == "detach") && len(args) > 1) ||
 		(command == "kill" && len(args) != 1) ||
 		(command == "rename" && (len(args) < 1 || len(args) > 2)) {
@@ -493,6 +487,14 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	switch command {
 	case "ls":
+		if orphans || children && workersOf(state, callerPaneTab(state)) != nil {
+			r := newRemotes(conn, state, session)
+			defer r.close()
+			if orphans {
+				return listOrphans(out, errOut, r, asJSON)
+			}
+			return listChildren(out, r, asJSON, tree)
+		}
 		var only map[string]bool
 		if children {
 			if only, err = childTabs(state); err != nil {
@@ -502,7 +504,11 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if asJSON {
 			return json.NewEncoder(out).Encode(tabsJSON(state, session.ID, only))
 		}
-		return listTabs(out, state, session.ID, only, tree)
+		return listTabs(out, state, session.ID, only, tree, nil, nil)
+	case "adopt":
+		r := newRemotes(conn, state, session)
+		defer r.close()
+		return adopt(out, r, args, all)
 	case "new":
 		if hostName != "" {
 			if err != nil {
@@ -525,6 +531,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars, ID: tabID, ParentTab: parent}, detached)
 			if err != nil {
 				return err
+			}
+			if parent != "" && !shownInWindows(hostName) {
+				fmt.Fprintf(errOut, "pitwall: %s is not shown in windows; set window = true under its [[hosts]] entry to see its workers in the sidebar\n", hostName)
 			}
 			_, err = fmt.Fprintf(out, "#%s\n", num)
 			return err
@@ -567,6 +576,15 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		old = args[0]
 	}
 	w, err := resolveTab(state, session.ID, old)
+	target := conn
+	if command == "kill" {
+		r := newRemotes(conn, state, session)
+		defer r.close()
+		var h *hostPart
+		if h, w, err = r.tab(old); h != nil {
+			target = h.conn
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -597,8 +615,20 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		}
 		request = proto.KillSession{WorkspaceID: w.ID}
 	}
-	_, err = syncCLI(conn, request)
+	_, err = syncCLI(target, request)
 	return err
+}
+
+// callerPaneTab is the tab of $PITWALL_PANE in state, "" outside a pane.
+func callerPaneTab(state model.State) string {
+	tab, _ := callerTab(state)
+	return tab
+}
+
+// shownInWindows reports whether host's [[hosts]] entry has window = true.
+func shownInWindows(host string) bool {
+	s, _ := config.Load()
+	return slices.ContainsFunc(s.Hosts, func(h config.Host) bool { return h.Name == host && h.Window })
 }
 
 // launch is the command and environment of a tab that new, worktree new
@@ -823,7 +853,11 @@ func childTabs(state model.State) (map[string]bool, error) {
 // listTabs prints one row per tab of session, or of only when it is not
 // nil: its number, title, state and since when, folder and group. With
 // tree, a tab's workers follow it, indented under it.
-func listTabs(out io.Writer, state model.State, session string, only map[string]bool, tree bool) error {
+//
+// where, when not nil, names a tab's machine and its number there, for a
+// state with other machines' tabs, whose rows read box:3; stale are
+// workers on hosts out of reach, listed last with their state unknown.
+func listTabs(out io.Writer, state model.State, session string, only map[string]bool, tree bool, where func(model.Workspace) (string, int), stale []model.RemoteWorker) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	home, _ := os.UserHomeDir()
 	if _, err := fmt.Fprintln(w, "#\tNAME\tSTATE\tSINCE\tFOLDER\tGROUP"); err != nil {
@@ -901,7 +935,18 @@ func listTabs(out io.Writer, state model.State, session string, only map[string]
 		if tab.Detached {
 			marker = " (detached)"
 		}
-		if _, err := fmt.Fprintf(w, "%d\t%s%s\t%s\t%s\t%s\t%s%s\n", i+1, prefix[i], tabTitle(tab), label, since, folder, group, marker); err != nil {
+		num := strconv.Itoa(i + 1)
+		if where != nil {
+			if host, n := where(tab); host != "" {
+				num = hostAddr(host, n)
+			}
+		}
+		if _, err := fmt.Fprintf(w, "%s\t%s%s\t%s\t%s\t%s\t%s%s\n", num, prefix[i], tabTitle(tab), label, since, folder, group, marker); err != nil {
+			return err
+		}
+	}
+	for _, r := range stale {
+		if _, err := fmt.Fprintf(w, "%s:@%s\t?\tunknown (%s unreachable)\t-\t-\t-\n", r.Host, r.ID, r.Host); err != nil {
 			return err
 		}
 	}

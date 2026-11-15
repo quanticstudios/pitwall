@@ -395,3 +395,36 @@ func TestHeaderFromAnotherMachine(t *testing.T) {
 		t.Fatalf("header %q, want %q", got, want)
 	}
 }
+
+// pitwall adopt moves a gone session's part to another session of the
+// same daemon, with its closed tabs, which can then be reparented. A part
+// never moves to another daemon's session, or onto a session that has one.
+func TestSetOriginAdopt(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	dir := t.TempDir()
+	gone, next := model.Origin{Daemon: "here", Session: "gone"}, model.Origin{Daemon: "here", Session: "next"}
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir, Origin: gone}))
+	st := d.state()
+	part := st.PartOf(gone).ID
+	must(t, d.handle(ctx, proto.NewSession{SessionID: part, Cwd: dir, Cmd: []string{"sh"}, ID: "0123456789abcdef", ParentTab: "old"}))
+	must(t, d.handle(ctx, proto.KillSession{WorkspaceID: "0123456789abcdef"}))
+	if d.handle(ctx, proto.SetOrigin{SessionID: part, Origin: model.Origin{Daemon: "there", Session: "next"}}) == nil {
+		t.Fatal("a part moved to another daemon's session")
+	}
+	must(t, d.handle(ctx, proto.SessionNew{Name: "taken", Cwd: dir, Origin: model.Origin{Daemon: "here", Session: "taken"}}))
+	if d.handle(ctx, proto.SetOrigin{SessionID: part, Origin: model.Origin{Daemon: "here", Session: "taken"}}) == nil {
+		t.Fatal("a part moved onto a session that has one")
+	}
+	must(t, d.handle(ctx, proto.SetOrigin{SessionID: part, Origin: next}))
+	st = d.state()
+	if p := st.PartOf(next); p == nil || p.ID != part {
+		t.Fatalf("part after the move: %+v", p)
+	}
+	must(t, d.handle(ctx, proto.Reparent{WorkspaceID: "0123456789abcdef", ParentTab: "adopter", Origin: next}))
+	st = d.state()
+	if i := slices.IndexFunc(st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == "0123456789abcdef" }); i < 0 || st.Closed[i].Tab.Parent != "adopter" {
+		t.Fatalf("closed worker after adopt: %+v", st.Closed)
+	}
+}

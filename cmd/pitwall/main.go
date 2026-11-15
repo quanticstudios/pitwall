@@ -60,11 +60,16 @@ const usage = `usage:
   pitwall hooks uninstall    remove this binary's hooks and status line (--dry-run)
   pitwall statusline [cmd]   Claude Code's status line: save its plan limits for
                              Settings, Usage, then run cmd, your own status line
-  pitwall ls [--json] [--children] [--tree]
+  pitwall ls [--json] [--children] [--tree] | --orphans
                              list the current session's tabs, numbered in sidebar order
                              (--json: one object per tab, see docs/agent-skill.md;
-                             --children: only the tabs this pane's tab opened;
-                             --tree: each tab under the tab that opened it)
+                             --children: only the tabs this pane's tab opened,
+                             here and on other machines, as box:3;
+                             --tree: each tab under the tab that opened it;
+                             --orphans: workers on other machines whose parent
+                             tab is gone)
+  pitwall adopt @<id>... | --all
+                             make this pane's tab the parent of those orphans
   pitwall new [-n name] [-d] [--host name [--id id]] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. --issue adds GitHub issue n
@@ -93,7 +98,9 @@ const usage = `usage:
                              place of <tab> waits on every tab this pane's tab
                              opened, printing one line each; one blocked ends it.
                              --done-line also wants a last reply line DONE or
-                             BLOCKED: <why>, and nudges a worker once without one
+                             BLOCKED: <why>, and nudges a worker once without one.
+                             It exits 1 when another machine with a worker
+                             stays out of reach 5 minutes or loses a worker
   pitwall split [--down] [tab] [-- cmd args...]
                              open a pane running cmd, else a shell, right of
                              the tab's last pane (--down: below it); prints

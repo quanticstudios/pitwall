@@ -76,6 +76,10 @@ type sshHost struct {
 	dir   string // here: the shared connection's control socket, and local
 	local string // the forwarded socket here
 
+	// batch keeps ssh from asking for a password or passphrase: an agent's
+	// pane has no one to answer, and a prompt would hang the command.
+	batch bool
+
 	mu   sync.Mutex
 	sock string // the daemon's socket on the host, once known
 }
@@ -122,6 +126,9 @@ func (r *sshHost) sshArgs(opts []string, command ...string) []string {
 		// connection within a minute, and the window reconnects.
 		"-o", "ServerAliveInterval=15",
 		"-o", "ConnectTimeout=10",
+	}
+	if r.batch {
+		args = append(args, "-o", "BatchMode=yes")
 	}
 	args = append(append(args, opts...), "--", r.dest)
 	return append(args, command...)
@@ -171,10 +178,10 @@ func (r *sshHost) socket(restart bool) (net.Conn, error) {
 	return net.Dial("unix", r.local)
 }
 
-// dialHost connects to the daemon on [[hosts]] entry name as a CLI
-// client, for pitwall new --host; done drops the forward. Tests replace
-// it.
-var dialHost = func(name string) (conn *cliConn, done func(), err error) {
+// dialHost connects to the daemon on [[hosts]] entry name as a client of
+// kind ("cli" or "watch", see proto.Hello); done drops the forward. From a
+// pitwall pane ssh never prompts. Tests replace it.
+var dialHost = func(name, kind string) (conn *cliConn, done func(), err error) {
 	if runtime.GOOS == "windows" {
 		return nil, nil, errors.New("--host needs ssh's connection sharing (ControlMaster), which Windows' ssh lacks")
 	}
@@ -186,12 +193,13 @@ var dialHost = func(name string) (conn *cliConn, done func(), err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	r.batch = os.Getenv("PITWALL_PANE") != ""
 	nc, err := r.socket(false)
 	if err != nil {
 		r.close()
 		return nil, nil, err
 	}
-	conn, err = helloCLI(nc)
+	conn, err = hello(nc, kind)
 	if err != nil {
 		r.close()
 		return nil, nil, err

@@ -609,7 +609,7 @@ func TestNewOnHostRefuses(t *testing.T) {
 	}
 	prev := dialHost
 	t.Cleanup(func() { dialHost = prev })
-	dialHost = func(string) (*cliConn, func(), error) {
+	dialHost = func(string, string) (*cliConn, func(), error) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
@@ -646,7 +646,7 @@ func TestNewOnHostGuardRefusalCleanup(t *testing.T) {
 			local := fakeLocal(t, cliExchange{request: proto.SessionLink{SessionID: "s", Host: "box", Remote: "part"}, level: proto.Level})
 			prev := dialHost
 			t.Cleanup(func() { dialHost = prev })
-			dialHost = func(string) (*cliConn, func(), error) {
+			dialHost = func(string, string) (*cliConn, func(), error) {
 				c, err := dialCLI()
 				return c, func() { c.Close() }, err
 			}
@@ -670,7 +670,7 @@ func TestAgentHost(t *testing.T) {
 	os.WriteFile(filepath.Join(cfg, "pitwall", "config.toml"), []byte("[[hosts]]\nname = \"box\"\n\n[[hosts]]\nname = \"local\"\n"), 0o600)
 	t.Setenv("PITWALL_PANE", "p1")
 	for _, name := range []string{"me@elsewhere", "local"} {
-		if _, _, err := dialHost(name); err == nil || !strings.Contains(err.Error(), "takes only a [[hosts]] name") {
+		if _, _, err := dialHost(name, "cli"); err == nil || !strings.Contains(err.Error(), "takes only a [[hosts]] name") {
 			t.Fatalf("an agent pane reached %s: %v", name, err)
 		}
 	}
@@ -697,7 +697,7 @@ func TestNewOnHostAmbiguous(t *testing.T) {
 	)
 	prev := dialHost
 	t.Cleanup(func() { dialHost = prev })
-	dialHost = func(string) (*cliConn, func(), error) {
+	dialHost = func(string, string) (*cliConn, func(), error) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
@@ -756,7 +756,7 @@ func TestNewOnHostOriginLevel(t *testing.T) {
 	fakeCLI(t, cliExchange{state: model.State{}, level: proto.OriginLevel - 1})
 	prev := dialHost
 	t.Cleanup(func() { dialHost = prev })
-	dialHost = func(string) (*cliConn, func(), error) {
+	dialHost = func(string, string) (*cliConn, func(), error) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
@@ -791,7 +791,7 @@ func TestNewOnHostConcurrentPart(t *testing.T) {
 	)
 	prev := dialHost
 	t.Cleanup(func() { dialHost = prev })
-	dialHost = func(string) (*cliConn, func(), error) {
+	dialHost = func(string, string) (*cliConn, func(), error) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
@@ -809,7 +809,7 @@ func hostConns(t *testing.T, conns ...[]cliExchange) {
 	prev, prevRetries := dialHost, startRetries
 	t.Cleanup(func() { dialHost, startRetries = prev, prevRetries })
 	startRetries = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
-	dialHost = func(string) (*cliConn, func(), error) {
+	dialHost = func(string, string) (*cliConn, func(), error) {
 		if len(conns) == 0 {
 			return nil, nil, errors.New("ssh: connect to host box: Connection refused")
 		}
@@ -951,18 +951,5 @@ func TestHostLevelWorker(t *testing.T) {
 	}
 	if err := hostLevel(nil, false, proto.RemoteWorkerLevel-1); err != nil {
 		t.Fatalf("a person's tab on an old host: %v", err)
-	}
-}
-
-// Until wait watches other hosts, a worker of this tab on one fails
-// wait --children instead of letting it succeed without that worker.
-func TestWaitChildrenRemoteStopgap(t *testing.T) {
-	st := cliState()
-	st.Sessions[0].Workers = []model.RemoteWorker{{ID: "w9", Host: "box", Parent: st.Panes[0].WorkspaceID}}
-	fakeWatch(t, proto.StateMsg{State: st, Level: proto.Level})
-	t.Setenv("PITWALL_PANE", st.Panes[0].ID)
-	code, _, stderr := cliOutput("wait", "--children", "--until", "done")
-	if code != waitError || !strings.Contains(stderr, "box:@w9: this pitwall cannot watch workers on another machine yet") {
-		t.Fatalf("wait --children with a remote worker: %d %q", code, stderr)
 	}
 }

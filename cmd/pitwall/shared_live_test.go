@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -233,12 +234,16 @@ func TestSharedSessionLive(t *testing.T) {
 	// pitwall new --host box, run here, opens a tab in box's part.
 	prevDial := dialHost
 	t.Cleanup(func() { dialHost = prevDial })
-	dialHost = func(string) (*cliConn, func(), error) {
+	var boxDown atomic.Bool // ssh to box fails while it is set
+	dialHost = func(_, kind string) (*cliConn, func(), error) {
+		if boxDown.Load() {
+			return nil, nil, errors.New("ssh: connect to host box port 22: Connection refused")
+		}
 		nc, err := net.Dial("unix", sockR)
 		if err != nil {
 			return nil, nil, err
 		}
-		c, err := helloCLI(nc)
+		c, err := hello(nc, kind)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -273,7 +278,7 @@ func TestSharedSessionLive(t *testing.T) {
 
 	// A guarded tab on box, whose home has no pitwall hooks, does not start.
 	boxTabCount := func() int {
-		c, done, err := dialHost("box")
+		c, done, err := dialHost("box", "cli")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -354,7 +359,7 @@ func TestSharedSessionLive(t *testing.T) {
 	// names this machine's daemon and ls.
 	boxState := func() model.State {
 		t.Helper()
-		c, done, err := dialHost("box")
+		c, done, err := dialHost("box", "cli")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -374,7 +379,7 @@ func TestSharedSessionLive(t *testing.T) {
 	// box has a session named agents a person made there, and another
 	// machine's part of its own agents session.
 	other := model.Origin{Daemon: "other-daemon", Session: "other-session"}
-	bc, bdone, err := dialHost("box")
+	bc, bdone, err := dialHost("box", "cli")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,9 +461,53 @@ func TestSharedSessionLive(t *testing.T) {
 	if code, _, errOut := cliOutput("new", "-s", ls.Name, "--host", "box", "--guard", "--", "claude"); code == 0 || !strings.Contains(errOut, "guarded tab not started") || boxTabCount() != n || len(workers()) != 1 {
 		t.Fatalf("a refused guarded worker: %d %q; box tabs %d, records %+v", code, errOut, boxTabCount(), workers())
 	}
-	// Until wait can watch box, a worker there fails wait --children.
-	if code, _, errOut := cliOutput("wait", "--children", "--until", "done", "--timeout", "10s"); code != waitError || !strings.Contains(errOut, "box:@"+worker.ID) {
-		t.Fatalf("wait --children with a worker on box: %d %q", code, errOut)
+	// ls --children reaches the worker on box: its host, its number
+	// there, and n 0, so no "#$n" reaches a tab here.
+	code, out, errOut = cliOutput("ls", "--children", "--json")
+	var rows []tabJSON
+	if err := json.Unmarshal([]byte(out), &rows); err != nil || code != 0 {
+		t.Fatalf("ls --children --json: %d %q %q", code, out, errOut)
+	}
+	i := slices.IndexFunc(rows, func(r tabJSON) bool { return r.ID == worker.ID })
+	if i < 0 || rows[i].Host != "box" || rows[i].N != 0 || !strings.HasPrefix(rows[i].Addr, "box:") || rows[i].Stale {
+		t.Fatalf("box's worker in ls --children: %+v", rows)
+	}
+	addr := rows[i].Addr
+	// read and send reach it by that address. The worker runs sleep, no
+	// agent, so box's daemon, which alone knows its pane, refuses the send.
+	if code, _, errOut := cliOutput("read", "--screen", addr); code != 0 {
+		t.Fatalf("read %s: %d %q", addr, code, errOut)
+	}
+	if code, _, errOut := cliOutput("send", addr, "--", "hello from here"); code != 1 || !strings.Contains(errOut, "the pane runs no agent pitwall knows") {
+		t.Fatalf("send %s: %d %q", addr, code, errOut)
+	}
+	// wait on a worker on box watches box's daemon.
+	code, out, errOut = cliOutput("new", "-s", ls.Name, "--host", "box", "--", "sh", "-c", "echo two-$((1+1)); sleep 1")
+	two := strings.TrimSpace(strings.TrimPrefix(out, "#"))
+	if code != 0 || !strings.HasPrefix(two, "box:") {
+		t.Fatalf("a second worker on box: %d %q %q", code, out, errOut)
+	}
+	if code, out, errOut := cliOutput("wait", two, "--until", "exit", "--timeout", "20s"); code != 0 || out != "exit 0\n" {
+		t.Fatalf("wait %s: %d %q %q", two, code, out, errOut)
+	}
+	// Box out of reach: wait --children says so, never exits 0, and
+	// gives up after unreachableAfter.
+	prevAfter := unreachableAfter
+	unreachableAfter = 2 * time.Second
+	boxDown.Store(true)
+	code, out, errOut = cliOutput("wait", "--children", "--until", "exit", "--timeout", "20s")
+	boxDown.Store(false)
+	unreachableAfter = prevAfter
+	if code != waitError || !strings.Contains(errOut, "box unreachable: ssh: connect to host box") || !strings.Contains(errOut, "box unreachable for 2s") {
+		t.Fatalf("wait --children with box down: %d %q %q", code, out, errOut)
+	}
+	// kill reaches it there.
+	twoID := slices.DeleteFunc(workers(), func(w model.RemoteWorker) bool { return w.ID == worker.ID })[0].ID
+	if code, _, errOut := cliOutput("kill", "-f", two); code != 0 {
+		t.Fatalf("kill %s: %d %q", two, code, errOut)
+	}
+	if bs := boxState(); bs.Workspace(twoID) != nil {
+		t.Fatalf("%s still open on box after kill", two)
 	}
 	t.Setenv("PITWALL_PANE", "")
 
@@ -479,7 +528,9 @@ func TestSharedSessionLive(t *testing.T) {
 	if err := m.Send(proto.ReopenTab{ID: reopened}); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the record under the reopened tab", func() bool { return len(workers()) == 1 && workers()[0].Parent == reopened })
+	waitFor(t, "the records under the reopened tab", func() bool {
+		return len(workers()) == 2 && !slices.ContainsFunc(workers(), func(w model.RemoteWorker) bool { return w.Parent != reopened })
+	})
 	waitFor(t, "box's worker under the reopened tab", func() bool {
 		bs := boxState()
 		w := bs.Workspace(worker.ID)

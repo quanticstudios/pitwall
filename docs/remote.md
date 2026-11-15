@@ -137,8 +137,10 @@ when it is done, as `[agents] close_done_workers` in box's config says.
 When the connection drops during the start, the command retries 3 times;
 if box stays out of reach it prints the tab's id. Run the same command
 with `--id <id>` to finish that start: box opens no second tab for an id it
-already has. `pitwall wait --children` cannot watch box's workers yet, so
-with one of them it exits 1 instead of reporting success without it. When the window
+already has. From a pane, ssh never asks for a password or passphrase
+(`BatchMode=yes`): open the connection once from a shell or a window
+first, or let your ssh agent answer. When `box` has no `window = true`,
+the command says that the sidebar will not show the worker. When the window
 will not open a tab or task on a host, or kill, group or move a shared
 session's tabs, such as while the host is down, it says why in the notice
 at the top of the window. A task started from
@@ -223,6 +225,39 @@ after a reconnect or from the next window, and the session stays in the
 sidebar. `pitwall session kill` refuses a shared session,
 since it reaches only this machine's daemon. Create PR, Merge PR and Rerun
 checks run on the machine of the tab they start from.
+
+### Workers on another machine
+
+The agent that started workers on box reaches them from its own pane:
+
+```sh
+pitwall ls --children --json        # box's rows: "host": "box", "addr": "box:3", "n": 0
+pitwall read box:3                  # or @<id>, a tab or pane id on any machine of the session
+pitwall send box:3 -- "rebase on main"
+pitwall prompt box:3 --wait -- "status?"
+pitwall wait box:3 --until done
+pitwall wait --children --until done
+pitwall kill -f box:3
+```
+
+`#3` is always this machine's tab 3, and `box:3` box's own tab 3, as
+`pitwall ls` on box numbers it. A title names a tab here only. Each call
+dials box over the shared ssh connection and drops it when it ends.
+
+`wait --children` counts a worker on box only while it watches box's
+daemon on a live connection. When box drops, it prints `box unreachable:`
+and the reason, dials again with the window's backoff, and does not exit
+0 until box is back, even for a worker box showed as done before. After 5
+minutes out of reach it exits 1 naming the host. A worker box has no tab
+for 2 minutes after its start prints `box:@<id> lost:`, and one that
+closed before it finished, or whose result box lost in a restart, prints
+`result lost` with its branch; either makes the exit 1.
+
+When the agent's tab is gone for good, a new agent takes its workers over:
+`pitwall ls --orphans` lists them, here and in parts on `[[hosts]]`
+machines made for a session this machine no longer has, and `pitwall
+adopt @<id>` (or `--all`) makes the calling tab their parent. A part made
+by another machine never shows.
 
 ### Keep the daemon running across reboots
 
