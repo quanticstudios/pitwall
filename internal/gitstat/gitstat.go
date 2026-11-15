@@ -525,6 +525,9 @@ func Commit(ctx context.Context, dir, ref string) (string, error) {
 	if base == "" {
 		return "", errors.New("repository has no default branch")
 	}
+	if q := Qualify(ctx, dir, base); q != "" {
+		base = q // the same branch preference as AddWorktree, ahead of tags
+	}
 	out, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", base+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("no commit %q", ref)

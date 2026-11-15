@@ -224,7 +224,8 @@ type Lane struct {
 	// restart does not repeat them.
 	Nudged, Told, Escalated bool
 	// Timebox and Nudge came with a worker from another machine's lane;
-	// 0 and "" use this daemon's [fleet].
+	// With both 0 and "", use this daemon's [fleet]. A carried Nudge is
+	// always nonempty, so a carried zero Timebox keeps the timer disabled.
 	Timebox time.Duration
 	Nudge   string
 }

@@ -583,7 +583,9 @@ type NewWorkspace struct {
 	SessionID string
 	// Timebox and Nudge are the lane's rules from the machine that sent
 	// the worker, kept in model.Lane: this daemon nudges it after Timebox
-	// whether its own fleet mode is on or off. 0 uses this daemon's lane.
+	// whether its own fleet mode is on or off. Nudge is nonempty for carried
+	// rules, including when Timebox is 0 to disable the timer. Both empty
+	// uses this daemon's lane.
 	Timebox time.Duration
 	Nudge   string
 }

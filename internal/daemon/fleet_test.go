@@ -149,6 +149,24 @@ func TestFleetCarriedTimebox(t *testing.T) {
 	}
 }
 
+// Zero disables the source lane's timer even when this daemon's lane has one.
+func TestFleetCarriedTimeboxDisabled(t *testing.T) {
+	t0 := time.Now()
+	s := fleetSettings()
+	d, _ := fleetDaemon(t, t0, &s)
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	d.mu.Lock()
+	d.st.Workspaces[1].Lane.Nudge = "Wrap up, from there."
+	d.mu.Unlock()
+	d.checkFleet(t0.Add(3 * time.Hour))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if l := d.st.Workspaces[1].Lane; l.Nudged || l.Told || len(d.mail.queue["wa"]) != 0 {
+		t.Fatalf("disabled carried timer used this daemon's lane: %+v; queue %+v", l, d.mail.queue["wa"])
+	}
+}
+
 // TestFleetEscalate: once auto_send_failures has sent a lane worker's
 // failures twice and CI fails on a new head, escalate = "parent" tells its
 // parent once, and "respawn" replaces its agent with the big lane's preset

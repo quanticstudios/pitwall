@@ -76,7 +76,7 @@ func (d *Daemon) checkFleet(now time.Time) {
 	for i := range d.st.Workspaces {
 		w := &d.st.Workspaces[i]
 		tb, nudge := w.Lane.Timebox, cmp.Or(w.Lane.Nudge, s.Fleet.Nudge, config.DefaultNudge)
-		if tb <= 0 && on {
+		if tb <= 0 && w.Lane.Nudge == "" && on {
 			tb, nudge = s.Fleet.Timebox(w.Lane.Name), s.Fleet.Nudge
 		}
 		if tb <= 0 || w.Lane.Start.IsZero() || w.Lane.Nudged && w.Lane.Told {

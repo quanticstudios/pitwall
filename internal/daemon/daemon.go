@@ -1324,7 +1324,7 @@ func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
 	return nil
 }
 
-func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
+func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result error) {
 	unlock, err := d.lockTabStart(ctx, m.ID)
 	if err != nil {
 		return err
@@ -1346,8 +1346,9 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		p = d.st.Projects[pi]
 	} else if parent := d.paneTab(m.ParentPane); m.ProjectID == "" && m.Root != "" && parent != nil {
 		p, ok = model.Project{SessionID: parent.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
-	} else if m.ProjectID == "" && m.Root != "" && m.ParentTab != "" && d.st.Session(m.SessionID) != nil {
-		// A worker of a tab on another machine, in that tab's part here.
+	} else if m.ProjectID == "" && m.Root != "" && d.st.Session(m.SessionID) != nil {
+		// A worktree in the requested session's part here, with or without
+		// a parent tab on the machine that requested it.
 		p, ok = model.Project{SessionID: m.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
 	}
 	var started bool
@@ -1379,8 +1380,18 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	}
 	root := d.repoRoot(ctx, path)
 
+	failedStart := false
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	defer func() {
+		d.mu.Unlock()
+		if failedStart && owned != "" {
+			// A refused start must not claim its id or leave its new branch
+			// blocking a retry. No pane ran, so no teardown is needed.
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			result = errors.Join(result, d.removeWorktree(cleanup, owned, path, model.PortBlock{}, m.From.Kind == model.FromNew, true, true, ""))
+		}
+	}()
 	if m.ID != "" {
 		// why: the same id may have started while the worktree was made.
 		if started, err := d.startedTab(m.ID, p.SessionID, m.ParentTab); started || err != nil {
@@ -1428,7 +1439,10 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		// notice: a GUI shows no request's error.
 		nw := &d.st.Workspaces[len(d.st.Workspaces)-1]
 		if aerr := d.addTab(nw, path, m.Cmd, m.Env); aerr != nil {
-			err = errors.Join(err, aerr)
+			d.st.Workspaces = d.st.Workspaces[:len(d.st.Workspaces)-1]
+			failedStart = true
+			d.changed()
+			return errors.Join(err, aerr)
 		} else {
 			id := d.st.Panes[len(d.st.Panes)-1].ID
 			if typed != nil {

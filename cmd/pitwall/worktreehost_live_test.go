@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/daemon"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -220,5 +221,42 @@ host = "box"
 	}
 	if out, err := exec.Command("git", "-C", boxRepo, "rev-parse", "--verify", "--quiet", gitstat.BaseRef(id)).Output(); err == nil {
 		t.Fatalf("box kept the base ref of a removed tab: %s", out)
+	}
+
+	// A guard refusal must leave no worker or worktree claiming its id.
+	const refusedID = "fedcba9876543210"
+	configDir := filepath.Join(home, ".claude")
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	n = len(box().Workspaces)
+	code, _, errOut = worktreeOutput("new", "guarded", "--host", "box", "--repo", "box/app", "--id", refusedID, "--guard", "--", "claude")
+	if code == 0 || !strings.Contains(errOut, "guarded tab not started") || len(box().Workspaces) != n || len(workers()) != 2 {
+		t.Fatalf("guard refusal: %d %q; tabs %+v; records %+v", code, errOut, box().Workspaces, workers())
+	}
+	if _, err := os.Stat(filepath.Join(boxRepo, ".worktrees", "guarded")); !os.IsNotExist(err) {
+		t.Fatalf("guard refusal kept the worktree: %v", err)
+	}
+	// Once hooks are installed, the exact same command can start.
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"hooks":`+string(agent.ClaudeHooks(os.Args[0]))+`}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "claude"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := worktreeOutput("new", "guarded", "--host", "box", "--repo", "box/app", "--id", refusedID, "--guard", "--", "claude"); code != 0 || len(box().Workspaces) != n+1 {
+		t.Fatalf("retry after refusal: %d %q", code, errOut)
+	}
+
+	// A person's shell has a session but no parent tab on either machine.
+	t.Setenv("PITWALL_PANE", "")
+	const humanID = "0123456789abcdef"
+	if code, out, errOut := worktreeOutput("new", "human", "--host", "box", "--repo", "box/app", "--id", humanID, "--", "sh", "-c", "sleep 60"); code != 0 || !strings.HasPrefix(out, "#box:") {
+		t.Fatalf("worktree from a person's shell: %d %q %q", code, out, errOut)
+	}
+	bs = box()
+	if w := bs.Workspace(humanID); w == nil || w.Parent != "" || w.RemoteParent || git(w.Path, "rev-parse", "HEAD") != sha {
+		t.Fatalf("worktree from a person's shell: %+v", w)
 	}
 }
