@@ -75,7 +75,7 @@ func saveState(path string, data []byte) error {
 // through `pitwall statusline`, which keeps any command it had and the
 // rest of the object; uninstall puts that command back, or drops the
 // statusLine pitwall added.
-func mergeStatusline(original []byte, bin string, install bool) ([]byte, []string, error) {
+func mergeStatusline(original []byte, bin string, install bool, also ...string) ([]byte, []string, error) {
 	root := hookObject{}
 	if len(original) > 0 {
 		var err error
@@ -92,6 +92,11 @@ func mergeStatusline(original []byte, bin string, install bool) ([]byte, []strin
 	}
 	command, _ := hookJSON[string](line["command"])
 	wrapped, ours := agent.StatuslineWrapped(bin, command)
+	for _, other := range also { // another path to this install wrote it
+		if !ours {
+			wrapped, ours = agent.StatuslineWrapped(other, command)
+		}
+	}
 	var change string
 	switch {
 	case install && ours, !install && !ours:

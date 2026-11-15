@@ -43,10 +43,10 @@ func TestRemoteSSHArgs(t *testing.T) {
 		restart    bool
 		start      string
 	}{
-		{"box", "me@box.example", false, `sh -c 'PATH="$PATH:$HOME/.local/bin" exec pitwall remote-start'`},
-		{"gpu", "gpu-alias", true, `sh -c 'PATH="$PATH:$HOME/.local/bin" exec pitwall remote-start --restart'`},
-		{"bare", "bare", false, `sh -c 'PATH="$PATH:$HOME/.local/bin" exec pitwall remote-start'`},
-		{"me@elsewhere", "me@elsewhere", false, `sh -c 'PATH="$PATH:$HOME/.local/bin" exec pitwall remote-start'`},
+		{"box", "me@box.example", false, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start'`},
+		{"gpu", "gpu-alias", true, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start --restart'`},
+		{"bare", "bare", false, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start'`},
+		{"me@elsewhere", "me@elsewhere", false, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start'`},
 	} {
 		r, err := newSSHHost(c.name, hosts)
 		if err != nil {
@@ -95,8 +95,8 @@ func TestRemoteErrors(t *testing.T) {
 	prev := version
 	t.Cleanup(func() { version = prev })
 	r := &sshHost{name: "box", dest: "me@box"}
-	release := "ssh me@box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | PITWALL_VERSION=v0.1.0-alpha.30 sh'"
-	latest := "ssh me@box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh'"
+	release := "ssh me@box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | PITWALL_VERSION=v0.1.0-alpha.30 sh -s -- --core'"
+	latest := "ssh me@box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh -s -- --core'"
 	started := func(v int) func() error {
 		return func() error {
 			_, err := r.parseStart(fmt.Sprintf("Welcome to box\n%s\t%d\t0\tv0.1.0-alpha.9\t/run/user/1000/pitwall/pitwall.sock\n", remoteMark, v))
@@ -109,9 +109,9 @@ func TestRemoteErrors(t *testing.T) {
 		want    string
 	}{
 		{"v0.1.0-alpha.30", func() error { return r.sshError("sh: 1: exec: pitwall: not found\n", exit(127)) },
-			"pitwall is not installed on box: it is not on the PATH there or in ~/.local/bin. Install it with:\n  " + release},
+			"pitwall is not installed on box: neither pitwall-core nor pitwall is on the PATH there or in ~/.local/bin. Install pitwall-core with:\n  " + release},
 		{"dev-0123456789ab", func() error { return r.sshError("sh: 1: exec: pitwall: not found\n", exit(127)) },
-			"pitwall is not installed on box: it is not on the PATH there or in ~/.local/bin. Install it with:\n  " + latest},
+			"pitwall is not installed on box: neither pitwall-core nor pitwall is on the PATH there or in ~/.local/bin. Install pitwall-core with:\n  " + latest},
 		{"v0.1.0-alpha.30", func() error { return r.sshError("usage:\n  pitwall --version          print the version\n", exit(2)) },
 			"pitwall on box is too old to serve a window over ssh. Update it with:\n  " + release},
 		{"v0.1.0-alpha.30", func() error {
@@ -130,6 +130,53 @@ func TestRemoteErrors(t *testing.T) {
 	}
 	if sock, err := r.parseStart(fmt.Sprintf("motd\n%s\t%d\t9\tv0.1.0-alpha.99\t/run/user/1000/pitwall/pitwall.sock\r\n", remoteMark, proto.Version)); err != nil || sock != "/run/user/1000/pitwall/pitwall.sock" {
 		t.Errorf("same version, any level: %q, %v", sock, err)
+	}
+}
+
+// TestRemoteStartFindsCore: remote-start runs through pitwall-core when
+// the host has it, even next to a pitwall, else through pitwall, and a host
+// with neither gets the command that installs pitwall-core.
+func TestRemoteStartFindsCore(t *testing.T) {
+	dir := t.TempDir()
+	ssh := filepath.Join(dir, "ssh")
+	if err := os.WriteFile(ssh, []byte(fmt.Sprintf("#!/bin/sh\nPITWALL_TEST_SSH='%s' exec '%s' \"$@\"\n", dir, os.Args[0])), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir()) // the command adds ~/.local/bin, empty here
+	t.Setenv("GORACE", os.Getenv("GORACE")+" atexit_sleep_ms=0")
+	prev := version
+	t.Cleanup(func() { version = prev })
+	version = "dev"
+	for _, c := range []struct {
+		name    string
+		have    []string
+		restart bool
+		want    string
+	}{
+		{"both", []string{"pitwall", "pitwall-core"}, false, "pitwall-core remote-start"},
+		{"both restart", []string{"pitwall", "pitwall-core"}, true, "pitwall-core remote-start --restart"},
+		{"core", []string{"pitwall-core"}, false, "pitwall-core remote-start"},
+		{"desktop", []string{"pitwall"}, false, "pitwall remote-start"},
+		{"none", nil, false, "neither pitwall-core nor pitwall is on the PATH there or in ~/.local/bin. Install pitwall-core with:\n  ssh me@box 'curl -fsSL " + getScript + " | sh -s -- --core'"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			bin := t.TempDir()
+			if err := os.Symlink("/bin/sh", filepath.Join(bin, "sh")); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range c.have {
+				script := fmt.Sprintf("#!/bin/sh\nprintf '%s\\t%d\\t0\\tv1\\t%s %%s\\n' \"$*\"\n", remoteMark, proto.Version, name)
+				if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", bin)
+			r := &sshHost{name: "box", ssh: ssh, dest: "me@box", dir: dir}
+			sock, err := r.start(c.restart)
+			if got := fmt.Sprint(sock, err); !strings.Contains(got, c.want) {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 

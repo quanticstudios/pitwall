@@ -116,6 +116,11 @@ func TestHookStatus(t *testing.T) {
 	if got := HooksInstalled(home); !got["cursor-agent"] {
 		t.Errorf("HooksInstalled without Cursor's: %v", got)
 	}
+	// pitwall-core's hooks count as pitwall's.
+	os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(`{"hooks":`+string(agent.CodexHooks("/opt/bin/pitwall-core"))+`}`), 0o644)
+	if got := HooksInstalled(home); !got["codex"] {
+		t.Errorf("HooksInstalled with pitwall-core's: %v", got)
+	}
 }
 
 func TestVersion(t *testing.T) {

@@ -38,6 +38,107 @@ func homebrewOpt(bin string) string {
 	return prefix + "/opt/pitwall/" + rest
 }
 
+// sibling is the other flavor of pitwall in bin's folder: pitwall-core
+// next to pitwall and the reverse, "" when bin has neither name.
+func sibling(bin string) string {
+	switch filepath.Base(bin) {
+	case "pitwall":
+		return filepath.Join(filepath.Dir(bin), "pitwall-core")
+	case "pitwall-core":
+		return filepath.Join(filepath.Dir(bin), "pitwall")
+	}
+	return ""
+}
+
+// owns reports whether a hook's binary is this install, whose hooks name
+// self: it resolves to self, as a pitwall link to pitwall-core does, or to
+// self's sibling, the other flavor in the same folder.
+func owns(self, bin string) bool {
+	r, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		return false
+	}
+	if s, err := filepath.EvalSymlinks(self); err == nil {
+		self = s
+	}
+	return r == self || r == sibling(self)
+}
+
+// ownedBins are the binaries other than self that original, an agent
+// config, names in a hook command or a generated file's `const bin` and
+// that are this install (owns).
+func ownedBins(self string, original []byte) []string {
+	var found []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			for k, x := range v {
+				if s, ok := x.(string); ok && k == "command" {
+					found = append(found, commandBin(s))
+				}
+				walk(x)
+			}
+		case []any:
+			for _, x := range v {
+				walk(x)
+			}
+		}
+	}
+	var root any
+	if json.Unmarshal(original, &root) == nil {
+		walk(root)
+	}
+	if _, rest, ok := strings.Cut(string(original), "const bin = "); ok {
+		literal, _, _ := strings.Cut(rest, ";\n")
+		var bin string
+		if json.Unmarshal([]byte(literal), &bin) == nil {
+			found = append(found, bin)
+		}
+	}
+	var out []string
+	for _, bin := range found {
+		if bin != self && filepath.IsAbs(bin) && !slices.Contains(out, bin) && owns(self, bin) {
+			out = append(out, bin)
+		}
+	}
+	return out
+}
+
+// others are what gen writes for each binary ownedBins finds in original.
+func others(self string, original []byte, gen func(bin string) []byte) [][]byte {
+	var out [][]byte
+	for _, bin := range ownedBins(self, original) {
+		out = append(out, gen(bin))
+	}
+	return out
+}
+
+// commandBin is the binary a hook command runs: its first word, unquoted
+// as agent's commandPath quotes it.
+func commandBin(command string) string {
+	if rest, ok := strings.CutPrefix(command, "'"); ok {
+		var b strings.Builder
+		for {
+			part, after, found := strings.Cut(rest, "'")
+			if !found {
+				return ""
+			}
+			b.WriteString(part)
+			if rest, ok = strings.CutPrefix(after, `\''`); !ok {
+				return b.String()
+			}
+			b.WriteString("'")
+		}
+	}
+	if rest, ok := strings.CutPrefix(command, `"`); ok {
+		bin, _, _ := strings.Cut(rest, `"`)
+		return bin
+	}
+	bin, _, _ := strings.Cut(command, " ")
+	return bin
+}
+
 var hookBeforeWrite = func(path string) {}
 
 func runHooks(args []string, out io.Writer) error { return hooks(args, out, nil) }
@@ -119,8 +220,10 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 		}
 		return err
 	}
-	jsonHooks := func(generated []byte) func([]byte) ([]byte, []string, error) {
-		return func(original []byte) ([]byte, []string, error) { return mergeHooks(original, generated, install) }
+	jsonHooks := func(gen func(string) []byte) func([]byte) ([]byte, []string, error) {
+		return func(original []byte) ([]byte, []string, error) {
+			return mergeHooks(original, gen(bin), install, others(bin, original, gen)...)
+		}
 	}
 	// skill is pitwall's skill in an agent's home dir.
 	skill := func(dir string) config {
@@ -130,11 +233,11 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 	}
 	files := []config{
 		{path: filepath.Join(agent.ClaudeDir(home), "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
-			data, changes, err := jsonHooks(agent.ClaudeHooks(bin))(original)
+			data, changes, err := jsonHooks(agent.ClaudeHooks)(original)
 			if err != nil || install && !statusline {
 				return data, changes, err
 			}
-			data, more, err := mergeStatusline(data, bin, install)
+			data, more, err := mergeStatusline(data, bin, install, ownedBins(bin, original)...)
 			return data, append(changes, more...), err
 		}},
 		skill(agent.ClaudeDir(home)),
@@ -142,22 +245,22 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 	// why: ~/.codex gets hooks.json above whatever is installed, so a skill
 	// there only when the dir existed would arrive on the second install.
 	if dir := agent.CodexDir(home); dir == filepath.Join(home, ".codex") || installed("codex", dir) {
-		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: jsonHooks(agent.CodexHooks(bin))}, skill(dir))
+		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: jsonHooks(agent.CodexHooks)}, skill(dir))
 	}
 	if dir := piAgentDir(home); dir != "" {
 		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {
-			return mergeGenerated(original, agent.PiExtension(bin), install, agent.IsPiExtension, "pi extension")
+			return mergeGenerated(original, agent.PiExtension(bin), install, agent.IsPiExtension, "pi extension", others(bin, original, agent.PiExtension)...)
 		}})
 	}
 	// why: omp reads $PI_CODING_AGENT_DIR too; when it is set, omp loads pi's extension, which reports as omp there.
 	if dir := agent.OmpDir(home); dir != agent.PiDir(home) && installed("omp", dir) {
 		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {
-			return mergeGenerated(original, agent.OmpExtension(bin), install, agent.IsOmpExtension, "omp extension")
+			return mergeGenerated(original, agent.OmpExtension(bin), install, agent.IsOmpExtension, "omp extension", others(bin, original, agent.OmpExtension)...)
 		}})
 	}
 	if dir := agent.GeminiDir(home); installed("gemini", dir) {
 		files = append(files, config{path: filepath.Join(dir, "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
-			data, changes, err := mergeHooks(original, agent.GeminiHooks(bin), install)
+			data, changes, err := mergeHooks(original, agent.GeminiHooks(bin), install, others(bin, original, agent.GeminiHooks)...)
 			if err != nil {
 				// why: Gemini reads settings.json with comments, which this merge cannot keep; the other agents still install.
 				return nil, nil, skipError{err.Error() + "; add the block `pitwall hooks` prints by hand"}
@@ -167,12 +270,12 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 	}
 	if dir := agent.CursorDir(home); installed("cursor-agent", dir) {
 		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: func(original []byte) ([]byte, []string, error) {
-			return mergeCursorHooks(original, agent.CursorHooks(bin), install)
+			return mergeCursorHooks(original, agent.CursorHooks(bin), install, others(bin, original, agent.CursorHooks)...)
 		}})
 	}
 	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
 		plugin := func(original []byte) ([]byte, []string, error) {
-			return mergeGenerated(original, agent.OpenCodePlugin(bin), install, agent.IsOpenCodePlugin, "OpenCode plugin")
+			return mergeGenerated(original, agent.OpenCodePlugin(bin), install, agent.IsOpenCodePlugin, "OpenCode plugin", others(bin, original, agent.OpenCodePlugin)...)
 		}
 		// why: OpenCode 2 runs plugins/pitwall.js in a background service every TUI shares, and loads the TUI half only from a directory.
 		files = append(files, config{path: filepath.Join(dir, "plugins", "pitwall.js"), merge: plugin},
@@ -326,10 +429,12 @@ func installed(name, dir string) bool {
 // mergeGenerated returns the next contents of a file pitwall generates
 // whole, such as pi's extension, nil to remove it. Install replaces only a
 // file some pitwall binary wrote and nobody edited since (is reports one);
-// uninstall removes only this binary's file.
-func mergeGenerated(original, generated []byte, install bool, is func([]byte) bool, name string) ([]byte, []string, error) {
+// uninstall removes only this install's file: generated, or one of also,
+// what another path to this install wrote.
+func mergeGenerated(original, generated []byte, install bool, is func([]byte) bool, name string, also ...[]byte) ([]byte, []string, error) {
+	ours := original != nil && slices.ContainsFunc(append([][]byte{generated}, also...), func(g []byte) bool { return bytes.Equal(original, g) })
 	switch {
-	case original != nil && bytes.Equal(original, generated):
+	case ours:
 		if install {
 			return original, nil, nil
 		}
@@ -357,7 +462,10 @@ func hookJSON[T any](data []byte) (T, error) {
 	return v, err
 }
 
-func mergeHooks(original, generated []byte, install bool) ([]byte, []string, error) {
+// mergeHooks returns original with generated's hooks added (install) or
+// removed. A hook also has, as another path to this install wrote it,
+// counts as generated's.
+func mergeHooks(original, generated []byte, install bool, also ...[]byte) ([]byte, []string, error) {
 	root := hookObject{}
 	if original != nil {
 		var err error
@@ -375,15 +483,23 @@ func mergeHooks(original, generated []byte, install bool) ([]byte, []string, err
 		}
 	}
 	wanted, _ := hookJSON[hookObject](generated)
-	commands := map[string]bool{}
-	for _, raw := range wanted {
-		groups, _ := hookJSON[[]hookObject](raw)
-		for _, group := range groups {
-			handlers, _ := hookJSON[[]hookObject](group["hooks"])
-			for _, handler := range handlers {
-				command, _ := hookJSON[string](handler["command"])
-				if command != "" {
-					commands[command] = true
+	commands := map[string]bool{}          // every command of this install, for uninstall
+	accept := map[string]map[string]bool{} // by event, the commands that count as installed
+	for _, g := range append([][]byte{generated}, also...) {
+		events, _ := hookJSON[hookObject](g)
+		for name, raw := range events {
+			groups, _ := hookJSON[[]hookObject](raw)
+			for _, group := range groups {
+				handlers, _ := hookJSON[[]hookObject](group["hooks"])
+				for _, handler := range handlers {
+					command, _ := hookJSON[string](handler["command"])
+					if command != "" {
+						commands[command] = true
+						if accept[name] == nil {
+							accept[name] = map[string]bool{}
+						}
+						accept[name][command] = true
+					}
 				}
 			}
 		}
@@ -427,7 +543,7 @@ func mergeHooks(original, generated []byte, install bool) ([]byte, []string, err
 			groupRemoved := false
 			for _, handler := range handlers {
 				cmd, _ := hookJSON[string](handler["command"])
-				if command != "" && cmd == command {
+				if command != "" && accept[name][cmd] {
 					found = true
 				}
 				if !install && commands[cmd] {
@@ -472,8 +588,9 @@ func mergeHooks(original, generated []byte, install bool) ([]byte, []string, err
 // mergeCursorHooks is mergeHooks for Cursor's hooks.json: {"version": 1,
 // "hooks": {event: [{command, ...}]}}, a list of commands per event rather
 // than matcher groups. Install adds each missing command and sets version
-// 1 when unset; uninstall removes exactly the commands generated holds.
-func mergeCursorHooks(original, generated []byte, install bool) ([]byte, []string, error) {
+// 1 when unset; uninstall removes exactly the commands generated and also
+// hold.
+func mergeCursorHooks(original, generated []byte, install bool, also ...[]byte) ([]byte, []string, error) {
 	root := hookObject{}
 	if original != nil {
 		var err error
@@ -491,6 +608,20 @@ func mergeCursorHooks(original, generated []byte, install bool) ([]byte, []strin
 		}
 	}
 	wanted, _ := hookJSON[map[string][]hookObject](generated)
+	accept := map[string]map[string]bool{} // by event, this install's commands
+	for _, g := range append([][]byte{generated}, also...) {
+		events, _ := hookJSON[map[string][]hookObject](g)
+		for name, hooks := range events {
+			for _, h := range hooks {
+				if command, _ := hookJSON[string](h["command"]); command != "" {
+					if accept[name] == nil {
+						accept[name] = map[string]bool{}
+					}
+					accept[name][command] = true
+				}
+			}
+		}
+	}
 	names := make([]string, 0, len(wanted))
 	for name := range wanted {
 		names = append(names, name)
@@ -511,7 +642,7 @@ func mergeCursorHooks(original, generated []byte, install bool) ([]byte, []strin
 		kept := make([]hookObject, 0, len(handlers))
 		found := false
 		for _, h := range handlers {
-			if cmd, _ := hookJSON[string](h["command"]); cmd == command && h != nil {
+			if cmd, _ := hookJSON[string](h["command"]); accept[name][cmd] && h != nil {
 				found = true
 				if !install {
 					changes = append(changes, "removed "+name+": "+cmd)

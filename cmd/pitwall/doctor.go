@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -38,6 +40,7 @@ func runDoctor(w io.Writer) int {
 		}
 	}
 	info := func(what string) { fmt.Fprintf(w, "info %s\n", what) }
+	warn := func(what, fix string) { fmt.Fprintf(w, "warn %s\n     fix: %s\n", what, fix) }
 	home, _ := os.UserHomeDir()
 	short := func(path string) string {
 		if rest, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok && home != "" {
@@ -56,15 +59,25 @@ func runDoctor(w io.Writer) int {
 	case err != nil:
 		report(false, "this pitwall", err.Error(), "")
 	case pathErr != nil:
-		report(false, "pitwall on PATH", "not found", "add "+filepath.Dir(self)+" to PATH")
+		report(false, "pitwall on PATH", "not found", pathFix(self))
 	default:
 		a, errA := os.Stat(self)
 		b, errB := os.Stat(onPath)
 		same, detail := errA == nil && errB == nil && os.SameFile(a, b), onPath
+		if !same && owns(self, onPath) {
+			same, detail = true, onPath+", the "+filepath.Base(onPath)+" next to this "+filepath.Base(self)
+		}
 		if !same {
 			detail += ", not this pitwall " + self
 		}
 		report(same, "pitwall on PATH", detail, "put "+filepath.Dir(self)+" first on PATH, or remove "+onPath+"; agents run the pitwall on PATH")
+	}
+	if err == nil {
+		if other, v, err := siblingVersion(self); err != nil {
+			warn(fmt.Sprintf("%s next to this pitwall cannot run: %v", other, err), "remove "+other+", or reinstall it")
+		} else if other != "" && v != versionString() {
+			warn(fmt.Sprintf("%s is %s and this %s is %s", other, v, filepath.Base(self), versionString()), other+" update")
+		}
 	}
 
 	m, err := doctorDaemon()
@@ -203,4 +216,45 @@ func hooksRows(home string, short func(string) string, report func(ok bool, what
 			report(false, "hooks", short(p.path)+" needs: "+p.changes[0]+more, "pitwall hooks install --dry-run, then pitwall hooks install")
 		}
 	}
+}
+
+// pathFix is how to put pitwall on PATH for self: for pitwall-core, a
+// pitwall link to it when that name is free in its folder.
+func pathFix(self string) string {
+	dir := filepath.Dir(self)
+	fix := "add " + dir + " to PATH"
+	link := filepath.Join(dir, "pitwall")
+	if _, err := os.Lstat(link); filepath.Base(self) != "pitwall-core" || !errors.Is(err, os.ErrNotExist) {
+		return fix
+	}
+	fix = "ln -s pitwall-core " + shellQuote(link) + "; agents and hooks run pitwall"
+	if _, err := exec.LookPath("pitwall-core"); err != nil {
+		fix += ", and add " + dir + " to PATH"
+	}
+	return fix
+}
+
+// siblingVersion is the version that self's sibling, the other flavor in
+// its folder, prints, when that is a file of its own; other is "" when
+// there is none.
+func siblingVersion(self string) (other, version string, err error) {
+	other = sibling(self)
+	a, errA := os.Stat(self)
+	b, errB := os.Stat(other)
+	if other == "" || errA != nil || errB != nil || os.SameFile(a, b) {
+		return "", "", nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, other, "--version")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	f := strings.Fields(string(out))
+	if err == nil && (len(f) < 2 || f[0] != "pitwall") {
+		err = fmt.Errorf("--version printed %q", strings.TrimSpace(string(out)))
+	}
+	if err != nil {
+		return other, "", err
+	}
+	return other, f[1], nil
 }

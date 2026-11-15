@@ -161,12 +161,13 @@ func readHooks(h *hookFile, root any) bool {
 	return true
 }
 
-// runsPitwall reports whether one of cmds runs a pitwall binary with
-// suffix, wherever it lives.
+// runsPitwall reports whether one of cmds runs a pitwall or pitwall-core
+// binary with suffix, wherever it lives.
 func runsPitwall(cmds []command, suffix string) bool {
 	return slices.ContainsFunc(cmds, func(c command) bool {
 		cmd := strings.Trim(strings.TrimSuffix(c.Command, suffix), `'"`)
-		return strings.HasSuffix(c.Command, suffix) && filepath.Base(cmd) == "pitwall"
+		base := filepath.Base(cmd)
+		return strings.HasSuffix(c.Command, suffix) && (base == "pitwall" || base == "pitwall-core")
 	})
 }
 
