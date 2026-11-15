@@ -103,7 +103,8 @@ Every action goes to the daemon that owns the tab, pane or session it
 names. A new session or tab opens on the host of the session the window
 shows, or in a [shared session](#shared-sessions) on the machine you pick. `pitwall --host box` still opens a window on that host alone, and
 `pitwall ls`, `new` and the other commands still talk to the daemon of the
-machine they run on.
+machine they run on, except for `--host` and an agent's
+[workers on another machine](#workers-on-another-machine).
 
 ### Shared sessions
 
@@ -228,7 +229,55 @@ checks run on the machine of the tab they start from.
 
 ### Workers on another machine
 
-The agent that started workers on box reaches them from its own pane:
+An agent in a pane here can start workers on box, so their builds and
+tests use box's CPU, memory and disk:
+
+```sh
+pitwall worktree new login-fix --host box -- claude "Fix the login redirect."
+pitwall new --host box -n evals '~/evals' -- codex "Run the eval suite."
+```
+
+Each prints the worker as `#box:3`. `worktree new --host` resolves
+`--from`, else the default branch, to a commit here and pushes it to the
+repository on box as `refs/pitwall/base/<id>` over the shared ssh
+connection, so commits not pushed anywhere reach the worker. Uncommitted
+changes stay here. The repository on box is at the same path under box's
+home folder, `~/Work/app` for `~/Work/app` here, or at `--repo`. Box makes
+the worktree from that commit. Removing the worktree while its tab is
+still open, with `worktree rm` on box or the window's close-and-remove,
+also deletes the ref. Closing the tab alone keeps its worktree, branch
+and base ref. `--host` refuses `--branch`, since the branch can differ
+on the two machines; `--from <branch>` starts a new branch off it.
+In [fleet mode](usage.md#fleet-mode), `host = "box"` under
+`[fleet.small]`, `[fleet.normal]` or `[fleet.big]` sends that lane's
+workers to box, and `--host local` keeps one here. The worker carries this
+machine's timebox and nudge for its lane, and box nudges it past that
+timebox whether fleet mode is on there or not.
+
+Before anything is pushed or started, box's daemon checks the start with
+its own PATH and environment:
+
+| Check                                              | When                    | A problem               |
+| -------------------------------------------------- | ----------------------- | ----------------------- |
+| the command is on the daemon's PATH                | always                  | stops the start         |
+| a guarded agent has pitwall's hooks                | `--guard`               | stops the start         |
+| the agent has pitwall's hooks and a login          | Claude Code or Codex    | warns                   |
+| the repository is a git work tree                  | `worktree new`          | stops, prints `git clone` |
+| `git ls-remote origin HEAD`                        | `worktree new`          | stops the start         |
+| `git push --dry-run` to origin                     | `worktree new`          | stops the start         |
+| `gh api repos/<repo>` grants push                  | a GitHub origin         | stops the start         |
+
+git runs with `GIT_TERMINAL_PROMPT=0` and ssh's `BatchMode`, 10 seconds
+per call. A problem prints under `box cannot start this worker; nothing
+was started:` with fixes in the problem text or under `fix on box:`.
+A dry run that succeeds still warns that origin may refuse the real push.
+A host whose daemon predates
+the check gets none, and retries of an existing `--id` skip it. A command
+or config folder supplied by the new worktree can be checked only after
+setup; guarded agents still need their hooks before they start.
+
+A worker on box hangs under the agent's tab, as described above, and the
+agent reaches it from its own pane:
 
 ```sh
 pitwall ls --children --json        # box's rows: "host": "box", "addr": "box:3", "n": 0
@@ -240,8 +289,8 @@ pitwall wait --children --until done
 pitwall kill -f box:3
 ```
 
-`#3` is always this machine's tab 3, and `box:3` box's own tab 3, as
-`pitwall ls` on box numbers it. A title names a tab here only. Each call
+`#3` is always this machine's tab 3, and `box:3`, or `#box:3` as `new
+--host` prints it, box's own tab 3, as `pitwall ls` on box numbers it. A title names a tab here only. Each call
 dials box over the shared ssh connection and drops it when it ends.
 
 `wait --children` counts a worker on box only while it watches box's
@@ -258,6 +307,15 @@ When the agent's tab is gone for good, a new agent takes its workers over:
 machines made for a session this machine no longer has, and `pitwall
 adopt @<id>` (or `--all`) makes the calling tab their parent. A part made
 by another machine never shows.
+
+pitwall's fleet notes about a worker on box, such as one past twice its
+lane's timebox or one whose CI failed again, reach no pane here, so the
+agent watches its `state` in `pitwall ls --children --json`. Box's own
+config decides whether CI failures go to the worker and when it closes.
+Results come back through git: a worker pushes its branch and opens its
+pull request from box, and you review, merge and release here as usual.
+The [agent skill](agent-skill.md#workers-on-another-machine) has the same
+in an agent's words.
 
 ### Keep the daemon running across reboots
 
@@ -353,7 +411,8 @@ Some things stay on the machine they belong to:
   changed files, which are on the host.
 - `pitwall ls`, `new`, `wait` and the other commands talk to the daemon of
   the machine they run on. Run them on the host, for example in one of its
-  panes.
+  panes, unless you start a tab there with `--host` or reach an agent's
+  [workers on another machine](#workers-on-another-machine).
 - Windows has no remote windows: its ssh cannot share a connection.
 
 ## Web client

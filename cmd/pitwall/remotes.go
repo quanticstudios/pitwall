@@ -245,9 +245,9 @@ func (r *remotes) ownerOf(id string) *hostPart {
 }
 
 // tab finds a tab as resolveTab does here, and on the session's hosts:
-// box:N, or any other address after "box:", among the tabs of box's part,
-// and an @id this machine lacks in a host's part. h is nil for a tab
-// here.
+// box:N or #box:N, or any other address after "box:", among the tabs of
+// box's part, and an @id this machine lacks in a host's part. h is nil for
+// a tab here.
 func (r *remotes) tab(addr string) (h *hostPart, w model.Workspace, err error) {
 	h, w, _, err = r.find(addr, false)
 	return h, w, err
@@ -274,7 +274,8 @@ func (r *remotes) find(addr string, pane bool) (*hostPart, model.Workspace, mode
 		w, err := resolveTab(st, session, a)
 		return w, model.Pane{}, err
 	}
-	if name, rest, ok := strings.Cut(addr, ":"); ok && slices.Contains(r.names(), name) {
+	// #box:3 is how new --host prints the tab.
+	if name, rest, ok := strings.Cut(strings.TrimPrefix(addr, "#"), ":"); ok && slices.Contains(r.names(), name) {
 		h := r.host(name)
 		switch {
 		case h.err != nil:

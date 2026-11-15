@@ -82,8 +82,9 @@ const usage = `usage:
                              daemon restart it shows a notice instead; a cmd
                              still running then is not run again (exit unknown).
                              Run inside a pane, the tab hangs under the pane's tab.
-                             --host opens it on that machine; --id finishes a
-                             start there whose connection dropped
+                             --host opens it on that machine and prints #box:N,
+                             which read, send, prompt, wait and kill take;
+                             --id finishes a start there whose connection dropped
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there (its first
                              live agent pane, else live pane). done: it
