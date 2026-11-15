@@ -154,16 +154,21 @@ func fakeSSH(dir string, args []string) int {
 	}
 	var op, fwd string
 	i := 0
+	// pitwall puts -- before the destination; git, through GIT_SSH_COMMAND,
+	// puts none: the first word that is no option is the destination.
 	for ; i < len(args) && args[i] != "--"; i++ {
-		switch args[i] {
-		case "-o":
+		switch a := args[i]; {
+		case a == "-o" || a == "-p":
 			i++
-		case "-O":
+		case a == "-O":
 			i++
 			op = args[i]
-		case "-L":
+		case a == "-L":
 			i++
 			fwd = args[i]
+		case !strings.HasPrefix(a, "-"):
+			args = slices.Insert(args, i, "--")
+			i-- // the loop stops at the -- just put in
 		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, "down")); err == nil {
@@ -176,7 +181,7 @@ func fakeSSH(dir string, args []string) int {
 	switch op {
 	case "":
 		cmd := exec.Command("sh", "-c", strings.Join(args[i+2:], " "))
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr // git's push talks over them
 		err := cmd.Run()
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {

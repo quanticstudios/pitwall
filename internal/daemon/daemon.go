@@ -1324,12 +1324,20 @@ func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
 	return nil
 }
 
-func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
+func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result error) {
 	unlock, err := d.lockTabStart(ctx, m.ID)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	if rest, ok := strings.CutPrefix(m.Root, "~/"); ok {
+		// worktree new --host maps the repo here to the same folder under this home.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		m.Root = filepath.Join(home, rest)
+	}
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == m.ProjectID })
 	var p model.Project
@@ -1338,8 +1346,9 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		p = d.st.Projects[pi]
 	} else if parent := d.paneTab(m.ParentPane); m.ProjectID == "" && m.Root != "" && parent != nil {
 		p, ok = model.Project{SessionID: parent.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
-	} else if m.ProjectID == "" && m.Root != "" && m.ParentTab != "" && d.st.Session(m.SessionID) != nil {
-		// A worker of a tab on another machine, in that tab's part here.
+	} else if m.ProjectID == "" && m.Root != "" && d.st.Session(m.SessionID) != nil {
+		// A worktree in the requested session's part here, with or without
+		// a parent tab on the machine that requested it.
 		p, ok = model.Project{SessionID: m.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
 	}
 	var started bool
@@ -1371,8 +1380,27 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	}
 	root := d.repoRoot(ctx, path)
 
+	failedStart := false
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	defer func() {
+		users := d.st.WorktreeUsers(path, "")
+		d.mu.Unlock()
+		if failedStart && owned != "" {
+			if len(users) > 0 {
+				// why: a tab opened it since git made it; force would take its work.
+				result = errors.Join(result, fmt.Errorf("worktree kept at %s: tabs %s use it", path, strings.Join(users, ", ")))
+				return
+			}
+			// A refused start must not claim its id or leave its new branch
+			// blocking a retry. No pane ran, so no teardown is needed. git
+			// made the branch of FromNew and FromRemote with -b just now;
+			// FromBranch's and FromPR's may hold work and stay.
+			fresh := m.From.Kind == model.FromNew || m.From.Kind == model.FromRemote
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			defer cancel()
+			result = errors.Join(result, d.removeWorktree(cleanup, owned, path, model.PortBlock{}, fresh, true, true, ""))
+		}
+	}()
 	if m.ID != "" {
 		// why: the same id may have started while the worktree was made.
 		if started, err := d.startedTab(m.ID, p.SessionID, m.ParentTab); started || err != nil {
@@ -1391,7 +1419,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		w.Parent, w.RemoteParent = m.ParentTab, true
 	}
 	if m.Lane != "" && len(m.Cmd) > 0 {
-		w.Lane = model.Lane{Name: m.Lane, Start: time.Now()}
+		w.Lane = model.Lane{Name: m.Lane, Start: time.Now(), Timebox: m.Timebox, Nudge: m.Nudge}
 	}
 	if owned != "" {
 		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
@@ -1420,7 +1448,10 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		// notice: a GUI shows no request's error.
 		nw := &d.st.Workspaces[len(d.st.Workspaces)-1]
 		if aerr := d.addTab(nw, path, m.Cmd, m.Env); aerr != nil {
-			err = errors.Join(err, aerr)
+			d.st.Workspaces = d.st.Workspaces[:len(d.st.Workspaces)-1]
+			failedStart = true
+			d.changed()
+			return errors.Join(err, aerr)
 		} else {
 			id := d.st.Panes[len(d.st.Panes)-1].ID
 			if typed != nil {
@@ -1544,6 +1575,10 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 		// workspace goes too.
 		if err = d.removeWorktree(ctx, ws.WorktreeRoot, ws.Path, ws.Ports, m.RemoveBranch, m.Force, m.SkipTeardown, m.Teardown); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
+		}
+		if ws.ClientID {
+			// The commit worktree new --host pushed for this tab to start from.
+			gitstat.DeleteRef(ctx, ws.WorktreeRoot, gitstat.BaseRef(ws.ID))
 		}
 	}
 

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -66,17 +67,18 @@ func (d *Daemon) workerName(w model.Workspace, pane string) string {
 
 // checkFleet nudges each lane worker past its lane's timebox with no pull
 // request open or merged, once, and past twice the timebox tells its
-// parent tab, once.
+// parent tab, once. A worker that brought its lane's timebox from another
+// machine is checked with it whether fleet mode is on here or not.
 func (d *Daemon) checkFleet(now time.Time) {
 	s, on := d.fleetOn()
-	if !on {
-		return
-	}
 	var notes []note
 	d.mu.Lock()
 	for i := range d.st.Workspaces {
 		w := &d.st.Workspaces[i]
-		tb := s.Fleet.Timebox(w.Lane.Name)
+		tb, nudge := w.Lane.Timebox, cmp.Or(w.Lane.Nudge, s.Fleet.Nudge, config.DefaultNudge)
+		if tb <= 0 && w.Lane.Nudge == "" && on {
+			tb, nudge = s.Fleet.Timebox(w.Lane.Name), s.Fleet.Nudge
+		}
 		if tb <= 0 || w.Lane.Start.IsZero() || w.Lane.Nudged && w.Lane.Told {
 			continue
 		}
@@ -89,7 +91,7 @@ func (d *Daemon) checkFleet(now time.Time) {
 			w.Lane.Nudged = true
 			d.changed()
 			if worker != "" {
-				notes = append(notes, note{worker, s.Fleet.Nudge})
+				notes = append(notes, note{worker, nudge})
 			}
 		}
 		if age >= 2*tb && !w.Lane.Told {

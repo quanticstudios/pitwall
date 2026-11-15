@@ -11,6 +11,21 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// Resolving a remote worker's base uses the same branch preference as a
+// local worktree when a tag and branch share a name.
+func TestCommitPrefersBranch(t *testing.T) {
+	dir := repo(t)
+	runGit(t, dir, "tag", "release")
+	writeFile(t, dir, "branch.txt", "branch\n")
+	commit(t, dir)
+	runGit(t, dir, "branch", "release")
+	want := runGit(t, dir, "rev-parse", "refs/heads/release")
+	got, err := Commit(context.Background(), dir, "release")
+	if err != nil || got != want {
+		t.Fatalf("Commit(release) = %q, %v; want branch %s", got, err, want)
+	}
+}
+
 // githubRepo is repo with an origin whose URL names github.com but which
 // git fetches from a local bare repository, through url.insteadOf. Origin
 // has main, side, remote-only, and pull/7/head and pull/9/head, a commit

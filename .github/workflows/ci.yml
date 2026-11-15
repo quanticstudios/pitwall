@@ -45,7 +45,8 @@ jobs:
         run: |
           GOOS=windows GOARCH=amd64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
           GOOS=windows GOARCH=arm64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
-      - run: go test -race -timeout 5m ./...
+      # cmd/pitwall runs its tests twice (TestRunStaysOffHome), about 4-5 minutes under -race here.
+      - run: go test -race -timeout 10m ./...
       - run: go test -race gioui.org/app
       - name: Check the vendored terminal module
         run: |

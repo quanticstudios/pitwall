@@ -29,7 +29,8 @@ const worktreeUsage = `usage:
                                 ahead of and behind the default branch (--all: every
                                 repo pitwall has a group for)
   pitwall worktree new <name> [--from <ref> | --branch <branch> | --pr <n>]
-                       [--preset <name> | --lane <lane>] [--guard] [-- cmd args...]
+                       [--preset <name> | --lane <lane>] [--guard]
+                       [--host <name> [--repo <path>] [--id <id>]] [-- cmd args...]
                                 open a tab in a new worktree, <repo>/.worktrees/<name>:
                                 a new branch <name> off ref (default: the default
                                 branch), an existing local or remote branch, or GitHub
@@ -38,7 +39,12 @@ const worktreeUsage = `usage:
                                 with cmd's args after its own; --guard denies the agent
                                 pushes and merges. --lane (fleet mode) runs the lane's
                                 preset with the words after -- as one brief, the worker
-                                contract before it. Prints the tab's #
+                                contract before it, on the lane's host if it has one.
+                                --host starts it on that [[hosts]] machine, in the repo
+                                at the same path under its home folder or at --repo,
+                                from this machine's commit, and prints #<host>:N;
+                                --host local keeps a lane's worker here. --id finishes
+                                a start that lost its connection. Prints the tab's #
   pitwall worktree lanes        the fleet lanes: small, normal and big, each with its
                                 preset and timebox
   pitwall worktree rm <name> [--force] [--teardown]
@@ -71,7 +77,7 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 	flags := flag.NewFlagSet("worktree "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var all, force, guarded, approve bool
-	var from, branch, preset, lane string
+	var from, branch, preset, lane, host, tabID, repo string
 	var pr int
 	switch command {
 	case "ls":
@@ -83,6 +89,9 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		flags.StringVar(&preset, "preset", "", "")
 		flags.StringVar(&lane, "lane", "", "")
 		flags.BoolVar(&guarded, "guard", false, "")
+		flags.StringVar(&host, "host", "", "")
+		flags.StringVar(&tabID, "id", "", "")
+		flags.StringVar(&repo, "repo", "", "")
 	case "rm":
 		flags.BoolVar(&force, "force", false, "")
 		flags.BoolVar(&approve, "teardown", false, "")
@@ -103,9 +112,20 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		return errors.New(worktreeUsage)
 	}
 	if lane != "" {
-		if preset, cmd, err = laneLaunch(lane, preset, cmd); err != nil {
+		var laneHost string
+		if preset, cmd, laneHost, err = laneLaunch(lane, preset, cmd); err != nil {
 			return err
 		}
+		host = cmp.Or(host, laneHost)
+	}
+	if host == "local" { // this machine, over a lane's host
+		host = ""
+	}
+	if host == "" && (tabID != "" || repo != "") {
+		return errors.New("--id and --repo name a worker on another host and go with --host")
+	}
+	if host != "" && branch != "" {
+		return errors.New("--branch cannot be used with --host: the branch may differ on the two machines. Use --from <branch> for a new branch off it")
 	}
 	// An agent's worker gets the guard when [agents] guard_workers says so.
 	if !guarded && os.Getenv("PITWALL_PANE") != "" && (len(cmd) > 0 || preset != "") {
@@ -113,7 +133,7 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		guarded = s.GuardWorkers
 	}
 	var vars []string
-	if cmd, vars, err = launch(preset, guarded, cmd, true); err != nil {
+	if cmd, vars, err = launch(preset, guarded, cmd, host == ""); err != nil {
 		return err
 	}
 	var root string
@@ -160,6 +180,10 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		if err := varsLevel(vars, level); err != nil {
 			return err
 		}
+		if host != "" {
+			m := proto.StateMsg{State: state, Level: level}
+			return newWorktreeOnHost(ctx, conn, out, errOut, m, root, host, repo, tabID, args[0], f, cmd, vars, lane)
+		}
 		if lane != "" && level < proto.LaneLevel {
 			return errors.New("the pitwall daemon running is older than this pitwall and would not keep the lane's timebox; it works once the daemon restarts")
 		}
@@ -197,28 +221,28 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 	return err
 }
 
-// laneLaunch turns --lane into the lane's preset and its brief: the words
-// of brief joined, with the worker contract before them.
-func laneLaunch(lane, preset string, brief []string) (string, []string, error) {
+// laneLaunch turns --lane into the lane's preset, its brief (the words of
+// brief joined, with the worker contract before them) and its host.
+func laneLaunch(lane, preset string, brief []string) (string, []string, string, error) {
 	if preset != "" {
-		return "", nil, errors.New("use one of --preset and --lane")
+		return "", nil, "", errors.New("use one of --preset and --lane")
 	}
 	s, _ := config.Load()
 	if !s.Fleet.On {
-		return "", nil, errors.New("--lane needs fleet mode: turn it on in Settings, Fleet, or set enabled = true under [fleet] in config.toml")
+		return "", nil, "", errors.New("--lane needs fleet mode: turn it on in Settings, Fleet, or set enabled = true under [fleet] in config.toml")
 	}
 	l, ok := s.Fleet.Lane(lane)
 	if !ok {
-		return "", nil, fmt.Errorf("no lane %q with a preset; see pitwall worktree lanes", lane)
+		return "", nil, "", fmt.Errorf("no lane %q with a preset; see pitwall worktree lanes", lane)
 	}
 	if len(brief) == 0 {
-		return "", nil, errors.New(`--lane needs a brief: pitwall worktree new <name> --lane small -- "<brief>"`)
+		return "", nil, "", errors.New(`--lane needs a brief: pitwall worktree new <name> --lane small -- "<brief>"`)
 	}
 	text, err := s.Fleet.Brief(strings.Join(brief, " "))
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", err
 	}
-	return l.Preset, []string{text}, nil
+	return l.Preset, []string{text}, l.Host, nil
 }
 
 // listLanes prints the fleet lanes as config.toml sets them.

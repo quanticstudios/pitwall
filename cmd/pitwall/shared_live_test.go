@@ -502,7 +502,7 @@ func TestSharedSessionLive(t *testing.T) {
 		t.Fatalf("wait --children with box down: %d %q %q", code, out, errOut)
 	}
 	// kill reaches it there.
-	twoID := slices.DeleteFunc(workers(), func(w model.RemoteWorker) bool { return w.ID == worker.ID })[0].ID
+	twoID := slices.DeleteFunc(slices.Clone(workers()), func(w model.RemoteWorker) bool { return w.ID == worker.ID })[0].ID
 	if code, _, errOut := cliOutput("kill", "-f", two); code != 0 {
 		t.Fatalf("kill %s: %d %q", two, code, errOut)
 	}

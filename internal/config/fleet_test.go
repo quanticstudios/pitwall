@@ -26,6 +26,7 @@ escalate = "loud"
 [fleet.small]
 preset = "Quick"
 timebox = 15
+host = " box "
 
 [fleet.big]
 preset = "Missing"
@@ -36,7 +37,7 @@ timebox = 2000
 	if !f.On || f.Escalate != "parent" || f.Nudge != DefaultNudge {
 		t.Errorf("fleet %+v", f)
 	}
-	if l, ok := f.Lane("small"); !ok || l.Preset != "Quick" || l.Timebox != 15*time.Minute {
+	if l, ok := f.Lane("small"); !ok || l.Preset != "Quick" || l.Timebox != 15*time.Minute || l.Host != "box" {
 		t.Errorf("small %+v %v", l, ok)
 	}
 	if _, ok := f.Lane("big"); ok || f.Timebox("big") != 2*time.Hour || f.Timebox("normal") != time.Hour {

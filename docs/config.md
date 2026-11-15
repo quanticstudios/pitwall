@@ -119,6 +119,7 @@ escalate = "parent"                     # or "respawn", "off": CI red after two 
 [fleet.small]                           # also [fleet.normal] and [fleet.big]
 preset = ""                             # an [[agents.preset]] name; empty is off
 timebox = 30                            # minutes before one nudge; 60 and 120 for the others
+host = ""                               # a [[hosts]] name its workers start on; empty is here
 ```
 
 Chords are modifiers (`Ctrl`, `Alt`, `Shift`, `Super`) and a key joined by

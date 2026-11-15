@@ -2455,6 +2455,14 @@ per task:
 pitwall worktree new login-fix --lane small -- "Fix the login redirect. FEAT-123 has the steps."
 ```
 
+A lane with `host = "box"`, a `[[hosts]]` name, starts its workers on box,
+as `pitwall worktree new --host box` does; `--host local` keeps one here.
+The worker takes this machine's timebox and `nudge` with it, and box's
+daemon nudges it once past that timebox whether fleet mode is on there or
+not. The line past twice the timebox does not reach the parent tab here,
+and escalation follows box's own `[fleet]`, which needs fleet mode and a
+`big` preset there.
+
 The words after `--` are the brief. pitwall starts the lane's preset with
 the brief as its prompt, and puts the contents of the `contract` file
 before it. A contract holds what every worker should do, for example:
