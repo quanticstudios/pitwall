@@ -383,6 +383,45 @@ func TestReparent(t *testing.T) {
 	}
 }
 
+func TestAdoptLocalOrphan(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		parent  string
+		remote  bool
+		session string
+		wantErr bool
+	}{
+		{"orphan", "gone", false, "s", false},
+		{"live parent", "parent", false, "s", true},
+		{"root", "", false, "s", true},
+		{"other session", "gone", false, "other", true},
+		{"remote", "gone", true, "s", true},
+		{"cycle", "gone", false, "s", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			d := newDaemon(t, f.options())
+			d.st.Workspaces = []model.Workspace{
+				{ID: "worker", Parent: tc.parent, RemoteParent: tc.remote, SessionID: "s"},
+				{ID: "parent", SessionID: tc.session},
+			}
+			if tc.name == "cycle" {
+				d.st.Workspaces[1].Parent = "worker"
+			}
+			err := d.handle(context.Background(), proto.Reparent{WorkspaceID: "worker", ParentTab: "parent"})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("adopt: %v; want error %v", err, tc.wantErr)
+			}
+			if !tc.wantErr {
+				st := d.state()
+				if w := st.Workspace("worker"); w.Parent != "parent" || w.RemoteParent {
+					t.Fatalf("adopted worker: %+v", w)
+				}
+			}
+		})
+	}
+}
+
 // A message from a pane this daemon does not know comes from another
 // machine; pitwall send @<that pane> would not reach it from here.
 func TestHeaderFromAnotherMachine(t *testing.T) {

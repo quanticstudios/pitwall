@@ -66,7 +66,7 @@ const usage = `usage:
                              --children: only the tabs this pane's tab opened,
                              here and on other machines, as box:3;
                              --tree: each tab under the tab that opened it;
-                             --orphans: workers on other machines whose parent
+                             --orphans: workers here or elsewhere whose parent
                              tab is gone)
   pitwall adopt @<id>... | --all
                              make this pane's tab the parent of those orphans

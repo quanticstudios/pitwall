@@ -261,6 +261,14 @@ func (r *remotes) pane(addr string) (*hostPart, model.Workspace, model.Pane, err
 func (r *remotes) find(addr string, pane bool) (*hostPart, model.Workspace, model.Pane, error) {
 	on := func(st model.State, session, a string) (model.Workspace, model.Pane, error) {
 		if pane {
+			if id, ok := strings.CutPrefix(a, "@"); ok {
+				if w := st.Workspace(id); w != nil {
+					if p := mainPane(tabPanes(st, *w)); p != nil {
+						return *w, *p, nil
+					}
+					return *w, model.Pane{}, fmt.Errorf("tab %s has no pane", tabTitle(*w))
+				}
+			}
 			return resolvePane(st, session, a)
 		}
 		w, err := resolveTab(st, session, a)
@@ -371,14 +379,14 @@ func listChildren(out io.Writer, r *remotes, asJSON, tree bool) error {
 }
 
 // orphan is a worker of this session, or of a session this machine no
-// longer has, on another machine, whose parent is no tab here.
+// longer has, whose parent is no tab here.
 type orphan struct {
 	row  tabJSON
 	part string // the part of a gone session it runs in, "" for this session's
 	rec  *model.RemoteWorker
 }
 
-// orphans lists this session's workers on other machines whose parent is
+// orphans lists this session's workers here and elsewhere whose parent is
 // no live tab here: its records, and tabs of its parts with no record,
 // then the tabs of parts on reachable [[hosts]] that this daemon made for
 // a session it no longer has. It names each host it could not reach in
@@ -395,6 +403,13 @@ func (r *remotes) orphans() (out []orphan, unreached []string) {
 			}
 		}
 		return tabJSON{}
+	}
+	for _, w := range r.state.Workspaces {
+		if w.SessionID == r.session.ID && !w.RemoteParent && w.Parent != "" && gone(w.Parent) {
+			t := tabsJSON(r.state, r.session.ID, map[string]bool{w.ID: true})[0]
+			t.Parent = w.Parent
+			out = append(out, orphan{row: t})
+		}
 	}
 	for _, rec := range r.session.Workers {
 		if rec.Lost != "" || !gone(rec.Parent) {
@@ -483,10 +498,13 @@ func adopt(out io.Writer, r *remotes, ids []string, all bool) error {
 	found, _ := r.orphans()
 	var picked []orphan
 	if all {
-		picked = found
+		picked = slices.DeleteFunc(slices.Clone(found), func(o orphan) bool { return o.row.ID == tab })
 	}
 	for _, id := range ids {
 		id = strings.TrimPrefix(id, "@")
+		if id == tab {
+			return errors.New("a tab cannot adopt itself")
+		}
 		i := slices.IndexFunc(found, func(o orphan) bool { return o.row.ID == id })
 		if i < 0 {
 			return fmt.Errorf("@%s is not an orphan of this session (see pitwall ls --orphans)", id)
@@ -520,12 +538,23 @@ func adopt(out io.Writer, r *remotes, ids []string, all bool) error {
 		h.state, h.part, joined[o.part] = hs, o.part, true
 	}
 	for _, o := range picked {
+		if o.row.Host == "" {
+			if _, err := syncCLI(r.local, proto.Reparent{WorkspaceID: o.row.ID, ParentTab: tab}); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "@%s adopted\n", o.row.ID)
+			continue
+		}
 		h := r.host(o.row.Host)
 		rec := model.RemoteWorker{ID: o.row.ID, Host: h.name, Parent: tab, Since: time.Now()}
 		if o.rec != nil {
 			rec.Since = o.rec.Since
 		}
-		if _, err := syncCLI(r.local, proto.RemoteWorkers{SessionID: r.session.ID, Add: []model.RemoteWorker{rec}, Set: []model.RemoteWorker{rec}}); err != nil {
+		update := proto.RemoteWorkers{SessionID: r.session.ID, Set: []model.RemoteWorker{rec}}
+		if o.rec == nil {
+			update.Add = []model.RemoteWorker{rec}
+		}
+		if _, err := syncCLI(r.local, update); err != nil {
 			return err
 		}
 		if h.err != nil {
@@ -560,6 +589,73 @@ type hostEvent struct {
 	err   error
 }
 
+// hostWait keeps a single-tab wait on its owning machine across drops.
+// It owns the watch, including exit messages, so exitOf can finish
+// reading an exit without racing a background reader.
+type hostWait struct {
+	name  string
+	watch *watcher
+	done  func()
+	stop  func() bool
+}
+
+func (h *hostWait) close() {
+	if h.stop != nil {
+		h.stop()
+	}
+	if h.done != nil {
+		h.done()
+	}
+	h.watch, h.done, h.stop = nil, nil, nil
+}
+
+func (h *hostWait) next(ctx context.Context, errOut io.Writer) (model.State, error) {
+	var downSince time.Time
+	wait, said := hostRetryMin, ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return model.State{}, err
+		}
+		var err error
+		if h.watch == nil {
+			var c *cliConn
+			c, h.done, err = dialHost(h.name, "watch")
+			if err == nil {
+				h.watch = &watcher{cliConn: c, exits: map[string]int{}}
+				h.stop = context.AfterFunc(ctx, func() { c.Close() })
+			}
+		}
+		if err == nil {
+			var st model.State
+			if st, err = h.watch.next(); err == nil {
+				if err = h.watch.socket.SetDeadline(time.Time{}); err == nil {
+					return st, nil
+				}
+			}
+		}
+		h.close()
+		if downSince.IsZero() {
+			downSince = time.Now()
+		}
+		if msg := err.Error(); msg != said {
+			said = msg
+			fmt.Fprintf(errOut, "pitwall: %s unreachable: %v\n", h.name, err)
+		}
+		left := unreachableAfter - time.Since(downSince)
+		if left <= 0 {
+			return model.State{}, fmt.Errorf("%s unreachable for %s: %w", h.name, unreachableAfter, err)
+		}
+		timer := time.NewTimer(min(wait, left))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return model.State{}, ctx.Err()
+		case <-timer.C:
+		}
+		wait = min(2*wait, hostRetryMax)
+	}
+}
+
 // unreachableAfter is how long wait --children waits for a host it cannot
 // reach before it gives up; tests shorten it. waitTick is how often it
 // looks at the clock meanwhile, and it dials again with the window's
@@ -576,24 +672,24 @@ func watchHost(ctx context.Context, dial func(name, kind string) (*cliConn, func
 	for {
 		c, done, err := dial(name, "watch")
 		if err == nil {
-			if err = c.socket.SetDeadline(time.Time{}); err != nil {
-				done()
-			} else {
-				w := &watcher{cliConn: c, exits: map[string]int{}}
-				stop := context.AfterFunc(ctx, func() { c.Close() })
-				for err == nil {
-					var st model.State
-					if st, err = w.next(); err == nil {
-						wait = least
-						select {
-						case events <- hostEvent{host: name, state: st}:
-						case <-ctx.Done():
-						}
+			w := &watcher{cliConn: c, exits: map[string]int{}}
+			stop := context.AfterFunc(ctx, func() { c.Close() })
+			for err == nil {
+				var st model.State
+				if st, err = w.next(); err == nil {
+					// Keep hello's deadline until the first state arrives.
+					if err = c.socket.SetDeadline(time.Time{}); err != nil {
+						break
+					}
+					wait = least
+					select {
+					case events <- hostEvent{host: name, state: st}:
+					case <-ctx.Done():
 					}
 				}
-				stop()
-				done()
 			}
+			stop()
+			done()
 		}
 		select {
 		case events <- hostEvent{host: name, err: err}:

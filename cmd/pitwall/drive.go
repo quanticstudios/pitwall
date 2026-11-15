@@ -406,11 +406,13 @@ func waitTab(args []string, out, errOut io.Writer) (int, error) {
 		return waitError, err
 	}
 	defer watch.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var timedOut atomic.Bool
 	var cur atomic.Pointer[watcher] // the watch the timeout closes
 	cur.Store(watch)
 	if *timeout > 0 {
-		t := time.AfterFunc(*timeout, func() { timedOut.Store(true); cur.Load().Close() })
+		t := time.AfterFunc(*timeout, func() { timedOut.Store(true); cancel(); cur.Load().Close() })
 		defer t.Stop()
 	}
 	state, err := watch.next()
@@ -437,25 +439,18 @@ func waitTab(args []string, out, errOut io.Writer) (int, error) {
 	if err != nil {
 		return waitError, err
 	}
+	var remote *hostWait
 	if h != nil { // a tab on another machine: watch its daemon instead
-		hc, done, err := dialHost(h.name, "watch")
-		if err != nil {
-			return waitError, err
-		}
-		defer done()
-		if err := hc.socket.SetDeadline(time.Time{}); err != nil {
-			return waitError, err
-		}
-		watch = &watcher{cliConn: hc, exits: map[string]int{}}
-		if cur.Store(watch); timedOut.Load() {
-			watch.Close()
-		}
-		if state, err = watch.next(); err != nil {
+		remote = &hostWait{name: h.name}
+		defer remote.close()
+		if state, err = remote.next(ctx, errOut); err != nil {
 			if timedOut.Load() {
 				return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
 			}
 			return waitError, err
 		}
+		watch = remote.watch
+		cur.Store(watch)
 	}
 	// saw: a turn ran during this wait; hadAgent: the pane ran an agent.
 	pane, saw, hadAgent := p.ID, false, false
@@ -499,7 +494,16 @@ func waitTab(args []string, out, errOut io.Writer) (int, error) {
 			fmt.Fprintf(out, "blocked: %s\n", question)
 			return waitBlocked, nil
 		}
-		if state, err = watch.next(); err != nil {
+		if remote != nil {
+			state, err = remote.next(ctx, errOut)
+			if err == nil {
+				watch = remote.watch
+				cur.Store(watch)
+			}
+		} else {
+			state, err = watch.next()
+		}
+		if err != nil {
 			if timedOut.Load() {
 				return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
 			}
@@ -613,7 +617,7 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 			return waitError, errors.New("this tab opened no tabs; open them with pitwall new or pitwall worktree new")
 		}
 		var lines, blocked []string
-		reached, failed, lost := 0, false, false
+		reached, failed, lost, unresolved := 0, false, false, false
 		// judge counts tab w of all, on host, toward the wait: head names
 		// it, open says its tab is still open.
 		judge := func(host string, all, raw model.State, w model.Workspace, head string, open bool) error {
@@ -708,6 +712,7 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 				lines = append(lines, lostLine(rec, model.State{}, time.Now()))
 				continue
 			case !h.current:
+				unresolved = true
 				// A worker on a host out of reach never counts as there,
 				// whatever it was when last seen.
 				if time.Since(h.downSince) >= unreachableAfter {
@@ -727,15 +732,21 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 			hs := withFinishedWorkers(h.state)
 			w := hs.Workspace(rec.ID)
 			if w == nil {
+				unresolved = true
 				continue // not on the host yet, within lostAfter of its start
 			}
 			if err := judge(rec.Host, hs, h.state, *w, "", h.state.Workspace(rec.ID) != nil); err != nil {
+				unresolved = true
 				drop(rec.Host) // the host may have gone; its next state says
 			}
 		}
 		switch total := len(only) + len(records); {
-		case len(blocked) > 0:
+		case len(blocked) > 0 && (until != "blocked" || !unresolved):
 			fmt.Fprintln(out, strings.Join(blocked, "\n"))
+			if lost {
+				fmt.Fprintln(out, strings.Join(lines, "\n"))
+				return waitError, nil
+			}
 			if until == "blocked" {
 				return waitReached, nil
 			}

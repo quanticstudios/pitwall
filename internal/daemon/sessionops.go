@@ -186,8 +186,8 @@ func (d *Daemon) remoteWorkers(m proto.RemoteWorkers) error {
 	return nil
 }
 
-// reparent points a worker of a tab on another machine at that tab's new
-// id; see proto.Reparent.
+// reparent points a remote worker at its parent's new id, or adopts a
+// local orphan into a live parent of the same session; see proto.Reparent.
 func (d *Daemon) reparent(m proto.Reparent) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -207,6 +207,22 @@ func (d *Daemon) reparent(m proto.Reparent) error {
 	}
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	if m.Origin == (model.Origin{}) && !w.RemoteParent {
+		parent := d.workspace(m.ParentTab)
+		if w.Parent == "" || d.workspace(w.Parent) != nil || parent == nil || parent.ID == w.ID || parent.SessionID != w.SessionID {
+			return errors.New("only an orphan in the new parent's session can be adopted")
+		}
+		// A descendant cannot adopt its ancestor, even when that
+		// ancestor's own parent disappeared.
+		for p, depth := parent, 0; p != nil; p, depth = d.workspace(p.Parent), depth+1 {
+			if p.ID == w.ID || depth >= 16 {
+				return errors.New("a worker cannot adopt its ancestor")
+			}
+		}
+		w.Parent = m.ParentTab
+		d.changed()
+		return nil
 	}
 	if m.Origin == (model.Origin{}) || m.ParentTab == "" || origin != m.Origin {
 		return errors.New("only the session that made a tab's part can change its parent")

@@ -939,6 +939,8 @@ func listTabs(out io.Writer, state model.State, session string, only map[string]
 		if where != nil {
 			if host, n := where(tab); host != "" {
 				num = hostAddr(host, n)
+			} else {
+				num = strconv.Itoa(n)
 			}
 		}
 		if _, err := fmt.Fprintf(w, "%s\t%s%s\t%s\t%s\t%s\t%s%s\n", num, prefix[i], tabTitle(tab), label, since, folder, group, marker); err != nil {

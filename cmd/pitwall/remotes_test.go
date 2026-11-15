@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,6 +83,8 @@ func TestRemotesResolve(t *testing.T) {
 		{"box:2.1", "box", "rw", true},
 		{"@rw", "box", "rw", false},
 		{"@rp", "box", "rw", true},
+		{"@rw", "box", "rw", true},
+		{"@lw", "", "lw", true},
 		{"#2", "", "lx", false},
 		{"2", "", "lx", false},
 	} {
@@ -106,6 +109,206 @@ func TestRemotesResolve(t *testing.T) {
 	r.hosts["box"] = &hostPart{name: "box", err: errors.New("ssh: connect to host box: Connection refused")}
 	if _, _, err := r.tab("box:2"); err == nil || !strings.Contains(err.Error(), "box unreachable") {
 		t.Fatalf("an unreachable host: %v", err)
+	}
+}
+
+func TestRemotesChildrenLocalNumber(t *testing.T) {
+	here, box := remoteState()
+	here = childState(here, model.StateCompleted)
+	here.Workspaces[len(here.Workspaces)-1].Detached = true
+	t.Setenv("PITWALL_PANE", "lp")
+	r := newRemotes(nil, here, here.Sessions[0])
+	withHost(r, "box", box)
+	var out strings.Builder
+	if err := listChildren(&out, r, false, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 1 && fields[1] == "local" {
+			if fields[0] != "3" {
+				t.Fatalf("local address shifted: %s", line)
+			}
+			return
+		}
+	}
+	t.Fatalf("local child missing: %s", out.String())
+}
+
+func TestAdoptRecordedOrphan(t *testing.T) {
+	for _, offline := range []bool{false, true} {
+		t.Run(fmt.Sprint("offline=", offline), func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("PITWALL_PANE", "lp")
+			here, box := remoteState()
+			here.Sessions[0].Workers[0].Parent = "gone"
+			box.Workspaces[1].Parent = "gone"
+			r := newRemotes(nil, here, here.Sessions[0])
+			r.local = fakeLocal(t, cliExchange{request: func(got any) bool {
+				m, ok := got.(proto.RemoteWorkers)
+				return ok && len(m.Add) == 0 && len(m.Set) == 1 && m.Set[0].ID == "rw" && m.Set[0].Parent == "lw"
+			}, level: proto.Level})
+			h := withHost(r, "box", box)
+			if offline {
+				h.err = errors.New("offline")
+			} else {
+				h.conn = fakeLocal(t, cliExchange{request: proto.Reparent{WorkspaceID: "rw", ParentTab: "lw", Origin: model.Origin{Daemon: "here", Session: "s"}}, level: proto.Level})
+			}
+			var out strings.Builder
+			if err := adopt(&out, r, []string{"@rw"}, false); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestAdoptLocalOrphan(t *testing.T) {
+	for _, all := range []bool{false, true} {
+		t.Run(fmt.Sprint("all=", all), func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			t.Setenv("PITWALL_PANE", "lp")
+			here, _ := remoteState()
+			here.Sessions[0].Remotes, here.Sessions[0].Workers = nil, nil
+			here.Workspaces[0].Parent = "gone" // the new orchestrator is also an orphan
+			here.Workspaces = append(here.Workspaces, model.Workspace{ID: "orphan", SessionID: "s", Parent: "gone", Label: "worker"})
+			local := fakeLocal(t, cliExchange{request: proto.Reparent{WorkspaceID: "orphan", ParentTab: "lw"}, level: proto.Level})
+			r := newRemotes(local, here, here.Sessions[0])
+			found, _ := r.orphans()
+			i := slices.IndexFunc(found, func(o orphan) bool { return o.row.ID == "orphan" })
+			if i < 0 || found[i].row.Parent != "gone" || found[i].row.Host != "" {
+				t.Fatalf("local orphan missing: %+v", found)
+			}
+			var out strings.Builder
+			if err := adopt(&out, r, []string{"@lw"}, false); err == nil {
+				t.Fatal("allowed self-adoption")
+			}
+			ids := []string{"@orphan"}
+			if all {
+				ids = nil
+			}
+			if err := adopt(&out, r, ids, all); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestWaitChildrenBlockedLost(t *testing.T) {
+	here, _ := remoteState()
+	here.Sessions[0].Workers[0].Lost = "never started"
+	local, _ := waitFeeds(t, time.Second)
+	t.Setenv("PITWALL_PANE", "lp")
+	local <- childState(here, model.StateAwaitingInput)
+	r := waitDone(t, runWait("wait", "--children", "--until", "blocked"))
+	if r.code != waitError || !strings.Contains(r.out, "lost: never started") {
+		t.Fatalf("lost worker accepted: %+v", r)
+	}
+}
+
+func TestWaitChildrenBlockedUnresolved(t *testing.T) {
+	here, _ := remoteState()
+	local, _ := waitFeeds(t, 100*time.Millisecond)
+	t.Setenv("PITWALL_PANE", "lp")
+	local <- childState(here, model.StateAwaitingInput)
+	r := waitDone(t, runWait("wait", "--children", "--until", "blocked"))
+	if r.code == waitReached {
+		t.Fatalf("succeeded without box: %+v", r)
+	}
+}
+
+func TestWatchHostFirstStateTimeout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan hostEvent)
+	calls := 0
+	f := make(feed, 1)
+	f <- model.State{Daemon: "box"}
+	defer close(f)
+	dial := func(name, kind string) (*cliConn, func(), error) {
+		a, b := net.Pipe()
+		calls++
+		if calls > 1 {
+			go serveFeed(b, kind, f)
+		} else {
+			go func() {
+				defer b.Close()
+				c := proto.NewConn(b)
+				c.Recv() // accept Hello without answering it
+				c.Recv() // wait for the caller to close
+			}()
+		}
+		c, err := hello(a, kind)
+		if err == nil {
+			c.socket.SetDeadline(time.Now().Add(20 * time.Millisecond))
+		}
+		return c, func() { a.Close() }, err
+	}
+	go watchHost(ctx, dial, "box", time.Millisecond, time.Millisecond, events)
+	select {
+	case ev := <-events:
+		if ev.err == nil {
+			t.Fatal("watch without state did not fail")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("initial state deadline was cleared")
+	}
+	select {
+	case ev := <-events:
+		if ev.err != nil || ev.state.Daemon != "box" {
+			t.Fatalf("retry did not receive state: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("silent host was not retried")
+	}
+}
+
+func TestWaitRemoteTabReconnect(t *testing.T) {
+	here, remote := remoteState()
+	local, box := waitFeeds(t, time.Second)
+	t.Setenv("PITWALL_PANE", "lp")
+	lookup, first, again := make(feed, 1), make(feed, 1), make(feed, 1)
+	defer close(lookup)
+	defer close(again)
+	lookup <- remote
+	working := remote
+	working.Activities = slices.Clone(remote.Activities)
+	working.Activities[0].State = model.StateWorking
+	first <- working
+	box <- lookup
+	box <- first
+	local <- here
+	done := runWait("wait", "box:2", "--until", "done")
+	notDone(t, done, "remote worker working")
+	close(first)
+	notDone(t, done, "remote host disconnected")
+	again <- remote
+	box <- again
+	r := waitDone(t, done)
+	if r.code != waitReached || !strings.Contains(r.stderr, "box unreachable") || r.out != "done\n" {
+		t.Fatalf("remote wait after reconnect: %+v", r)
+	}
+}
+
+func TestWaitRemoteTabUnreachable(t *testing.T) {
+	for _, timeout := range []bool{false, true} {
+		t.Run(fmt.Sprint("timeout=", timeout), func(t *testing.T) {
+			here, remote := remoteState()
+			local, box := waitFeeds(t, 100*time.Millisecond)
+			t.Setenv("PITWALL_PANE", "lp")
+			lookup := make(feed, 1)
+			defer close(lookup)
+			lookup <- remote
+			box <- lookup
+			local <- here
+			args, want := []string{"wait", "box:2", "--until", "done"}, waitError
+			if timeout {
+				args, want = append(args, "--timeout", "30ms"), waitTimeout
+			}
+			r := waitDone(t, runWait(args...))
+			if r.code != want || !strings.Contains(r.stderr, "box unreachable") {
+				t.Fatalf("unreachable remote wait: %+v", r)
+			}
+		})
 	}
 }
 
