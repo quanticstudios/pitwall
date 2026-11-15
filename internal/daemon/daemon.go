@@ -320,6 +320,9 @@ type Daemon struct {
 	handedOff bool
 	// lines serves the socket's JSON clients (lines.go), set by Serve.
 	lines *web.Server
+	// ctlWatch are the control commands watching state and pane exits;
+	// see control.go. Guarded by mu.
+	ctlWatch map[*ctlWatch]bool
 
 	// prog is, per pane, its OSC 7501 records, and progSeq numbers program
 	// reports as they arrive; see program.go. prog is guarded by mu.
@@ -577,7 +580,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	defer cancel()
 	d.mu.Lock()
 	d.ln, d.stop, d.served = ln, cancel, ctx
-	d.lines = &web.Server{Version: Build}
+	d.lines = &web.Server{Version: Build, Control: ctlHub{d}}
 	d.awakeWake = make(chan struct{}, 1)
 	d.mu.Unlock()
 	context.AfterFunc(ctx, func() {
@@ -2522,6 +2525,9 @@ func (d *Daemon) exited(id string, p Pane) {
 	for c := range d.watchers {
 		c.queue(proto.PaneExited{Pane: id, ExitCode: code})
 	}
+	for w := range d.ctlWatch {
+		w.exited(id, code)
+	}
 	d.mu.Unlock()
 	closeAll(closing)
 }
@@ -2578,6 +2584,9 @@ func (d *Daemon) changed() {
 	}
 	for s := range d.listSinks {
 		s.ListChanged()
+	}
+	for w := range d.ctlWatch {
+		w.changed()
 	}
 	if !d.savePending && !d.closing {
 		d.savePending = true
