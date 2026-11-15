@@ -124,6 +124,13 @@ func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 	}
 }
 
+// versionRefusal explains the daemon's refusal of this proto.Version: it
+// speaks v. update brings this binary to the latest release and moves the
+// daemon onto it.
+func versionRefusal(v int) error {
+	return fmt.Errorf("the daemon speaks protocol version %d and this %s %s speaks %d; run %s update to bring both to one version", v, binName, versionString(), proto.Version, binName)
+}
+
 func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	var err error
 	switch {
@@ -167,6 +174,9 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 		err = sessionCommand(args, in, out, errOut)
 	}
 	if err != nil {
+		if v, refused := proto.RefusedVersion(proto.Error{Message: err.Error()}); refused {
+			err = versionRefusal(v)
+		}
 		fmt.Fprintln(errOut, "pitwall:", err)
 		var c codeError
 		if errors.As(err, &c) {

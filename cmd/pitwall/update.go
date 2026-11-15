@@ -51,6 +51,7 @@ func runUpdate(args []string, w io.Writer) error {
 			fmt.Fprintf(w, "pitwall %s is the latest release.\n", want)
 		}
 	}
+	printSibling(w, exe, want)
 	m, err := doctorDaemon()
 	if errors.Is(err, errNotRunning) {
 		starter := "the next window"
@@ -72,6 +73,23 @@ func runUpdate(args []string, w io.Writer) error {
 		return err
 	}
 	return finishUpdate(w, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
+}
+
+// printSibling names the other flavor next to exe, and the command that
+// updates it, when it does not run want: each binary updates only itself.
+func printSibling(w io.Writer, exe, want string) {
+	real, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return
+	}
+	other, v, err := siblingVersion(real)
+	if other == "" || err == nil && v == want {
+		return
+	}
+	if err != nil {
+		v = "a build that cannot run (" + err.Error() + ")"
+	}
+	fmt.Fprintf(w, "%s next to it is %s and updates on its own: %s update\n", other, v, other)
 }
 
 // finishUpdate moves the daemon onto the pitwall just installed: through

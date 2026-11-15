@@ -128,16 +128,18 @@ func (r *sshHost) gitSSH() string {
 // shellQuote is s in single quotes for sh.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// startCommand runs remote-start on the host. ssh hands it to the host's
-// login shell; every common one reads the single quotes alike, and sh then
-// looks in ~/.local/bin too, where get.sh installs and which the PATH of a
+// startCommand runs remote-start on the host, through pitwall-core when
+// the host has it, so a stale desktop pitwall cannot shadow it, else
+// through pitwall; neither exits 127. ssh hands it to the host's login
+// shell; every common one reads the single quotes alike, and sh then looks
+// in ~/.local/bin too, where get.sh installs and which the PATH of a
 // non-interactive ssh login often lacks.
 func startCommand(restart bool) string {
-	cmd := "pitwall remote-start"
+	cmd := ` remote-start`
 	if restart {
 		cmd += " --restart"
 	}
-	return `sh -c 'PATH="$PATH:$HOME/.local/bin" exec ` + cmd + `'`
+	return `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b"` + cmd + `'`
 }
 
 // socket makes sure a daemon runs on the host, forwards its socket here
@@ -255,7 +257,7 @@ func (r *sshHost) sshError(stderr string, err error) error {
 	}
 	switch code := exit.ExitCode(); {
 	case code == 127:
-		return fmt.Errorf("pitwall is not installed on %s: it is not on the PATH there or in ~/.local/bin. Install it with:\n  %s", r.name, r.install())
+		return fmt.Errorf("pitwall is not installed on %s: neither pitwall-core nor pitwall is on the PATH there or in ~/.local/bin. Install pitwall-core with:\n  %s", r.name, r.install())
 	case code == 2 && strings.Contains(stderr, "usage:"):
 		return fmt.Errorf("pitwall on %s is too old to serve a window over ssh. Update it with:\n  %s", r.name, r.install())
 	case code == 255:
@@ -264,14 +266,15 @@ func (r *sshHost) sshError(stderr string, err error) error {
 	return fmt.Errorf("pitwall on %s failed: %s", r.name, msg)
 }
 
-// install is the command that installs pitwall on the host: this release
-// when this pitwall is one, else the latest.
+// install is the command that installs pitwall-core, the build without
+// the window, on the host: this release when this pitwall is one, else the
+// latest.
 func (r *sshHost) install() string {
 	pin := ""
 	if strings.HasPrefix(version, "v") {
 		pin = "PITWALL_VERSION=" + version + " "
 	}
-	return fmt.Sprintf("ssh %s 'curl -fsSL %s | %ssh'", r.dest, getScript, pin)
+	return fmt.Sprintf("ssh %s 'curl -fsSL %s | %ssh -s -- --core'", r.dest, getScript, pin)
 }
 
 // control asks the shared connection to forward or cancel the forward of

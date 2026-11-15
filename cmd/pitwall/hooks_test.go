@@ -756,3 +756,99 @@ func TestInstallHooksPreview(t *testing.T) {
 		}
 	}
 }
+
+// TestHooksOwnedPaths: hooks that name this install through a pitwall
+// link to pitwall-core, or that its sibling in the same folder wrote,
+// count as installed, and uninstall removes them; another pitwall's stay.
+func TestHooksOwnedPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	file := func(path string) string {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	// why: hooks install refuses a binary under the temp folder, so this
+	// install lives in the package folder for the test.
+	inst, err := os.MkdirTemp(".", ".hooks-owned-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(inst) })
+	if inst, err = filepath.Abs(inst); err != nil {
+		t.Fatal(err)
+	}
+	core := file(filepath.Join(inst, "pitwall-core"))
+	link := filepath.Join(inst, "link", "pitwall")
+	if err := os.Mkdir(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(core, link); err != nil {
+		t.Fatal(err)
+	}
+	desktop := file(filepath.Join(inst, "pitwall"))
+	other := file(filepath.Join(t.TempDir(), "pitwall"))
+	for _, c := range []struct {
+		name, bin string
+		ours      bool
+	}{
+		{"link", link, true},
+		{"sibling", desktop, true},
+		{"other", other, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := hooksHome(t)
+			hookExecutable = func() (string, error) { return core, nil }
+			settings := filepath.Join(home, ".claude", "settings.json")
+			pi := filepath.Join(home, ".pi", "agent", "extensions", "pitwall.ts")
+			writeHooksTestFile(t, settings, `{"hooks": `+string(agent.ClaudeHooks(c.bin))+`,"statusLine":{"type":"command","command":`+quoteJSON(agent.ClaudeStatusline(c.bin, "echo status"))+`}}`)
+			writeHooksTestFile(t, pi, string(agent.PiExtension(c.bin)))
+			plans, err := planHooks([]string{"install", "--statusline"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{settings, pi} {
+				i := slices.IndexFunc(plans, func(p hookPlan) bool { return p.path == path })
+				if i < 0 {
+					t.Fatalf("no plan for %s: %+v", path, plans)
+				}
+				if got := len(plans[i].changes) == 0; got != c.ours {
+					t.Errorf("%s: install changes %q, want none: %v", path, plans[i].changes, c.ours)
+				}
+			}
+			if err := runHooks([]string{"uninstall"}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			kept := strings.Contains(string(readHooksTestFile(t, settings)), c.bin)
+			_, err = os.Stat(pi)
+			if kept == c.ours || (err == nil) == c.ours {
+				t.Errorf("after uninstall: settings keep %s: %v, pi extension kept: %v", c.bin, kept, err == nil)
+			}
+			if c.ours {
+				var root struct{ StatusLine struct{ Command string } }
+				if err := json.Unmarshal(readHooksTestFile(t, settings), &root); err != nil {
+					t.Fatal(err)
+				}
+				if root.StatusLine.Command != "echo status" {
+					t.Errorf("uninstall did not restore the wrapped statusline: %q", root.StatusLine.Command)
+				}
+			}
+		})
+	}
+}
+
+func TestCommandBin(t *testing.T) {
+	for cmd, want := range map[string]string{
+		`'/opt/it'\''s/pitwall' hook claude`: "/opt/it's/pitwall",
+		`'/opt/pitwall' statusline`:          "/opt/pitwall",
+		`"C:/opt/my pitwall" hook codex`:     "C:/opt/my pitwall",
+		`C:/opt/pitwall hook codex`:          "C:/opt/pitwall",
+		`'/unclosed hook claude`:             "",
+	} {
+		if got := commandBin(cmd); got != want {
+			t.Errorf("commandBin(%q) = %q, want %q", cmd, got, want)
+		}
+	}
+}

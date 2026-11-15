@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -145,5 +146,114 @@ func TestDoctorGuardExtensions(t *testing.T) {
 		if version == "2.0.0" && (!strings.HasPrefix(rows[2], "false ") || !strings.Contains(rows[2], "OpenCode 2")) {
 			t.Fatalf("OpenCode 2 rows %v", rows)
 		}
+	}
+}
+
+// TestDoctorCore runs doctor as pitwall-core: with no pitwall on PATH it
+// prints the ln -s that makes one, a pitwall link to it is this pitwall,
+// and a desktop pitwall of another version in its folder is a warning,
+// not a failure.
+func TestDoctorCore(t *testing.T) {
+	dir := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	core := filepath.Join(dir, "pitwall-core")
+	// why: os.Executable resolves links, so the copy must be a file of its own.
+	if err := os.Link(self, core); err != nil {
+		data, err := os.ReadFile(self)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(core, data, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := t.TempDir()
+	doctor := func() string {
+		cmd := exec.Command(core, "doctor")
+		cmd.Env = []string{"PITWALL_TEST_MAIN=1", "HOME=" + home, "PATH=" + dir,
+			"XDG_RUNTIME_DIR=" + t.TempDir(), "XDG_STATE_HOME=" + t.TempDir(), "XDG_CONFIG_HOME=" + t.TempDir(), "XDG_CACHE_HOME=" + t.TempDir(),
+			"PITWALL_SOCKET=" + sockPath(t, "none.sock"), "GORACE=atexit_sleep_ms=0"}
+		out, _ := cmd.Output()
+		return string(out)
+	}
+	link := filepath.Join(dir, "pitwall")
+	steps := []struct {
+		name  string
+		setup func()
+		want  []string
+		not   string
+	}{
+		{"core alone", func() {}, []string{"FAIL pitwall on PATH: not found", "fix: ln -s pitwall-core '" + link + "'; agents and hooks run pitwall"}, "warn "},
+		{"link", func() {
+			if err := os.Symlink("pitwall-core", link); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"ok   pitwall on PATH: " + link + "\n"}, "warn "},
+		{"older desktop", func() {
+			os.Remove(link)
+			if err := os.WriteFile(link, []byte("#!/bin/sh\necho 'pitwall v0.0.1'\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"ok   pitwall on PATH: " + link + ", the pitwall next to this pitwall-core", "warn " + link + " is v0.0.1 and this pitwall-core is " + versionString(), "fix: " + link + " update"}, "FAIL pitwall on PATH"},
+	}
+	for _, s := range steps {
+		s.setup()
+		out := doctor()
+		for _, want := range s.want {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: no %q in:\n%s", s.name, want, out)
+			}
+		}
+		if strings.Contains(out, s.not) {
+			t.Errorf("%s: %q in:\n%s", s.name, s.not, out)
+		}
+	}
+}
+
+// TestCLIVersionRefusal: a daemon of another proto.Version, fakeOldDaemon,
+// turns the CLI away, and the CLI names both versions and the fix.
+func TestCLIVersionRefusal(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("PITWALL_SOCKET", "")
+	t.Setenv("PITWALL_PANE", "")
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "PITWALL_TEST_OLD=error", "GORACE=atexit_sleep_ms=0")
+	ready, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	if _, err := io.ReadFull(ready, make([]byte, 6)); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runCLI([]string{"ls"}, nil, &out, &errOut)
+	want := fmt.Sprintf("pitwall: the daemon speaks protocol version 15 and this %s %s speaks %d; run %s update to bring both to one version\n", binName, versionString(), proto.Version, binName)
+	if code != 1 || errOut.String() != want {
+		t.Errorf("exit %d\n got %q\nwant %q", code, errOut.String(), want)
+	}
+}
+
+func TestPathFixOtherCore(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
+	core := filepath.Join(dir, "pitwall-core")
+	for _, path := range []string{core, filepath.Join(other, "pitwall-core")} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", other)
+	if got := pathFix(core); !strings.Contains(got, ", and add "+dir+" to PATH") {
+		t.Fatalf("another core on PATH hides this install's PATH fix: %s", got)
+	}
+	t.Setenv("PATH", dir)
+	if got := pathFix(core); strings.Contains(got, ", and add ") {
+		t.Fatalf("this core is already on PATH: %s", got)
 	}
 }

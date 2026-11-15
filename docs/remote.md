@@ -33,20 +33,32 @@ only a `[[hosts]]` name, so an agent starts processes only on machines you
 listed. `local` means this machine, so a `[[hosts]]` entry with that name
 is reported as a config problem and ignored.
 
-Set the host up once:
+Set the host up once. A Linux host needs only pitwall-core, the build
+without the window; `--core` installs it and links `pitwall` to it:
 
 ```sh
-ssh box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh'
-ssh box '~/.local/bin/pitwall hooks install'
+ssh box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh -s -- --core'
+ssh box '~/.local/bin/pitwall-core hooks install'
 ```
 
+On a macOS host, leave out `-s -- --core` and run `~/.local/bin/pitwall
+hooks install`.
+
 The hooks belong on the host, where the agents run: they report to the
-daemon there. pitwall looks for itself on the host's `PATH` and in
-`~/.local/bin`, which a non-interactive ssh login often leaves off the
-`PATH`. When pitwall is missing there, too old for `remote-start`, or of
-another protocol major version, the window does not open and the error
-gives the install command, pinned to this pitwall's release. pitwall never
-installs anything on a host by itself. When the daemon running on the host
+daemon there. Hooks written through the `pitwall` link, or by the other of
+pitwall and pitwall-core in the same folder, count as installed, so
+`hooks install` adds no second copy and `doctor` reports them ok. pitwall
+runs `pitwall-core` on the host when it finds one, else `pitwall`, so an
+old `pitwall` left there does not shadow a new pitwall-core. It looks on
+the host's `PATH` and in `~/.local/bin`, which a non-interactive ssh login
+often leaves off the `PATH`. When neither is there, the one there is too
+old for `remote-start`, or it speaks another protocol major version, the
+window does not open and the error gives the command that installs
+pitwall-core, pinned to this pitwall's release. pitwall never installs
+anything on a host by itself. `pitwall doctor` on the host prints the
+`ln -s` that makes `pitwall` run pitwall-core when that name is free, and
+warns when pitwall and pitwall-core in one folder report different
+versions; each one's `update` updates only itself and names the other. When the daemon running on the host
 is of another major version than the pitwall installed there, the window
 asks before restarting it, as after an upgrade.
 

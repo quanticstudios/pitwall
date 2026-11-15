@@ -111,7 +111,7 @@ func TestRemoteReconnects(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(dir, "ssh.log"))
 	log := string(data)
 	// A slow try can time out and go again; each one starts and forwards.
-	starts := strings.Count(log, "-- me@box sh -c 'PATH=\"$PATH:$HOME/.local/bin\" exec pitwall remote-start'")
+	starts := strings.Count(log, "-- me@box "+startCommand(false))
 	forwards := strings.Count(log, "-O forward -L "+r.local+":"+sock+" -- me@box")
 	if starts < 2 || forwards != starts {
 		t.Errorf("%d starts and %d forwards, want 2 or more of each:\n%s", starts, forwards, log)
