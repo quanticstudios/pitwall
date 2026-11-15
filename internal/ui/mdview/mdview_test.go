@@ -842,7 +842,10 @@ func TestFetch(t *testing.T) {
 	}
 	v.Back()
 	v.Back() // cancels the first Back's fetch
-	frame()
+	// The cancelled fetch may still wake a frame before a.md arrives.
+	for i := 0; i < 5 && shown() != "A"; i++ {
+		frame()
+	}
 	if shown() != "A" || v.Path() != "docs/a.md" || v.scroll != 30 || v.HasBack() {
 		t.Errorf("back: %q %s scroll %d", shown(), v.Path(), v.scroll)
 	}
