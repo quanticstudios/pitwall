@@ -190,13 +190,22 @@ func readCommand(args []string, out io.Writer) error {
 	defer r.close()
 	h, _, p, err := r.pane(args[0])
 	if err != nil {
-		id, absolute := strings.CutPrefix(args[0], "@")
+		addr := args[0]
+		if name, rest, ok := strings.Cut(strings.TrimPrefix(addr, "#"), ":"); ok && slices.Contains(r.names(), name) {
+			h, addr = r.host(name), rest
+		}
+		id, absolute := strings.CutPrefix(addr, "@")
 		if !absolute || *screen || id == "" {
 			return err
 		}
 		// Stable pane ids can address a retained reply after its tab
-		// closes, here or on the host whose part had it.
-		p.ID, h = id, r.ownerOf(id)
+		// closes, here or on the host whose part had it. A host prefix
+		// must still name that part, never another session's reply.
+		owner := r.ownerOf(id)
+		if h != nil && owner != h {
+			return err
+		}
+		p.ID, h = id, owner
 	}
 	target := conn
 	if h != nil {

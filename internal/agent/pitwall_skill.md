@@ -86,9 +86,9 @@ open more workers. Start them all, then wait:
   user: tell the user which tab and wait. `#N name BLOCKED: <why>` gave
   up: help it with `pitwall send #N`, or tell the user.
 - Exit 3: one exited with an error.
-- Exit 124: timed out. Nudge each worker still working, by its `addr`
-  from `ls --children --json`, with
-  `pitwall send #N -- "Stop exploring and finish now: commit what works, record open questions as assumptions, and end with DONE."`,
+- Exit 124: timed out. For each worker still working, set `addr` to its
+  `addr` from `ls --children --json` and nudge it with
+  `pitwall send "$addr" -- "Stop exploring and finish now: commit what works, record open questions as assumptions, and end with DONE."`,
   then wait once more.
 
 If pitwall restarts, it resumes your workers and tells each one that was
@@ -129,16 +129,20 @@ be on box at the same path under the home folder, so `~/Work/app` here is
 it. In fleet mode a lane with `host = "box"` sends its workers there
 without `--host`, and `--host local` keeps one here.
 
-Before it pushes or starts anything, box's pitwall checks that the agent
+On a host with the start check, box's pitwall first checks that the agent
 is on its PATH, that a `--guard` worker has pitwall's hooks there, and for
-`worktree new` that the repository is there, git can read and push to
-origin, and, for a GitHub origin, `gh` can push to it. A failed check
-prints `box cannot start this worker; nothing was started:` with a
-`fix on box:` line for each problem, such as the `git clone` command. Tell
+`worktree new` that the repository is there, git can read origin and make
+a dry-run push, and, for a GitHub origin, `gh`'s account has push access.
+A successful dry run still warns that push permission is not checked.
+A failed check prints `box cannot start this worker; nothing was started:`
+with each problem and its fix, sometimes under `fix on box:`. Tell
 the user; don't fix box's logins yourself. Missing hooks or a missing
 login only warn (`pitwall: box: ...`) and the worker starts, but its state
 may not show or it may stop at a login screen. A guarded worker never
 starts on box without the hooks, and box's `[agents] guard_deny` applies.
+Older daemons and retries of an existing `--id` skip the start check.
+A command or config folder supplied by the new worktree can be checked
+only after setup; the guard is still checked before the agent starts.
 
 If the command fails with `lost box while starting @<id>; it may be
 running`, run the same command again with `--id <id>`: it finishes that
@@ -152,6 +156,9 @@ this machine's tab 3. In `ls --children --json` its row has
 `"#$n"`. While box is out of reach the row has `"stale": true`, `"state":
 "unknown"` and an `addr` of `@<id>`. A message you `send` to it asks it to
 answer in its reply, which you read with `pitwall read`.
+
+For a closed worker with a retained reply, wait prints `box:@<pane-id>`
+in place of the tab number; `pitwall read box:@<pane-id>` reads that reply.
 
 `wait --children` never exits 0 while it cannot see box. When box drops
 it prints `box unreachable:` with the reason and dials again; after 5
@@ -177,8 +184,16 @@ ssh, with the destination `ssh` reaches box by:
 git fetch box:Work/app login-fix:refs/remotes/box/login-fix
 ```
 
-If your tab was closed and reopened, or you are a new orchestrator taking
-over, find the workers that lost their parent and take them:
+Closing the tab keeps its worktree and branch. To remove the worktree,
+run the command on box, from its repository; the branch stays:
+
+```sh
+ssh box 'cd ~/Work/app && pitwall worktree rm login-fix'
+```
+
+Reopening your tab makes its workers yours again. If you are a new
+orchestrator taking over from a tab that is gone, find the workers that
+lost their parent and take them:
 
 ```sh
 pitwall ls --orphans

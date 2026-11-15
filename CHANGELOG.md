@@ -34,6 +34,7 @@ takes `--dry-run`.
 - `pitwall worktree new --host box` starts a worker in a worktree on another machine from this machine's commit, and a fleet lane can send its workers to a host.
 - Starting a worker on another machine first checks the agent, pitwall's hooks, the repository, git's access to origin and `gh` there, and says what to fix.
 - The agent skill explains workers on another machine, and `read`, `send`, `prompt`, `wait` and `kill` take the `#box:3` that `pitwall new --host` prints.
+- `pitwall read` takes the `box:@<pane-id>` that wait prints for a closed worker on another machine, while its reply is retained.
 - An unedited pitwall skill installed by v0.1.11 to v0.2.12 is updated again, as earlier releases' are.
 
 ## v0.2.12

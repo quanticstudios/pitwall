@@ -243,8 +243,10 @@ repository on box as `refs/pitwall/base/<id>` over the shared ssh
 connection, so commits not pushed anywhere reach the worker. Uncommitted
 changes stay here. The repository on box is at the same path under box's
 home folder, `~/Work/app` for `~/Work/app` here, or at `--repo`. Box makes
-the worktree from that commit, and removing the worker's tab there
-deletes the ref. `--host` refuses `--branch`, since the branch can differ
+the worktree from that commit. Removing the worktree while its tab is
+still open, with `worktree rm` on box or the window's close-and-remove,
+also deletes the ref. Closing the tab alone keeps its worktree, branch
+and base ref. `--host` refuses `--branch`, since the branch can differ
 on the two machines; `--from <branch>` starts a new branch off it.
 In [fleet mode](usage.md#fleet-mode), `host = "box"` under
 `[fleet.small]`, `[fleet.normal]` or `[fleet.big]` sends that lane's
@@ -267,9 +269,12 @@ its own PATH and environment:
 
 git runs with `GIT_TERMINAL_PROMPT=0` and ssh's `BatchMode`, 10 seconds
 per call. A problem prints under `box cannot start this worker; nothing
-was started:` with a `fix on box:` line. A dry run that succeeds still
-warns that origin may refuse the real push. A host whose daemon predates
-the check gets none.
+was started:` with fixes in the problem text or under `fix on box:`.
+A dry run that succeeds still warns that origin may refuse the real push.
+A host whose daemon predates
+the check gets none, and retries of an existing `--id` skip it. A command
+or config folder supplied by the new worktree can be checked only after
+setup; guarded agents still need their hooks before they start.
 
 A worker on box hangs under the agent's tab, as described above, and the
 agent reaches it from its own pane:

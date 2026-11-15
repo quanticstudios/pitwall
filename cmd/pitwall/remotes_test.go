@@ -28,6 +28,90 @@ func TestEachIDClosed(t *testing.T) {
 	}
 }
 
+// wait prints a closed remote worker as box:@pane. Its retained reply
+// must be readable by that address as well as the bare stable pane id.
+func TestReadClosedRemoteWorker(t *testing.T) {
+	for _, tc := range []struct {
+		addr     string
+		screen   bool
+		gonePart bool
+		want     bool
+	}{
+		{addr: "@rp", want: true},
+		{addr: "box:@rp", want: true},
+		{addr: "#box:@rp", want: true},
+		{addr: "box:@rp", gonePart: true, want: true},
+		{addr: "box:@rp", screen: true},
+		{addr: "box:@other"},
+	} {
+		t.Run(fmt.Sprintf("%s/screen=%v/gone-part=%v", tc.addr, tc.screen, tc.gonePart), func(t *testing.T) {
+			here, box := remoteState()
+			box.Closed = []model.ClosedTab{
+				{ID: "closed", Tab: box.Workspaces[1], Pane: box.Panes[0], FinishedWorker: true},
+				{ID: "foreign", Tab: box.Workspaces[2], Pane: model.Pane{ID: "other"}, FinishedWorker: true},
+			}
+			box.Workspaces, box.Panes, box.Activities = box.Workspaces[:1], nil, nil
+			if tc.gonePart {
+				box.Sessions, box.Workspaces = box.Sessions[1:], nil
+			}
+			fakeCLI(t, cliExchange{state: here, level: proto.Level})
+			prev := dialHost
+			t.Cleanup(func() { dialHost = prev })
+			dialHost = func(name, kind string) (*cliConn, func(), error) {
+				if name != "box" || kind != "cli" {
+					t.Fatalf("dial %s as %s", name, kind)
+				}
+				a, b := net.Pipe()
+				t.Cleanup(func() { a.Close(); b.Close() })
+				served := make(chan error, 1)
+				go func() {
+					defer b.Close()
+					b.SetDeadline(time.Now().Add(5 * time.Second))
+					c := proto.NewConn(b)
+					if _, err := c.Recv(); err != nil { // Hello
+						served <- err
+						return
+					}
+					if got, err := c.Recv(); err != nil || got != (proto.Sync{}) {
+						served <- fmt.Errorf("sync = %#v, %v", got, err)
+						return
+					}
+					if err := c.Send(proto.StateMsg{State: box, Level: proto.Level}); err != nil {
+						served <- err
+						return
+					}
+					got, err := c.Recv()
+					if !tc.want && err != nil {
+						served <- nil // no read of a screen or another session's reply
+						return
+					}
+					if err != nil || got != (proto.Read{Pane: "rp"}) {
+						served <- fmt.Errorf("read = %#v, %v", got, err)
+						return
+					}
+					served <- c.Send(proto.ReadResult{Text: "worker reply"})
+				}()
+				conn, err := helloCLI(a)
+				t.Cleanup(func() {
+					if err := <-served; err != nil {
+						t.Error(err)
+					}
+				})
+				return conn, func() { a.Close() }, err
+			}
+			args := []string{tc.addr}
+			if tc.screen {
+				args = append(args, "--screen")
+			}
+			var out strings.Builder
+			err := readCommand(args, &out)
+			if tc.want && (err != nil || out.String() != "worker reply\n") || !tc.want && err == nil {
+				t.Fatalf("read %v: %q, %v", args, out.String(), err)
+			}
+		})
+	}
+}
+
 // remoteState is this machine's session s: the agent's tab lw (pane lp,
 // #1) and a tab lx (#2), with a worker rw recorded on box, whose part of
 // s is "part". boxState has that part with the worker (box:2 after a
