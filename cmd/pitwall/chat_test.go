@@ -30,7 +30,7 @@ func chatTestState() model.State {
 
 func TestListTabsChats(t *testing.T) {
 	var out bytes.Buffer
-	if err := listTabs(&out, chatTestState(), "m", nil, false); err != nil {
+	if err := listTabs(&out, chatTestState(), "m", nil, false, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	tabs, chats, ok := strings.Cut(out.String(), "\n\n")

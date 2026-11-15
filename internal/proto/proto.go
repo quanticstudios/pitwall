@@ -999,7 +999,8 @@ type RemoteWorkers struct {
 // Reparent makes ParentTab, a tab on another machine, the parent of live
 // or closed tab WorkspaceID, after that tab's parent reopened with a new id. The
 // daemon refuses it unless WorkspaceID's session is the part made for
-// Origin.
+// Origin. With an empty Origin it instead adopts a local orphan into a
+// live parent's tab in the same session, without making it remote.
 type Reparent struct {
 	WorkspaceID, ParentTab string
 	Origin                 model.Origin

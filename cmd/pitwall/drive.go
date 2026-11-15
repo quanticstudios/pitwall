@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -54,6 +55,15 @@ type tabJSON struct {
 	// it has been still for [agents] quiet_after; null otherwise.
 	QuietSince *time.Time `json:"quiet_since"`
 	Status     string     `json:"status"` // the line pitwall status set
+	// Host is the [[hosts]] name of the machine the tab runs on, "" for
+	// this one. A tab there has N 0, so "#$n" never reaches a tab here.
+	Host string `json:"host"`
+	// Addr is the tab's address for the other commands: "#3" here,
+	// "box:3" on box, "@<id>" for a worker on a host out of reach.
+	Addr string `json:"addr"`
+	// Stale marks a worker on a host pitwall cannot reach now: its state
+	// is "unknown".
+	Stale bool `json:"stale"`
 }
 
 // paneJSON is one pane in tabJSON.PaneList, a contract like it.
@@ -81,12 +91,26 @@ func paneOf(state model.State, n int, p model.Pane) paneJSON {
 }
 
 func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON {
+	return tabRows(state, session, only, nil)
+}
+
+// tabRows is tabsJSON of a state that may hold other machines' tabs:
+// where names a tab's machine and its number there ("" for this one); nil
+// numbers every tab here.
+func tabRows(state model.State, session string, only map[string]bool, where func(model.Workspace) (string, int)) []tabJSON {
 	out := []tabJSON{}
 	for i, w := range numbered(state, session) {
 		if only != nil && !only[w.ID] {
 			continue
 		}
-		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached, PRState: string(state.PRs[w.ID].Reason), Status: w.Status}
+		host, n := "", i+1
+		if where != nil {
+			host, n = where(w)
+		}
+		t := tabJSON{N: n, ID: w.ID, Host: host, Addr: hostAddr(host, n), Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached, PRState: string(state.PRs[w.ID].Reason), Status: w.Status}
+		if host != "" {
+			t.N = 0
+		}
 		if slices.ContainsFunc(state.Workspaces, func(p model.Workspace) bool { return p.ID == w.Parent }) {
 			t.Parent = w.Parent
 		}
@@ -348,14 +372,14 @@ const (
 )
 
 func waitCommand(args []string, out, errOut io.Writer) int {
-	code, err := waitTab(args, out)
+	code, err := waitTab(args, out, errOut)
 	if err != nil {
 		fmt.Fprintln(errOut, "pitwall:", err)
 	}
 	return code
 }
 
-func waitTab(args []string, out io.Writer) (int, error) {
+func waitTab(args []string, out, errOut io.Writer) (int, error) {
 	flags := flag.NewFlagSet("wait", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
@@ -382,9 +406,13 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		return waitError, err
 	}
 	defer watch.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var timedOut atomic.Bool
+	var cur atomic.Pointer[watcher] // the watch the timeout closes
+	cur.Store(watch)
 	if *timeout > 0 {
-		t := time.AfterFunc(*timeout, func() { timedOut.Store(true); watch.Close() })
+		t := time.AfterFunc(*timeout, func() { timedOut.Store(true); cancel(); cur.Load().Close() })
 		defer t.Stop()
 	}
 	state, err := watch.next()
@@ -399,15 +427,30 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		return waitError, err
 	}
 	if *children {
-		code, err := waitChildren(watch, state, session.ID, *until, *doneLine, out)
+		code, err := waitChildren(watch, state, session.ID, *until, *doneLine, out, errOut)
 		if err != nil && timedOut.Load() {
 			return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
 		}
 		return code, err
 	}
-	w, p, err := resolvePane(state, session.ID, name)
+	r := newRemotes(nil, state, session)
+	defer r.close()
+	h, w, p, err := r.pane(name)
 	if err != nil {
 		return waitError, err
+	}
+	var remote *hostWait
+	if h != nil { // a tab on another machine: watch its daemon instead
+		remote = &hostWait{name: h.name}
+		defer remote.close()
+		if state, err = remote.next(ctx, errOut); err != nil {
+			if timedOut.Load() {
+				return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
+			}
+			return waitError, err
+		}
+		watch = remote.watch
+		cur.Store(watch)
 	}
 	// saw: a turn ran during this wait; hadAgent: the pane ran an agent.
 	pane, saw, hadAgent := p.ID, false, false
@@ -451,7 +494,16 @@ func waitTab(args []string, out io.Writer) (int, error) {
 			fmt.Fprintf(out, "blocked: %s\n", question)
 			return waitBlocked, nil
 		}
-		if state, err = watch.next(); err != nil {
+		if remote != nil {
+			state, err = remote.next(ctx, errOut)
+			if err == nil {
+				watch = remote.watch
+				cur.Store(watch)
+			}
+		} else {
+			state, err = watch.next()
+		}
+		if err != nil {
 			if timedOut.Load() {
 				return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
 			}
@@ -468,28 +520,61 @@ func waitTab(args []string, out io.Writer) (int, error) {
 // once its agent's last reply ends with a line DONE; BLOCKED: <why> there
 // ends the wait like a blocked tab. A tab that finished without either gets
 // doneNudge once, and finishing again without one prints no-done-line.
-func waitChildren(watch *watcher, state model.State, session, until string, doneLine bool, out io.Writer) (int, error) {
+//
+// Workers the tab started on other machines (model.Session.Workers) count
+// only on a current state of their host, from a live watch connection. A
+// host out of reach is dialled again with the window's backoff; one out
+// of reach for unreachableAfter ends the wait with 1, and so does a worker
+// lost there (see lostLine), once the others got to until.
+func waitChildren(watch *watcher, state model.State, session, until string, doneLine bool, out, errOut io.Writer) (int, error) {
 	saw := map[string]bool{}           // a turn ran in the tab during this wait
 	nudged := map[string]time.Time{}   // tab: when doneNudge was sent to it
 	marks := map[string]doneMarkSeen{} // tab: its done line, for the turn that ended at since
-	var conn *cliConn
+	conns := map[string]*cliConn{}     // by host, "" for this machine: for reads and nudges
+	dones := map[string]func(){}
+	drop := func(host string) {
+		if d := dones[host]; d != nil {
+			d()
+		} else if c := conns[host]; c != nil {
+			c.Close()
+		}
+		delete(conns, host)
+		delete(dones, host)
+	}
 	defer func() {
-		if conn != nil {
-			conn.Close()
+		for host := range conns {
+			drop(host)
 		}
 	}()
+	connTo := func(host string) (*cliConn, error) {
+		if c := conns[host]; c != nil {
+			return c, nil
+		}
+		var c *cliConn
+		var err error
+		if host == "" {
+			c, err = dialCLI()
+		} else {
+			var done func()
+			if c, done, err = dialHost(host, "cli"); err == nil {
+				dones[host] = done
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		conns[host] = c
+		return c, nil
+	}
 	// mark reads pane's done line, once per turn of the tab's: "DONE",
 	// "BLOCKED: why" or "".
-	mark := func(tab, pane string, since time.Time) (string, error) {
+	mark := func(host, tab, pane string, since time.Time) (string, error) {
 		if m, ok := marks[tab]; ok && m.since.Equal(since) {
 			return m.line, nil
 		}
-		if conn == nil {
-			c, err := dialCLI()
-			if err != nil {
-				return "", err
-			}
-			conn = c
+		conn, err := connTo(host)
+		if err != nil {
+			return "", err
 		}
 		line, err := readDoneLine(conn, pane)
 		if err != nil {
@@ -498,6 +583,27 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 		marks[tab] = doneMarkSeen{since, line}
 		return line, nil
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan hostEvent)
+	go func() {
+		for {
+			st, err := watch.next()
+			select {
+			case events <- hostEvent{state: st, err: err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	hosts := map[string]*hostWatch{}
+	tick := time.NewTicker(waitTick)
+	defer tick.Stop()
+
 	for {
 		live := numbered(state, session)
 		all := withFinishedWorkers(state)
@@ -505,19 +611,16 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 		if err != nil {
 			return waitError, err
 		}
-		// shortcut: a worker on another host fails the wait, until wait can watch other hosts.
-		if r := remoteChild(all); r != nil {
-			return waitError, fmt.Errorf("%s:@%s: this pitwall cannot watch workers on another machine yet", r.Host, r.ID)
-		}
-		if len(only) == 0 {
+		tab, _ := callerTab(state)
+		records := workersOf(state, tab)
+		if len(only) == 0 && len(records) == 0 {
 			return waitError, errors.New("this tab opened no tabs; open them with pitwall new or pitwall worktree new")
 		}
 		var lines, blocked []string
-		reached, failed := 0, false
-		for _, w := range numbered(all, session) {
-			if !only[w.ID] {
-				continue
-			}
+		reached, failed, lost, unresolved := 0, false, false, false
+		// judge counts tab w of all, on host, toward the wait: head names
+		// it, open says its tab is still open.
+		judge := func(host string, all, raw model.State, w model.Workspace, head string, open bool) error {
 			st, question, code, queued := "exited", "", (*int)(nil), 0
 			var pane string
 			var since time.Time
@@ -528,11 +631,12 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 					since = *j.Since
 				}
 			}
-			// A closed worker has no tab number; read reaches it by pane id.
-			head := fmt.Sprintf("@%s %s", pane, tabTitle(w))
-			if i := slices.IndexFunc(live, func(x model.Workspace) bool { return x.ID == w.ID }); i >= 0 {
-				head = fmt.Sprintf("#%d %s", i+1, tabTitle(w))
-			} else if until == "exit" {
+			if host == "" && !open {
+				head = fmt.Sprintf("@%s %s", pane, tabTitle(w)) // a closed worker has no tab number; read reaches it by pane id
+			} else if host != "" {
+				head = remoteHead(host, raw, w, pane)
+			}
+			if !open && until == "exit" {
 				st = "exited" // its process ended with the tab
 			}
 			saw[w.ID] = saw[w.ID] || st == "working" || st == "blocked"
@@ -555,9 +659,9 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 				if ok && !at.IsZero() && !since.After(at) {
 					break // the nudge's turn has not ended yet
 				}
-				line, err := mark(w.ID, pane, since)
+				line, err := mark(host, w.ID, pane, since)
 				if err != nil {
-					return waitError, err
+					return err
 				}
 				switch {
 				case line == "DONE":
@@ -570,7 +674,11 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 					lines = append(lines, head+" no-done-line")
 				default:
 					nudged[w.ID] = time.Now()
-					if _, err := syncCLI(conn, proto.Send{Pane: pane, From: os.Getenv("PITWALL_PANE"), Text: doneNudge}); err != nil {
+					conn, err := connTo(host)
+					if err == nil {
+						_, err = syncCLI(conn, proto.Send{Pane: pane, From: os.Getenv("PITWALL_PANE"), Text: doneNudge})
+					}
+					if err != nil {
 						nudged[w.ID] = time.Time{} // pitwall cannot type into it: no turn to wait for
 						reached++
 						lines = append(lines, head+" no-done-line")
@@ -581,23 +689,102 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 				reached++
 				lines = append(lines, head+" "+st)
 			}
+			return nil
 		}
-		switch {
-		case len(blocked) > 0:
+		for _, w := range numbered(all, session) {
+			if !only[w.ID] {
+				continue
+			}
+			i := slices.IndexFunc(live, func(x model.Workspace) bool { return x.ID == w.ID })
+			if err := judge("", all, state, w, fmt.Sprintf("#%d %s", i+1, tabTitle(w)), i >= 0); err != nil {
+				return waitError, err
+			}
+		}
+		for _, rec := range records {
+			if rec.Lost == "" && hosts[rec.Host] == nil {
+				hosts[rec.Host] = &hostWatch{downSince: time.Now()}
+				go watchHost(ctx, dialHost, rec.Host, hostRetryMin, hostRetryMax, events)
+			}
+			h := hosts[rec.Host]
+			switch {
+			case rec.Lost != "":
+				reached, lost = reached+1, true
+				lines = append(lines, lostLine(rec, model.State{}, time.Now()))
+				continue
+			case !h.current:
+				unresolved = true
+				// A worker on a host out of reach never counts as there,
+				// whatever it was when last seen.
+				if time.Since(h.downSince) >= unreachableAfter {
+					why := "it sent no state"
+					if h.err != nil {
+						why = h.err.Error()
+					}
+					return waitError, fmt.Errorf("%s unreachable for %s: %s", rec.Host, unreachableAfter, why)
+				}
+				continue
+			}
+			if line := lostLine(rec, h.state, time.Now()); line != "" {
+				reached, lost = reached+1, true
+				lines = append(lines, line)
+				continue
+			}
+			hs := withFinishedWorkers(h.state)
+			w := hs.Workspace(rec.ID)
+			if w == nil {
+				unresolved = true
+				continue // not on the host yet, within lostAfter of its start
+			}
+			if err := judge(rec.Host, hs, h.state, *w, "", h.state.Workspace(rec.ID) != nil); err != nil {
+				unresolved = true
+				drop(rec.Host) // the host may have gone; its next state says
+			}
+		}
+		switch total := len(only) + len(records); {
+		case len(blocked) > 0 && (until != "blocked" || !unresolved):
 			fmt.Fprintln(out, strings.Join(blocked, "\n"))
+			if lost {
+				fmt.Fprintln(out, strings.Join(lines, "\n"))
+				return waitError, nil
+			}
 			if until == "blocked" {
 				return waitReached, nil
 			}
 			return waitBlocked, nil
-		case reached == len(only):
+		case reached == total:
 			fmt.Fprintln(out, strings.Join(lines, "\n"))
-			if failed && until != "exit" || until == "blocked" {
+			switch {
+			case lost:
+				return waitError, nil
+			case failed && until != "exit" || until == "blocked":
 				return waitExited, nil
 			}
 			return waitReached, nil
 		}
-		if state, err = watch.next(); err != nil {
-			return waitError, err
+		select {
+		case ev := <-events:
+			if ev.host == "" {
+				if ev.err != nil {
+					return waitError, ev.err
+				}
+				state = ev.state
+				break
+			}
+			h := hosts[ev.host]
+			if ev.err == nil {
+				h.state, h.current, h.err, h.said = ev.state, true, nil, ""
+				break
+			}
+			if h.current {
+				h.current, h.downSince = false, time.Now()
+			}
+			h.err = ev.err
+			drop(ev.host)
+			if msg := ev.err.Error(); msg != h.said {
+				h.said = msg
+				fmt.Fprintf(errOut, "pitwall: %s unreachable: %v\n", ev.host, ev.err)
+			}
+		case <-tick.C:
 		}
 	}
 }
@@ -648,23 +835,6 @@ func readDoneLine(conn *cliConn, pane string) (string, error) {
 		}
 	}
 	return "", nil
-}
-
-// remoteChild is a worker the calling pane's tab started on another host
-// (model.Session.Workers), or nil.
-func remoteChild(state model.State) *model.RemoteWorker {
-	i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == os.Getenv("PITWALL_PANE") })
-	if i < 0 {
-		return nil
-	}
-	for _, s := range state.Sessions {
-		for _, w := range s.Workers {
-			if w.Parent == state.Panes[i].WorkspaceID {
-				return &w
-			}
-		}
-	}
-	return nil
 }
 
 // withFinishedWorkers makes retained results visible only to wait --children.

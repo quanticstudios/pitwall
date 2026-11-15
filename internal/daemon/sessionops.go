@@ -102,7 +102,10 @@ func (d *Daemon) partNew(ctx context.Context, m proto.SessionNew) error {
 	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &model.Session{Name: strings.TrimSpace(m.Name), Origin: m.Origin}, nil)
 }
 
-// setOrigin stamps a part made before parts had an Origin.
+// setOrigin stamps a part made before parts had an Origin, or moves a
+// part to another session of the daemon that made it, as pitwall adopt
+// does once that session is gone there. A part never moves to another
+// daemon's session.
 func (d *Daemon) setOrigin(m proto.SetOrigin) error {
 	if m.Origin.Daemon == "" || m.Origin.Session == "" {
 		return errors.New("a session's origin names a daemon and a session")
@@ -116,11 +119,19 @@ func (d *Daemon) setOrigin(m proto.SetOrigin) error {
 	if s.Origin == m.Origin {
 		return nil
 	}
-	if s.Origin != (model.Origin{}) {
+	if s.Origin != (model.Origin{}) && s.Origin.Daemon != m.Origin.Daemon {
 		return fmt.Errorf("session %s is the part of another machine's session", s.Name)
 	}
 	if o := d.st.PartOf(m.Origin); o != nil {
 		return fmt.Errorf("session %s is already that session's part", o.Name)
+	}
+	if old := s.Origin; old != (model.Origin{}) {
+		// Its closed tabs move with it, so the new session can reparent them.
+		for i := range d.st.Closed {
+			if c := &d.st.Closed[i]; c.Tab.SessionID == s.ID && c.Origin == old {
+				c.Origin = m.Origin
+			}
+		}
 	}
 	s.Origin = m.Origin
 	d.changed()
@@ -175,12 +186,13 @@ func (d *Daemon) remoteWorkers(m proto.RemoteWorkers) error {
 	return nil
 }
 
-// reparent points a worker of a tab on another machine at that tab's new
-// id; see proto.Reparent.
+// reparent points a remote worker at its parent's new id, or adopts a
+// local orphan into a live parent of the same session; see proto.Reparent.
 func (d *Daemon) reparent(m proto.Reparent) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(m.WorkspaceID)
+	live := w != nil
 	var origin model.Origin
 	if w != nil {
 		if s := d.st.Session(w.SessionID); s != nil {
@@ -196,6 +208,20 @@ func (d *Daemon) reparent(m proto.Reparent) error {
 	}
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	if m.Origin == (model.Origin{}) && !w.RemoteParent {
+		parent := d.workspace(m.ParentTab)
+		if !live || w.Parent == "" || d.workspace(w.Parent) != nil || parent == nil || parent.ID == w.ID || parent.SessionID != w.SessionID {
+			return errors.New("only an open orphan in the new parent's session can be adopted")
+		}
+		// A descendant cannot adopt its ancestor, even through a closed
+		// tab between them, whose reopening would close the loop.
+		if d.st.AncestorOf(w.ID, parent.ID) {
+			return errors.New("a worker cannot adopt its ancestor")
+		}
+		w.Parent = m.ParentTab
+		d.changed()
+		return nil
 	}
 	if m.Origin == (model.Origin{}) || m.ParentTab == "" || origin != m.Origin {
 		return errors.New("only the session that made a tab's part can change its parent")

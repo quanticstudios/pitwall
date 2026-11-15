@@ -383,6 +383,55 @@ func TestReparent(t *testing.T) {
 	}
 }
 
+func TestAdoptLocalOrphan(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		parent  string
+		remote  bool
+		session string
+		wantErr bool
+	}{
+		{"orphan", "gone", false, "s", false},
+		{"live parent", "parent", false, "s", true},
+		{"root", "", false, "s", true},
+		{"other session", "gone", false, "other", true},
+		{"remote", "gone", true, "s", true},
+		{"cycle", "gone", false, "s", true},
+		{"cycle through a closed tab", "gone", false, "s", true},
+		{"closed worker", "gone", false, "s", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			d := newDaemon(t, f.options())
+			d.st.Workspaces = []model.Workspace{
+				{ID: "worker", Parent: tc.parent, RemoteParent: tc.remote, SessionID: "s"},
+				{ID: "parent", SessionID: tc.session},
+			}
+			switch tc.name {
+			case "cycle":
+				d.st.Workspaces[1].Parent = "worker"
+			case "cycle through a closed tab":
+				// Reopening the closed tab would make worker its own ancestor.
+				d.st.Workspaces[1].Parent = "closed"
+				d.st.Closed = []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "closed", Parent: "worker", SessionID: "s"}}}
+			case "closed worker":
+				d.st.Closed = []model.ClosedTab{{ID: "c", Tab: d.st.Workspaces[0]}}
+				d.st.Workspaces = d.st.Workspaces[1:]
+			}
+			err := d.handle(context.Background(), proto.Reparent{WorkspaceID: "worker", ParentTab: "parent"})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("adopt: %v; want error %v", err, tc.wantErr)
+			}
+			if !tc.wantErr {
+				st := d.state()
+				if w := st.Workspace("worker"); w.Parent != "parent" || w.RemoteParent {
+					t.Fatalf("adopted worker: %+v", w)
+				}
+			}
+		})
+	}
+}
+
 // A message from a pane this daemon does not know comes from another
 // machine; pitwall send @<that pane> would not reach it from here.
 func TestHeaderFromAnotherMachine(t *testing.T) {
@@ -393,5 +442,38 @@ func TestHeaderFromAnotherMachine(t *testing.T) {
 	d.mu.Unlock()
 	if want := "[pitwall: message from an agent on another machine; answer in your reply, which it reads with pitwall read]"; got != want {
 		t.Fatalf("header %q, want %q", got, want)
+	}
+}
+
+// pitwall adopt moves a gone session's part to another session of the
+// same daemon, with its closed tabs, which can then be reparented. A part
+// never moves to another daemon's session, or onto a session that has one.
+func TestSetOriginAdopt(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	dir := t.TempDir()
+	gone, next := model.Origin{Daemon: "here", Session: "gone"}, model.Origin{Daemon: "here", Session: "next"}
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir, Origin: gone}))
+	st := d.state()
+	part := st.PartOf(gone).ID
+	must(t, d.handle(ctx, proto.NewSession{SessionID: part, Cwd: dir, Cmd: []string{"sh"}, ID: "0123456789abcdef", ParentTab: "old"}))
+	must(t, d.handle(ctx, proto.KillSession{WorkspaceID: "0123456789abcdef"}))
+	if d.handle(ctx, proto.SetOrigin{SessionID: part, Origin: model.Origin{Daemon: "there", Session: "next"}}) == nil {
+		t.Fatal("a part moved to another daemon's session")
+	}
+	must(t, d.handle(ctx, proto.SessionNew{Name: "taken", Cwd: dir, Origin: model.Origin{Daemon: "here", Session: "taken"}}))
+	if d.handle(ctx, proto.SetOrigin{SessionID: part, Origin: model.Origin{Daemon: "here", Session: "taken"}}) == nil {
+		t.Fatal("a part moved onto a session that has one")
+	}
+	must(t, d.handle(ctx, proto.SetOrigin{SessionID: part, Origin: next}))
+	st = d.state()
+	if p := st.PartOf(next); p == nil || p.ID != part {
+		t.Fatalf("part after the move: %+v", p)
+	}
+	must(t, d.handle(ctx, proto.Reparent{WorkspaceID: "0123456789abcdef", ParentTab: "adopter", Origin: next}))
+	st = d.state()
+	if i := slices.IndexFunc(st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == "0123456789abcdef" }); i < 0 || st.Closed[i].Tab.Parent != "adopter" {
+		t.Fatalf("closed worker after adopt: %+v", st.Closed)
 	}
 }

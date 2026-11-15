@@ -30,6 +30,7 @@ takes `--dry-run`.
 - Workers waiting on Claude Code background shell commands, monitors or other running tasks stay Working, keep `wait --until idle` and `done` waiting, and do not start the automatic close timer.
 - A tab you open on another machine joins only the part of the session made for it there, never another session that has the same name.
 - A tab an agent opens with `pitwall new --host` hangs under the agent's tab in a window that shows both machines, closes itself when done like a worker here, and `--id` retries a start that lost its connection without starting it twice.
+- `pitwall ls --children`, `wait`, `read`, `send`, `prompt` and `kill` reach an agent's workers on another machine, addressed as `box:3` or `@<id>`; `wait` never exits 0 while it cannot see that machine, and `pitwall adopt` takes over workers whose parent tab is gone.
 
 ## v0.2.12
 

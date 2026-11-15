@@ -289,6 +289,44 @@ func foldIn(s model.State, to map[string]string, forget map[string]bool) model.S
 	return s
 }
 
+// eachID calls f with every id in s a request can name: its sessions,
+// groups, tabs and their splits, panes, chats and tasks, and its closed
+// tabs with the ids their tab and pane had, by which a Reparent or a read
+// of a finished worker's reply reaches them.
+func eachID(s model.State, f func(id string)) {
+	own := func(id string) {
+		if id != "" {
+			f(id)
+		}
+	}
+	for _, x := range s.Sessions {
+		own(x.ID)
+	}
+	for _, x := range s.Projects {
+		own(x.ID)
+	}
+	for _, x := range s.Workspaces {
+		own(x.ID)
+		for _, t := range x.Tabs {
+			own(t.ID)
+		}
+	}
+	for _, x := range s.Panes {
+		own(x.ID)
+	}
+	for _, x := range s.Chats {
+		own(x.ID)
+	}
+	for _, x := range s.Tasks {
+		own(x.ID)
+	}
+	for _, x := range s.Closed {
+		own(x.ID)
+		own(x.Tab.ID)
+		own(x.Pane.ID)
+	}
+}
+
 // merge rebuilds the window's state from every host's last one. A host
 // that is down keeps its last state on screen, as one window does.
 func (m *multi) merge() {
@@ -330,35 +368,7 @@ func (m *multi) merge() {
 				})
 			}
 		}
-		own := func(id string) {
-			if id != "" {
-				owner[id] = h
-			}
-		}
-		for _, x := range s.Sessions {
-			own(x.ID)
-		}
-		for _, x := range s.Projects {
-			own(x.ID)
-		}
-		for _, x := range s.Workspaces {
-			own(x.ID)
-			for _, t := range x.Tabs {
-				own(t.ID)
-			}
-		}
-		for _, x := range s.Panes {
-			own(x.ID)
-		}
-		for _, x := range s.Chats {
-			own(x.ID)
-		}
-		for _, x := range s.Tasks {
-			own(x.ID)
-		}
-		for _, x := range s.Closed {
-			own(x.ID)
-		}
+		eachID(s, func(id string) { owner[id] = h })
 		if i > 0 {
 			s = foldIn(s, fold[h.name], forget)
 		}

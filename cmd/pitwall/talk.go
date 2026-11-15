@@ -186,16 +186,23 @@ func readCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, p, err := resolvePane(m.State, session.ID, args[0])
+	r := newRemotes(conn, m.State, session)
+	defer r.close()
+	h, _, p, err := r.pane(args[0])
 	if err != nil {
 		id, absolute := strings.CutPrefix(args[0], "@")
 		if !absolute || *screen || id == "" {
 			return err
 		}
-		// Stable pane ids can address a retained reply after its tab closes.
-		p.ID = id
+		// Stable pane ids can address a retained reply after its tab
+		// closes, here or on the host whose part had it.
+		p.ID, h = id, r.ownerOf(id)
 	}
-	text, err := readPane(conn, proto.Read{Pane: p.ID, Screen: *screen})
+	target := conn
+	if h != nil {
+		target = h.conn
+	}
+	text, err := readPane(target, proto.Read{Pane: p.ID, Screen: *screen})
 	if err != nil {
 		return err
 	}
@@ -286,7 +293,9 @@ func sendCommand(args []string, in io.Reader) error {
 	if err != nil {
 		return err
 	}
-	_, p, err := resolvePane(m.State, session.ID, args[0])
+	r := newRemotes(conn, m.State, session)
+	defer r.close()
+	h, _, p, err := r.pane(args[0])
 	if err != nil {
 		return err
 	}
@@ -294,10 +303,15 @@ func sendCommand(args []string, in io.Reader) error {
 	if !slices.ContainsFunc(m.State.Panes, func(sp model.Pane) bool { return sp.ID == from }) {
 		from = "" // a script, or a pane of another daemon
 	}
-	if p.ID == from {
+	target := conn
+	if h != nil {
+		// A host's daemon does not know from: its header says the message
+		// comes from an agent on another machine that reads the reply.
+		target = h.conn
+	} else if p.ID == from {
 		return errors.New("that is this pane: send to another agent's pane")
 	}
-	_, err = syncCLI(conn, proto.Send{Pane: p.ID, From: from, Text: msg})
+	_, err = syncCLI(target, proto.Send{Pane: p.ID, From: from, Text: msg})
 	return err
 }
 
@@ -344,8 +358,10 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 	}
 	defer watch.Close()
 	var timedOut, noStart atomic.Bool
+	var cur atomic.Pointer[watcher] // the watch the timers close
+	cur.Store(watch)
 	if *timeout > 0 {
-		t := time.AfterFunc(*timeout, func() { timedOut.Store(true); watch.Close() })
+		t := time.AfterFunc(*timeout, func() { timedOut.Store(true); cur.Load().Close() })
 		defer t.Stop()
 	}
 	// fail is what a failed read of the watch means.
@@ -362,19 +378,51 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if watch.level < proto.Since(proto.Prompt{}) {
-		return waitError, errOlder
-	}
 	session, err := currentSession(state, *sessionName)
 	if err != nil {
 		return waitError, err
 	}
-	w, p, err := resolvePane(state, session.ID, args[0])
+	r := newRemotes(nil, state, session)
+	defer r.close()
+	h, w, p, err := r.pane(args[0])
 	if err != nil {
 		return waitError, err
 	}
+	// dial reaches the machine the pane runs on: here, or its host.
+	dial := dialCLI
+	if h != nil {
+		var dropForward func()
+		defer func() {
+			if dropForward != nil {
+				dropForward()
+			}
+		}()
+		dial = func() (*cliConn, error) {
+			c, done, err := dialHost(h.name, "cli")
+			dropForward = done
+			return c, err
+		}
+		hc, done, err := dialHost(h.name, "watch")
+		if err != nil {
+			return waitError, err
+		}
+		defer done()
+		if err := hc.socket.SetDeadline(time.Time{}); err != nil {
+			return waitError, err
+		}
+		watch = &watcher{cliConn: hc, exits: map[string]int{}}
+		if cur.Store(watch); timedOut.Load() {
+			watch.Close()
+		}
+		if state, err = watch.next(); err != nil {
+			return fail(err)
+		}
+	}
+	if watch.level < proto.Since(proto.Prompt{}) {
+		return waitError, errOlder
+	}
 	pane := p.ID
-	if pane == os.Getenv("PITWALL_PANE") {
+	if h == nil && pane == os.Getenv("PITWALL_PANE") {
 		return waitError, errors.New("that is this pane: prompt another agent's pane")
 	}
 	find := func(state model.State) int {
@@ -417,7 +465,7 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 			return fail(err)
 		}
 	}
-	conn, err := dialCLI()
+	conn, err := dial()
 	if err != nil {
 		return waitError, err
 	}

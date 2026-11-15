@@ -856,6 +856,27 @@ func (s *State) Root(w Workspace) string {
 	return root
 }
 
+// AncestorOf reports whether tab a is an ancestor of tab id on this
+// machine, through closed tabs too, since a reopened tab takes its
+// children back. Past 16 levels it reports true, to fail closed.
+func (s *State) AncestorOf(a, id string) bool {
+	for range 16 {
+		var w *Workspace
+		if w = s.Workspace(id); w == nil {
+			if i := slices.IndexFunc(s.Closed, func(c ClosedTab) bool { return c.Tab.ID == id }); i >= 0 {
+				w = &s.Closed[i].Tab
+			}
+		}
+		if w == nil || w.Parent == "" || w.RemoteParent {
+			return false
+		}
+		if id = w.Parent; id == a {
+			return true
+		}
+	}
+	return true
+}
+
 // Workers is session's tabs that hang under another (see Root), by that
 // tab, in the order they opened.
 func (s *State) Workers(session string) map[string][]Workspace {
