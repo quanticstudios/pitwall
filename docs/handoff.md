@@ -167,6 +167,12 @@ The new daemon gives up when the bundle is of another `handoffVersion`, a
 snapshot has an unknown `vt.SnapshotVersion`, the bundle carries chats, or
 a step times out.
 
+The systemd refusal belongs to the running old daemon. Daemons from
+v0.2.13 or earlier do not have it and can hand off even to a new updater;
+systemd then kills their panes. For such a service, install the binary
+without running `update`, then restart the unit when you can stop the
+programs in panes. See [Updates](install.md#updates).
+
 `TestUpdateDrill` in `cmd/pitwall/drill_test.go` is the release drill. It
 builds this tree as v0.0.1 and v0.0.2, serves v0.0.2 as a release from a
 local server (`PITWALL_UPDATE_URL`), and runs v0.0.1's daemon in temporary

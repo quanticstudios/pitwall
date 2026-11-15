@@ -131,7 +131,8 @@ failed and exits 1. `pitwall update --restart` tries the handoff again and,
 when it fails, restarts the daemon as **Restart now** does: agents resume,
 other programs in panes stop. Until then, a release that changed the
 protocol's major version cannot drive the old daemon from the command line.
-A daemon that systemd runs as a service always refuses the handoff
+Daemons started from this release refuse the handoff when systemd runs
+them as a service
 ([remote.md](remote.md#keep-the-daemon-running-across-reboots)). The Update
 button does not restart on its own either: it shows why in the notice at
 the top of the window, and "Restart to finish" asks, then tries the handoff
@@ -151,6 +152,12 @@ which restarts the daemon when the handoff fails. To keep the panes running
 through that update, install the new release with the
 [install script](../README.md#install), which leaves the daemon alone, then
 run the new `pitwall update`, which hands the daemon over or keeps it.
+This migration path applies to daemons running outside systemd services.
+A daemon from v0.2.13 or earlier has no systemd refusal guard: even the new
+updater can hand it over, after which systemd kills its panes. If systemd
+runs that old daemon, install the new binary without running `update`, then
+run `systemctl --user restart pitwall` when you can stop the programs in
+panes. Agents resume. Use `systemctl restart <unit>` for a system service.
 
 Windows has no handoff. There the update leaves the daemon running, so
 tabs keep their processes, and `pitwall update` exits 1 naming

@@ -110,23 +110,26 @@ A daemon that gets a hook newer than itself shows "The daemon is older than
 pitwall; restart it to finish the upgrade" once, and `daemon.log` gets a
 line a minute per version, such as `hook of protocol version 17 served by a
 daemon of 16 (212 more since the last line)`. Run `pitwall` and choose
-**Restart now** when you are ready; programs running in panes stop.
+**Restart now** when you are ready. It tries a handoff first; if that fails,
+programs running in panes stop and agents resume.
 
 An update that keeps the protocol, or only adds to it, keeps the old
 daemon serving the new window, but what the update added that needs the
 daemon, such as pinned tabs, does nothing until it restarts. The sidebar's update button
 then reads **Restart to finish**: click it, confirm, and the daemon
-restarts with your tabs and agents resumed. On a `--host` window, restart
+tries a handoff, then restarts with your tabs and agents resumed if it
+cannot hand off. On a `--host` window, restart
 from a window on that machine instead.
 
 ## An update restarted the daemon
 
 `pitwall update` and the Update button hand the daemon's panes to the new
-binary's daemon. When that fails, `pitwall update` prints why and restarts
-the daemon (agents resume, other programs in panes stop); the Update button
-shows why in the window's notice and leaves the restart to **Restart to
-finish**. Until the new daemon confirms, the old one keeps every pane, so a
-failure never loses one. Common reasons:
+binary's daemon. When that fails, `pitwall update` prints why, exits 1 and
+keeps the old daemon serving. `pitwall update --restart` tries the handoff
+and, if it fails, restarts the daemon: agents resume, other programs in
+panes stop. The Update button shows why in the window's notice and leaves
+the restart to **Restart to finish**. Until the new daemon confirms, the
+old one keeps every pane. Common reasons:
 
 - **The old daemon cannot hand off.** A daemon from before handoff support
   does not understand the request, so the reason reads "the old daemon
@@ -134,11 +137,18 @@ failure never loses one. Common reasons:
   once, on the first update from such a release.
 - **A pane's process exited during the handoff.** Its exit belongs to the
   old daemon. Run `pitwall update` again.
-- **Windows.** It has no handoff, so updates there always restart.
+- **systemd.** Daemons started from this release refuse the handoff when
+  systemd runs them as a service. Restart the unit when you can stop its
+  panes. Daemons from v0.2.13 or earlier lack that refusal and can lose
+  panes even with the new updater; follow [Updates](install.md#updates).
+- **Windows.** It has no handoff. `pitwall update` keeps the daemon and
+  exits 1 naming `pitwall update --restart`.
 - **The new daemon did not start.** `crash.log`, next to `daemon.log`, holds
   what it printed.
 
 `daemon.log` has a `handoff:` line from each side with the step that failed.
+Updaters from v0.2.13 or earlier still restart automatically on refusal;
+see the [migration instructions](install.md#updates).
 
 ## Logs
 

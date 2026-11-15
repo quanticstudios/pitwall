@@ -368,15 +368,23 @@ Crash traces go to `journalctl --user -u pitwall`; the daemon's own log
 stays in `daemon.log`.
 
 `systemctl --user stop pitwall` stops the daemon and every program in its
-panes. A daemon the unit runs refuses the update handoff: once it exited,
-systemd would stop the unit and kill every process left in it, which is
-every pane. `pitwall update` then installs, keeps the old daemon serving
-and exits 1 with the reason. To move onto the new binary, run
+panes. Daemons started from this release refuse the update handoff: once
+the daemon exited, systemd would stop the unit and kill every process left
+in it, which is every pane. `pitwall update` then installs, keeps the old
+daemon serving and exits 1 with the reason. To move onto the new binary, run
 `systemctl --user restart pitwall` when you can stop the programs in panes;
 agents resume. `pitwall update --restart` and the window's Restart run the
 new daemon outside the unit until the next boot instead, and
-`systemctl --user status` shows the unit inactive until then. To remove the
-unit:
+`systemctl --user status` shows the unit inactive until then.
+
+Daemons from v0.2.13 or earlier have no systemd refusal guard. They can
+accept a handoff even from the new updater, and systemd then kills their
+panes. For the first upgrade of such a service, install the binary with
+the [install script](install.md#updates), leave `pitwall update` and the
+window's Update button alone, and restart the unit when you can stop the
+programs in panes.
+
+To remove the unit:
 
 ```sh
 systemctl --user disable --now pitwall

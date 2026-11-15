@@ -16,7 +16,7 @@ import (
 )
 
 // handoffVersion changes whenever the messages below do; a daemon refuses
-// another version and the caller restarts instead.
+// another version. The updater keeps it serving unless a restart was requested.
 const handoffVersion = 1
 
 // handoffTimeout bounds each wait before Commit, on both sides; tests

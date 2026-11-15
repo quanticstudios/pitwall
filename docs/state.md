@@ -128,8 +128,8 @@ pitwall snapshots restore state-20261102-153012.250.json
 pitwall
 ```
 
-`restore` stops the daemon first, as Restart now does: programs in panes
-stop, and agents resume when pitwall starts again with the restored tabs.
+`restore` stops the daemon first: programs in panes stop, and agents resume
+when pitwall starts again with the restored tabs.
 It copies the state it replaces to the folder before it writes, so you can
 restore that one in turn. By hand, stop the daemon and copy a snapshot over
 `state.json`.
