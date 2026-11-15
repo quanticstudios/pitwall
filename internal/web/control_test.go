@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http/httptest"
 	"regexp"
 	"slices"
@@ -14,6 +16,295 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
+
+// changingControl changes the live state immediately after copying the
+// request's resolution snapshot, before the wait goroutine can start.
+type changingControl struct {
+	*fakeControl
+	after func()
+}
+
+func (f *changingControl) State() model.State {
+	st := f.fakeControl.State()
+	if f.after != nil {
+		after := f.after
+		f.after = nil
+		after()
+	}
+	return st
+}
+
+func TestControlWaitDuringResolution(t *testing.T) {
+	for _, tc := range []struct {
+		name, until, outcome string
+		code                 int
+	}{
+		{"exit zero", "exit", "exited", 0},
+		{"exit three", "exit", "exited", 3},
+		{"interrupted turn", "done", "reached", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeControl{st: twoSessions()}
+			changing := &changingControl{fakeControl: f}
+			changing.after = func() {
+				if tc.until == "exit" {
+					f.set(func(st *model.State) { st.Panes = st.Panes[1:] }, "p1", tc.code)
+				} else {
+					f.set(func(st *model.State) { st.Activities = nil })
+				}
+			}
+			c := dialLines(t, &Server{Control: changing})
+			c.send(t, linesHello(1))
+			c.json(t)
+			r := ask(t, c, fmt.Sprintf(`{"type":"waitPane","id":"w","pane":"@p1","until":%q,"timeoutMs":1000}`, tc.until))
+			if data(r)["outcome"] != tc.outcome {
+				t.Fatalf("state changed during resolution: %v", r)
+			}
+			if tc.until == "exit" && data(r)["exit"].(map[string]any)["code"] != float64(tc.code) {
+				t.Fatalf("lost program exit code: %v", r)
+			}
+		})
+	}
+}
+
+func TestControlWaitTimeoutBounds(t *testing.T) {
+	f, c := controlServer(t)
+	f.set(func(st *model.State) { st.Panes[1].Exited = true })
+	for _, tc := range []struct {
+		ms   int64
+		code string
+	}{
+		{0, ""},
+		{int64((1<<63 - 1) / time.Millisecond), ""},
+		{int64((1<<63-1)/time.Millisecond) + 1, "invalid"},
+		{1<<63 - 1, "invalid"},
+	} {
+		root := loadSchema(t)
+		req := map[string]any{"type": "waitPane", "id": "w", "pane": "@p2", "until": "exit", "timeoutMs": float64(tc.ms)}
+		if valid := len(validate(root, root, req, "request")) == 0; valid != (tc.code == "") {
+			t.Errorf("timeoutMs %d: schema validity %v, want %v", tc.ms, valid, tc.code == "")
+		}
+		r := ask(t, c, fmt.Sprintf(`{"type":"waitPane","id":"w","pane":"@p2","until":"exit","timeoutMs":%d}`, tc.ms))
+		if code, _ := r["code"].(string); code != tc.code {
+			t.Errorf("timeoutMs %d: %v, want code %q", tc.ms, r, tc.code)
+		}
+	}
+}
+
+// Each advertised control command must have exactly one client schema.
+func TestControlCommandSchema(t *testing.T) {
+	root := loadSchema(t)
+	defs := root["$defs"].(schema)
+	for _, command := range controlCommands {
+		matches := 0
+		for _, alternative := range defs["client"].(schema)["oneOf"].([]any) {
+			ref := alternative.(schema)["$ref"].(string)
+			def := defs[strings.TrimPrefix(ref, defsRefStart)].(schema)
+			if def["properties"].(schema)["type"].(schema)["const"] == command {
+				matches++
+			}
+		}
+		if matches != 1 {
+			t.Errorf("advertised command %s has %d schema variants, want 1", command, matches)
+		}
+	}
+}
+
+// A wait that has reached its outcome may still be blocked behind other
+// results. Closing the connection must release its watch without a drain.
+func TestControlWaitCancelAdmission(t *testing.T) {
+	f := &fakeControl{st: twoSessions()}
+	w := watchPane(f)
+	w.selectPane("p1")
+	c := newConn(nil, nil, true)
+	c.frames = maxFrames
+	s := &Server{Control: f}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.waitPane(ctx, c, "w", "p1", "exit", 0, model.State{}, w)
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("a full result queue did not block admission")
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		close(c.dead)
+		t.Fatal("cancellation left a wait blocked on its result queue")
+	}
+	if f.watching() != 0 || len(c.q) != 0 {
+		t.Fatalf("after cancellation: %d watches and %d queued results", f.watching(), len(c.q))
+	}
+}
+
+// Draining the queue must wake all producers along with the reader.
+// Otherwise the reader can consume the only notice and leave completed
+// waits asleep indefinitely, even though their results now fit.
+func TestControlAdmissionWakesAll(t *testing.T) {
+	c := newConn(nil, nil, true)
+	c.frames = maxFrames
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan bool, 3)
+	go func() { done <- c.wait() }()
+	for range 2 {
+		go func() { done <- c.queueControl(ctx, []byte(`{"type":"result"}`), false) }()
+	}
+	select {
+	case <-done:
+		t.Fatal("admission did not block on the full queue")
+	case <-time.After(20 * time.Millisecond):
+	}
+	c.mu.Lock()
+	c.frames = 0
+	c.signalDrained()
+	c.mu.Unlock()
+	for range 3 {
+		select {
+		case ok := <-done:
+			if !ok {
+				t.Fatal("admission was canceled instead of resumed")
+			}
+		case <-time.After(time.Second):
+			close(c.dead)
+			t.Fatal("a producer or reader slept after the queue drained")
+		}
+	}
+}
+
+func TestControlTabsCoalesceAndCancel(t *testing.T) {
+	f := &fakeControl{st: twoSessions()}
+	s := &Server{Control: f}
+	c := newConn(nil, nil, true) // no writer: queued lists cannot drain
+	t.Cleanup(func() { s.endControl(c); close(c.dead) })
+	queuedTabs := func() []byte {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		var frame []byte
+		for _, o := range c.q {
+			if o.tabs {
+				if frame != nil {
+					t.Fatal("more than one tabs list queued")
+				}
+				frame = slices.Clone(o.frame)
+			}
+		}
+		if c.frames > maxFrames || c.fbytes > maxFrameBytes {
+			t.Fatalf("queue holds %d frames of %d bytes", c.frames, c.fbytes)
+		}
+		return frame
+	}
+	await := func(want string) {
+		t.Helper()
+		for end := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+			if strings.Contains(string(queuedTabs()), want) {
+				return
+			}
+			if time.Now().After(end) {
+				t.Fatalf("queued tabs did not reach %q", want)
+			}
+		}
+	}
+	s.subscribeTabs(c, "s", "main")
+	await(`"title":"tests"`)
+	for i := range maxFrames + 1 {
+		name := fmt.Sprintf("name-%d", i)
+		f.set(func(st *model.State) { st.Workspaces[1].Name = name })
+		await(fmt.Sprintf(`"title":%q`, name))
+	}
+	// Replace a session without a writer; the previous session must not
+	// have a frame waiting ahead of the replacement's initial list.
+	s.subscribeTabs(c, "s2", "side")
+	await(`"name":"side"`)
+	if strings.Contains(string(queuedTabs()), `"name":"main"`) {
+		t.Fatal("a replaced subscription retained its previous session")
+	}
+	s.control(c, "unsubscribeTabs", "u", []byte(`{"type":"unsubscribeTabs","id":"u"}`))
+	if frame := queuedTabs(); frame != nil {
+		t.Fatalf("unsubscribe left tabs queued: %s", frame)
+	}
+}
+
+// Replacement must release a subscriber blocked on bytes while small
+// command results can still fit. Repeating this must not retain watches.
+func TestControlTabsCancelAdmission(t *testing.T) {
+	f := &fakeControl{st: twoSessions()}
+	s := &Server{Control: f}
+	c := newConn(nil, nil, true)
+	c.push(out{frame: make([]byte, maxFrameBytes-4096)})
+	f.set(func(st *model.State) { st.Workspaces[0].Name = strings.Repeat("x", 8192) })
+	t.Cleanup(func() { s.endControl(c); close(c.dead) })
+	for i := range 5 {
+		s.subscribeTabs(c, fmt.Sprint(i), "main")
+	}
+	s.control(c, "unsubscribeTabs", "u", []byte(`{"type":"unsubscribeTabs","id":"u"}`))
+	for end := time.Now().Add(time.Second); f.watching() != 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("canceled subscriptions retained %d watches without a queue drain", f.watching())
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, o := range c.q {
+		if o.tabs {
+			t.Fatal("a canceled subscription admitted a tabs frame")
+		}
+	}
+}
+
+func TestControlTabsReplaceSlowReader(t *testing.T) {
+	f := &fakeControl{st: twoSessions()}
+	f.st.Workspaces[1].Name = strings.Repeat("x", 2<<20)
+	s := &Server{Control: f}
+	c := dialLines(t, s)
+	c.send(t, linesHello(1))
+	c.json(t)
+	c.line(t, `{"type":"subscribeTabs","id":"first","session":"main"}`)
+	if r := c.json(t); r["id"] != "first" || r["ok"] != true {
+		t.Fatal(r)
+	}
+	// The real writer holds wmu while its large tabs frame is blocked
+	// on this client's small socket buffers.
+	serverConn := onlyConn(s)
+	for end := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+		if !serverConn.wmu.TryLock() {
+			break
+		}
+		serverConn.wmu.Unlock()
+		if time.Now().After(end) {
+			t.Fatal("the large tabs frame never blocked the writer")
+		}
+	}
+	c.line(t, `{"type":"subscribeTabs","id":"replace","session":"side"}`)
+	// Resume reading with room for the large frame after exercising
+	// backpressure; small TCP windows needlessly slow this test's drain.
+	if err := c.nc.(*net.TCPConn).SetReadBuffer(4 << 20); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		r := c.json(t)
+		if r["id"] == "replace" {
+			if r["ok"] != true {
+				t.Fatal(r)
+			}
+			break
+		}
+		if r["type"] != "tabs" {
+			t.Fatalf("before the replacement acknowledgement: %.200v", r)
+		}
+	}
+	if r := c.json(t); r["type"] != "tabs" || r["session"].(map[string]any)["name"] != "side" {
+		t.Fatalf("old session after replacement acknowledgement: %.200v", r)
+	}
+	if r := ask(t, c, `{"type":"unsubscribeTabs","id":"stop"}`); r["ok"] != true {
+		t.Fatal(r)
+	}
+}
 
 // fakeControl is a daemon's state for the control commands; set and exit
 // change it as the daemon does, telling the watches.
@@ -302,8 +593,6 @@ func TestControlWait(t *testing.T) {
 		t.Fatalf("blocked: %v", r)
 	}
 
-	defer func(n int) { maxWaits = n }(maxWaits)
-	maxWaits = 3
 	for i := range maxWaits {
 		c.line(t, fmt.Sprintf(`{"type":"waitPane","id":"%d","pane":"@p3","until":"done"}`, i))
 	}

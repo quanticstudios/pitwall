@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -134,6 +135,66 @@ func TestControlOnDaemon(t *testing.T) {
 		}
 	}
 	watching(t, d, 0)
+}
+
+func TestControlWaitDisconnect(t *testing.T) {
+	for _, half := range []bool{false, true} {
+		t.Run(fmt.Sprint("half=", half), func(t *testing.T) {
+			d, _, sock := controlDaemon(t, func(*Options) {})
+			c := dialJSON(t, sock)
+			c.hello(t)
+			for _, p := range []string{"p1", "p2"} {
+				c.line(t, fmt.Sprintf(`{"type":"waitPane","id":%q,"pane":%q,"until":"exit"}`, p, "@"+p))
+			}
+			watching(t, d, 2)
+			if half {
+				if err := c.nc.(*net.UnixConn).CloseWrite(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				c.nc.Close()
+			}
+			watching(t, d, 0)
+			if half && c.next(t) != nil {
+				t.Fatal("a canceled pending wait returned a result after half-close")
+			}
+		})
+	}
+}
+
+// A slow reader holding large results must not hold the daemon lock or
+// make an unrelated gob client wait behind its socket writes.
+func TestControlReadFlood(t *testing.T) {
+	d, _, sock := controlDaemon(t, func(*Options) {})
+	d.mu.Lock()
+	d.replies = map[string]string{"p1": strings.Repeat("x", 1<<20)}
+	d.mu.Unlock()
+	c := dialJSON(t, sock)
+	c.hello(t)
+	frame := []byte(`{"type":"readPane","id":"r","pane":"@p1"` + strings.Repeat(" ", 10_000) + "}\n")
+	wrote := make(chan struct{})
+	go func() {
+		defer close(wrote)
+		for range 1000 {
+			if _, err := c.nc.Write(frame); err != nil {
+				return
+			}
+		}
+	}()
+	defer func() {
+		c.nc.Close()
+		select {
+		case <-wrote:
+		case <-time.After(time.Second):
+			t.Error("flood writer did not stop after closing its test socket")
+		}
+	}()
+	select {
+	case <-wrote:
+		t.Fatal("all large reads were accepted from a client reading no results")
+	case <-time.After(500 * time.Millisecond):
+	}
+	answers(t, sock)
 }
 
 // dialWebToken is dialWeb with the token hello carries; it returns the
@@ -305,5 +366,56 @@ func TestControlExamples(t *testing.T) {
 				t.Fatalf("wait: %v\n%s", err, buf.String())
 			}
 		})
+	}
+}
+
+// An EOF after welcome is a failed command, not an empty success. This
+// exercises the shell client's real socat transport and pipeline status.
+func TestControlShellDisconnect(t *testing.T) {
+	for _, tool := range []string{"bash", "socat", "jq"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			if os.Getenv("CI") != "" {
+				t.Fatalf("control.sh needs %s, which CI installs", tool)
+			}
+			t.Skipf("no %s", tool)
+		}
+	}
+	sock := filepath.Join(t.TempDir(), "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	served := make(chan error, 1)
+	go func() {
+		nc, err := ln.Accept()
+		if err != nil {
+			served <- err
+			return
+		}
+		defer nc.Close()
+		nc.SetDeadline(time.Now().Add(5 * time.Second))
+		br := bufio.NewReader(nc)
+		if _, err := br.ReadBytes('\n'); err != nil {
+			served <- err
+			return
+		}
+		if _, err := io.WriteString(nc, "{\"type\":\"welcome\"}\n"); err != nil {
+			served <- err
+			return
+		}
+		_, err = br.ReadBytes('\n') // drop the connection before its result
+		served <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "../../docs/examples/control.sh", "read", "@p1")
+	cmd.Env = append(os.Environ(), "PITWALL_SOCKET="+sock)
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "the daemon closed the connection") {
+		t.Errorf("disconnect: %v, output %q; want a nonzero exit with the EOF message", err, out)
+	}
+	if err := <-served; err != nil {
+		t.Fatal(err)
 	}
 }

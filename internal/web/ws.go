@@ -67,13 +67,13 @@ type conn struct {
 	list       bool // subscribed to the session list
 	listFull   bool // the next list frame is the whole list
 	wake       chan struct{}
-	drained    chan struct{} // the writer took a frame
+	drained    chan struct{} // closed and replaced when the writer takes a frame; mu guards it
 	dead       chan struct{} // closed when the writer stops
 }
 
 func newConn(nc net.Conn, br *bufio.Reader, lines bool) *conn {
 	return &conn{nc: nc, br: br, lines: lines, subs: map[string]*sub{},
-		wake: make(chan struct{}, 1), drained: make(chan struct{}, 1), dead: make(chan struct{})}
+		wake: make(chan struct{}, 1), drained: make(chan struct{}), dead: make(chan struct{})}
 }
 
 // upgrade answers a WebSocket upgrade request and takes the connection

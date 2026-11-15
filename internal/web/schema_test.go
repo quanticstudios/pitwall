@@ -37,7 +37,7 @@ var (
 	checked = map[string]bool{
 		"$ref": true, "type": true, "enum": true, "const": true, "required": true,
 		"properties": true, "additionalProperties": true, "items": true,
-		"oneOf": true, "minimum": true,
+		"oneOf": true, "minimum": true, "maximum": true,
 	}
 	annotations = map[string]bool{
 		"$schema": true, "$id": true, "$defs": true, "title": true, "description": true, "deprecated": true,
@@ -87,6 +87,11 @@ func validate(root, s schema, v any, at string) []string {
 	if m, ok := s["minimum"].(float64); ok {
 		if n, isNum := v.(float64); isNum && n < m {
 			errs = append(errs, fmt.Sprintf("%s: %v is below %v", at, n, m))
+		}
+	}
+	if m, ok := s["maximum"].(float64); ok {
+		if n, isNum := v.(float64); isNum && n > m {
+			errs = append(errs, fmt.Sprintf("%s: %v is above %v", at, n, m))
 		}
 	}
 	if obj, ok := v.(map[string]any); ok {

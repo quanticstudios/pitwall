@@ -302,8 +302,8 @@ func TestReplyByteAdmission(t *testing.T) {
 		c.fbytes -= len(c.q[0].frame)
 		c.frames--
 		c.q = c.q[1:]
+		c.signalDrained()
 		c.mu.Unlock()
-		c.drained <- struct{}{}
 		select {
 		case <-done:
 		case <-time.After(time.Second):

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/control"
@@ -201,15 +202,21 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 		if bad(decode(msg, &r)) {
 			break
 		}
-		if !slices.Contains([]string{"done", "idle", "blocked", "exit"}, r.Until) || r.TimeoutMs < 0 {
-			c.reply(result(id, "invalid", "until is done, idle, blocked or exit, and timeoutMs 0 or more"))
+		if !slices.Contains([]string{"done", "idle", "blocked", "exit"}, r.Until) || r.TimeoutMs < 0 || r.TimeoutMs > int64((1<<63-1)/time.Millisecond) {
+			c.reply(result(id, "invalid", "until is done, idle, blocked or exit, and timeoutMs must fit in a non-negative duration"))
 			break
 		}
-		p, err := resolvePane(s.Control.State(), r.Session, r.Pane)
+		// Watch before taking the resolution snapshot: an exit between
+		// that snapshot and the first step must retain its program code.
+		watch := watchPane(s.Control)
+		st := s.Control.State()
+		p, err := resolvePane(st, r.Session, r.Pane)
 		if err != nil {
+			watch.stop()
 			c.reply(answer(id, nil, err))
 			break
 		}
+		watch.selectPane(p.ID)
 		x := s.ctlOf(c)
 		s.mu.Lock()
 		full := x.waits >= maxWaits
@@ -218,6 +225,7 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 		}
 		s.mu.Unlock()
 		if full {
+			watch.stop()
 			c.reply(result(id, "busy", fmt.Sprintf("%d waits are pending on this connection", maxWaits)))
 			break
 		}
@@ -227,7 +235,7 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 				x.waits--
 				s.mu.Unlock()
 			}()
-			s.waitPane(x.ctx, c, id, p.ID, r.Until, time.Duration(r.TimeoutMs)*time.Millisecond)
+			s.waitPane(x.ctx, c, id, p.ID, r.Until, time.Duration(r.TimeoutMs)*time.Millisecond, st, watch)
 		}()
 	}
 	return true
@@ -364,27 +372,50 @@ func remoteHost(st model.State, addr string) string {
 	return ""
 }
 
-// waitPane answers id once pane gets to until, as pitwall wait does, or
-// once timeout passes; nothing when ctx ends first.
-func (s *Server) waitPane(ctx context.Context, c *conn, id, pane, until string, timeout time.Duration) {
-	wake := make(chan struct{}, 1)
+// paneWatch retains exits between resolution and the first wait step.
+// Before resolution it records all exits; afterwards only its pane's.
+type paneWatch struct {
+	mu    sync.Mutex
+	pane  string
+	exits map[string]int
+	wake  chan struct{}
+	stop  func()
+}
+
+func watchPane(c Control) *paneWatch {
+	w := &paneWatch{exits: map[string]int{}, wake: make(chan struct{}, 1)}
 	poke := func() {
 		select {
-		case wake <- struct{}{}:
+		case w.wake <- struct{}{}:
 		default:
 		}
 	}
-	exits := make(chan [2]int, 1)
-	code, exited := 0, false
-	stop := s.Control.Watch(poke, func(p string, n int) {
-		if p == pane {
-			select {
-			case exits <- [2]int{n}:
-			default:
-			}
+	w.stop = c.Watch(poke, func(p string, code int) {
+		w.mu.Lock()
+		if w.pane == "" || w.pane == p {
+			w.exits[p] = code
 		}
+		w.mu.Unlock()
+		poke()
 	})
-	defer stop()
+	return w
+}
+
+func (w *paneWatch) selectPane(pane string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pane = pane
+	for p := range w.exits {
+		if p != pane {
+			delete(w.exits, p)
+		}
+	}
+}
+
+// waitPane answers id once pane gets to until, as pitwall wait does, or
+// once timeout passes; nothing when ctx ends first.
+func (s *Server) waitPane(ctx context.Context, c *conn, id, pane, until string, timeout time.Duration, st model.State, watch *paneWatch) {
+	defer watch.stop()
 	var expired <-chan time.Time
 	if timeout > 0 {
 		t := time.NewTimer(timeout)
@@ -393,30 +424,31 @@ func (s *Server) waitPane(ctx context.Context, c *conn, id, pane, until string, 
 	}
 	w := control.NewWait(until)
 	for {
-		st := s.Control.State()
+		if ctx.Err() != nil {
+			return
+		}
 		o := w.Step(st, pane, func() (int, bool) {
 			if i := slices.IndexFunc(st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
 				return st.Panes[i].ExitCode, st.Panes[i].Exited
 			}
-			select { // exited ran before this state was read
-			case e := <-exits:
-				code, exited = e[0], true
-			default:
-			}
+			watch.mu.Lock()
+			defer watch.mu.Unlock()
+			code, exited := watch.exits[pane]
 			return code, exited
 		})
 		if o.Reason != "" {
-			c.reply(ok(id, "", outcome(o)))
+			c.replyControl(ctx, ok(id, "", outcome(o)))
 			return
 		}
 		select {
-		case <-wake:
+		case <-watch.wake:
 		case <-expired:
-			c.reply(result(id, "timeout", fmt.Sprintf("timed out after %s", timeout)))
+			c.replyControl(ctx, result(id, "timeout", fmt.Sprintf("timed out after %s", timeout)))
 			return
 		case <-ctx.Done():
 			return
 		}
+		st = s.Control.State()
 	}
 }
 
@@ -450,7 +482,12 @@ func (s *Server) subscribeTabs(c *conn, id, name string) {
 	if x.stopTabs != nil {
 		x.stopTabs()
 	}
-	x.stopTabs = stop
+	x.stopTabs = func() {
+		stop()
+		c.mu.Lock()
+		c.dropTabs()
+		c.mu.Unlock()
+	}
 	s.mu.Unlock()
 	c.reply(result(id, "", ""))
 	wake := make(chan struct{}, 1)
@@ -487,12 +524,59 @@ func (s *Server) subscribeTabs(c *conn, id, name string) {
 				log.Printf("web: %q: a tabs list of %d bytes not sent", c.name, len(frame))
 				continue
 			}
-			if ctx.Err() != nil || !c.lockFrame(len(frame)) {
+			if !c.queueControl(ctx, frame, true) {
 				return
 			}
-			c.push(out{frame: frame})
-			c.mu.Unlock()
 			last = frame
 		}
 	}()
+}
+
+// dropTabs removes the previous pending list. Callers hold c.mu.
+func (c *conn) dropTabs() {
+	c.q = slices.DeleteFunc(c.q, func(o out) bool {
+		if !o.tabs {
+			return false
+		}
+		c.frames--
+		c.fbytes -= len(o.frame)
+		c.signalDrained()
+		return true
+	})
+}
+
+func (c *conn) replyControl(ctx context.Context, v any) {
+	if frame := c.replyFrame(v); frame != nil {
+		c.queueControl(ctx, frame, false)
+	}
+}
+
+// queueControl waits for capacity only while this wait or subscription
+// is active. A tabs list replaces the pending list. Cancellation is
+// checked under the queue lock, so stopped commands admit no old frames.
+func (c *conn) queueControl(ctx context.Context, frame []byte, tabs bool) bool {
+	for {
+		c.mu.Lock()
+		if ctx.Err() != nil || c.overloaded {
+			c.mu.Unlock()
+			return false
+		}
+		if tabs {
+			c.dropTabs()
+		}
+		if c.room(len(frame)) {
+			c.push(out{frame: frame, tabs: tabs})
+			c.mu.Unlock()
+			return true
+		}
+		drained := c.drained
+		c.mu.Unlock()
+		select {
+		case <-drained:
+		case <-c.dead:
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
 }

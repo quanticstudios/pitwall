@@ -975,7 +975,8 @@ that ended idle still counts. `outcome` says why it ended:
 `exit.code` is the program's own, so a program that exits 2 is `exited`
 with `code` 2. `unknown` means the daemon restarted while it ran;
 `signal` that a signal ended it, with a negative `code`. With
-`timeoutMs`, a wait that has not ended by then answers `timeout`. Up to
+`timeoutMs`, a wait that has not ended by then answers `timeout`. It is
+0 for no timer, or at most 9223372036854 milliseconds. Up to
 64 waits can be pending on one connection; more answer `busy`. A client
 that closes its sending side gets no result of a pending wait.
 

@@ -44,6 +44,7 @@ call() {
 			exit 1
 		fi
 	done
+	return 1 # next reported EOF before this command's result
 }
 
 send '{"type":"hello","protocol":1,"client":{"name":"control.sh"}}'
