@@ -282,3 +282,113 @@ func TestLinesHalfClose(t *testing.T) {
 		}
 	}
 }
+
+// Admission uses the next frame's size, rather than checking only the
+// bytes already queued before reading its command.
+func TestReplyByteAdmission(t *testing.T) {
+	for _, lines := range []bool{false, true} {
+		c := newConn(nil, nil, lines)
+		v := ok("1", "", map[string]any{"text": strings.Repeat("x", maxFrameBytes/3+1)})
+		c.reply(v)
+		c.reply(v)
+		done := make(chan struct{})
+		go func() { c.reply(v); close(done) }()
+		select {
+		case <-done:
+			t.Fatalf("lines %v: admitted a reply past the byte limit", lines)
+		case <-time.After(50 * time.Millisecond):
+		}
+		c.mu.Lock()
+		c.fbytes -= len(c.q[0].frame)
+		c.frames--
+		c.q = c.q[1:]
+		c.mu.Unlock()
+		c.drained <- struct{}{}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			close(c.dead)
+			t.Fatal("reply did not resume after the writer drained space")
+		}
+		if c.fbytes > maxFrameBytes || c.frames != 2 {
+			t.Fatalf("lines %v: queued %d frames, %d bytes", lines, c.frames, c.fbytes)
+		}
+	}
+}
+
+func TestLinesOversizedResultID(t *testing.T) {
+	s := &Server{Version: "test", Chats: newFakeChats(t)}
+	t.Cleanup(s.Close)
+	for _, typ := range []string{"listTabs", "subscribe", "subscribeSessions"} {
+		c := dialLines(t, s)
+		c.send(t, linesHello(1))
+		c.json(t)
+		c.send(t, map[string]any{"type": typ, "sessionId": "chat-1", "id": strings.Repeat("x", maxFrameBytes+1)})
+		m := c.json(t)
+		if m["type"] != "close" || m["code"] != 1009.0 {
+			t.Fatalf("%s: oversized result ID got type %v code %v", typ, m["type"], m["code"])
+		}
+	}
+}
+
+func TestWebSocketOversizedReplyAdmission(t *testing.T) {
+	c := newConn(nil, nil, false)
+	c.reply(ok("1", "", map[string]any{"text": strings.Repeat("x", maxFrameBytes+1)}))
+	if c.frames != 1 || c.fbytes <= maxFrameBytes {
+		t.Fatalf("large WebSocket reply was lost: %d frames, %d bytes", c.frames, c.fbytes)
+	}
+	done := make(chan struct{})
+	go func() { c.reply(result("2", "", "")); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("another reply was admitted beside an oversized WebSocket reply")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(c.dead)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("reply did not stop when the writer ended")
+	}
+}
+
+// Removed is called under the daemon's lock, so it must enforce the
+// bound without waiting for a slow client to read.
+func TestRemovedQueueBound(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		seed int
+	}{{"frames", 0}, {"bytes", maxFrameBytes - 100}} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := net.Pipe()
+			defer a.Close()
+			defer b.Close()
+			c := newConn(a, nil, true)
+			if tc.seed > 0 {
+				c.push(out{frame: make([]byte, tc.seed)})
+			}
+			done := make(chan struct{})
+			go func() {
+				for i := range maxFrames + 1 {
+					id := strings.Repeat("x", i+1)
+					c.subs[id] = &sub{}
+					c.Removed(id)
+				}
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("removal blocked on a slow client")
+			}
+			if c.frames > maxFrames || c.fbytes > maxFrameBytes {
+				t.Fatalf("removals queued %d frames, %d bytes", c.frames, c.fbytes)
+			}
+			b.SetReadDeadline(time.Now().Add(time.Second))
+			client := &lineClient{b, bufio.NewReader(b)}
+			if code, _ := client.closed(t); code != 1008 {
+				t.Fatalf("closed %d, want 1008", code)
+			}
+		})
+	}
+}

@@ -56,18 +56,19 @@ type conn struct {
 	wmu   sync.Mutex
 
 	// The outgoing queue and the subscriptions, see stream.go.
-	mu       sync.Mutex
-	q        []out
-	held     int // pushed delta batches in q
-	bytes    int // and their size
-	frames   int // results, errors and removed in q, see wait
-	fbytes   int // and their size
-	subs     map[string]*sub
-	list     bool // subscribed to the session list
-	listFull bool // the next list frame is the whole list
-	wake     chan struct{}
-	drained  chan struct{} // the writer took a frame
-	dead     chan struct{} // closed when the writer stops
+	mu         sync.Mutex
+	q          []out
+	held       int  // pushed delta batches in q
+	bytes      int  // and their size
+	frames     int  // results, errors and removed in q, see wait
+	fbytes     int  // and their size
+	overloaded bool // an asynchronous frame could not fit; connection is closing
+	subs       map[string]*sub
+	list       bool // subscribed to the session list
+	listFull   bool // the next list frame is the whole list
+	wake       chan struct{}
+	drained    chan struct{} // the writer took a frame
+	dead       chan struct{} // closed when the writer stops
 }
 
 func newConn(nc net.Conn, br *bufio.Reader, lines bool) *conn {

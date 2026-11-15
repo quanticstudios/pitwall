@@ -349,12 +349,19 @@ Each connection has one outgoing queue. When it passes 256 messages or
    most one snapshot per chat.
 3. Deltas numbered after that snapshot follow as usual.
 
-`result`, `error` and `removed` messages are never dropped. When 64 of
-them, or 8 MiB, wait to be sent, the server stops reading the client's
-commands until fewer than half are left, so a client that sends without
-reading is held back by its own socket. On the [local
-socket](#local-socket) a single result over 4 MiB is sent as `tooLarge`
-instead. The server does not merge deltas per client; that
+`result`, `error` and `removed` messages are kept while the connection is
+open. At 64 queued frames or 8 MiB the server stops reading commands
+until fewer than half are left. Before queuing a reply it also waits for
+space for that reply, so the next result cannot push the queue past the
+limit. Asynchronous chat removals cannot wait on the daemon; if one
+cannot fit, the connection closes with 1008 and the client resyncs.
+
+On the [local socket](#local-socket) a single result over 4 MiB is sent
+as `tooLarge` instead. If the request ID makes even that error result
+exceed 4 MiB, the connection closes with 1009. WebSocket keeps its large
+chat replies: one reply may exceed 8 MiB when no other result, error or
+removal is queued. Further replies wait for it to leave the queue.
+The server does not merge deltas per client; that
 would break the rule that `seq` steps by one.
 
 A client whose writes block for 30 s is closed with 1008 (`client too
