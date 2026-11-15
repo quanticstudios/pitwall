@@ -201,7 +201,18 @@ func (p *parser) inline(n ast.Node) ([]Span, []Img) {
 }
 
 func (p *parser) inlines(n ast.Node, st Span, out *[]inl) {
-	add := func(s Span) { *out = append(*out, inl{span: s}) }
+	add := func(s Span) {
+		// goldmark 1.8 splits text at a lone ~ or *; join same-styled runs back so paths stay whole.
+		if k := len(*out) - 1; k >= 0 && (*out)[k].img == nil {
+			a, b := (*out)[k].span, s
+			a.Text, b.Text = "", ""
+			if a == b {
+				(*out)[k].span.Text += s.Text
+				return
+			}
+		}
+		*out = append(*out, inl{span: s})
+	}
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		switch c := c.(type) {
 		case *ast.Text:
