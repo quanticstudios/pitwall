@@ -6,15 +6,10 @@ import (
 	"time"
 )
 
-// Bound makes cancellation stop cmd's process tree and bounds pipe drains.
-// cmd must come from exec.CommandContext. The returned cleanup stops any
-// descendants left after cmd exits and must run after Run or Output returns.
-func Bound(cmd *exec.Cmd) func() {
+// Bound makes cancelling cmd stop its descendants too, where the platform
+// allows, and stops a descendant that keeps a pipe open from holding Wait
+// past one second. cmd must come from exec.CommandContext.
+func Bound(cmd *exec.Cmd) {
 	ownGroup(cmd)
 	cmd.WaitDelay = time.Second
-	return func() {
-		if cmd.Process != nil {
-			_ = cmd.Cancel()
-		}
-	}
 }

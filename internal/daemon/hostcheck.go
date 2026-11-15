@@ -86,13 +86,16 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 		ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 		defer cancel()
 		cmd := gitstat.CommandEnv(ctx, repo, env, args...)
-		defer childproc.Bound(cmd)()
+		childproc.Bound(cmd)
 		// What a worker's git push uses, failing instead of asking for a password.
 		ssh := get("GIT_SSH_COMMAND")
 		if ssh == "" {
-			// Preserve the trusted transport CommandEnv retained from git config.
-			out, _ := gitstat.CommandEnv(ctx, repo, env, "config", "--get", "core.sshCommand").Output()
-			ssh = strings.TrimSpace(string(out))
+			// The person's own transport. The guard replaces a value from
+			// .git/config, but one written after its read keeps local scope.
+			out, _ := gitstat.CommandEnv(ctx, repo, env, "config", "--show-scope", "--get", "core.sshCommand").Output()
+			if scope, value, _ := strings.Cut(strings.TrimSpace(string(out)), "\t"); scope == "system" || scope == "global" || scope == "command" {
+				ssh = value
+			}
 		}
 		if ssh == "" && get("GIT_SSH") != "" {
 			ssh = "'" + strings.ReplaceAll(get("GIT_SSH"), "'", `'\''`) + "'"
@@ -102,6 +105,9 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		err := cmd.Run()
+		if errors.Is(err, exec.ErrWaitDelay) {
+			err = nil // git succeeded; a helper it started kept stderr open
+		}
 		if ctx.Err() != nil {
 			return -1, fmt.Sprintf("no answer in %s", remoteTimeout)
 		}

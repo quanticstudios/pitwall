@@ -108,6 +108,21 @@ func TestCheckStart(t *testing.T) {
 			}
 		})
 	}
+	// The worker's own git config keeps its ssh transport; the repository's never runs.
+	global, marker := filepath.Join(home, "worker.gitconfig"), filepath.Join(home, "repo-ssh-ran")
+	if err := os.WriteFile(global, []byte("[core]\n\tsshCommand = env CUSTOM_SSH=1 ssh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(repo, "config", "core.sshCommand", "touch "+marker+"; ssh")
+	git(repo, "remote", "set-url", "origin", "custom:"+origin)
+	transport := CheckStart(context.Background(), proto.HostCheck{Repo: "~/app", Env: []string{"GIT_CONFIG_GLOBAL=" + global}})
+	if len(transport) != 1 || !strings.HasPrefix(transport[0].What, "push permission not checked") {
+		t.Fatalf("worker's core.sshCommand: %+v", transport)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the repository's core.sshCommand ran")
+	}
+	git(repo, "config", "--unset", "core.sshCommand")
 	// The clone command is the asking machine's origin, cloned to Repo.
 	got := CheckStart(context.Background(), proto.HostCheck{Repo: "~/nowhere", Clone: "https://example.com/app.git"})
 	if len(got) != 1 || !strings.HasPrefix(got[0].Fix, "git clone https://example.com/app.git ~/nowhere") {

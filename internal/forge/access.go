@@ -32,7 +32,7 @@ func PushAccessEnv(ctx context.Context, dir string, env []string) (repo string, 
 	if cmd.Err != nil {
 		return repo, fmt.Errorf("gh cannot start: %w", cmd.Err)
 	}
-	defer childproc.Bound(cmd)()
+	childproc.Bound(cmd)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err = cmd.Output()

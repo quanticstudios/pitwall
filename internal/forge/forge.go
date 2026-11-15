@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
@@ -71,7 +70,7 @@ func ghCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
 }
 
 func ghCmdEnv(ctx context.Context, dir string, env []string, args ...string) *exec.Cmd {
-	cmd := childproc.CommandContext(ctx, dir, env, "gh", args...)
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = dir
 	nowindow.Set(cmd)
 	if env == nil {
