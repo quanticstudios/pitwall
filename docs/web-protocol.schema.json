@@ -133,6 +133,9 @@
         },
         {
           "$ref": "#/$defs/removed"
+        },
+        {
+          "$ref": "#/$defs/close"
         }
       ]
     },
@@ -142,7 +145,6 @@
       "required": [
         "type",
         "protocol",
-        "token",
         "client"
       ],
       "properties": {
@@ -154,7 +156,8 @@
           "minimum": 1
         },
         "token": {
-          "type": "string"
+          "type": "string",
+          "description": "Required on WebSocket; optional and ignored on the local socket."
         },
         "client": {
           "type": "object",
@@ -1101,7 +1104,8 @@
             "provider",
             "invalid",
             "forge",
-            "jev"
+            "jev",
+            "tooLarge"
           ]
         },
         "message": {
@@ -1249,6 +1253,28 @@
           ]
         },
         "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "close": {
+      "description": "The local socket's last line, where WebSocket sends a close frame.",
+      "type": "object",
+      "required": [
+        "type",
+        "code",
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "const": "close"
+        },
+        "code": {
+          "type": "integer",
+          "minimum": 1000
+        },
+        "reason": {
           "type": "string"
         }
       },

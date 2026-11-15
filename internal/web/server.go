@@ -109,6 +109,11 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	s.run(c, r.RemoteAddr)
+}
+
+// run serves c from its hello until it ends; from names the peer in logs.
+func (s *Server) run(c *conn, from string) {
 	if !s.add(c) {
 		c.close(1001, "daemon exiting")
 		return
@@ -118,15 +123,16 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var ce closeErr
 		if errors.As(err, &ce) {
-			log.Printf("web: %s refused: %q", r.RemoteAddr, ce.reason)
+			log.Printf("web: %s refused: %q", from, ce.reason)
 			c.close(ce.code, ce.reason)
 		}
 		return
 	}
-	log.Printf("web: %q connected from %s", name, r.RemoteAddr)
+	log.Printf("web: %q connected from %s", name, from)
 	c.name = name
 	done := make(chan struct{})
 	go func() {
+		defer close(c.dead)
 		err := s.writer(c, done)
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			c.close(1008, "client too slow")
@@ -136,6 +142,9 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	}()
 	err = s.serve(c)
 	close(done)
+	if c.lines {
+		<-c.dead // a script that sent its commands and closed its end still reads the results
+	}
 	if s.Chats != nil {
 		s.unsubscribeAll(c)
 	}
@@ -184,8 +193,8 @@ type hello struct {
 	} `json:"client"`
 }
 
-// hello reads the client's hello, checks its token, then its protocol,
-// and answers welcome. It returns the client's name.
+// hello reads the client's hello, checks its token (WebSocket only), then
+// its protocol, and answers welcome. It returns the client's name.
 func (s *Server) hello(c *conn) (string, error) {
 	c.nc.SetReadDeadline(time.Now().Add(helloTimeout))
 	msg, err := c.read()
@@ -199,7 +208,7 @@ func (s *Server) hello(c *conn) (string, error) {
 	if json.Unmarshal(msg, &h) != nil || h.Type != "hello" {
 		return "", closeErr{4000, "expected hello"}
 	}
-	if !s.check(h.Token) {
+	if !c.lines && !s.check(h.Token) { // the socket's folder is its check
 		return "", closeErr{4001, "bad token: read web.json again"}
 	}
 	if h.Protocol != Protocol {
@@ -248,6 +257,9 @@ func (s *Server) capabilities() []string {
 // they answer.
 func (s *Server) serve(c *conn) error {
 	for {
+		if !c.wait() {
+			return errors.New("writer stopped")
+		}
 		msg, err := c.read()
 		var ce closeErr
 		if errors.As(err, &ce) {

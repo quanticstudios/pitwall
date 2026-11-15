@@ -9,6 +9,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 
@@ -59,6 +60,17 @@ var (
 	maxQueueBytes = 4 << 20
 )
 
+// The bound on frames that are never dropped: at either, the reader
+// stops taking commands until the writer brings the queue under half, so
+// a client that sends and does not read is held back by its own socket.
+// One result over maxResultBytes is tooLarge on the lines transport. Vars
+// for tests.
+var (
+	maxFrames      = 64
+	maxFrameBytes  = 8 << 20
+	maxResultBytes = 4 << 20
+)
+
 // out is one entry of a connection's queue.
 type out struct {
 	frame []byte           // result, error, removed: never dropped
@@ -85,6 +97,10 @@ func (c *conn) push(o out) {
 		c.held++
 		c.bytes += o.size
 	}
+	if o.frame != nil {
+		c.frames++
+		c.fbytes += len(o.frame)
+	}
 	select {
 	case c.wake <- struct{}{}:
 	default:
@@ -93,6 +109,11 @@ func (c *conn) push(o out) {
 
 func (c *conn) reply(v any) {
 	data, _ := json.Marshal(v)
+	if c.lines && len(data) > maxResultBytes {
+		m, _ := v.(map[string]any)
+		id, _ := m["id"].(string)
+		data = mustJSON(result(id, "tooLarge", fmt.Sprintf("the result is %d bytes, over the socket's %d", len(data), maxResultBytes)))
+	}
 	c.mu.Lock()
 	c.push(out{frame: data})
 	c.mu.Unlock()
@@ -113,6 +134,26 @@ func (c *conn) Deltas(d proto.ChatDeltas) {
 		return
 	}
 	c.push(out{batch: d, size: size})
+}
+
+// wait returns once c's never-dropped frames are under maxFrames and
+// maxFrameBytes, so the one command read next keeps them within, after a
+// pause until they are under half; false when the writer stopped first.
+func (c *conn) wait() bool {
+	c.mu.Lock()
+	full := c.frames >= maxFrames || c.fbytes >= maxFrameBytes
+	for full {
+		c.mu.Unlock()
+		select {
+		case <-c.drained:
+		case <-c.dead:
+			return false
+		}
+		c.mu.Lock()
+		full = c.frames > maxFrames/2 || c.fbytes > maxFrameBytes/2
+	}
+	c.mu.Unlock()
+	return true
 }
 
 // overflow drops every queued delta and list for one snapshot per chat
@@ -217,7 +258,8 @@ func (s *Server) unsubscribeAll(c *conn) {
 	s.Chats.WatchList(c, false)
 }
 
-// writer writes c's queue until done closes or a write fails.
+// writer writes c's queue until done closes and it is empty, or a write
+// fails.
 func (s *Server) writer(c *conn, done <-chan struct{}) error {
 	var sent map[string]listed // the list as the client has it
 	for {
@@ -227,7 +269,12 @@ func (s *Server) writer(c *conn, done <-chan struct{}) error {
 			select {
 			case <-c.wake:
 			case <-done:
-				return nil
+				c.mu.Lock()
+				if len(c.q) == 0 { // else what the last commands queued goes out first
+					c.mu.Unlock()
+					return nil
+				}
+				continue
 			}
 			c.mu.Lock()
 		}
@@ -236,6 +283,14 @@ func (s *Server) writer(c *conn, done <-chan struct{}) error {
 		if o.batch.Chat != "" {
 			c.held--
 			c.bytes -= o.size
+		}
+		if o.frame != nil {
+			c.frames--
+			c.fbytes -= len(o.frame)
+			select {
+			case c.drained <- struct{}{}:
+			default:
+			}
 		}
 		var frame []byte
 		switch {
