@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- `pitwall adopt` runs; since v0.2.13 it printed the usage text and exited 2.
 - A Claude Code tab whose turn ended now goes to Done when the Stop hook lists only Claude Code's own background work, such as an auto-mode scan, a dream or an idle teammate. Only shell commands, the Monitor tool, MCP monitors and tasks, subagents and workflows keep it Working, and while they do its card shows the turn's last reply instead of an old status line. A later SubagentStop that lists none of them left also moves the tab to Done. The full reply stays available to `pitwall read`, and a requested review is delivered when the tab reaches Done.
 
 ## v0.2.13
