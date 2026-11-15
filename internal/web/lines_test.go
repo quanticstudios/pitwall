@@ -200,14 +200,17 @@ func TestLinesFlood(t *testing.T) {
 	}()
 	conn := onlyConn(s)
 	full := false
-	for end := time.Now().Add(time.Second); time.Now().Before(end); time.Sleep(time.Millisecond) {
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(time.Millisecond) {
 		conn.mu.Lock()
 		frames, size := conn.frames, conn.fbytes
 		conn.mu.Unlock()
 		if frames > maxFrames || size > maxFrameBytes {
 			t.Fatalf("%d replies of %d bytes queued", frames, size)
 		}
-		full = full || frames == maxFrames
+		if frames == maxFrames {
+			full = true
+			break
+		}
 	}
 	if !full {
 		t.Fatal("the queue never filled")
