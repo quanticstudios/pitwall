@@ -103,13 +103,22 @@ does, and what to check around it.
    This command also retries a failed build or upload without moving the tag.
    The APK must declare its installation permission and result receiver before
    upload. Prerelease tags skip the APK step because phone updates use stable releases.
-5. Review `pitwall-phone.apk`, the six platform archives, `checksums.txt`, notices and release notes
+5. Review `pitwall-phone.apk`, the six desktop archives, the two `pitwall-core` archives, `checksums.txt`, notices and release notes
    on the GitHub release before announcing it.
 6. Push the AUR package by hand, as below. The workflow updates Homebrew and
    Scoop itself.
 
 The **release tags: immutable** ruleset blocks updates and deletion of `v*`
 tags with no bypass actors. Correct a published release with a new version.
+
+Before it publishes, the release job runs `scripts/release-check.sh` (the
+eight archives, one checksum line each, and each binary's GOOS, GOARCH and
+flavor from `go version -m`) and `scripts/core-smoke.sh` on the amd64
+pitwall-core. Pull request CI runs the same checks: `release-check_test.sh`
+on fixture archives, and `core-smoke.sh` on the pull request's
+pitwall-core. A failed tag run rebuilds the same tagged commit when rerun,
+so rerun it only for an infrastructure failure, such as a runner or network
+error. A fix to the source or a workflow needs a new tag.
 The release workflow grants `contents: write` only to the job that publishes
 the release and to the packages job, which attaches the AUR files to it;
 build and verification jobs use read access.

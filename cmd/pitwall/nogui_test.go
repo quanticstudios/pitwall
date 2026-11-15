@@ -4,10 +4,7 @@ package main
 
 import (
 	"bytes"
-	"io"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"reflect"
@@ -21,9 +18,6 @@ import (
 
 // setWindowSize does nothing: pitwall-core has no window.
 func setWindowSize(string) {}
-
-// serveDrill is drill_test.go's, which builds without nogui only.
-func serveDrill(string) int { return 2 }
 
 // coreDaemon is a fake daemon on PITWALL_SOCKET that answers every Sync
 // with st, or after once the CLI sent a request. requests returns what the
@@ -145,35 +139,6 @@ func TestCoreNoWindow(t *testing.T) {
 				t.Fatalf("sent %#v, want %#v", sent, tc.sent)
 			}
 		})
-	}
-}
-
-// pitwall-core's update refuses before it asks for a release: the one it
-// would install is the desktop binary.
-func TestCoreUpdateRefuses(t *testing.T) {
-	asked := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { asked++ }))
-	defer srv.Close()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.Stat(exe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(exe, "update")
-	cmd.Env = append(os.Environ(), "PITWALL_TEST_MAIN=1", "PITWALL_UPDATE_URL="+srv.URL)
-	var stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = io.Discard, &stderr
-	err = cmd.Run()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 ||
-		stderr.String() != "pitwall: pitwall-core update is not available in this build; reinstall with get.sh --core\n" {
-		t.Fatalf("%v: %q", err, stderr.String())
-	}
-	after, err := os.Stat(exe)
-	if err != nil || asked != 0 || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
-		t.Fatalf("asked %d times; binary %v -> %v, %v", asked, before, after, err)
 	}
 }
 

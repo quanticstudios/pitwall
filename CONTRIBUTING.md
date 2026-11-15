@@ -43,6 +43,8 @@ mise exec -- go -C third_party/x-vt vet ./...
 mise exec -- go -C third_party/x-vt test -race -timeout 5m ./...
 sh scripts/get_test.sh
 sh scripts/release_test.sh
+sh scripts/release-check_test.sh
+sh scripts/sandbox_test.sh
 sh scripts/apk_test.sh
 sh scripts/apk-release_test.sh
 ```

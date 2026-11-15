@@ -50,19 +50,21 @@ func TestNewer(t *testing.T) {
 	}
 }
 
-// release serves a latest-release JSON, checksums.txt and goos's archive
-// for this GOARCH holding bin, with sums as checksums.txt when set.
-func release(t *testing.T, goos string, bin []byte, sums func(name, sum string) string) (*httptest.Server, *atomic.Int32) {
+// release serves a latest-release redirect, checksums.txt and flavor's
+// archive for goos and this GOARCH holding bin, with sums as checksums.txt.
+func release(t *testing.T, flavor, goos string, bin []byte, sums func(name, sum string) string) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var buf bytes.Buffer
-	name := fmt.Sprintf("pitwall_%s_%s.tar.gz", goos, runtime.GOARCH)
+	name, member, err := asset(flavor, goos, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if goos == "windows" {
-		name = fmt.Sprintf("pitwall_%s_%s.zip", goos, runtime.GOARCH)
 		zw := zip.NewWriter(&buf)
 		for _, f := range []struct {
 			name string
 			data []byte
-		}{{"LICENSE", []byte("MIT")}, {"pitwall.exe", bin}} {
+		}{{"LICENSE", []byte("MIT")}, {member, bin}} {
 			w, _ := zw.Create(f.name)
 			w.Write(f.data)
 		}
@@ -73,7 +75,7 @@ func release(t *testing.T, goos string, bin []byte, sums func(name, sum string) 
 		for _, f := range []struct {
 			name string
 			data []byte
-		}{{"LICENSE", []byte("MIT")}, {"pitwall", bin}} {
+		}{{"LICENSE", []byte("MIT")}, {member, bin}} {
 			tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0o755, Size: int64(len(f.data)), Typeflag: tar.TypeReg})
 			tw.Write(f.data)
 		}
@@ -118,7 +120,7 @@ func TestInstall(t *testing.T) {
 			{"missing", func(string, string) string { return "abc  pitwall_other.zip\n" }, "old"},
 		} {
 			t.Run(goos+"/"+c.name, func(t *testing.T) {
-				srv, _ := release(t, goos, []byte("new"), c.sums)
+				srv, _ := release(t, "pitwall", goos, []byte("new"), c.sums)
 				ctx := context.Background()
 				rel, newer, err := Check(ctx, srv.Client(), srv.URL+"/latest", "v0.1.0-alpha.9")
 				if err != nil || !newer || rel.Tag != "v0.1.0-alpha.10" {
@@ -136,7 +138,7 @@ func TestInstall(t *testing.T) {
 				} else if err != nil {
 					t.Fatal(err)
 				}
-				err = install(ctx, srv.Client(), rel, link, goos, runtime.GOARCH)
+				err = install(ctx, srv.Client(), rel, link, "pitwall", goos, runtime.GOARCH)
 				if (err == nil) != (c.want == "new") {
 					t.Fatalf("Install: %v", err)
 				}
@@ -161,6 +163,102 @@ func TestInstall(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestInstallAssetNames: each flavor asks for its own archive and takes its
+// own binary out of it; pitwall-core outside Linux fails before a request.
+func TestInstallAssetNames(t *testing.T) {
+	for _, c := range []struct {
+		bin, goos, goarch, name, member string
+	}{
+		{"pitwall", "linux", "amd64", "pitwall_linux_amd64.tar.gz", "pitwall"},
+		{"pitwall", "linux", "arm64", "pitwall_linux_arm64.tar.gz", "pitwall"},
+		{"pitwall", "darwin", "arm64", "pitwall_darwin_arm64.tar.gz", "pitwall"},
+		{"pitwall", "windows", "amd64", "pitwall_windows_amd64.zip", "pitwall.exe"},
+		{"pitwall-core", "linux", "amd64", "pitwall-core_linux_amd64.tar.gz", "pitwall-core"},
+		{"pitwall-core", "linux", "arm64", "pitwall-core_linux_arm64.tar.gz", "pitwall-core"},
+		{"pitwall-core", "darwin", "arm64", "", ""},
+		{"pitwall-core", "windows", "amd64", "", ""},
+	} {
+		name, member, err := asset(c.bin, c.goos, c.goarch)
+		if name != c.name || member != c.member || (err == nil) != (c.name != "") {
+			t.Errorf("asset(%s, %s, %s) = %q, %q, %v", c.bin, c.goos, c.goarch, name, member, err)
+		}
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		srv, hits := release(t, "pitwall", goos, []byte("new"), func(name, sum string) string { return sum + "  " + name + "\n" })
+		rel := Release{Tag: "v0.1.0-alpha.10", Base: srv.URL + "/quanticstudios/pitwall/releases/download/v0.1.0-alpha.10/"}
+		if err := install(context.Background(), srv.Client(), rel, filepath.Join(t.TempDir(), "pitwall-core"), "pitwall-core", goos, runtime.GOARCH); err == nil || hits.Load() != 0 {
+			t.Errorf("pitwall-core on %s: %v after %d requests", goos, err, hits.Load())
+		}
+	}
+	for _, flavor := range []string{"pitwall", "pitwall-core"} {
+		t.Run(flavor, func(t *testing.T) {
+			srv, _ := release(t, flavor, "linux", []byte(flavor+" new"), func(name, sum string) string { return sum + "  " + name + "\n" })
+			rel := Release{Tag: "v0.1.0-alpha.10", Base: srv.URL + "/quanticstudios/pitwall/releases/download/v0.1.0-alpha.10/"}
+			exe := filepath.Join(t.TempDir(), flavor)
+			if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := install(context.Background(), srv.Client(), rel, exe, flavor, "linux", runtime.GOARCH); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := os.ReadFile(exe); string(got) != flavor+" new" {
+				t.Fatalf("binary = %q", got)
+			}
+			// The other flavor's archive is not in this release: nothing changes.
+			other := map[string]string{"pitwall": "pitwall-core", "pitwall-core": "pitwall"}[flavor]
+			if err := install(context.Background(), srv.Client(), rel, exe, other, "linux", runtime.GOARCH); err == nil {
+				t.Fatalf("installed %s from a release with only %s", other, flavor)
+			}
+			if got, _ := os.ReadFile(exe); string(got) != flavor+" new" {
+				t.Fatalf("after a failed install binary = %q", got)
+			}
+		})
+	}
+}
+
+// TestInstallConcurrent: two installs to one path at once, as the window's
+// Update button and pitwall update, each rename a whole binary over it and
+// leave no temporary file.
+func TestInstallConcurrent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows swaps the binary aside; TestSwapPastBusyOld covers it")
+	}
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "pitwall")
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	big := func(c byte) []byte { return bytes.Repeat([]byte{c}, 8<<20) }
+	var rels [2]Release
+	var clients [2]*http.Client
+	for i, c := range []byte{'a', 'b'} {
+		srv, _ := release(t, "pitwall", runtime.GOOS, big(c), func(name, sum string) string { return sum + "  " + name + "\n" })
+		rels[i] = Release{Tag: "v0.1.0-alpha.10", Base: srv.URL + "/quanticstudios/pitwall/releases/download/v0.1.0-alpha.10/"}
+		clients[i] = srv.Client()
+	}
+	errs := make(chan error, 2)
+	for i := range 2 {
+		go func() {
+			errs <- install(context.Background(), clients[i], rels[i], exe, "pitwall", runtime.GOOS, runtime.GOARCH)
+		}()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, big('a')) && !bytes.Equal(got, big('b')) {
+		t.Fatalf("the binary is a mix of both installs (%d bytes)", len(got))
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("left behind: %v", entries)
 	}
 }
 
@@ -205,7 +303,7 @@ func TestSwapPastBusyOld(t *testing.T) {
 }
 
 func TestDevBuildNeverChecks(t *testing.T) {
-	srv, hits := release(t, runtime.GOOS, []byte("new"), func(string, string) string { return "" })
+	srv, hits := release(t, "pitwall", runtime.GOOS, []byte("new"), func(string, string) string { return "" })
 	for _, v := range []string{"dev", "dev-0123456789ab-dirty", "v0.1.0-alpha.9-2-g0123abc", "v0.1.0-alpha.9-dirty"} {
 		if _, newer, err := Check(context.Background(), srv.Client(), srv.URL+"/latest", v); newer || err != nil {
 			t.Errorf("Check(%q) = %v, %v", v, newer, err)

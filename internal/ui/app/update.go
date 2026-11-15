@@ -212,5 +212,5 @@ var installRelease = func(ctx context.Context, rel update.Release) error {
 	if err != nil {
 		return err
 	}
-	return update.Install(ctx, http.DefaultClient, rel, exe)
+	return update.Install(ctx, http.DefaultClient, rel, exe, "pitwall")
 }

@@ -39,6 +39,11 @@ install, and your tabs and config carry over; with Homebrew or Scoop, use
 `brew upgrade` or `scoop update pitwall`. [docs/install.md](docs/install.md)
 covers platforms, pinning a version, updates and building from source.
 
+On a Linux server or in a container, `get.sh | sh -s -- --core` installs
+`pitwall-core` instead: the daemon and every command but the window, with
+no GUI library to install. See
+[Servers and containers](docs/install.md#servers-and-containers).
+
 ## Try it
 
 Use a git repo you don't mind agents changing. On macOS the keys below

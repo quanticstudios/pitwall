@@ -1,22 +1,45 @@
 #!/bin/sh
 # Installs a pitwall release on Linux or macOS; see "Install" in README.md.
+# With --core or PITWALL_CORE=1 it installs pitwall-core, the daemon and
+# every command but the window, for Linux servers and containers.
 set -eu
 
 repo=quanticstudios/pitwall
 
-# asset names the release archive for `uname -s` and `uname -m`.
+# asset names the release archive of $3, pitwall or pitwall-core, for
+# `uname -s` and `uname -m`.
 asset() {
     case "$1" in
         Linux) os=linux ;;
         Darwin) os=darwin ;;
         *) printf 'pitwall: no release for %s; Windows uses scripts/get.ps1\n' "$1" >&2; return 1 ;;
     esac
+    if [ "$3" = pitwall-core ] && [ "$os" != linux ]; then
+        printf '%s\n' 'pitwall: pitwall-core is released for Linux only; leave out --core to install pitwall' >&2
+        return 1
+    fi
     case "$2" in
         x86_64 | amd64) arch=amd64 ;;
         aarch64 | arm64) arch=arm64 ;;
         *) printf 'pitwall: no release for %s on %s\n' "$2" "$1" >&2; return 1 ;;
     esac
-    printf 'pitwall_%s_%s.tar.gz\n' "$os" "$arch"
+    printf '%s_%s_%s.tar.gz\n' "$3" "$os" "$arch"
+}
+
+# link_core makes pitwall in folder $1 a link to pitwall-core, so hooks,
+# agents and scripts that run pitwall find it, when that name is free or
+# already that link. Any other pitwall stays as it is.
+link_core() {
+    if [ -L "$1/pitwall" ] && [ "$(readlink "$1/pitwall")" = pitwall-core ]; then
+        return 0
+    fi
+    if [ -e "$1/pitwall" ] || [ -L "$1/pitwall" ]; then
+        printf '%s/pitwall is another program, so it stays. To run pitwall-core as pitwall instead:\n' "$1"
+        printf "  ln -sf pitwall-core '%s/pitwall'\n" "$1"
+        return 0
+    fi
+    ln -s pitwall-core "$1/pitwall"
+    printf 'Linked %s/pitwall to pitwall-core.\n' "$1"
 }
 
 sha256() {
@@ -28,13 +51,23 @@ sha256() {
 }
 
 main() {
+    flavor=pitwall
+    if [ "${PITWALL_CORE:-}" = 1 ]; then
+        flavor=pitwall-core
+    fi
+    for a in "$@"; do
+        case "$a" in
+            --core) flavor=pitwall-core ;;
+            *) printf 'pitwall: unknown option %s; get.sh takes only --core\n' "$a" >&2; exit 2 ;;
+        esac
+    done
     os=$(uname -s)
     arch=$(uname -m)
     # why: a shell under Rosetta reports x86_64 on an Apple silicon Mac.
     if [ "$os" = Darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ]; then
         arch=arm64
     fi
-    name=$(asset "$os" "$arch")
+    name=$(asset "$os" "$arch" "$flavor")
     version=${PITWALL_VERSION:-}
     if [ -n "$version" ]; then
         base="https://github.com/$repo/releases/download/$version"
@@ -57,9 +90,19 @@ main() {
     tar -xzf "$tmp/$name" -C "$tmp"
     mkdir -p "$dir"
     # why: a rename leaves a running pitwall on its old binary.
-    cp "$tmp/pitwall" "$dir/.pitwall.new"
-    chmod 755 "$dir/.pitwall.new"
-    mv -f "$dir/.pitwall.new" "$dir/pitwall"
+    cp "$tmp/$flavor" "$dir/.$flavor.new"
+    chmod 755 "$dir/.$flavor.new"
+    mv -f "$dir/.$flavor.new" "$dir/$flavor"
+    if [ "$flavor" = pitwall-core ]; then
+        printf 'Installed %s in %s.\n' "$("$dir/pitwall-core" --version)" "$dir"
+        link_core "$dir"
+        case ":$PATH:" in
+            *":$dir:"*) ;;
+            *) printf 'Add %s to PATH in your shell profile.\n' "$dir" ;;
+        esac
+        printf '%s\n' 'Next: pitwall-core hooks install' '"Servers and containers" in docs/install.md shows how to start and reach the daemon.'
+        return 0
+    fi
     if [ "$os" = Darwin ]; then
         xattr -d com.apple.quarantine "$dir/pitwall" 2>/dev/null || true
         printf '%s\n' 'Cleared the macOS quarantine flag: release binaries are not signed yet.'
@@ -82,5 +125,5 @@ main() {
 
 # why: main runs last, so a download cut short runs nothing.
 if [ "${PITWALL_GET_TEST:-}" != 1 ]; then
-    main
+    main "$@"
 fi
