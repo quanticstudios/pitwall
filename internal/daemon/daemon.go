@@ -1888,7 +1888,8 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		next.State, next.UpdatedAt = model.StateCompleted, now
 		delete(d.live.background, p.ID)
 	}
-	if agent.BackgroundRunning(m.Payload) {
+	bgRunning := agent.BackgroundRunning(m.Payload)
+	if bgRunning {
 		if d.live.background == nil {
 			d.live.background = map[string]bool{}
 		}
@@ -1913,8 +1914,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if derived && !keep {
 		d.recordExplanation(p.ID, m.Provider, next.State, "hook", agent.ScreenTrace{})
 		changed = true
-		if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" && !bgEnded {
+		// why: a later SubagentStop can end the hold without another main-turn reply.
+		msg := agent.LastMessage(m.Payload)
+		if !bgEnded && msg != "" && (next.State == model.StateCompleted || bgRunning) {
 			d.keepReply(p.ID, msg)
+		}
+		if next.State == model.StateCompleted && (bgEnded || msg != "") {
 			d.relayReview(p.ID)
 		}
 		if next.State == model.StateError {

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,8 +99,44 @@ func TestBackgroundEndsOnSubagentStop(t *testing.T) {
 	d.mu.Lock()
 	reply := d.replies["a"]
 	d.mu.Unlock()
-	if reply == "memo" {
-		t.Fatal("kept the subagent's message as the tab's reply")
+	if reply != "Started the build on box." {
+		t.Fatalf("kept reply %q, want the Stop's reply", reply)
+	}
+}
+
+func TestBackgroundReviewEndsOnSubagentStop(t *testing.T) {
+	d, _ := talkDaemon(t)
+	t.Cleanup(func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for _, timer := range d.mail.wake {
+			timer.Stop()
+		}
+		clear(d.mail.queue)
+	})
+	// Keep the recipient busy so the review stays queued for inspection.
+	claudeHook(t, d, "b", `{"hook_event_name":"UserPromptSubmit","prompt":"work"}`)
+	d.mu.Lock()
+	d.reviews = map[string]string{"a": "b"}
+	d.mu.Unlock()
+	reply := "Review complete.\n" + strings.Repeat("Full findings.\n", 30)
+	claudeHook(t, d, "a", fmt.Sprintf(`{"hook_event_name":"Stop","last_assistant_message":%q,"background_tasks":[{"type":"shell","status":"running"}]}`, reply))
+	d.mu.Lock()
+	queued, target := len(d.mail.queue["b"]), d.reviews["a"]
+	d.mu.Unlock()
+	if queued != 0 || target != "b" {
+		t.Fatalf("held Stop relayed review early: queued %d, target %q", queued, target)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop","agent_id":"s1","last_assistant_message":"memo","background_tasks":[]}`)
+	if got := d.read(proto.Read{Pane: "a"}); got.Err != "" || got.Text != reply {
+		t.Fatalf("completed reply: %+v, want full Stop reply %q", got, reply)
+	}
+	// Repeated internal-agent hooks must not send the review again.
+	claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop","agent_id":"s2","last_assistant_message":"another memo","background_tasks":[]}`)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, pending := d.reviews["a"]; pending || len(d.mail.queue["b"]) != 1 || d.mail.queue["b"][0].text != reviewNote+"\n\n"+reply {
+		t.Fatalf("review not relayed: pending %v, queue %+v", pending, d.mail.queue["b"])
 	}
 }
 
