@@ -330,3 +330,46 @@ func TestManaged(t *testing.T) {
 		}
 	}
 }
+
+// TestTagged: a named release downloads from its own folder, older or
+// newer than the latest; a tag never released fails before any write, and
+// a string that is not a release tag fails before any request.
+func TestTagged(t *testing.T) {
+	rel, err := Tagged(LatestURL, "v0.2.13")
+	if want := "https://github.com/quanticstudios/pitwall/releases/download/v0.2.13/"; err != nil || rel.Tag != "v0.2.13" || rel.Base != want {
+		t.Fatalf("Tagged(LatestURL) = %+v, %v; want base %s", rel, err, want)
+	}
+	for _, bad := range []string{"", "latest", "v0.2", "v0.2.13/../../x", "../v0.2.13", "v0.2.13-1-gabc1234", "v0.2.13-dirty"} {
+		if _, err := Tagged(LatestURL, bad); err == nil {
+			t.Errorf("Tagged(%q) passed", bad)
+		}
+	}
+	if _, err := Tagged("https://example.com/releases", "v0.2.13"); err == nil {
+		t.Error("Tagged took a URL that does not end in /latest")
+	}
+	srv, _ := release(t, "pitwall", "linux", []byte("new"), func(name, sum string) string { return sum + "  " + name + "\n" })
+	latest := srv.URL + "/quanticstudios/pitwall/releases/latest"
+	for tag, want := range map[string]string{"v0.1.0-alpha.10": "new", "v0.1.0-alpha.11": "old"} {
+		t.Run(tag, func(t *testing.T) {
+			rel, err := Tagged(latest, tag)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			exe := filepath.Join(dir, "pitwall")
+			if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			err = install(context.Background(), srv.Client(), rel, exe, "pitwall", "linux", runtime.GOARCH)
+			if (err == nil) != (want == "new") {
+				t.Fatalf("install %s: %v", tag, err)
+			}
+			if got, _ := os.ReadFile(exe); string(got) != want {
+				t.Fatalf("binary = %q, want %q", got, want)
+			}
+			if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+				t.Fatalf("left behind: %v", entries)
+			}
+		})
+	}
+}

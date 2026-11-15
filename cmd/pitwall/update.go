@@ -18,40 +18,23 @@ import (
 )
 
 // runUpdate installs the latest release of this binary's flavor, binName,
-// over it, unless a package manager owns it, then moves the daemon onto the
-// binary with finishUpdate; --restart lets that restart the daemon.
-// PITWALL_UPDATE_URL replaces update.LatestURL, for the release drill.
+// or with --version the release named, over it, unless a package manager
+// owns it, then moves the daemon onto the binary with finishUpdate;
+// --restart lets that restart the daemon. PITWALL_UPDATE_URL replaces
+// update.LatestURL, for the release drill.
 func runUpdate(args []string, w io.Writer) error {
-	restart := len(args) == 1 && args[0] == "--restart"
-	if len(args) > 0 && !restart {
-		return fmt.Errorf("usage: %s update [--restart]", binName)
+	restart, tag, err := updateArgs(args)
+	if err != nil {
+		return err
 	}
 	log.SetOutput(io.Discard) // startDaemon's lines, for a window's gui.log
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	want := versionString()
-	if real, err := filepath.EvalSymlinks(exe); err == nil && update.Managed(real) {
-		fmt.Fprintln(w, "A package manager installed this pitwall and updates it.")
-	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		rel, newer, err := update.Check(ctx, http.DefaultClient, cmp.Or(os.Getenv("PITWALL_UPDATE_URL"), update.LatestURL), want)
-		switch {
-		case err != nil:
-			return fmt.Errorf("check for a release: %w", err)
-		case newer:
-			if err := update.Install(ctx, http.DefaultClient, rel, exe, binName); err != nil {
-				return fmt.Errorf("install %s: %w", rel.Tag, err)
-			}
-			fmt.Fprintf(w, "Installed %s %s over %s.\n", binName, rel.Tag, want)
-			want = rel.Tag
-		case rel.Tag == "":
-			fmt.Fprintf(w, "pitwall %s is not a release, so it checks for none.\n", want)
-		default:
-			fmt.Fprintf(w, "pitwall %s is the latest release.\n", want)
-		}
+	want, err := installUpdate(w, exe, versionString(), tag)
+	if err != nil {
+		return err
 	}
 	printSibling(w, exe, want)
 	m, err := doctorDaemon()
@@ -74,7 +57,76 @@ func runUpdate(args []string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return finishUpdate(w, restart, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
+	force := binName + " update --restart"
+	if tag != "" {
+		force += " --version " + tag // a plain update would install the latest instead
+	}
+	err = finishUpdate(w, restart, force, func() error { return handOff(exe) }, func() error { return restartDaemon(path, exe) })
+	if err != nil && !restart && tag != "" {
+		// The retry runs the binary just installed, which may be older than
+		// these flags. Restoring a capable updater needs no backup state and
+		// leaves the daemon alone until the explicit restart invocation.
+		return fmt.Errorf("%w. If the installed release rejects these flags, reinstall an updater that supports --version without touching the daemon, then run %s in one invocation", err, force)
+	}
+	return err
+}
+
+// updateArgs reads update's arguments: --restart, and --version with a tag.
+func updateArgs(args []string) (restart bool, tag string, err error) {
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--restart" && !restart:
+			restart = true
+		case args[i] == "--version" && tag == "" && i+1 < len(args) && args[i+1] != "":
+			i++
+			tag = args[i]
+		default:
+			return false, "", fmt.Errorf("usage: %s update [--restart] [--version vX.Y.Z]", binName)
+		}
+	}
+	return restart, tag, nil
+}
+
+// installUpdate installs release tag, or the latest release when tag is "",
+// over exe, which runs current, unless a package manager owns exe, and
+// says which on w. It returns the version exe runs after.
+func installUpdate(w io.Writer, exe, current, tag string) (string, error) {
+	latest := cmp.Or(os.Getenv("PITWALL_UPDATE_URL"), update.LatestURL)
+	var named update.Release
+	if tag != "" {
+		var err error
+		if named, err = update.Tagged(latest, tag); err != nil {
+			return current, err
+		}
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil && update.Managed(real) {
+		fmt.Fprintln(w, "A package manager installed this pitwall and updates it.")
+		return current, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	rel, install := named, tag != current
+	if tag == "" {
+		var err error
+		if rel, install, err = update.Check(ctx, http.DefaultClient, latest, current); err != nil {
+			return current, fmt.Errorf("check for a release: %w", err)
+		}
+	}
+	switch {
+	case install:
+		if err := update.Install(ctx, http.DefaultClient, rel, exe, binName); err != nil {
+			return current, fmt.Errorf("install %s: %w", rel.Tag, err)
+		}
+		fmt.Fprintf(w, "Installed %s %s over %s.\n", binName, rel.Tag, current)
+		return rel.Tag, nil
+	case tag != "":
+		fmt.Fprintf(w, "%s %s is installed already.\n", binName, tag)
+	case rel.Tag == "":
+		fmt.Fprintf(w, "pitwall %s is not a release, so it checks for none.\n", current)
+	default:
+		fmt.Fprintf(w, "pitwall %s is the latest release.\n", current)
+	}
+	return current, nil
 }
 
 // printSibling names the other flavor next to exe, and the command that
@@ -97,15 +149,16 @@ func printSibling(w io.Writer, exe, want string) {
 // finishUpdate moves the daemon onto the pitwall just installed through
 // handOff, which keeps every program in a pane running. When that fails the
 // old daemon keeps serving, and only with force does restart replace it,
-// which resumes agents and stops the rest. It says which on w.
-func finishUpdate(w io.Writer, force bool, handOff, restart func() error) error {
+// which resumes agents and stops the rest. It says which on w, and names
+// command, the update with force.
+func finishUpdate(w io.Writer, force bool, command string, handOff, restart func() error) error {
 	err := handOff()
 	if err == nil {
 		fmt.Fprintln(w, "The new daemon took over; every program in a pane kept running.")
 		return nil
 	}
 	if !force {
-		return fmt.Errorf("the new daemon could not take over (%v). The old daemon keeps serving, and the programs in its panes keep running on the old build. %s update --restart restarts it: agents resume, other programs in panes stop", err, binName)
+		return fmt.Errorf("the new daemon could not take over (%v). The old daemon keeps serving, and the programs in its panes keep running on the old build. %s restarts it: agents resume, other programs in panes stop", err, command)
 	}
 	fmt.Fprintf(w, "The new daemon could not take over (%v), so pitwall restarts the daemon: agents resume, other programs in panes stop.\n", err)
 	if err := restart(); err != nil {

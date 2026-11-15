@@ -142,6 +142,28 @@ nothing and only moves the daemon onto the binary, so run it after
 `brew upgrade` or `scripts/install.sh`. With no daemon running it stops
 after the install.
 
+`pitwall update --version vX` installs release `vX` instead of the latest,
+older or newer, such as `pitwall update --version v0.2.13` to go back one
+release. It checks that the release has this binary's archive and that it
+matches `checksums.txt` before it writes anything, then hands the daemon
+over as above. When the handoff fails, the old daemon keeps serving and the
+command to force it is `pitwall update --restart --version vX`, since a
+plain `pitwall update --restart` would install the latest release again.
+The installed older release may not understand `--version` or `--restart`.
+If it rejects that retry, reinstall a newer updater that supports these
+flags at the same path without touching the daemon, then run
+`pitwall update --restart --version vX` in one invocation. The
+[install script](../README.md#install) leaves the daemon alone; use the same
+install directory and, for pitwall-core, `--core`. This also applies after a
+refused downgrade across protocol levels. Avoid running the older release's
+plain `update`, which installs the latest release.
+A package manager's binary installs nothing here either. On Windows the
+release installs and the daemon keeps running on the old build until
+an updater that supports these flags runs
+`pitwall update --restart --version vX` in one invocation.
+`PITWALL_VERSION=vX` with the [install script](../README.md#install)
+installs a version without touching the daemon.
+
 Windows will not replace a running program, so there the update renames
 `pitwall.exe` to `pitwall.exe.old` and puts the new one in its place. The
 next window deletes `pitwall.exe.old` once nothing runs it; while the daemon
