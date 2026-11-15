@@ -81,7 +81,11 @@ count within the session, and detached tabs come after the ones the sidebar
 shows. A session is named in full or by a unique prefix. A pane is
 `TAB.N`, the tab's Nth pane in layout order (`3.2`, `#3.2`,
 `review.2`), or `@` and its `id` from `pitwall ls --json`, which stays
-valid while tabs move; a tab alone is its main pane.
+valid while tabs move; a tab alone is its main pane. In a pane, `read`,
+`send`, `prompt`, `wait` and `kill` also take `box:3`, or `#box:3` as `new
+--host` prints it, for tab 3 of the session's part on box, and look up an
+`@id` this machine lacks on the session's hosts (see
+[Workers on another machine](remote.md#workers-on-another-machine)).
 
 ```sh
 pitwall session new billing -d ~/src/billing   # a background session

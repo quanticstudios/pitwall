@@ -185,6 +185,10 @@ layout order; its `n` is the N of the pane's address, and `queued` counts
 the pane's messages from `send` not yet typed. `since` is when the agent's
 current state began, `null` for a pane with no agent state. `parent` is the
 `id` of the tab that opened this one (see Workers below), `""` for none.
+`host` is the `[[hosts]]` name of the machine a tab runs on, `""` here;
+`addr` is the address to pass to the other commands, `#3` here or `box:3`
+there; `stale` is true for a worker on a host out of reach (see
+[Workers on another machine](#workers-on-another-machine)).
 
 `pitwall ls --tree` prints the table with each tab under the tab that
 opened it. The table's `SINCE` column says how long each tab has been in
@@ -270,8 +274,8 @@ case $? in
   0) pitwall ls --children ;;                # every worker finished
   2) echo "a worker waits on you or gave up; see its line" ;;
   3) echo "a worker exited with an error" ;;
-  124) for n in $(pitwall ls --children --json | jq -r '.[] | select(.state == "working") | .n'); do
-         pitwall send "#$n" -- "Stop exploring and finish now: commit what works, record open questions as assumptions, and end with DONE."
+  124) for a in $(pitwall ls --children --json | jq -r '.[] | select(.state == "working") | .addr'); do
+         pitwall send "$a" -- "Stop exploring and finish now: commit what works, record open questions as assumptions, and end with DONE."
        done
        pitwall wait --children --done-line --until done --timeout 15m ;;
 esac
@@ -328,6 +332,85 @@ Make your last line DONE, or BLOCKED: <why> if you cannot go on.
 If the daemon restarts while workers run, it resumes them, and each one
 that was mid-turn is told to continue (see `pitwall new` above). Run the
 same `wait` again.
+
+### Workers on another machine
+
+When the user lists another machine under `[[hosts]]` in pitwall's
+config.toml and asks you to run workers there, or to keep the load off
+this machine, start them with `--host` and the host's name. From your
+pane, `--host` takes only those names.
+
+```sh
+pitwall worktree new login-fix --host box -- claude "Fix the login redirect. FEAT-123 has the steps."
+pitwall new --host box -n evals '~/evals' -- codex "Run the eval suite and list the failures."
+```
+
+Both print the tab as `#box:3`, box's own tab 3. The worker's agent,
+tests and builds use box's CPU, memory and disk, and box finds `claude`
+or `codex` on its own PATH. `worktree new --host` pushes the commit the
+worktree starts from to box first, so commits you have not pushed anywhere
+reach it. Uncommitted changes do not, so commit first. The repository has to
+be on box at the same path under the home folder, so `~/Work/app` here is
+`~/Work/app` there; pass `--repo <path on box>` when it is elsewhere.
+`--host` refuses `--branch`; use `--from <branch>` for a new branch off
+it. In fleet mode a lane with `host = "box"` sends its workers there
+without `--host`, and `--host local` keeps one here.
+
+Before it pushes or starts anything, box's pitwall checks that the agent
+is on its PATH, that a `--guard` worker has pitwall's hooks there, and for
+`worktree new` that the repository is there, git can read and push to
+origin, and, for a GitHub origin, `gh` can push to it. A failed check
+prints `box cannot start this worker; nothing was started:` with a
+`fix on box:` line for each problem, such as the `git clone` command. Tell
+the user; don't fix box's logins yourself. Missing hooks or a missing
+login only warn (`pitwall: box: ...`) and the worker starts, but its state
+may not show or it may stop at a login screen. A guarded worker never
+starts on box without the hooks, and box's `[agents] guard_deny` applies.
+
+If the command fails with `lost box while starting @<id>; it may be
+running`, run the same command again with `--id <id>`: it finishes that
+start and never opens a second tab.
+
+A worker on box is your worker like one here: `ls --children`,
+`wait --children`, `wait`, `read`, `send`, `prompt` and `kill` reach it.
+Address it as `box:3` (or `#box:3`, as printed) or `@<id>`; `#3` is always
+this machine's tab 3. In `ls --children --json` its row has
+`"host": "box"`, `"addr": "box:3"` and `"n": 0`, so pass `addr`, never
+`"#$n"`. While box is out of reach the row has `"stale": true`, `"state":
+"unknown"` and an `addr` of `@<id>`. A message you `send` to it asks it to
+answer in its reply, which you read with `pitwall read`.
+
+`wait --children` never exits 0 while it cannot see box. When box drops
+it prints `box unreachable:` with the reason and dials again; after 5
+minutes out of reach it exits 1. It also exits 1 on a line `box:@<id>
+lost:` (box never showed the worker) or `result lost` (it closed
+unfinished, or box's pitwall restarted): its reply is gone, so read its
+branch or pull request. When box's pitwall restarts, it resumes
+the workers that were running, and the wait carries on.
+
+pitwall's notes about a worker on box, such as one past twice its lane's
+timebox or failing CI again, reach no pane here, so watch its `state` in
+`ls --children --json`. Box still nudges a lane worker once past its
+timebox, and box's own config decides whether CI failures go to it
+(`auto_send_failures`), what happens when CI fails again, and when it
+closes (`close_done_workers`).
+
+Results come back through git. A worker that opens a pull request pushes
+it from box; review it here with `gh pr checkout <n>`, and merge and
+release from this machine as usual. Without GitHub, fetch its branch over
+ssh, with the destination `ssh` reaches box by:
+
+```sh
+git fetch box:Work/app login-fix:refs/remotes/box/login-fix
+```
+
+If your tab was closed and reopened, or you are a new orchestrator taking
+over, find the workers that lost their parent and take them:
+
+```sh
+pitwall ls --orphans
+pitwall adopt --all
+```
 
 ## Recipes
 

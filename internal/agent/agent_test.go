@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -742,6 +743,24 @@ func TestPermissionDetailTargets(t *testing.T) {
 		a, ok := Derive(nil, model.ProviderClaude, raw, time.Now())
 		if !ok || a.Detail != tc.want {
 			t.Fatalf("detail: %#v, %v", a, ok)
+		}
+	}
+}
+
+// Every release's skill must stay in skillReleased, or an unedited install
+// of it is never refreshed. Checkouts without tags, as CI's, check nothing.
+func TestSkillReleasedCoversTags(t *testing.T) {
+	tags, err := exec.Command("git", "tag", "-l", "v*").Output()
+	if err != nil {
+		t.Skip("no git:", err)
+	}
+	for _, tag := range strings.Fields(string(tags)) {
+		if strings.Contains(tag, "-") { // pre-releases shipped skills since replaced
+			continue
+		}
+		b, err := exec.Command("git", "show", tag+":internal/agent/pitwall_skill.md").Output()
+		if err == nil && !IsSkill(b) {
+			t.Errorf("%s's skill is not in skillReleased", tag)
 		}
 	}
 }

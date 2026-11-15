@@ -81,6 +81,8 @@ func TestRemotesResolve(t *testing.T) {
 	}{
 		{"box:2", "box", "rw", false},
 		{"box:2.1", "box", "rw", true},
+		{"#box:2", "box", "rw", false}, // as new --host prints it
+		{"#box:2.1", "box", "rw", true},
 		{"@rw", "box", "rw", false},
 		{"@rp", "box", "rw", true},
 		{"@rw", "box", "rw", true},

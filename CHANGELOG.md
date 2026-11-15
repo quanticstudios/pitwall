@@ -33,6 +33,8 @@ takes `--dry-run`.
 - `pitwall ls --children`, `wait`, `read`, `send`, `prompt` and `kill` reach an agent's workers on another machine, addressed as `box:3` or `@<id>`; `wait` never exits 0 while it cannot see that machine, and `pitwall adopt` takes over workers whose parent tab is gone.
 - `pitwall worktree new --host box` starts a worker in a worktree on another machine from this machine's commit, and a fleet lane can send its workers to a host.
 - Starting a worker on another machine first checks the agent, pitwall's hooks, the repository, git's access to origin and `gh` there, and says what to fix.
+- The agent skill explains workers on another machine, and `read`, `send`, `prompt`, `wait` and `kill` take the `#box:3` that `pitwall new --host` prints.
+- An unedited pitwall skill installed by v0.1.11 to v0.2.12 is updated again, as earlier releases' are.
 
 ## v0.2.12
 
