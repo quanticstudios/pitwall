@@ -113,6 +113,42 @@ func TestFleetTimebox(t *testing.T) {
 	check(d3, t0.Add(3*time.Hour), "", "")
 }
 
+// TestFleetCarriedTimebox: a worker that brought its lane's timebox and
+// nudge from another machine gets that nudge past that timebox with fleet
+// mode off here, and fleet mode on here does not replace them. A lane
+// worker without them still needs fleet mode on.
+func TestFleetCarriedTimebox(t *testing.T) {
+	t0 := time.Now()
+	for _, on := range []bool{false, true} {
+		s := fleetSettings()
+		s.Fleet.On = on
+		d, _ := fleetDaemon(t, t0, &s)
+		d.sendMu.Lock()
+		d.mu.Lock()
+		d.st.Workspaces[1].Lane.Timebox, d.st.Workspaces[1].Lane.Nudge = 5*time.Minute, "Wrap up, from there."
+		d.mu.Unlock()
+		d.checkFleet(t0.Add(6 * time.Minute))
+		d.mu.Lock()
+		got := d.mail.queue["wa"]
+		d.mu.Unlock()
+		d.sendMu.Unlock()
+		if len(got) != 1 || got[0].text != "Wrap up, from there." {
+			t.Fatalf("fleet on %v: worker queue %+v, want the carried nudge", on, got)
+		}
+	}
+	s := fleetSettings()
+	s.Fleet.On = false
+	d, _ := fleetDaemon(t, t0, &s)
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	d.checkFleet(t0.Add(3 * time.Hour))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if got := d.mail.queue["wa"]; len(got) != 0 {
+		t.Fatalf("fleet off, no carried timebox: worker queue %+v", got)
+	}
+}
+
 // TestFleetEscalate: once auto_send_failures has sent a lane worker's
 // failures twice and CI fails on a new head, escalate = "parent" tells its
 // parent once, and "respawn" replaces its agent with the big lane's preset

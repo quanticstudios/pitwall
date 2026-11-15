@@ -223,6 +223,10 @@ type Lane struct {
 	// Nudged, Told and Escalated are set once each is done, so a daemon
 	// restart does not repeat them.
 	Nudged, Told, Escalated bool
+	// Timebox and Nudge came with a worker from another machine's lane;
+	// 0 and "" use this daemon's [fleet].
+	Timebox time.Duration
+	Nudge   string
 }
 
 // PortBlock is the TCP ports First to Last; the zero value is none.

@@ -1330,6 +1330,14 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		return err
 	}
 	defer unlock()
+	if rest, ok := strings.CutPrefix(m.Root, "~/"); ok {
+		// worktree new --host maps the repo here to the same folder under this home.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		m.Root = filepath.Join(home, rest)
+	}
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == m.ProjectID })
 	var p model.Project
@@ -1391,7 +1399,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		w.Parent, w.RemoteParent = m.ParentTab, true
 	}
 	if m.Lane != "" && len(m.Cmd) > 0 {
-		w.Lane = model.Lane{Name: m.Lane, Start: time.Now()}
+		w.Lane = model.Lane{Name: m.Lane, Start: time.Now(), Timebox: m.Timebox, Nudge: m.Nudge}
 	}
 	if owned != "" {
 		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
@@ -1544,6 +1552,10 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 		// workspace goes too.
 		if err = d.removeWorktree(ctx, ws.WorktreeRoot, ws.Path, ws.Ports, m.RemoveBranch, m.Force, m.SkipTeardown, m.Teardown); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
+		}
+		if ws.ClientID {
+			// The commit worktree new --host pushed for this tab to start from.
+			gitstat.DeleteRef(ctx, ws.WorktreeRoot, gitstat.BaseRef(ws.ID))
 		}
 	}
 

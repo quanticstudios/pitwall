@@ -31,6 +31,7 @@ takes `--dry-run`.
 - A tab you open on another machine joins only the part of the session made for it there, never another session that has the same name.
 - A tab an agent opens with `pitwall new --host` hangs under the agent's tab in a window that shows both machines, closes itself when done like a worker here, and `--id` retries a start that lost its connection without starting it twice.
 - `pitwall ls --children`, `wait`, `read`, `send`, `prompt` and `kill` reach an agent's workers on another machine, addressed as `box:3` or `@<id>`; `wait` never exits 0 while it cannot see that machine, and `pitwall adopt` takes over workers whose parent tab is gone.
+- `pitwall worktree new --host box` starts a worker in a worktree on another machine from this machine's commit, and a fleet lane can send its workers to a host.
 
 ## v0.2.12
 

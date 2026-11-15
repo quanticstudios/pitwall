@@ -25,6 +25,7 @@ type Fleet struct {
 type Lane struct {
 	Preset  string   `toml:"preset" doc:"The [[agents.preset]] name this lane starts. Empty turns the lane off"`
 	Timebox *float64 `toml:"timebox" min:"0" max:"1440" doc:"Minutes a worker on this lane may run with no pull request open before pitwall nudges it, once. Past twice this, pitwall tells the tab that started it. 0 turns it off"`
+	Host    string   `toml:"host" doc:"A [[hosts]] name: pitwall worktree new --lane starts this lane's workers on that machine, as --host does. --host local keeps one here. Empty runs them here"`
 }
 
 // LaneNames are the lanes in size order.
@@ -54,6 +55,7 @@ type LaneSettings struct {
 	Name    string
 	Preset  string // "" when the lane is off
 	Timebox time.Duration
+	Host    string // the [[hosts]] name its workers start on, "" for here
 }
 
 // Lane is the lane named name, if fleet mode is on and the lane has a
@@ -132,7 +134,7 @@ func resolveFleet(c Fleet, presets []AgentPreset) (FleetSettings, []issue) {
 	}
 	for i, l := range []Lane{c.Small, c.Normal, c.Big} {
 		name := LaneNames[i]
-		ls := LaneSettings{Name: name, Preset: strings.TrimSpace(l.Preset), Timebox: time.Duration(DefaultTimeboxes[i] * float64(time.Minute))}
+		ls := LaneSettings{Name: name, Preset: strings.TrimSpace(l.Preset), Timebox: time.Duration(DefaultTimeboxes[i] * float64(time.Minute)), Host: strings.TrimSpace(l.Host)}
 		if ls.Preset != "" && !slices.ContainsFunc(presets, func(p AgentPreset) bool { return p.Name == ls.Preset }) {
 			issues = append(issues, issue{"fleet." + name + ".preset", fmt.Sprintf("no [[agents.preset]] named %q", ls.Preset)})
 			ls.Preset = ""

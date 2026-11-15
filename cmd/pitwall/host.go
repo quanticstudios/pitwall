@@ -116,6 +116,12 @@ var forwards atomic.Int32
 // destination, then command. The first call opens the connection, the
 // others reuse it, and it closes 10 minutes after its last use.
 func (r *sshHost) sshArgs(opts []string, command ...string) []string {
+	args := append(append(r.shared(), opts...), "--", r.dest)
+	return append(args, command...)
+}
+
+// shared are the options of the shared connection.
+func (r *sshHost) shared() []string {
 	args := []string{
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=" + filepath.Join(r.dir, "ssh-%C"),
@@ -130,9 +136,21 @@ func (r *sshHost) sshArgs(opts []string, command ...string) []string {
 	if r.batch {
 		args = append(args, "-o", "BatchMode=yes")
 	}
-	args = append(append(args, opts...), "--", r.dest)
-	return append(args, command...)
+	return args
 }
+
+// gitSSH is GIT_SSH_COMMAND for a git that reaches the host over the
+// shared connection.
+func (r *sshHost) gitSSH() string {
+	words := []string{shellQuote(r.ssh)}
+	for _, a := range r.shared() {
+		words = append(words, shellQuote(a))
+	}
+	return strings.Join(words, " ")
+}
+
+// shellQuote is s in single quotes for sh.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // startCommand runs remote-start on the host. ssh hands it to the host's
 // login shell; every common one reads the single quotes alike, and sh then

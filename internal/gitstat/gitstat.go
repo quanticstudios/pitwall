@@ -515,6 +515,33 @@ func baseRef(ctx context.Context, dir, base string) (string, error) {
 	return defaultRef(ctx, dir)
 }
 
+// Commit is the commit ref names in the repository at dir, the default
+// branch's when ref is "".
+func Commit(ctx context.Context, dir, ref string) (string, error) {
+	base, err := baseRef(ctx, dir, ref)
+	if err != nil {
+		return "", err
+	}
+	if base == "" {
+		return "", errors.New("repository has no default branch")
+	}
+	out, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("no commit %q", ref)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// BaseRef is the ref worktree new --host pushes the commit of tab id's
+// worktree to on the other machine.
+func BaseRef(id string) string { return "refs/pitwall/base/" + id }
+
+// DeleteRef deletes ref in the repository at dir, when it has it.
+func DeleteRef(ctx context.Context, dir, ref string) error {
+	_, err := git(ctx, dir, "update-ref", "-d", ref)
+	return err
+}
+
 // Qualify is the full ref of the branch name names in the repository at
 // dir: refs/heads/<name>, else refs/remotes/<name> for a remote branch
 // such as "origin/fix", or name when it is a full ref already; "" when no

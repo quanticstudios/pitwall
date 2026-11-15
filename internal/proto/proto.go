@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 78 added NewWorkspace.Timebox and Nudge, model.Lane.Timebox and
+// Nudge, and a leading ~/ in NewWorkspace.Root: a worktree for a worker
+// whose parent is on another machine, with its lane's rules.
 // Level 77 added NewSession.ID and ParentTab, NewWorkspace.ID, ParentTab
 // and SessionID, Workspace.RemoteParent and ClientID, ClosedTab.Origin,
 // Session.Workers, RemoteWorkers and Reparent: a tab started on another
@@ -211,7 +214,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 77
+const Level = 78
+
+// WorktreeHostLevel added NewWorkspace.Timebox and Nudge, model.Lane.Timebox
+// and Nudge, and ~/ expansion in NewWorkspace.Root.
+const WorktreeHostLevel = 78
 
 // RemoteWorkerLevel added NewSession.ID and ParentTab, NewWorkspace.ID,
 // ParentTab and SessionID, Workspace.RemoteParent and ClientID,
@@ -574,6 +581,11 @@ type NewWorkspace struct {
 	// SessionID, with ProjectID "" and Root, is the session the worktree's
 	// tab opens in when its parent is on another machine.
 	SessionID string
+	// Timebox and Nudge are the lane's rules from the machine that sent
+	// the worker, kept in model.Lane: this daemon nudges it after Timebox
+	// whether its own fleet mode is on or off. 0 uses this daemon's lane.
+	Timebox time.Duration
+	Nudge   string
 }
 
 type RenameWorkspace struct {

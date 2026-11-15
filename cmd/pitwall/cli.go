@@ -93,6 +93,8 @@ func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 		switch request.(type) {
 		case proto.DeleteWorkspace, proto.DeleteWorktree:
 			wait = teardown.Timeout + time.Minute
+		case proto.NewWorkspace:
+			wait = max(wait, time.Minute) // git worktree add of a large repository
 		}
 	}
 	if err := conn.socket.SetDeadline(time.Now().Add(wait)); err != nil {
@@ -196,6 +198,21 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 // starts, and a start whose connection drops is sent again, which the
 // host's daemon runs once.
 func newOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool) (address string, startErr error) {
+	return startOnHost(local, daemon, session, host, tab, detached, nil)
+}
+
+// hostWorktree is what worktree new --host sends in place of NewSession:
+// msg, with the tab's id, name, command, parent and part from it, after
+// push, when set, has put the worktree's commit on the host.
+type hostWorktree struct {
+	msg  proto.NewWorkspace
+	push func(id string) error
+}
+
+// startOnHost is newOnHost, starting a worktree's tab when wt is set. When
+// the host makes the tab but reports a problem, as a worktree's setup can,
+// it returns both the address and the problem.
+func startOnHost(local *cliConn, daemon string, session *model.Session, host string, tab proto.NewSession, detached bool, wt *hostWorktree) (address string, startErr error) {
 	hc, done, err := dialHost(host, "cli")
 	if err != nil {
 		return "", err
@@ -205,11 +222,28 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 	if err != nil {
 		return "", err
 	}
-	if err := hostLevel(tab.Env, tab.ID != "" || tab.ParentTab != "", m.Level); err != nil {
+	// Every connection checks the level before it sends what can start a process.
+	check := func(level int) error {
+		if err := hostLevel(tab.Env, tab.ID != "" || tab.ParentTab != "" || wt != nil, level); err != nil {
+			return err
+		}
+		if wt != nil && level < proto.WorktreeHostLevel {
+			return errors.New("the pitwall daemon running there is older than this pitwall and cannot make a worktree for a worker started from another machine; update pitwall there or restart its daemon")
+		}
+		return nil
+	}
+	if err := check(m.Level); err != nil {
 		return "", fmt.Errorf("%s: %w", host, err)
 	}
 	if tab.ID == "" && m.Level >= proto.RemoteWorkerLevel {
 		tab.ID = newTabID()
+	}
+	// The commit goes first: a host without the repository gets no part,
+	// record or tab. A retry pushes the same commit to the same ref.
+	if wt != nil && wt.push != nil {
+		if err := wt.push(tab.ID); err != nil {
+			return "", err
+		}
 	}
 	hs := m.State
 	origin := model.Origin{Daemon: daemon, Session: session.ID}
@@ -281,17 +315,24 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			return "", err
 		}
 	}
+	var problem error // the host made the tab, with a problem
 	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" || len(tab.Env) > 0 || tab.ID != "" {
 		before := hs
 		tab.SessionID = partID
+		var start any = tab
+		if wt != nil {
+			w := wt.msg
+			w.ID, w.Name, w.Cmd, w.Env, w.ParentTab, w.SessionID = tab.ID, tab.Name, tab.Cmd, tab.Env, tab.ParentTab, partID
+			start = w
+		}
 		// Later steps can fail after the start succeeded, such as hiding
 		// its tab or closing the bootstrap shell. Keep the retry id there too.
 		defer func() {
-			if startErr != nil && tab.ID != "" && !strings.Contains(startErr.Error(), "--id "+tab.ID) {
+			if startErr != nil && startErr != problem && tab.ID != "" && !strings.Contains(startErr.Error(), "--id "+tab.ID) {
 				startErr = fmt.Errorf("%w; tab @%s on %s; retry the same command with --id %s", startErr, tab.ID, host, tab.ID)
 			}
 		}()
-		sm, err := syncMsg(hc, tab)
+		sm, err := syncMsg(hc, start)
 		for _, wait := range startRetries {
 			if err == nil || sm.Level != 0 || tab.ID == "" {
 				break // the daemon answered, or a start without an id would run twice
@@ -304,10 +345,10 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 				// Each connection can reach a different daemon. Check its
 				// level before it receives anything that can start a process.
 				if sm, err = syncMsg(hc); err == nil {
-					if err = hostLevel(tab.Env, true, sm.Level); err != nil {
+					if err = check(sm.Level); err != nil {
 						return "", fmt.Errorf("lost %s while starting @%s; it may be running. Retry with --id %s after updating the host: %w", host, tab.ID, tab.ID, err)
 					}
-					sm, err = syncMsg(hc, tab)
+					sm, err = syncMsg(hc, start)
 				} else {
 					sm = proto.StateMsg{} // no answer to a start on this connection
 				}
@@ -318,6 +359,9 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 		hs = sm.State
 		if err != nil && sm.Level == 0 && tab.ID != "" {
 			return "", fmt.Errorf("lost %s while starting @%s; it may be running. Run the same command with --id %s to finish starting it: %w", host, tab.ID, tab.ID, err)
+		}
+		if w := hs.Workspace(tab.ID); err != nil && wt != nil && w != nil && w.SessionID == partID && w.Parent == tab.ParentTab {
+			problem, err = err, nil // our worktree, made with a setup problem: the tab stays, as here
 		}
 		if err != nil {
 			if tab.ParentTab != "" && !recorded {
@@ -364,7 +408,7 @@ func newOnHost(local *cliConn, daemon string, session *model.Session, host strin
 			return "", err
 		}
 	}
-	return tabNumber(host, hs.Numbered(partID), id), nil
+	return tabNumber(host, hs.Numbered(partID), id), problem
 }
 
 // startRetries are the waits before each new try of a start on a host
@@ -511,23 +555,14 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return adopt(out, r, args, all)
 	case "new":
 		if hostName != "" {
-			if err != nil {
-				return errors.New("--host opens a tab in a session here, and there is none: open a tab here first")
-			}
-			if m.Level < proto.SharedLevel || os.Getenv("PITWALL_PANE") != "" && (state.Daemon == "" || m.Level < proto.RemoteWorkerLevel) {
-				return errors.New("pitwall's background service here is older than this pitwall and cannot share a session; restart it")
+			if err := sharesHere(m, err); err != nil {
+				return err
 			}
 			dir := ""
 			if len(args) == 1 {
 				dir = args[0] // a folder on the host
 			}
-			// The calling pane's tab is the new tab's parent, as here.
-			parent := ""
-			if pane := os.Getenv("PITWALL_PANE"); pane != "" {
-				if i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 && state.SessionOf(state.Panes[i].WorkspaceID) == session.ID {
-					parent = state.Panes[i].WorkspaceID
-				}
-			}
+			parent := parentHere(state, session.ID)
 			num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars, ID: tabID, ParentTab: parent}, detached)
 			if err != nil {
 				return err
@@ -617,6 +652,29 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	_, err = syncCLI(target, request)
 	return err
+}
+
+// sharesHere refuses --host when there is no session here (sessionErr) or
+// this machine's daemon, m, cannot link a part of it on another host, or
+// record an agent's worker there.
+func sharesHere(m proto.StateMsg, sessionErr error) error {
+	if sessionErr != nil {
+		return errors.New("--host opens a tab in a session here, and there is none: open a tab here first")
+	}
+	if m.Level < proto.SharedLevel || os.Getenv("PITWALL_PANE") != "" && (m.State.Daemon == "" || m.Level < proto.RemoteWorkerLevel) {
+		return errors.New("pitwall's background service here is older than this pitwall and cannot share a session; restart it")
+	}
+	return nil
+}
+
+// parentHere is the tab of the calling pane when it is in session: the
+// parent of a tab it opens on another host, as here.
+func parentHere(state model.State, session string) string {
+	pane := os.Getenv("PITWALL_PANE")
+	if i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == pane }); pane != "" && i >= 0 && state.SessionOf(state.Panes[i].WorkspaceID) == session {
+		return state.Panes[i].WorkspaceID
+	}
+	return ""
 }
 
 // callerPaneTab is the tab of $PITWALL_PANE in state, "" outside a pane.
