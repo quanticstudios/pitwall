@@ -1383,13 +1383,22 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result
 	failedStart := false
 	d.mu.Lock()
 	defer func() {
+		users := d.st.WorktreeUsers(path, "")
 		d.mu.Unlock()
 		if failedStart && owned != "" {
+			if len(users) > 0 {
+				// why: a tab opened it since git made it; force would take its work.
+				result = errors.Join(result, fmt.Errorf("worktree kept at %s: tabs %s use it", path, strings.Join(users, ", ")))
+				return
+			}
 			// A refused start must not claim its id or leave its new branch
-			// blocking a retry. No pane ran, so no teardown is needed.
+			// blocking a retry. No pane ran, so no teardown is needed. git
+			// made the branch of FromNew and FromRemote with -b just now;
+			// FromBranch's and FromPR's may hold work and stay.
+			fresh := m.From.Kind == model.FromNew || m.From.Kind == model.FromRemote
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 			defer cancel()
-			result = errors.Join(result, d.removeWorktree(cleanup, owned, path, model.PortBlock{}, m.From.Kind == model.FromNew, true, true, ""))
+			result = errors.Join(result, d.removeWorktree(cleanup, owned, path, model.PortBlock{}, fresh, true, true, ""))
 		}
 	}()
 	if m.ID != "" {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -475,5 +476,70 @@ func TestSetOriginAdopt(t *testing.T) {
 	st = d.state()
 	if i := slices.IndexFunc(st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == "0123456789abcdef" }); i < 0 || st.Closed[i].Tab.Parent != "adopter" {
 		t.Fatalf("closed worker after adopt: %+v", st.Closed)
+	}
+}
+
+// A refused start removes the worktree it made, and only a branch git made
+// for it just now; a tab that opened the worktree meanwhile keeps it.
+func TestWorktreeRefusedStartCleanup(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		from   model.WorktreeFrom
+		inUse  bool
+		remove string
+	}{
+		{"new", model.WorktreeFrom{Kind: model.FromNew}, false, "branch"},
+		{"remote", model.WorktreeFrom{Kind: model.FromRemote, Ref: "origin/fix"}, false, "branch"},
+		{"branch", model.WorktreeFrom{Kind: model.FromBranch, Ref: "fix"}, false, "keep branch"},
+		{"pr", model.WorktreeFrom{Kind: model.FromPR, PR: 7}, false, "keep branch"},
+		{"in use", model.WorktreeFrom{Kind: model.FromNew}, true, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			o := f.options()
+			start, add := o.StartPane, o.AddWorktree
+			o.StartPane = func(cfg pane.Config) (Pane, error) {
+				if len(cfg.Cmd) > 0 && cfg.Cmd[0] == "refused" {
+					return nil, errors.New("guarded tab not started")
+				}
+				return start(cfg)
+			}
+			var d *Daemon
+			o.AddWorktree = func(ctx context.Context, root, name string, from model.WorktreeFrom) (string, string, error) {
+				path, branch, err := add(ctx, root, name, from)
+				if c.inUse {
+					must(t, d.handle(ctx, proto.NewSession{Cwd: path}))
+				}
+				return path, branch, err
+			}
+			var removed []string
+			o.RemoveWorktree = func(_ context.Context, _, path string, branch, force bool) error {
+				removed = append(removed, fmt.Sprintf("%s %v %v", filepath.Base(path), branch, force))
+				return nil
+			}
+			d = newDaemon(t, o)
+			ctx := context.Background()
+			repo := filepath.Join(t.TempDir(), "repo")
+			mkdir(t, repo)
+			must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: repo}))
+			n := len(d.state().Workspaces)
+			id := "0123456789abcdef"
+			err := d.handle(ctx, proto.NewWorkspace{Root: repo, SessionID: d.state().Sessions[0].ID, Name: "feat", From: c.from, Cmd: []string{"refused"}, ID: id})
+			if err == nil || !strings.Contains(err.Error(), "guarded tab not started") {
+				t.Fatalf("err %v", err)
+			}
+			if tabs, _ := count(d.state(), id); tabs != 0 {
+				t.Fatalf("refused start kept its tab: %+v", d.state().Workspaces)
+			}
+			want := map[string][]string{"branch": {"feat true true"}, "keep branch": {"feat false true"}}[c.remove]
+			if c.inUse {
+				if len(d.state().Workspaces) != n+1 || !strings.Contains(err.Error(), "worktree kept") {
+					t.Fatalf("in-use worktree: %v; tabs %+v", err, d.state().Workspaces)
+				}
+			}
+			if !slices.Equal(removed, want) {
+				t.Fatalf("removed %q, want %q", removed, want)
+			}
+		})
 	}
 }
