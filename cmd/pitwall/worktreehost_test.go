@@ -47,7 +47,7 @@ func TestHostPush(t *testing.T) {
 	}
 	r.batch = true
 	cmd := r.gitSSH()
-	for _, want := range []string{"'-o' 'ControlMaster=auto'", "'-o' 'ControlPath=" + filepath.Join(run, "pitwall") + "/ssh-%C'", "'-o' 'BatchMode=yes'"} {
+	for _, want := range []string{"'-o' 'ControlMaster=auto'", "'-o' 'ControlPath=" + filepath.Join(run, "pitwall", "ssh-%C") + "'", "'-o' 'BatchMode=yes'"} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("GIT_SSH_COMMAND %s lacks %s", cmd, want)
 		}
