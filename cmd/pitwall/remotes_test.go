@@ -163,13 +163,22 @@ func TestAdoptRecordedOrphan(t *testing.T) {
 }
 
 func TestAdoptLocalOrphan(t *testing.T) {
-	for _, all := range []bool{false, true} {
-		t.Run(fmt.Sprint("all=", all), func(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		all, mid bool
+	}{{"ids", false, false}, {"all", true, false}, {"all under an orphan", true, true}} {
+		all := tc.all
+		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			t.Setenv("PITWALL_PANE", "lp")
 			here, _ := remoteState()
 			here.Sessions[0].Remotes, here.Sessions[0].Workers = nil, nil
 			here.Workspaces[0].Parent = "gone" // the new orchestrator is also an orphan
+			if tc.mid {
+				// Its parent is the orphan instead, which --all must skip.
+				here.Workspaces[0].Parent = "mid"
+				here.Workspaces = append(here.Workspaces, model.Workspace{ID: "mid", SessionID: "s", Parent: "gone", Label: "lead"})
+			}
 			here.Workspaces = append(here.Workspaces, model.Workspace{ID: "orphan", SessionID: "s", Parent: "gone", Label: "worker"})
 			local := fakeLocal(t, cliExchange{request: proto.Reparent{WorkspaceID: "orphan", ParentTab: "lw"}, level: proto.Level})
 			r := newRemotes(local, here, here.Sessions[0])

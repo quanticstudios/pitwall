@@ -397,6 +397,8 @@ func TestAdoptLocalOrphan(t *testing.T) {
 		{"other session", "gone", false, "other", true},
 		{"remote", "gone", true, "s", true},
 		{"cycle", "gone", false, "s", true},
+		{"cycle through a closed tab", "gone", false, "s", true},
+		{"closed worker", "gone", false, "s", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakes{statsCalls: map[string]int{}}
@@ -405,8 +407,16 @@ func TestAdoptLocalOrphan(t *testing.T) {
 				{ID: "worker", Parent: tc.parent, RemoteParent: tc.remote, SessionID: "s"},
 				{ID: "parent", SessionID: tc.session},
 			}
-			if tc.name == "cycle" {
+			switch tc.name {
+			case "cycle":
 				d.st.Workspaces[1].Parent = "worker"
+			case "cycle through a closed tab":
+				// Reopening the closed tab would make worker its own ancestor.
+				d.st.Workspaces[1].Parent = "closed"
+				d.st.Closed = []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "closed", Parent: "worker", SessionID: "s"}}}
+			case "closed worker":
+				d.st.Closed = []model.ClosedTab{{ID: "c", Tab: d.st.Workspaces[0]}}
+				d.st.Workspaces = d.st.Workspaces[1:]
 			}
 			err := d.handle(context.Background(), proto.Reparent{WorkspaceID: "worker", ParentTab: "parent"})
 			if (err != nil) != tc.wantErr {

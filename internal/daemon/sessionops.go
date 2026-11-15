@@ -192,6 +192,7 @@ func (d *Daemon) reparent(m proto.Reparent) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(m.WorkspaceID)
+	live := w != nil
 	var origin model.Origin
 	if w != nil {
 		if s := d.st.Session(w.SessionID); s != nil {
@@ -210,15 +211,13 @@ func (d *Daemon) reparent(m proto.Reparent) error {
 	}
 	if m.Origin == (model.Origin{}) && !w.RemoteParent {
 		parent := d.workspace(m.ParentTab)
-		if w.Parent == "" || d.workspace(w.Parent) != nil || parent == nil || parent.ID == w.ID || parent.SessionID != w.SessionID {
-			return errors.New("only an orphan in the new parent's session can be adopted")
+		if !live || w.Parent == "" || d.workspace(w.Parent) != nil || parent == nil || parent.ID == w.ID || parent.SessionID != w.SessionID {
+			return errors.New("only an open orphan in the new parent's session can be adopted")
 		}
-		// A descendant cannot adopt its ancestor, even when that
-		// ancestor's own parent disappeared.
-		for p, depth := parent, 0; p != nil; p, depth = d.workspace(p.Parent), depth+1 {
-			if p.ID == w.ID || depth >= 16 {
-				return errors.New("a worker cannot adopt its ancestor")
-			}
+		// A descendant cannot adopt its ancestor, even through a closed
+		// tab between them, whose reopening would close the loop.
+		if d.st.AncestorOf(w.ID, parent.ID) {
+			return errors.New("a worker cannot adopt its ancestor")
 		}
 		w.Parent = m.ParentTab
 		d.changed()

@@ -498,7 +498,11 @@ func adopt(out io.Writer, r *remotes, ids []string, all bool) error {
 	found, _ := r.orphans()
 	var picked []orphan
 	if all {
-		picked = slices.DeleteFunc(slices.Clone(found), func(o orphan) bool { return o.row.ID == tab })
+		// The caller and its own ancestors would form a loop; the daemon
+		// refuses them, which would stop --all partway.
+		picked = slices.DeleteFunc(slices.Clone(found), func(o orphan) bool {
+			return o.row.ID == tab || o.row.Host == "" && r.state.AncestorOf(o.row.ID, tab)
+		})
 	}
 	for _, id := range ids {
 		id = strings.TrimPrefix(id, "@")
