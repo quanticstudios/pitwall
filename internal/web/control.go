@@ -826,6 +826,12 @@ func (s *Server) newTab(ctx context.Context, st model.State, dir, name, session,
 	if _, err := hex.DecodeString(startID); err != nil || len(startID) != 16 {
 		return nil, ctlErr{"invalid", "startId is 16 hex digits"}
 	}
+	if retry, err := matchingStart(st, session, parentPane, startID); retry || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return s.startResult(ctx, st, startID, detached)
+	}
 	if parentPane != "" && !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == parentPane }) {
 		return nil, ctlErr{"not-found", fmt.Sprintf("no pane %s", parentPane)}
 	}
@@ -846,7 +852,10 @@ func (s *Server) newTab(ctx context.Context, st model.State, dir, name, session,
 	if err := s.Control.Do(ctx, proto.NewSession{Name: name, Cwd: dir, SessionID: sess.ID, Cmd: cmd, Env: vars, ParentPane: parentPane, ID: startID}); err != nil {
 		return nil, err
 	}
-	st = s.Control.State()
+	return s.startResult(ctx, s.Control.State(), startID, detached)
+}
+
+func (s *Server) startResult(ctx context.Context, st model.State, startID string, detached bool) (map[string]any, error) {
 	w := st.Workspace(startID)
 	if w == nil {
 		return map[string]any{"tab": startID, "closed": true}, nil
@@ -861,6 +870,72 @@ func (s *Server) newTab(ctx context.Context, st model.State, dir, name, session,
 		data["pane"] = p.ID
 	}
 	return data, nil
+}
+
+// matchingStart matches a retry against its retained identity before
+// resolving live-only inputs. The original session and parent can have
+// closed too; their records still identify them. A live session with the
+// same name is resolved normally, so it cannot claim the old session's id.
+func matchingStart(st model.State, session, parentPane, id string) (bool, error) {
+	closedTabs := st.Closed
+	start, retained := st.Starts[id]
+	if w := st.Workspace(id); w != nil {
+		name := ""
+		if sess := st.Session(w.SessionID); sess != nil {
+			name = sess.Name
+		}
+		closedTabs = []model.ClosedTab{{Tab: *w, Session: name}}
+	} else if retained && !slices.ContainsFunc(closedTabs, func(c model.ClosedTab) bool { return c.Tab.ID == id }) {
+		closedTabs = []model.ClosedTab{{Tab: model.Workspace{ID: id, SessionID: start.SessionID, Parent: start.Parent}, Session: start.SessionName}}
+	}
+	for _, closed := range closedTabs {
+		if closed.Tab.ID != id {
+			continue
+		}
+		parent, parentSession := "", ""
+		if parentPane != "" {
+			for _, p := range st.Panes {
+				if p.ID == parentPane {
+					parent, parentSession = p.WorkspaceID, st.SessionOf(p.WorkspaceID)
+				}
+			}
+			if parent == "" {
+				for _, c := range st.Closed {
+					if c.Pane.ID == parentPane {
+						parent, parentSession = c.Tab.ID, c.Tab.SessionID
+					}
+				}
+			}
+			if parent == "" {
+				if retained && start.ParentPane == parentPane && start.Parent == closed.Tab.Parent && start.SessionID == closed.Tab.SessionID {
+					parent, parentSession = start.Parent, start.SessionID
+				}
+			}
+			if parent == "" {
+				return false, ctlErr{"not-found", fmt.Sprintf("no pane %s", parentPane)}
+			}
+		}
+		sess, err := pickSession(st, session, control.Caller{Pane: parentPane})
+		sessionID := sess.ID
+		switch {
+		case session == "" && parentSession != "":
+			sessionID = parentSession
+		case err != nil && (session == closed.Tab.SessionID || session == closed.Session || session == "" && len(st.Sessions) == 0):
+			sessionID = closed.Tab.SessionID
+		case err != nil:
+			return false, err
+		}
+		// The daemon ignores a local parent from another session. Apply
+		// that same rule before matching the closed request's identity.
+		if parentSession != sessionID {
+			parent = ""
+		}
+		if closed.Tab.SessionID != sessionID || closed.Tab.Parent != parent {
+			return false, ctlErr{"conflict", fmt.Sprintf("tab id %s belongs to another tab", id)}
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 // newStartID is a startId for a newTab that names none.

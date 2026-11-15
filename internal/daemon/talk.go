@@ -188,6 +188,12 @@ func (d *Daemon) send(m proto.Send) error {
 // sendMessage optionally limits a pane to one queued message and gives it
 // a notice only after delivery.
 func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
+	return d.sendMessageLimit(m, notice, one, 0)
+}
+
+// sendMessageLimit also bounds queued JSON sends, including scripts that
+// are exempt from the agent loop guard. Zero keeps the CLI's behavior.
+func (d *Daemon) sendMessageLimit(m proto.Send, notice string, one bool, queueLimit int) error {
 	switch {
 	case m.From == m.Pane:
 		return errors.New("that is the sending pane: send to another agent's pane")
@@ -199,6 +205,9 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if queueLimit > 0 && len(d.mail.queue[m.Pane]) >= queueLimit {
+		return fmt.Errorf("%w: %d messages already wait for that pane", errSendFull, queueLimit)
+	}
 	d.unpark(m.Pane)
 	if one && len(d.mail.queue[m.Pane]) > 0 {
 		return errors.New("a message already waits for the agent")
@@ -214,6 +223,8 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	d.wake(m.Pane, 0)
 	return nil
 }
+
+var errSendFull = errors.New("the send queue is full")
 
 // canQueue is why a message for pane cannot wait for its agent, nil when
 // it can: the agent is parked or resuming, or takes a prompt once its turn

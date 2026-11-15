@@ -9,7 +9,7 @@ import (
 
 var errNoHandoff = errors.New("daemon handoff is unsupported on Windows; restart instead")
 
-func (d *Daemon) serveHandoff(nc net.Conn, conn *proto.Conn) {
+func (d *Daemon) serveHandoff(nc net.Conn, conn *proto.Conn, level int) {
 	conn.Send(handoffAbort{Reason: errNoHandoff.Error()})
 }
 

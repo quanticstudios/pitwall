@@ -73,6 +73,15 @@ func (h ctlHub) Settings() config.Settings {
 }
 
 func (h ctlHub) Do(ctx context.Context, req any) error {
+	if m, ok := req.(proto.Send); ok {
+		// A JSON script may omit From. Bound its queued sends too, across
+		// connections, without changing the CLI's script loop exemption.
+		err := h.d.sendMessageLimit(m, "", false, sendLimit)
+		if err == nil && m.From == "" {
+			h.d.recordPrompt(m.Pane)
+		}
+		return ctlFail(err)
+	}
 	return ctlFail(h.d.handle(ctx, req))
 }
 
@@ -93,6 +102,8 @@ func ctlFail(err error) error {
 		return nil
 	case errors.Is(err, errUnguarded):
 		return web.ControlError("refused", err.Error())
+	case errors.Is(err, errSendFull):
+		return web.ControlError("busy", err.Error())
 	case errors.Is(err, fs.ErrNotExist):
 		return web.ControlError("not-found", err.Error())
 	}

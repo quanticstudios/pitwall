@@ -61,6 +61,7 @@ func TestSaveLoad(t *testing.T) {
 		Tasks:      []model.Task{{ID: "task", SessionID: "s", GroupID: "project", Dir: "/repo", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}},
 		Closed: []model.ClosedTab{{ID: "closed", Tab: model.Workspace{ID: "worker", ClientID: true},
 			Origin: model.Origin{Daemon: "other", Session: "origin"}, ClosedAt: time.Now().UTC().Round(0)}},
+		Starts: map[string]model.TabStart{"0123456789abcdef": {SessionID: "part", SessionName: "shared", Parent: "parent", ParentPane: "pane"}},
 	}
 	// Overwrite an existing snapshot as well as creating the first one.
 	for _, state := range []model.State{{}, want} {

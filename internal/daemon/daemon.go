@@ -541,6 +541,30 @@ func NewWith(o Options) (*Daemon, error) {
 
 // fromState is a daemon holding st and no panes.
 func fromState(o Options, st model.State) *Daemon {
+	st.Starts = maps.Clone(st.Starts)
+	// Older state has only live tabs and the bounded reopen archive.
+	// Retain those identities before startup can prune either of them.
+	remember := func(w model.Workspace, name string) {
+		if !w.ClientID {
+			return
+		}
+		if st.Starts == nil {
+			st.Starts = map[string]model.TabStart{}
+		}
+		if _, ok := st.Starts[w.ID]; !ok {
+			st.Starts[w.ID] = model.TabStart{SessionID: w.SessionID, SessionName: name, Parent: w.Parent}
+		}
+	}
+	for _, w := range st.Workspaces {
+		name := ""
+		if s := st.Session(w.SessionID); s != nil {
+			name = s.Name
+		}
+		remember(w, name)
+	}
+	for _, c := range st.Closed {
+		remember(c.Tab, c.Session)
+	}
 	st.DevProxyPort = 0 // A handoff's listener belongs to the sending daemon.
 	if o.StatsInterval == 0 {
 		o.StatsInterval = 30 * time.Second
@@ -814,7 +838,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		// waits for it: closing it after Commit would read as the new
 		// daemon dying and resume these panes under two readers.
 		stop()
-		d.serveHandoff(nc, conn)
+		d.serveHandoff(nc, conn, hello.Level)
 		return
 	}
 	// A hook of another Version is served: its AgentEvent never changes.
@@ -1421,6 +1445,18 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result
 			result = errors.Join(result, d.removeWorktree(cleanup, owned, path, model.PortBlock{}, fresh, true, true, ""))
 		}
 	}()
+	if err := ctx.Err(); err != nil {
+		failedStart = true
+		return err
+	}
+	if d.closing || d.handedOff {
+		failedStart = true
+		return errors.New("daemon is closing")
+	}
+	if d.st.Session(p.SessionID) == nil {
+		failedStart = true
+		return fmt.Errorf("no session %s", p.SessionID)
+	}
 	if m.ID != "" {
 		// why: the same id may have started while the worktree was made.
 		if started, err := d.startedTab(m.ID, p.SessionID, m.ParentTab); started || err != nil {
@@ -1482,6 +1518,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result
 			}
 		}
 	}
+	d.rememberStart(w, m.ParentPane)
 	d.changed()
 	if err != nil {
 		return err
@@ -2199,6 +2236,9 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 }
 
 func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBlock, env []string, newVT vt.NewFunc) error {
+	if d.closing || d.handedOff {
+		return errors.New("daemon is closing")
+	}
 	if err := guardGate(cmd, env, cwd); err != nil {
 		err = fmt.Errorf("%w: %v", errUnguarded, err)
 		log.Printf("pane %s: %v", id, err)
@@ -2727,6 +2767,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Tasks = slices.Clone(s.Tasks)
 	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
 	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place
+	s.Starts = maps.Clone(s.Starts)
 	s.Forms = slices.Clone(s.Forms)
 	for i := range s.Closed {
 		s.Closed[i].Pane.History = nil

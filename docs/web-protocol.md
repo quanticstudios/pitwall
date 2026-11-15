@@ -1017,6 +1017,11 @@ after a dropped connection, a timeout or a daemon handoff opens one tab:
 a retry of a tab that is open answers that tab, and one of a tab that
 closed since answers `closed: true`. The tab gets it as its id, so
 `@` and it addresses the tab. Without `startId` the daemon picks one.
+Successful start identities persist separately from the reopen archive,
+so pruning that archive cannot make a retry open another tab. The history
+holds at most 65,536 identities. At capacity, a new id answers `conflict`
+and starts nothing; retries of known ids still work. Keep the daemon's
+saved state to preserve this guarantee across restarts and handoffs.
 
 The guard follows the CLI: `guard`, or a preset with `guard = true`,
 starts the agent with `PITWALL_GUARD=1` once the daemon has checked
@@ -1065,6 +1070,9 @@ since its shell is out of the guard's reach.
 the daemon types it once the agent sits at its prompt. `fromPane` is the
 sending agent's pane id, which the message's header names, and which
 may send one pane at most 20 messages until the user types there.
+JSON sends also hold at most 20 queued messages per pane across all
+connections, including sends without `fromPane`; further sends answer
+`busy` until the queue drains.
 
 `promptPane` waits for the agent's turn to end, then types `text`, as
 `pitwall prompt` does. Without `wait` it answers once it typed. With

@@ -821,7 +821,7 @@ func TestControlDrive(t *testing.T) {
 	}
 	f.set(func(st *model.State) {
 		st.Workspaces = slices.DeleteFunc(st.Workspaces, func(w model.Workspace) bool { return w.ID == "00000000000000aa" })
-		st.Closed = append(st.Closed, model.ClosedTab{Tab: model.Workspace{ID: "00000000000000aa"}})
+		st.Closed = append(st.Closed, model.ClosedTab{Tab: model.Workspace{ID: "00000000000000aa", SessionID: "m1"}, Session: "main"})
 	})
 	if r := ask(t, c, `{"type":"newTab","id":"1","dir":"/src","session":"main","startId":"00000000000000aa"}`); data(r)["closed"] != true {
 		t.Errorf("a retry of a closed tab: %v", r)
@@ -918,5 +918,43 @@ func TestControlPrompt(t *testing.T) {
 	defer promptStartWait.Store(old)
 	if r := ask(t, c, `{"type":"promptPane","id":"5","pane":"@p1","text":"hi","wait":true}`); r["code"] != "timeout" {
 		t.Errorf("a turn that never starts: %v", r)
+	}
+}
+
+func TestControlClosedStartContext(t *testing.T) {
+	const id = "0123456789abcdef"
+	for _, tc := range []struct {
+		name, session, pane, parent, savedPane, code string
+		noSessions                                   bool
+	}{
+		{name: "root", session: "main"},
+		{name: "wrong session", session: "side", code: "conflict"},
+		{name: "wrong parent", session: "main", pane: "p1", code: "conflict"},
+		{name: "child", pane: "p1", parent: "w1", savedPane: "p1"},
+		{name: "another child", pane: "p2", parent: "w1", savedPane: "p1", code: "conflict"},
+		{name: "missing parent", pane: "gone", parent: "w1", savedPane: "p1", code: "not-found"},
+		{name: "closed session id", session: "m1", noSessions: true},
+		{name: "closed session name", session: "main", noSessions: true},
+		{name: "closed implicit session", noSessions: true},
+		{name: "unknown session", session: "other", noSessions: true, code: "not-found"},
+		{name: "closed parent", pane: "gone", parent: "w1", savedPane: "gone", noSessions: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := twoSessions()
+			if tc.noSessions {
+				st.Sessions, st.Workspaces, st.Panes = nil, nil, nil
+			}
+			st.Starts = map[string]model.TabStart{id: {SessionID: "m1", SessionName: "main", Parent: tc.parent, ParentPane: tc.savedPane}}
+			closed, err := matchingStart(st, tc.session, tc.pane, id)
+			code := ""
+			if e, ok := err.(ctlErr); ok {
+				code = e.code
+			} else if err != nil {
+				code = "not-found"
+			}
+			if closed != (tc.code == "") || code != tc.code {
+				t.Fatalf("closed=%v err=%v, want code %q", closed, err, tc.code)
+			}
+		})
 	}
 }

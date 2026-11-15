@@ -17,6 +17,10 @@ caller keeps today's restart path.
   that connection with `serveHandoff`, before its protocol version check,
   because the two builds may speak different `proto.Version`s. Handoff
   messages carry their own `handoffVersion`; a mismatch refuses the handoff.
+- A daemon with retained client start ids also requires the receiver's
+  `Hello.Level` to be at least 81. An older receiver would discard those
+  identities and could start a retried request twice, so the daemon refuses
+  that handoff before freezing any pane.
 - `pane.Pause`, `Resume`, `Save` and `Master` freeze a pane on the old side
   and export it. `pane.Prepare` builds the pane on the new side with its exit
   watcher registered and its emulator restored, but reads nothing until

@@ -84,9 +84,17 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if m.ID != "" {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d.closing || d.handedOff {
+		return errors.New("daemon is closing")
+	}
+	if m.ID != "" && m.ParentPane == "" {
 		// A retry that names its session and parent, as remote starts do,
 		// matches before resolving them: its session may have closed with it.
+		// A local parent must resolve first, even when the raw ParentTab
+		// happens to match an existing root tab.
 		if started, _ := d.startedTab(m.ID, m.SessionID, m.ParentTab); started {
 			return nil
 		}
@@ -164,6 +172,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		return err
 	}
 	d.st.Workspaces = slices.Insert(d.st.Workspaces, at, w)
+	d.rememberStart(w, m.ParentPane)
 	if after != "" && m.GroupID == "" {
 		d.st.PlaceTopAfter(w.ID, after)
 	}
@@ -231,7 +240,36 @@ func (d *Daemon) startedTab(id, session, parent string) (bool, error) {
 			return false, taken
 		}
 	}
+	if start, ok := d.st.Starts[id]; ok {
+		if start.SessionID == session && start.Parent == parent {
+			return true, nil
+		}
+		return false, taken
+	}
+	if len(d.st.Starts) >= maxStartIDs {
+		return false, errors.New("start id history is full; refusing a new start")
+	}
 	return false, nil
+}
+
+// Bound retained identities without making an evicted id reusable. New
+// ids fail closed at capacity, while retries of existing ids still work.
+const maxStartIDs = 65_536
+
+// rememberStart retains a successfully created tab's original identity.
+// Callers hold d.mu and have already checked the history's capacity.
+func (d *Daemon) rememberStart(w model.Workspace, parentPane string) {
+	if !w.ClientID {
+		return
+	}
+	if d.st.Starts == nil {
+		d.st.Starts = map[string]model.TabStart{}
+	}
+	start := model.TabStart{SessionID: w.SessionID, Parent: w.Parent, ParentPane: parentPane}
+	if s := d.st.Session(w.SessionID); s != nil {
+		start.SessionName = s.Name
+	}
+	d.st.Starts[w.ID] = start
 }
 
 // showMonitor shows session's Monitor tab in the windows on that session,
