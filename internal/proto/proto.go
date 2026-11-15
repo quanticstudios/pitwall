@@ -216,7 +216,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 79
+const Level = 80
+
+// SectorDiskLevel is sector v0.1.9, whose samples and process table carry
+// DiskBps; an older peer drops the field.
+const SectorDiskLevel = 80
 
 // HostCheckLevel added HostCheck and HostCheckResult.
 const HostCheckLevel = 79

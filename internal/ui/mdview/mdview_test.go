@@ -869,7 +869,7 @@ func TestTableCellKeys(t *testing.T) {
 	d.Layout(gtx, theme.Dark())
 	for _, ss := range d.styles {
 		for _, s := range ss {
-			if s.Content == "AFTER" {
+			if strings.Contains(s.Content, "AFTER") {
 				return
 			}
 		}

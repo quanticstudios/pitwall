@@ -1,4 +1,4 @@
-18.79
+18.80
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -32,8 +32,8 @@ model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profil
 model.TaskRun{Pane string; Base string}
 model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; TaskRun *model.TaskRun; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; RemoteParent bool; ClientID bool; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Monitor bool; Popup *model.Popup}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
-procs.Group{Key string; Kind procs.Kind; PID int; Name string; Agent string; Repo string; Branch string; Cores float64; RSS uint64; Threads int; Procs []procs.Proc; Folded int}
-procs.Proc{PID int; PPID int; Comm string; State uint8; Cores float64; RSS uint64; Threads int}
+procs.Group{Key string; Kind procs.Kind; PID int; Name string; Agent string; Repo string; Branch string; Cores float64; RSS uint64; DiskBps float64; Threads int; Procs []procs.Proc; Folded int}
+procs.Proc{PID int; PPID int; Comm string; State uint8; Cores float64; RSS uint64; Threads int; DiskBps float64}
 procs.Table{Groups []procs.Group; Procs int; Threads int}
 proto.AddProject{Path string; SessionID string}
 proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
@@ -161,7 +161,7 @@ proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
 sample.CPU{Total float64; Threads []float64; Cores []sample.Core; Dies []sample.Die; MHz float64; PowerW float64; TempC float64}
 sample.Core{ID int; Die int; Threads []int}
 sample.Die{ID int; TempC float64}
-sample.Drive{Name string; Model string; Mounts []string; Size uint64; Used uint64; Free uint64; ReadBps float64; WriteBps float64; Busy float64}
+sample.Drive{Name string; Model string; Mounts []string; Size uint64; Used uint64; Free uint64; ReadBps float64; WriteBps float64; Busy float64; Wait float64; Queue float64; Rotational bool}
 sample.Host{Name string; Model string; Threads int; Uptime time.Duration; Load [3]float64}
 sample.Mem{Total uint64; Used uint64; Available uint64; Cached uint64; Free uint64; SwapTotal uint64; SwapUsed uint64}
 sample.Net{Name string; Addr string; RxBps float64; TxBps float64; RxTotal uint64; TxTotal uint64}
