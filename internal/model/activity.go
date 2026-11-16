@@ -120,12 +120,17 @@ var shortLabels = map[AgentState]string{
 	StateParked:          "Parked",
 }
 
-// SortActivities orders by state priority, then most recent first.
+// SortActivities orders by state priority, repeated failures before other
+// work, then most recent first.
 func SortActivities(a []Activity) {
 	sort.SliceStable(a, func(i, j int) bool {
 		pi, pj := statePriority[a[i].State], statePriority[a[j].State]
 		if pi != pj {
 			return pi > pj
+		}
+		ri, rj := a[i].State == StateWorking && a[i].Repeats > 0, a[j].State == StateWorking && a[j].Repeats > 0
+		if ri != rj {
+			return ri
 		}
 		return a[i].UpdatedAt.After(a[j].UpdatedAt)
 	})

@@ -79,3 +79,18 @@ func TestMainPane(t *testing.T) {
 		t.Error("no panes, a pane")
 	}
 }
+
+func TestRepeatingSplitPane(t *testing.T) {
+	st := driveState(model.ProviderClaude, model.StateWorking, false, 0)
+	st.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{{Pane: "p"}, {Pane: "q"}}}
+	st.Panes = append(st.Panes, model.Pane{ID: "q", WorkspaceID: "w", Provider: model.ProviderCodex})
+	st.Activities = append(st.Activities, model.Activity{PaneID: "q", WorkspaceID: "w", State: model.StateWorking, Repeats: 5, Repeating: "magick not found"})
+	rows := Tabs(st, "m", nil)
+	if len(rows) != 1 || len(rows[0].PaneList) != 2 {
+		t.Fatalf("rows: %+v", rows)
+	}
+	p := rows[0].PaneList[1]
+	if p.Repeats != 5 || p.Repeating != "magick not found" || rows[0].Repeats != 0 {
+		t.Errorf("secondary pane's repeat marker: %+v", rows[0])
+	}
+}

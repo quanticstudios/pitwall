@@ -15,6 +15,7 @@ type repeatRun struct {
 // the run when sig matches, else a new run. Callers hold d.mu.
 func (d *Daemon) noteFailure(pane, sig string) {
 	r := d.repeats[pane]
+	shown := r.n >= repeatAfter
 	if r.sig != sig {
 		r = repeatRun{sig: sig}
 	}
@@ -23,7 +24,7 @@ func (d *Daemon) noteFailure(pane, sig string) {
 		d.repeats = map[string]repeatRun{}
 	}
 	d.repeats[pane] = r
-	if r.n >= repeatAfter {
+	if shown || r.n >= repeatAfter {
 		d.changed() // the count on the row moves
 	}
 }

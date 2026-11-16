@@ -31,6 +31,11 @@ func (d *Daemon) syncTurn(p *model.Pane, now time.Time) {
 	if i := d.activityIndex(p.ID); i >= 0 {
 		s = d.st.Activities[i].State
 	}
+	// Hooks, screen detection and process exit can each end a turn.
+	// changed already publishes this transition, so no extra notification.
+	if p.Exited || !timelog.Running(s) {
+		delete(d.repeats, p.ID)
+	}
 	if !d.turns.Has(p.ID) && (d.live.hookAt[p.ID].IsZero() || !timelog.Running(s)) {
 		return
 	}

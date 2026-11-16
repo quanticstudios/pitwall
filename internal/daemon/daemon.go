@@ -1973,9 +1973,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 		d.live.lastHook[p.ID] = proto.AgentHook{Provider: m.Provider, State: next.State, At: now}
 	}
-	if derived && !timelog.Running(next.State) {
-		d.dropRepeat(p.ID) // the turn ended
-	}
 	if derived && !keep {
 		d.recordExplanation(p.ID, m.Provider, next.State, "hook", agent.ScreenTrace{})
 		changed = true
@@ -2028,6 +2025,8 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if f.Interrupted {
 			d.dropRepeat(p.ID) // the user stepped in
 		} else {
+			// Match the redacted errors the Agent errors page groups.
+			e.Command, e.Output = logs.Redact(e.Command), logs.Redact(e.Output)
 			d.noteFailure(p.ID, errlog.Signature(e))
 		}
 	} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -172,8 +174,16 @@ func TestRepeatedError(t *testing.T) {
 	repeats(0)
 
 	fail(5)
+	d.mu.Lock()
+	version := d.st.Version
+	d.mu.Unlock()
 	hookJSON(t, d, `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/home/u/repo","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"magick a.png b.png"},"error":"magick not found"}`)
 	repeats(0)
+	d.mu.Lock()
+	if d.st.Version == version {
+		t.Error("changing a visible error did not notify clients")
+	}
+	d.mu.Unlock()
 
 	fail(5)
 	d.noteUserKey("a", []byte("y"))
@@ -185,4 +195,60 @@ func TestRepeatedError(t *testing.T) {
 	hook(t, d, "claude_user_prompt_submit")
 	fail(1)
 	repeats(0) // a new turn counts from 1
+
+	// Screen detection can end a turn when its Stop hook never arrives.
+	fail(4)
+	repeats(5)
+	d.mu.Lock()
+	d.setActivity(context.Background(), "a", model.ProviderClaude, model.StateCompleted, "")
+	d.mu.Unlock()
+	hook(t, d, "claude_user_prompt_submit")
+	fail(1)
+	repeats(0)
+
+	// A handed-off snapshot carries presentation fields, not a live run.
+	fail(4)
+	d.mu.Lock()
+	st := d.snapshot()
+	d.mu.Unlock()
+	next := fromState(f.options(), st)
+	next.noteUserKey("a", []byte("y"))
+	next.mu.Lock()
+	for _, a := range next.attended() {
+		if a.Repeats != 0 || a.Repeating != "" {
+			t.Errorf("handed-off marker survived input: %+v", a)
+		}
+	}
+	next.mu.Unlock()
+}
+
+func TestRepeatedErrorCodexRedacted(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Path: "/work/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/work/repo"}},
+	}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	must(t, err)
+	// Synthetic credentials stay out of state just as they stay out of errors.jsonl.
+	secret := "testcredentialabcdefghijklmnopqrstuvwxyz"
+	payload := `{"session_id":"s1","transcript_path":"/t.jsonl","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":["sh","-c","false"]},"tool_response":{"output":"error: TOKEN=` + secret + `","exit_code":1}}`
+	for range repeatAfter {
+		must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(payload)}))
+	}
+	d.mu.Lock()
+	a := d.attended()[0]
+	d.mu.Unlock()
+	if a.Repeats != repeatAfter || strings.Contains(a.Repeating, secret) || !strings.Contains(a.Repeating, logs.Redacted) {
+		t.Fatalf("repeat state was not redacted: %+v", a)
+	}
+	must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderCodex,
+		Payload: []byte(`{"session_id":"s1","transcript_path":"/t.jsonl","hook_event_name":"PostToolUse","tool_name":"Bash","tool_response":{"output":"ok","exit_code":0}}`)}))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if a := d.attended()[0]; a.Repeats != 0 || a.Repeating != "" {
+		t.Fatalf("success did not clear repeat: %+v", a)
+	}
 }

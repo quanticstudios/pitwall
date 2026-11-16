@@ -1,6 +1,24 @@
 package model
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestAggregateRepeatingPane(t *testing.T) {
+	old := time.Unix(1, 0)
+	a := []Activity{
+		{PaneID: "healthy", State: StateWorking, UpdatedAt: old.Add(time.Minute)},
+		{PaneID: "repeating", State: StateWorking, UpdatedAt: old, Repeats: 5},
+	}
+	if got := Aggregate(a); got.PaneID != "repeating" {
+		t.Errorf("healthy work hides repeated failures: %+v", got)
+	}
+	a = append(a, Activity{PaneID: "approval", State: StatePendingApproval})
+	if got := Aggregate(a); got.PaneID != "approval" {
+		t.Errorf("approval must still take priority: %+v", got)
+	}
+}
 
 // A finished turn reads PR open only while its tab's pull request is
 // open, and sorts above a plain finished turn.

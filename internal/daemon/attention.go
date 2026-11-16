@@ -307,6 +307,8 @@ func (d *Daemon) attended() []model.Activity {
 		if q := d.quiet[out[i].PaneID]; q != nil && q.shown && out[i].State == model.StateWorking {
 			out[i].QuietSince = q.since
 		}
+		// A handoff snapshot can contain the previous daemon's projection.
+		out[i].Repeats, out[i].Repeating = 0, ""
 		if r := d.repeats[out[i].PaneID]; r.n >= repeatAfter && out[i].State == model.StateWorking {
 			out[i].Repeats, out[i].Repeating = r.n, r.sig
 		}
