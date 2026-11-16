@@ -37,6 +37,7 @@ takes `--dry-run`.
 - On Linux, programs open, split, prompt, send to and close tabs over `$PITWALL_SOCKET`, with the same guard as the CLI and `startId` retries that never open a second tab.
 - On Linux, `worktreeNew`, the queue commands, `hostCheck` and `adopt` on `$PITWALL_SOCKET` match the CLI for tabs on this machine.
 - A command that an older or newer daemon turns away always says so and names `pitwall update`; it sometimes printed `broken pipe`.
+- The pitwall skill shows how a script drives pitwall over `$PITWALL_SOCKET` without the CLI.
 
 ## v0.2.13
 

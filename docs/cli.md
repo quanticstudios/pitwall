@@ -152,7 +152,9 @@ it and discuss a plan, in turns it drives or with messages both ways.
 `review` has the other agent review a tab's changes and send its findings
 back.
 [docs/agent-skill.md](agent-skill.md) is a page to hand an agent: the
-states, exit codes and recipes.
+states, exit codes and recipes. On Linux a program can do the same without
+the CLI, in JSON lines over `$PITWALL_SOCKET`: see
+[Scripts without the CLI](agent-skill.md#scripts-without-the-cli).
 
 ```sh
 tab=$(pitwall new -n review -d -- codex "review origin/main..HEAD; write SHIP or HOLD to review.txt")
