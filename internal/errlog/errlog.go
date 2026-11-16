@@ -16,6 +16,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/quanticstudios/pitwall/internal/logs"
 )
 
@@ -265,14 +267,31 @@ var (
 	hex    = regexp.MustCompile(`\b(?:0x)?[0-9a-fA-F]{7,}\b`)
 	digits = regexp.MustCompile(`(^|[^A-Za-z\d])\d+`)
 	shell  = regexp.MustCompile(`^(\w+):N:`)
+	// bare is a line that is only data, such as one file of a listing.
+	bare = regexp.MustCompile(`^(?:<path>|<hex>|N)$`)
 )
+
+// shellNoise is lines a shell prints at start, not the command: zoxide's
+// doctor warning. A first line the cut started mid-way ("…" then the end
+// of one of these) is skipped too.
+var shellNoise = []string{
+	"zoxide: detected a possible configuration issue.",
+	"Please ensure that zoxide is initialized right at the end of your shell configuration file (usually ~/.zshrc).",
+	"Please ensure that zoxide is initialized right at the end of your shell configuration file (usually ~/.bashrc).",
+	"Please ensure that zoxide is initialized right at the end of your shell configuration file.",
+	"If the issue persists, consider filing an issue at:",
+	"https://github.com/ajeetdsouza/zoxide/issues",
+	"Disable this message by setting _ZO_DOCTOR=0.",
+}
 
 // sigLen caps a signature.
 const sigLen = 160
 
 // Signature is what makes two errors the same: the first line of the
 // output with an error word in it, or else its last line, with quoted
-// text, globs, paths, hex ids and numbers made placeholders.
+// text, globs, paths, hex ids and numbers made placeholders. ANSI escapes
+// and shell start noise are dropped first; a line left as a bare path or
+// number gives way to the tool and exit code.
 func Signature(e Event) string {
 	switch {
 	case e.Interrupted:
@@ -281,9 +300,9 @@ func Signature(e Event) string {
 		return "Exit 1 with no output: " + head(e)
 	}
 	line := ""
-	for l := range strings.Lines(e.Output) {
+	for l := range strings.Lines(ansi.Strip(e.Output)) {
 		l = strings.TrimSpace(l)
-		if l == "" {
+		if l == "" || noise(l) {
 			continue
 		}
 		low := strings.ToLower(l)
@@ -309,16 +328,24 @@ func Signature(e Event) string {
 	if r := []rune(line); len(r) > sigLen {
 		line = string(r[:sigLen-1]) + "…"
 	}
-	if line != "" {
+	if line != "" && !bare.MatchString(line) {
 		return line
 	}
 	switch {
 	case e.Kind == API:
 		return "API error"
+	case e.Exit != 0:
+		return fmt.Sprintf("%s failed with exit %d", cmp.Or(e.Tool, "command"), e.Exit)
 	case e.Tool != "":
 		return e.Tool + " failed"
 	}
 	return "failed with no output"
+}
+
+// noise is whether l, trimmed, is a line of shellNoise.
+func noise(l string) bool {
+	cut, ok := strings.CutPrefix(l, "…")
+	return slices.ContainsFunc(shellNoise, func(n string) bool { return n == l || ok && cut != "" && strings.HasSuffix(n, cut) })
 }
 
 // head is the program e ran, such as "grep", or its tool.

@@ -22,6 +22,17 @@ func TestSignature(t *testing.T) {
 		{"line 1\nline 2\nexited after 30s", "exited after Ns"},
 		{"bash: /usr/local/bin/tool: Permission denied", "bash: <path>: Permission denied"},
 		{"", "failed with no output"},
+		// ANSI escapes go before the line is chosen.
+		{"\x1b[1;31m[bat error]\x1b[0m: 'x.go': No such file or directory (os error 2)", "[bat error]: <str>: No such file or directory (os error N)"},
+		{"\x1b]0;title\x07\x1b[32mok\x1b[0m\n\x1b[31mError: boom\x1b[0m", "Error: boom"},
+		{"\x1b[31mError: boom\x1b(B\x1b[m", "Error: boom"},
+		{"\x1bP1;2|error metadata\x1b\\ready\nError: boom", "Error: boom"},
+		{"\x1b_error metadata\x1b\\ready\nError: boom", "Error: boom"},
+		// zoxide's doctor warning is skipped, whole or cut at the start.
+		{zoxide + "\nhello\nexit status 3", "exit status N"},
+		{"…lly ~/.zshrc).\n\nIf the issue persists, consider filing an issue at:\nhttps://github.com/ajeetdsouza/zoxide/issues\n\nDisable this message by setting _ZO_DOCTOR=0.\nreal last line", "real last line"},
+		// A short real line that ends a noise line is kept.
+		{"see (usually ~/.zshrc).\n).", ")."},
 	} {
 		if got := Signature(Event{Kind: Command, Output: tc.out}); got != tc.want {
 			t.Errorf("Signature(%q) = %q, want %q", tc.out, got, tc.want)
@@ -32,6 +43,22 @@ func TestSignature(t *testing.T) {
 	}
 	if got := Signature(Event{Kind: Tool, Tool: "Edit"}); got != "Edit failed" {
 		t.Errorf("empty tool = %q", got)
+	}
+	// A bare path or number, only shell noise, or no output: the tool and
+	// exit code.
+	for _, out := range []string{
+		"/home/u/repo/a.go", "  42  ", zoxide, "",
+		strings.ReplaceAll(zoxide, "~/.zshrc", "~/.bashrc"),
+		strings.ReplaceAll(zoxide, " (usually ~/.zshrc)", ""),
+		"…lly ~/.bashrc).\nDisable this message by setting _ZO_DOCTOR=0.",
+		"…configuration file.\nDisable this message by setting _ZO_DOCTOR=0.",
+	} {
+		if got := Signature(Event{Kind: Command, Tool: "Bash", Output: out, Exit: 144}); got != "Bash failed with exit 144" {
+			t.Errorf("Signature(%q, exit 144) = %q", out, got)
+		}
+	}
+	if got := Signature(Event{Kind: Command, Output: "3f9c2e1ab4d5", Exit: 2}); got != "command failed with exit 2" {
+		t.Errorf("bare hex, no tool = %q", got)
 	}
 	if got := Signature(Event{Kind: Command, Command: "/usr/bin/grep -q x f", Quiet: true, Exit: 1}); got != "Exit 1 with no output: grep" {
 		t.Errorf("quiet = %q", got)
@@ -235,3 +262,12 @@ func TestReadLegacyError(t *testing.T) {
 		t.Errorf("legacy event %+v", e)
 	}
 }
+
+// zoxide is the warning zoxide's doctor prints when a shell starts.
+const zoxide = `zoxide: detected a possible configuration issue.
+Please ensure that zoxide is initialized right at the end of your shell configuration file (usually ~/.zshrc).
+
+If the issue persists, consider filing an issue at:
+https://github.com/ajeetdsouza/zoxide/issues
+
+Disable this message by setting _ZO_DOCTOR=0.`
