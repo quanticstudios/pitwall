@@ -615,9 +615,6 @@ func TestNewOnHostGuardRefusalCleanup(t *testing.T) {
 // TestAgentHost: in a pitwall pane, --host takes only a [[hosts]] name; at
 // a shell any ssh destination goes.
 func TestAgentHost(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("--host needs ssh's ControlMaster")
-	}
 	cfg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	os.MkdirAll(filepath.Join(cfg, "pitwall"), 0o700)

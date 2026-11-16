@@ -14,9 +14,12 @@ key, agent and jump host are the ones `ssh box` already uses. There is no
 new login, and no secret goes on a command line. It runs `pitwall
 remote-start` on the host, which starts the daemon there unless one runs,
 then forwards the daemon's socket to a socket in pitwall's runtime folder
-here and opens the window on it. All of it goes through one shared ssh
-connection (`ControlMaster`), which closes 10 minutes after the last window
-on that host. A new session there opens in your home folder on the host.
+here and opens the window on it. On Linux and macOS all of it goes through
+one shared ssh connection (`ControlMaster`), which closes 10 minutes after
+the last window on that host. Windows' ssh cannot share a connection, so
+each use there is its own ssh and the forward a dedicated `ssh -N -L` on a
+loopback TCP port, which exits when the window does. A new session there
+opens in your home folder on the host.
 
 To give a host a short name, list it in config.toml:
 
@@ -439,7 +442,9 @@ Some things stay on the machine they belong to:
   the machine they run on. Run them on the host, for example in one of its
   panes, unless you start a tab there with `--host` or reach an agent's
   [workers on another machine](#workers-on-another-machine).
-- Windows has no remote windows: its ssh cannot share a connection.
+- On Windows a remote tab's ssh has no console, so it cannot ask for a
+  password or passphrase: logins there need a key, an agent or another
+  passwordless method.
 
 ## Web client
 

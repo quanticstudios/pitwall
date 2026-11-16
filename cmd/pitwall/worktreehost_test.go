@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -48,7 +49,11 @@ func TestHostPush(t *testing.T) {
 	}
 	r.batch = true
 	cmd := r.gitSSH()
-	for _, want := range []string{"'-o' 'ControlMaster=auto'", "'-o' 'ControlPath=" + filepath.Join(run, "pitwall", "ssh-%C") + "'", "'-o' 'BatchMode=yes'"} {
+	wants := []string{"'-o' 'BatchMode=yes'"}
+	if runtime.GOOS != "windows" { // its ssh has no connection to share
+		wants = append(wants, "'-o' 'ControlMaster=auto'", "'-o' 'ControlPath="+filepath.Join(run, "pitwall", "ssh-%C")+"'")
+	}
+	for _, want := range wants {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("GIT_SSH_COMMAND %s lacks %s", cmd, want)
 		}
