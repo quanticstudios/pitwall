@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -130,13 +129,12 @@ type hostDial struct {
 }
 
 // windowHosts are the [[hosts]] entries a plain window shows next to this
-// machine, and a func that drops their forwards. None on Windows, whose
-// ssh cannot share a connection.
+// machine, and a func that drops their forwards.
 func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 	var out []hostDial
 	var close []func()
 	for _, h := range hosts {
-		if !h.Window || h.Name == "" || runtime.GOOS == "windows" {
+		if !h.Window || h.Name == "" {
 			continue
 		}
 		r, err := newSSHHost(h.Name, hosts)

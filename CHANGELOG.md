@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- `pitwall --host`, `[[hosts]]` and `worktree new --host` work on Windows. Its ssh cannot share a connection, so each use is its own ssh, and a dedicated `ssh -N -L` forwards the host's socket to a loopback TCP port and exits with the window. An ssh the window starts has no console, so logins there need a key or an agent, not a password.
+
 ## v0.2.14
 
 - `pitwall adopt` runs; since v0.2.13 it printed the usage text and exited 2.

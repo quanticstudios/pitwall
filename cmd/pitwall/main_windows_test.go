@@ -13,6 +13,9 @@ import (
 // this binary as pitwall; main_test.go has the Unix TestMain. No test
 // reaches the user's own state, config or daemon.
 func TestMain(m *testing.M) {
+	if os.Getenv("PITWALL_TEST_SSH") != "" {
+		os.Exit(fakeSSHWin(os.Args[1:]))
+	}
 	if os.Getenv("PITWALL_TEST_MAIN") == "1" {
 		main()
 		os.Exit(0)

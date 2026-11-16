@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -247,12 +246,6 @@ func TestWindowHosts(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	hosts, closeAll := windowHosts([]config.Host{{Name: "box", Window: true}, {Name: "gpu"}, {Name: "web", SSH: "me@web", Window: true}})
 	defer closeAll()
-	if runtime.GOOS == "windows" { // its ssh cannot share a connection
-		if len(hosts) != 0 {
-			t.Fatalf("hosts on Windows %+v", hosts)
-		}
-		return
-	}
 	if len(hosts) != 2 || hosts[0].name != "box" || hosts[1].name != "web" {
 		t.Fatalf("hosts %+v", hosts)
 	}
