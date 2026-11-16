@@ -7,15 +7,16 @@ import (
 
 // Fix is a likely cause and fix for the groups whose signature Match
 // matches, or with Output, a line of their latest example's output, which
-// keeps the paths a signature sets aside, or with Command, a line of its
-// command. With Exit set, the example must also have exited with it. Fix
-// may use Match's groups, as $1.
+// keeps the paths a signature sets aside, or with Command, its whole
+// command. With Exit set, the example must also have exited with it;
+// EmptyOutput requires no output. Fix may use Match's groups, as $1.
 type Fix struct {
-	Match   *regexp.Regexp
-	Fix     string
-	Output  bool
-	Command bool
-	Exit    int
+	Match       *regexp.Regexp
+	Fix         string
+	Output      bool
+	Command     bool
+	Exit        int
+	EmptyOutput bool
 }
 
 // zshLine is how zsh starts an error line in a signature: "zsh:" in a
@@ -56,7 +57,7 @@ var Fixes = []Fix{
 		Fix: "gh pr view and gh pr edit ask for classic project cards, which GitHub deprecated. Update gh, or tell the agent to pass --json with the fields it needs to gh pr view."},
 	{Match: regexp.MustCompile(`^Claude Code is unable to fetch from |domains are not accessible to our user agent`),
 		Fix: "The site refuses the agent's fetches, and retrying does not help. Tell the agent to stop after two refusals and use another source."},
-	{Match: regexp.MustCompile(`\bpkill\b[^|;&\n]*\s(?:-\w*f|--full)\b`), Command: true, Exit: 144,
+	{Match: regexp.MustCompile(`^\s*pkill\s+(?:-[A-Za-z]+\s+)*(?:-[A-Za-z]*f[A-Za-z]*|--full)(?:\s|$)`), Command: true, Exit: 144, EmptyOutput: true,
 		Fix: "pkill -f matched the agent's own shell, whose command line holds the pattern, and killed it. Tell the agent to find the PID with pgrep and kill <pid>."},
 }
 
@@ -66,12 +67,15 @@ func LikelyFix(g Group) string {
 		if f.Exit != 0 && g.Example.Exit != f.Exit {
 			continue
 		}
+		if f.EmptyOutput && strings.TrimSpace(g.Example.Output) != "" {
+			continue
+		}
 		lines := []string{g.Sig}
 		switch {
 		case f.Output:
 			lines = strings.Split(g.Example.Output, "\n")
 		case f.Command:
-			lines = strings.Split(g.Example.Command, "\n")
+			lines = []string{g.Example.Command}
 		}
 		for _, l := range lines {
 			if m := f.Match.FindStringSubmatchIndex(l); m != nil {

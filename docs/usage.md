@@ -1106,8 +1106,8 @@ install a missing command, read a file again before editing it, check
 also knows a missing Python module, a sandbox that blocks zsh
 here-documents, GitHub's API rate limit from polling `gh`, the deprecated
 project cards `gh pr view` asks for, a site that refuses fetches, and
-`pkill -f` killing the agent's own shell. Rate limits and overloaded APIs
-are marked as nothing to fix locally.
+`pkill -f` killing the agent's own shell with no output. Rate limits and
+overloaded APIs are marked as nothing to fix locally.
 
 Copy report puts the top groups in the order shown, each with its latest
 command, output and likely fix, on the clipboard as Markdown to paste into
