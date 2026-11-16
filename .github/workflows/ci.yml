@@ -190,7 +190,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
@@ -203,33 +203,75 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          # why: a hung Windows test can hold a file in the build cache, failing the cache save.
-          cache: ${{ runner.os != 'Windows' }}
       - run: go build ./...
       - run: go vet ./...
       - run: go test gioui.org/app
       - name: Test the platform-independent packages
-        if: runner.os == 'macOS'
         run: go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
       - name: Release drill
-        if: runner.os == 'macOS'
         run: go test -count=1 -v -run 'TestUpdateDrill|TestFinishUpdate' ./cmd/pitwall
       # why: the macOS suite has never passed; drop continue-on-error after its first green run.
       - name: Test everything
-        continue-on-error: ${{ runner.os == 'macOS' }}
-        # why: Git-heavy packages competing on Windows overrun checkpoint and retrieval deadlines.
-        run: go test ${{ runner.os == 'Windows' && '-p=1' || '' }} -timeout 5m ./...
-      - name: Stop leftover test processes
-        if: always() && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Get-Process | Where-Object { $_.ProcessName -like '*.test' -or $_.ProcessName -like 'pitwall*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-          exit 0
+        continue-on-error: true
+        run: go test -timeout 5m ./...
       - name: get.sh
-        if: runner.os == 'macOS'
         run: sh scripts/get_test.sh
+
+  # Windows' suite ran as one -p=1 lane because Git-heavy packages
+  # competing overrun checkpoint and retrieval deadlines. Each shard gets
+  # its own runner, so the heavy packages stay serial without competing,
+  # and the rest uses the runner's four cores.
+  windows-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [daemon-ah, daemon-ip, daemon-qz, gitstat, cmd, rest]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          # why: a hung Windows test can hold a file in the build cache, failing the cache save.
+          cache: false
+      # why: the runner's C: writes at ~120 MB/s and its D: at ~210 MB/s.
+      # Only the build cache moves: test temp dirs must stay on C: because
+      # tests assume os.TempDir and C: are the same drive (TestCwdFollowsCd
+      # sends "cd C:\Windows" without /d).
+      - name: Redirect the build cache to the D drive
+        run: echo "GOCACHE=$RUNNER_TEMP/go-build" >> "$GITHUB_ENV"
+      # why: internal/daemon alone was the floor; its tests split by name
+      # range so a new test lands in a shard on its own.
+      - name: Test daemon A-H
+        if: matrix.shard == 'daemon-ah'
+        run: go test -p=1 -timeout 10m -run 'Test[A-H]' ./internal/daemon
+      - name: Test daemon I-P
+        if: matrix.shard == 'daemon-ip'
+        run: go test -p=1 -timeout 10m -run 'Test[I-P]' ./internal/daemon
+      - name: Test daemon Q-Z
+        if: matrix.shard == 'daemon-qz'
+        run: go test -p=1 -timeout 10m -run 'Test[Q-Z]' ./internal/daemon
+      - name: Test gitstat
+        if: matrix.shard == 'gitstat'
+        run: go test -p=1 -timeout 10m ./internal/gitstat
+      - name: Test cmd
+        if: matrix.shard == 'cmd'
+        run: go test -p=1 -timeout 10m ./cmd/pitwall
+      - name: Test the rest, build, vet and get.ps1
+        if: matrix.shard == 'rest'
+        run: |
+          go build ./...
+          go vet ./...
+          go test gioui.org/app
+          go test -timeout 5m $(go list ./... | grep -v -e '/internal/daemon$' -e '/internal/gitstat$' -e '/cmd/pitwall$')
       - name: get.ps1
-        if: runner.os == 'Windows'
+        if: matrix.shard == 'rest'
         # why: the runner's Windows PowerShell 5.1 crashed loading its own assembly.
         shell: pwsh
         run: |
@@ -241,3 +283,9 @@ jobs:
           New-PitwallShortcut $exe $lnk
           $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
           if ($s.TargetPath -ne $exe -or $s.IconLocation -ne "$exe,0") { "shortcut: $($s.TargetPath) $($s.IconLocation)"; exit 1 }
+      - name: Stop leftover test processes
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process | Where-Object { $_.ProcessName -like '*.test' -or $_.ProcessName -like 'pitwall*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          exit 0
