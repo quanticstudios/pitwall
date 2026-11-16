@@ -126,12 +126,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev
       - name: Download the last release
         run: |
-          tag=$(awk '/^## v/ { print $2; exit }' CHANGELOG.md)
-          echo "Baseline release: $tag"
+          # why: on a release PR, and until its tag is pushed, the newest heading has no release yet.
+          tags=$(awk '/^## v/ { print $2 }' CHANGELOG.md | head -2)
           mkdir "$RUNNER_TEMP/baseline"
           cd "$RUNNER_TEMP/baseline"
-          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
-          curl -fsSLO "$url/pitwall_linux_amd64.tar.gz"
+          for tag in $tags; do
+            url="https://github.com/$GITHUB_REPOSITORY/releases/download/$tag"
+            if curl -fsSLO "$url/pitwall_linux_amd64.tar.gz"; then break; fi
+          done
+          echo "Baseline release: $tag"
           curl -fsSLO "$url/checksums.txt"
           grep ' pitwall_linux_amd64.tar.gz$' checksums.txt | sha256sum -c -
           tar -xzf pitwall_linux_amd64.tar.gz pitwall
