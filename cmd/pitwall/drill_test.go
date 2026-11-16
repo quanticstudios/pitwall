@@ -133,10 +133,10 @@ func TestReleaseHandoff(t *testing.T) {
 	t.Run("release-update", func(t *testing.T) {
 		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall"})
 	})
-	// b: this build refuses the handoff; the release's update restarts, as
-	// its release notes say.
+	// b: this build refuses the handoff; the release's update keeps its
+	// daemon serving and fails, as every release since v0.2.14 does.
 	t.Run("release-update-refused", func(t *testing.T) {
-		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall", refuse: true, published: true})
+		drill(t, drillRun{daemon: base, release: desktop, tag: "v99.0.0", flavor: "pitwall", refuse: true})
 	})
 	// c: the migration path. This build replaces the release's binary, as
 	// get.sh does, and its update meets a refused handoff: the release's
@@ -208,14 +208,13 @@ type drillRun struct {
 	// updater runs the update instead, installed as flavor once the panes
 	// run: next to daemon as pitwall-core, or over it as pitwall. When it is
 	// release, the latest build is already installed, as after get.sh.
-	updater   string
-	release   string // the binary served as release tag, in flavor's archive
-	tag       string
-	flavor    string // pitwall or pitwall-core
-	refuse    bool   // the release's daemon refuses the handoff
-	restart   bool   // run update --restart
-	version   bool   // run update --version tag
-	published bool   // the updater is a published release's, which restarts on a refused handoff
+	updater string
+	release string // the binary served as release tag, in flavor's archive
+	tag     string
+	flavor  string // pitwall or pitwall-core
+	refuse  bool   // the release's daemon refuses the handoff
+	restart bool   // run update --restart
+	version bool   // run update --version tag
 }
 
 func drill(t *testing.T, r drillRun) {
@@ -353,7 +352,7 @@ func drill(t *testing.T, r drillRun) {
 		args = append(args, "--version", r.tag)
 	}
 	out, err := exec.Command(upd, args...).CombinedOutput()
-	kept := r.refuse && !r.restart && !r.published // the update keeps the old daemon and fails
+	kept := r.refuse && !r.restart // the update keeps the old daemon and fails
 	if (err != nil) != kept {
 		t.Fatalf("pitwall %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
