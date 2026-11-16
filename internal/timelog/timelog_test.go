@@ -414,14 +414,44 @@ func TestPoll(t *testing.T) {
 		"for i in $(seq 30); do gh pr checks 4; sleep 30; done": "gh pr checks",
 		`H=$(git rev-parse HEAD); gh run list --commit "$H"`:    "gh run list",
 		"rtk gh api -X GET repos/o/r":                           "gh api",
+		"gh api graphql --paginate":                             "gh api",
+		"gh api zen":                                            "gh api",
+		"gh browse docs --no-browser":                           "gh browse",
+		"gh custom topic":                                       "gh custom",
+		"gh repo view demo":                                     "gh repo view",
+		"gh -R demo/project pr checks 12":                       "gh pr checks",
+		"gh --repo demo/project run watch 12":                   "gh run watch",
+		"gh --repo=demo/project pr checks 12":                   "gh pr checks",
+		"gh -Rdemo/project run watch 12":                        "gh run watch",
+		"gh pr --repo demo/project checks 12":                   "gh pr checks",
 		"until grep -q done /tmp/x; do sleep 5; done":           "sleep",
-		"sleep 300":                                       "sleep",
-		`bash -c "sleep 60 && gh run watch 9"`:            "gh run watch",
+		"sleep 300":                            "sleep",
+		"sleep infinity":                       "sleep",
+		`bash -c "sleep 60 && gh run watch 9"`: "gh run watch",
 		"cd /a && git push -q && gh pr view --json state": "gh pr view",
 		"echo hi": "",
 	} {
 		if got := Poll(line); got != want {
 			t.Errorf("Poll(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
+// TestSummarizePollArguments: positional arguments do not split CI
+// totals or appear in the polling labels copied by the report.
+func TestSummarizePollArguments(t *testing.T) {
+	evs := []Event{{T: at(60), Kind: Turn, Start: at(0), Ms: 60000, Tools: map[string]int64{CI: 60000},
+		Slow: []Cmd{{"gh -R demo/project api graphql", CI, 20000}, {"gh --repo=demo/project api zen", CI, 10000}, {"sleep infinity", CI, 10000}, {"gh browse docs --no-browser", CI, 10000}}}}
+	s := Summarize(evs, at(0), at(100), time.UTC)
+	want := []Sink{{"gh api", CI, 2, 20000, 30000}, {"gh browse", CI, 1, 10000, 10000}, {"sleep", CI, 1, 10000, 10000}}
+	if !slices.Equal(s.Polls, want) {
+		t.Fatalf("polls %+v, want %+v", s.Polls, want)
+	}
+	r := Report(s, 10, "all time")
+	ci, _, _ := strings.Cut(r, "## Slowest commands")
+	for _, arg := range []string{"graphql", "zen", "infinity", "docs", "demo/project"} {
+		if strings.Contains(ci, arg) {
+			t.Errorf("polling report retains argument %q:\n%s", arg, ci)
 		}
 	}
 }

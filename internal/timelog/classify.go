@@ -210,17 +210,36 @@ func program(w []string, unwrap bool) (string, string) {
 var subcommand = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // callName is a command's program and subcommand: "go test", "sleep".
-// gh's subcommands are a noun and a verb, so it keeps two: "gh pr checks".
+// gh's command groups keep their noun and verb: "gh pr checks".
+// Leaf commands such as "gh api" and "sleep" stop before arguments.
 func callName(w []string) string {
-	name, n := strings.ToLower(filepath.Base(w[0])), 1
-	if name == "gh" {
-		n = 2
+	prog := strings.ToLower(filepath.Base(w[0]))
+	name, n := prog, 1
+	if prog == "sleep" {
+		return name
 	}
-	for _, x := range w[1:min(len(w), n+1)] {
+	for i := 1; i < len(w) && n > 0; i++ {
+		x := w[i]
+		if prog == "gh" {
+			switch {
+			case x == "-R" || x == "--repo":
+				i++ // the repository is an option value, not a subcommand
+				continue
+			case strings.HasPrefix(x, "--repo=") || strings.HasPrefix(x, "-R"):
+				continue
+			}
+		}
 		if !subcommand.MatchString(x) {
 			break
 		}
+		if prog == "gh" && name == prog {
+			switch x {
+			case "alias", "attestation", "auth", "cache", "codespace", "config", "extension", "gist", "gpg-key", "issue", "label", "org", "pr", "project", "release", "repo", "ruleset", "run", "search", "secret", "ssh-key", "variable", "workflow":
+				n++
+			}
+		}
 		name += " " + x
+		n--
 	}
 	return name
 }
