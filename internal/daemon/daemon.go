@@ -301,6 +301,7 @@ type Daemon struct {
 	listSinks map[web.Sink]bool
 	lim       limitResumes          // see resume.go
 	quiet     map[string]*quietPane // see quiet.go
+	repeats   map[string]repeatRun  // see repeat.go
 	park      parking               // see park.go
 	sendMu    sync.Mutex            // one deliver types at a time
 	turnMu    sync.Mutex            // one checkpoint at a time, so each gets its own number
@@ -1782,6 +1783,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.queue, id)
 	delete(d.mail.typed, id)
 	delete(d.mail.keyAt, id)
+	delete(d.repeats, id)
 	delete(d.mail.sent, id)
 	delete(d.mail.drafting, id)
 	delete(d.mail.returnAt, id)
@@ -2016,9 +2018,19 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if f.Shell {
 			kind = errlog.Command
 		}
-		d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
+		// Trimmed once here: the signature is the one the Agent errors page
+		// groups the stored line under, and Redact never sees megabytes.
+		e := errlog.Trim(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
 			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
 			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
+		d.logError(p.WorkspaceID, e)
+		if f.Interrupted {
+			d.dropRepeat(p.ID) // the user stepped in
+		} else {
+			d.noteFailure(p.ID, errlog.Signature(e))
+		}
+	} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {
+		d.dropRepeat(p.ID)
 	}
 	if p.Provider != m.Provider {
 		if p.Provider != "" {

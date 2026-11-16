@@ -54,6 +54,12 @@ type Activity struct {
 	// QuietSince is when a working agent's screen last changed, once it
 	// has been still for [agents] quiet_after; zero otherwise.
 	QuietSince time.Time
+	// Repeats is how many failed calls in a row a working agent made with
+	// one error signature (errlog.Signature), once that reaches 5; 0
+	// otherwise. Repeating is that signature. Set by the daemon for
+	// clients.
+	Repeats   int
+	Repeating string
 	// Options are the labels a hook named for a question with one
 	// single-choice answer.
 	Options []string
@@ -114,12 +120,17 @@ var shortLabels = map[AgentState]string{
 	StateParked:          "Parked",
 }
 
-// SortActivities orders by state priority, then most recent first.
+// SortActivities orders by state priority, repeated failures before other
+// work, then most recent first.
 func SortActivities(a []Activity) {
 	sort.SliceStable(a, func(i, j int) bool {
 		pi, pj := statePriority[a[i].State], statePriority[a[j].State]
 		if pi != pj {
 			return pi > pj
+		}
+		ri, rj := a[i].State == StateWorking && a[i].Repeats > 0, a[j].State == StateWorking && a[j].Repeats > 0
+		if ri != rj {
+			return ri
 		}
 		return a[i].UpdatedAt.After(a[j].UpdatedAt)
 	})

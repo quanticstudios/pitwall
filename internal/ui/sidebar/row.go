@@ -294,7 +294,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, s.lastSeen(host, v.now))
 			}})
 		case QuietText(v.now, a) != "":
-			// A working agent whose screen stays still says so in place of the time.
+			// A working agent that repeats an error or whose screen stays still says so in place of the time.
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, QuietText(v.now, a))
 			}})
@@ -713,10 +713,17 @@ func draftHeld(st *model.State, ws model.Workspace) bool {
 	return slices.ContainsFunc(st.AgentPanes(ws), func(ap model.AgentPane) bool { return st.DraftHeld[ap.Pane.ID] })
 }
 
-// QuietText is "quiet 20m" for a working activity whose screen has been
-// still since QuietSince, else "".
+// QuietText is what a working activity says in place of the time: "same
+// error 7×" while it keeps failing the same way (Repeats), else "quiet 20m"
+// once its screen has been still since QuietSince, else "".
 func QuietText(now time.Time, a *model.Activity) string {
-	if a == nil || a.State != model.StateWorking || a.QuietSince.IsZero() {
+	if a == nil || a.State != model.StateWorking {
+		return ""
+	}
+	if a.Repeats > 0 {
+		return fmt.Sprintf("same error %d×", a.Repeats)
+	}
+	if a.QuietSince.IsZero() {
 		return ""
 	}
 	d := now.Sub(a.QuietSince)

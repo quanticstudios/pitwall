@@ -432,6 +432,27 @@ func TestLevel63Peer(t *testing.T) {
 	}
 }
 
+func TestRepeatGobCompatibility(t *testing.T) {
+	// A level-81 activity has these fields and no repeat projection.
+	type beforeRepeats struct {
+		PaneID string
+		State  model.AgentState
+		Detail string
+	}
+	old := beforeRepeats{PaneID: "a", State: model.StateWorking, Detail: "building"}
+	current := gobCopy[model.Activity](t, old)
+	if current.PaneID != old.PaneID || current.State != old.State || current.Detail != old.Detail || current.Repeats != 0 || current.Repeating != "" {
+		t.Fatalf("new reader of old activity: %+v", current)
+	}
+	current.Repeats, current.Repeating = 5, "magick not found"
+	if got := gobCopy[beforeRepeats](t, current); got != old {
+		t.Fatalf("old reader of new activity: %+v", got)
+	}
+	if got := gobCopy[model.Activity](t, current); got.Repeats != current.Repeats || got.Repeating != current.Repeating {
+		t.Fatalf("repeat fields lost: %+v", got)
+	}
+}
+
 // A daemon from before the JSON socket reads a JSON line as a gob frame
 // whose length is past the limit, and drops the connection.
 func TestRecvRejectsJSONFrame(t *testing.T) {

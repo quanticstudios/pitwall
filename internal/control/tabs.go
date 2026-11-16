@@ -45,7 +45,12 @@ type Tab struct {
 	// QuietSince is when the working agent's screen last changed, once
 	// it has been still for [agents] quiet_after; null otherwise.
 	QuietSince *time.Time `json:"quiet_since"`
-	Status     string     `json:"status"` // the line pitwall status set
+	// Repeats is how many failed calls in a row the working agent made
+	// with one error signature, once that reaches 5; 0 otherwise.
+	// Repeating is that signature, "" with Repeats 0.
+	Repeats   int    `json:"repeats"`
+	Repeating string `json:"repeating"`
+	Status    string `json:"status"` // the line pitwall status set
 	// Host is the [[hosts]] name of the machine the tab runs on, "" for
 	// this one. A tab there has N 0, so "#$n" never reaches a tab here.
 	Host string `json:"host"`
@@ -59,14 +64,16 @@ type Tab struct {
 
 // Pane is one pane in Tab.PaneList, a contract like it.
 type Pane struct {
-	N        int        `json:"n"`
-	ID       string     `json:"id"`
-	Agent    string     `json:"agent"`
-	State    string     `json:"state"`
-	Question string     `json:"question"`
-	ExitCode *int       `json:"exit_code"`
-	Queued   int        `json:"queued"` // messages from pitwall send not yet typed
-	Since    *time.Time `json:"since"`
+	N         int        `json:"n"`
+	ID        string     `json:"id"`
+	Agent     string     `json:"agent"`
+	State     string     `json:"state"`
+	Question  string     `json:"question"`
+	ExitCode  *int       `json:"exit_code"`
+	Queued    int        `json:"queued"` // messages from pitwall send not yet typed
+	Since     *time.Time `json:"since"`
+	Repeats   int        `json:"repeats"`
+	Repeating string     `json:"repeating"`
 }
 
 // PaneOf is pane p as the Nth pane of its tab.
@@ -76,8 +83,12 @@ func PaneOf(state model.State, n int, p model.Pane) Pane {
 	if p.Exited && !p.ExitUnknown {
 		j.ExitCode = &p.ExitCode
 	}
-	if i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID }); i >= 0 && !p.Exited && !state.Activities[i].UpdatedAt.IsZero() {
-		j.Since = &state.Activities[i].UpdatedAt
+	if i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID }); i >= 0 && !p.Exited {
+		a := &state.Activities[i]
+		if !a.UpdatedAt.IsZero() {
+			j.Since = &a.UpdatedAt
+		}
+		j.Repeats, j.Repeating = a.Repeats, a.Repeating
 	}
 	return j
 }
@@ -117,6 +128,7 @@ func Rows(state model.State, session string, only map[string]bool, where func(mo
 		if p := MainPane(panes); p != nil {
 			main := PaneOf(state, 0, *p)
 			t.Agent, t.State, t.Question, t.ExitCode, t.Since = main.Agent, main.State, main.Question, main.ExitCode, main.Since
+			t.Repeats, t.Repeating = main.Repeats, main.Repeating
 			for _, a := range state.Activities {
 				if a.PaneID == p.ID && !a.QuietSince.IsZero() {
 					t.QuietSince = &a.QuietSince

@@ -4084,7 +4084,9 @@
         "question",
         "exit_code",
         "queued",
-        "since"
+        "since",
+        "repeats",
+        "repeating"
       ],
       "properties": {
         "n": {
@@ -4112,6 +4114,13 @@
         "queued": {
           "type": "integer",
           "minimum": 0
+        },
+        "repeats": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repeating": {
+          "type": "string"
         },
         "since": {
           "type": [
@@ -4143,6 +4152,8 @@
         "since",
         "pr_state",
         "quiet_since",
+        "repeats",
+        "repeating",
         "status",
         "host",
         "addr",
@@ -4214,6 +4225,13 @@
             "string",
             "null"
           ]
+        },
+        "repeats": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repeating": {
+          "type": "string"
         },
         "status": {
           "type": "string"

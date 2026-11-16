@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 82 added Activity.Repeats and Repeating: a working agent that
+// keeps failing with one error signature.
 // Level 81 added State.Starts and model.TabStart: retained client start
 // identities survive closed-tab archive pruning.
 // Level 79 added HostCheck and HostCheckResult: whether a worker another
@@ -218,7 +220,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 81
+const Level = 82
 
 // StartHistoryLevel retains start identities across a daemon handoff.
 const StartHistoryLevel = 81

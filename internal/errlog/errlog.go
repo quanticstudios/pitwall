@@ -85,13 +85,24 @@ func Open(path string) (*Log, error) {
 	return &Log{w: logs.NewWriter("errlog ", r, r)}, nil
 }
 
-// Add queues e with its command and output redacted, then cut to commandLen
-// and the last outputLen runes.
+// Add queues e as Trim leaves it.
 func (l *Log) Add(e Event) {
 	if l == nil {
 		return
 	}
+	e = Trim(e)
 	e.V, e.T = Version, e.T.UTC().Truncate(time.Millisecond)
+	b, err := json.Marshal(e)
+	if err != nil {
+		return
+	}
+	l.w.Write(append(b, '\n'))
+}
+
+// Trim is e as Add stores it: Size set, the command and output redacted,
+// then cut to commandLen and the last outputLen runes. Trimming twice
+// changes nothing.
+func Trim(e Event) Event {
 	if e.Size == 0 {
 		e.Size = utf8.RuneCountInString(e.Command) + utf8.RuneCountInString(e.Output)
 	}
@@ -138,11 +149,7 @@ func (l *Log) Add(e Event) {
 	} else {
 		e.Output = string(out)
 	}
-	b, err := json.Marshal(e)
-	if err != nil {
-		return
-	}
-	l.w.Write(append(b, '\n'))
+	return e
 }
 
 // Close writes what is queued, waiting at most timeout.
