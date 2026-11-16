@@ -263,6 +263,7 @@ type Daemon struct {
 	savePending bool
 	live        liveness
 	turns       timelog.Tracker       // each pane's running turn, for timing.jsonl
+	turnCwd     map[string]string     // a running turn's hook-reported folder
 	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
 	restoring   startupRestores       // see restore.go
 	attn        map[string]*attention // pane: seen time and OSC notification, see attention.go
@@ -1985,7 +1986,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			d.relayReview(p.ID)
 		}
 		if next.State == model.StateError {
-			d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: p.Cwd})
+			d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: d.where(p).Cwd})
 		}
 		switch {
 		case next.State == "" && ai >= 0:
@@ -2012,25 +2013,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 				}
 			}
 		}
-	}
-	if f, ok := agent.ToolFailure(m.Provider, m.Payload); ok {
-		kind := errlog.Tool
-		if f.Shell {
-			kind = errlog.Command
-		}
-		// Trimmed once here: the signature is the one the Agent errors page
-		// groups the stored line under, and Redact never sees megabytes.
-		e := errlog.Trim(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
-			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
-			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
-		d.logError(p.WorkspaceID, e)
-		if f.Interrupted {
-			d.dropRepeat(p.ID) // the user stepped in
-		} else {
-			d.noteFailure(p.ID, errlog.Signature(e))
-		}
-	} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {
-		d.dropRepeat(p.ID)
 	}
 	if p.Provider != m.Provider {
 		if p.Provider != "" {
@@ -2068,7 +2050,26 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			p.Prompt, changed = s, true
 		}
 	}
-	d.syncTurn(p, now) // a call may start the turn, as Cursor's first does
+	d.hookTurn(p, m.Payload, now) // a call may start the turn, as Cursor's first does
+	if f, ok := agent.ToolFailure(m.Provider, m.Payload); ok {
+		kind := errlog.Tool
+		if f.Shell {
+			kind = errlog.Command
+		}
+		// Trimmed once here: the signature is the one the Agent errors page
+		// groups the stored line under, and Redact never sees megabytes.
+		e := errlog.Trim(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
+			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, d.where(p).Cwd),
+			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
+		d.logError(p.WorkspaceID, e)
+		if f.Interrupted {
+			d.dropRepeat(p.ID) // the user stepped in
+		} else {
+			d.noteFailure(p.ID, errlog.Signature(e))
+		}
+	} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {
+		d.dropRepeat(p.ID)
+	}
 	if c, ok := agent.ToolCall(m.Payload); ok {
 		d.turns.Tool(p.ID, c, now)
 	}

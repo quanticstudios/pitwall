@@ -54,6 +54,7 @@ type Event struct {
 	Name     string    `json:"name,omitempty"` // the tab's name
 	Branch   string    `json:"branch,omitempty"`
 	Provider string    `json:"provider,omitempty"`
+	Cwd      string    `json:"cwd,omitempty"` // a turn's pane folder, as on error lines
 
 	// A turn. The parts, in ms, add up to Ms.
 	Start time.Time        `json:"start,omitzero"`
