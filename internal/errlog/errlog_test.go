@@ -25,6 +25,9 @@ func TestSignature(t *testing.T) {
 		// ANSI escapes go before the line is chosen.
 		{"\x1b[1;31m[bat error]\x1b[0m: 'x.go': No such file or directory (os error 2)", "[bat error]: <str>: No such file or directory (os error N)"},
 		{"\x1b]0;title\x07\x1b[32mok\x1b[0m\n\x1b[31mError: boom\x1b[0m", "Error: boom"},
+		{"\x1b[31mError: boom\x1b(B\x1b[m", "Error: boom"},
+		{"\x1bP1;2|error metadata\x1b\\ready\nError: boom", "Error: boom"},
+		{"\x1b_error metadata\x1b\\ready\nError: boom", "Error: boom"},
 		// zoxide's doctor warning is skipped, whole or cut at the start.
 		{zoxide + "\nhello\nexit status 3", "exit status N"},
 		{"…lly ~/.zshrc).\n\nIf the issue persists, consider filing an issue at:\nhttps://github.com/ajeetdsouza/zoxide/issues\n\nDisable this message by setting _ZO_DOCTOR=0.\nreal last line", "real last line"},
@@ -43,7 +46,13 @@ func TestSignature(t *testing.T) {
 	}
 	// A bare path or number, only shell noise, or no output: the tool and
 	// exit code.
-	for _, out := range []string{"/home/u/repo/a.go", "  42  ", zoxide, ""} {
+	for _, out := range []string{
+		"/home/u/repo/a.go", "  42  ", zoxide, "",
+		strings.ReplaceAll(zoxide, "~/.zshrc", "~/.bashrc"),
+		strings.ReplaceAll(zoxide, " (usually ~/.zshrc)", ""),
+		"…lly ~/.bashrc).\nDisable this message by setting _ZO_DOCTOR=0.",
+		"…configuration file.\nDisable this message by setting _ZO_DOCTOR=0.",
+	} {
 		if got := Signature(Event{Kind: Command, Tool: "Bash", Output: out, Exit: 144}); got != "Bash failed with exit 144" {
 			t.Errorf("Signature(%q, exit 144) = %q", out, got)
 		}

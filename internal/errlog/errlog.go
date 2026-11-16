@@ -16,6 +16,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/quanticstudios/pitwall/internal/logs"
 )
 
@@ -265,9 +267,6 @@ var (
 	hex    = regexp.MustCompile(`\b(?:0x)?[0-9a-fA-F]{7,}\b`)
 	digits = regexp.MustCompile(`(^|[^A-Za-z\d])\d+`)
 	shell  = regexp.MustCompile(`^(\w+):N:`)
-	// ANSI escapes: CSI (colors, cursor), OSC (titles, links), and the
-	// two-byte rest.
-	ansi = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])`)
 	// bare is a line that is only data, such as one file of a listing.
 	bare = regexp.MustCompile(`^(?:<path>|<hex>|N)$`)
 )
@@ -278,6 +277,8 @@ var (
 var shellNoise = []string{
 	"zoxide: detected a possible configuration issue.",
 	"Please ensure that zoxide is initialized right at the end of your shell configuration file (usually ~/.zshrc).",
+	"Please ensure that zoxide is initialized right at the end of your shell configuration file (usually ~/.bashrc).",
+	"Please ensure that zoxide is initialized right at the end of your shell configuration file.",
 	"If the issue persists, consider filing an issue at:",
 	"https://github.com/ajeetdsouza/zoxide/issues",
 	"Disable this message by setting _ZO_DOCTOR=0.",
@@ -299,7 +300,7 @@ func Signature(e Event) string {
 		return "Exit 1 with no output: " + head(e)
 	}
 	line := ""
-	for l := range strings.Lines(ansi.ReplaceAllString(e.Output, "")) {
+	for l := range strings.Lines(ansi.Strip(e.Output)) {
 		l = strings.TrimSpace(l)
 		if l == "" || noise(l) {
 			continue
