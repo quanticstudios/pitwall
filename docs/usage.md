@@ -1150,8 +1150,10 @@ is short. Each turn keeps its five slowest commands, redacted and cut to
 200 characters; prompts and output are never stored. The file also gets a
 line when a tab gets its first prompt, opens a pull request, finishes CI,
 merges and closes. The page shows 7 days, 30 days or all time: a stacked
-bar, agent hours per day, the commands that took longest and each task's
-time from prompt to merge. Copy report puts it on the clipboard as Markdown
+bar, the time agents waited on CI and `gh` with the commands that took it
+(named by program and subcommand, such as `gh pr checks`, with no
+arguments), agent hours per day, the commands that took longest and each
+task's time from prompt to merge. Copy report puts it on the clipboard as Markdown
 to ask an agent what to speed up. At 10 MB the file moves to
 `timing.jsonl.1`.
 

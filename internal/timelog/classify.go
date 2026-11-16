@@ -109,20 +109,29 @@ var rank = map[string]int{CI: 7, Test: 6, Build: 5, Lint: 4, Install: 3, "sleep"
 // Command is the kind of a shell command line.
 // ponytail: a word list per tool; a command it does not know is Shell.
 func Command(line string) string {
-	k := command(line, true)
+	k, _ := command(line, true)
 	if k == "sleep" {
 		return CI
 	}
 	return k
 }
 
-func command(line string, unwrap bool) string {
-	best := Shell
+// Poll names the program that gave line its kind, with its subcommand and
+// no arguments: "gh pr checks" for a loop that polls checks, "sleep" for
+// a wait. It is "" for a line that runs no known kind of program.
+func Poll(line string) string {
+	_, name := command(line, true)
+	return name
+}
+
+// command is the kind of line and the name of the program that set it.
+func command(line string, unwrap bool) (string, string) {
+	best, name := Shell, ""
 	start := 0
 	take := func(end int) {
-		k := program(strings.Fields(line[start:end]), unwrap)
+		k, n := program(strings.Fields(line[start:end]), unwrap)
 		if rank[k] > rank[best] {
-			best = k
+			best, name = k, n
 		}
 	}
 	for _, m := range segments.FindAllStringIndex(line, -1) {
@@ -141,8 +150,8 @@ func command(line string, unwrap bool) string {
 					if from < 0 {
 						from, to = sub[4], sub[5]
 					}
-					if k := command(text[from:to], unwrap); rank[k] > rank[best] {
-						best = k
+					if k, n := command(text[from:to], unwrap); rank[k] > rank[best] {
+						best, name = k, n
 					}
 				}
 			}
@@ -152,14 +161,14 @@ func command(line string, unwrap bool) string {
 		start = m[1]
 	}
 	take(len(line))
-	return best
+	return best, name
 }
 
 // wrappers run the program after them, with flags of their own.
 var wrappers = []string{"do", "then", "else", "if", "elif", "while", "until", "!", "time", "sudo", "exec", "command", "nohup", "nice", "xargs", "builtin", "noglob", "rtk", "npx", "bunx", "pnpx"}
 
-// program is the kind of one simple command, its words in w.
-func program(w []string, unwrap bool) string {
+// program is the kind of one simple command, its words in w, and its name.
+func program(w []string, unwrap bool) (string, string) {
 	for len(w) > 0 {
 		switch x := w[0]; {
 		case strings.Contains(x, "=") && !strings.HasPrefix(x, "-"): // FOO=bar
@@ -179,21 +188,60 @@ func program(w []string, unwrap bool) string {
 		case x == "mise" && len(w) > 1 && w[1] == "exec":
 			i := slices.Index(w, "--")
 			if i < 0 {
-				return Shell
+				return Shell, ""
 			}
 			w = w[i+1:]
 		case (x == "uv" || x == "poetry" || x == "pipenv" || x == "bundle") && len(w) > 1 && (w[1] == "run" || w[1] == "exec"):
 			w = w[2:]
 		case slices.Contains([]string{"sh", "bash", "zsh", "dash"}, filepath.Base(x)) && len(w) > 1 && (w[1] == "-c" || w[1] == "-lc"):
 			if !unwrap {
-				return Shell
+				return Shell, ""
 			}
 			return command(shellScript(strings.Join(w[2:], " ")), false)
 		default:
-			return kind(strings.ToLower(filepath.Base(x)), w[1:])
+			return kind(strings.ToLower(filepath.Base(x)), w[1:]), callName(w)
 		}
 	}
-	return Shell
+	return Shell, ""
+}
+
+// subcommand is a word that names a subcommand, not a flag, number, path
+// or value.
+var subcommand = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// callName is a command's program and subcommand: "go test", "sleep".
+// gh's command groups keep their noun and verb: "gh pr checks".
+// Leaf commands such as "gh api" and "sleep" stop before arguments.
+func callName(w []string) string {
+	prog := strings.ToLower(filepath.Base(w[0]))
+	name, n := prog, 1
+	if prog == "sleep" {
+		return name
+	}
+	for i := 1; i < len(w) && n > 0; i++ {
+		x := w[i]
+		if prog == "gh" {
+			switch {
+			case x == "-R" || x == "--repo":
+				i++ // the repository is an option value, not a subcommand
+				continue
+			case strings.HasPrefix(x, "--repo=") || strings.HasPrefix(x, "-R"):
+				continue
+			}
+		}
+		if !subcommand.MatchString(x) {
+			break
+		}
+		if prog == "gh" && name == prog {
+			switch x {
+			case "alias", "attestation", "auth", "cache", "codespace", "config", "extension", "gist", "gpg-key", "issue", "label", "org", "pr", "project", "release", "repo", "ruleset", "run", "search", "secret", "ssh-key", "variable", "workflow":
+				n++
+			}
+		}
+		name += " " + x
+		n--
+	}
+	return name
 }
 
 // shellScript removes one shell quote layer and ignores positional arguments.

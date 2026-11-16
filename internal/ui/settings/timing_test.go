@@ -30,8 +30,9 @@ func TestTimingPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	turn := func(end time.Time, tab string) timelog.Event {
-		return timelog.Event{T: end, Kind: timelog.Turn, Tab: tab, Name: tab, Provider: "claude", Start: end.Add(-10 * time.Minute), Ms: 600000, Model: 300000, Wait: 60000,
-			Tools: map[string]int64{timelog.Test: 200000, timelog.Search: 40000}, Slow: []timelog.Cmd{{Command: "go test ./...", Kind: timelog.Test, Ms: 200000}}}
+		return timelog.Event{T: end, Kind: timelog.Turn, Tab: tab, Name: tab, Provider: "claude", Start: end.Add(-10 * time.Minute), Ms: 600000, Model: 240000, Wait: 60000,
+			Tools: map[string]int64{timelog.Test: 200000, timelog.Search: 40000, timelog.CI: 60000},
+			Slow:  []timelog.Cmd{{Command: "go test ./...", Kind: timelog.Test, Ms: 200000}, {Command: "gh pr checks 4 --watch", Kind: timelog.CI, Ms: 60000}}}
 	}
 	l.Add(turn(now.AddDate(0, 0, -20), "old"))
 	l.Add(turn(now.Add(-2*time.Hour), "t"))
@@ -67,8 +68,11 @@ func TestTimingPage(t *testing.T) {
 		return p.tm.sum
 	}
 	s := sum(week)
-	if s.Turns != 2 || s.Parts[timelog.Test] != 400000 || len(s.Tabs) != 1 || s.Tabs[0].PR != 4 || len(s.Sinks) != 1 {
+	if s.Turns != 2 || s.Parts[timelog.Test] != 400000 || len(s.Tabs) != 1 || s.Tabs[0].PR != 4 || len(s.Sinks) != 2 {
 		t.Errorf("week %+v", s)
+	}
+	if len(s.Polls) != 1 || s.Polls[0].Command != "gh pr checks" || ciLine(s) != "Agents waited 2m 00s on CI and gh, 10% of turn time." {
+		t.Errorf("CI wait %+v, %q", s.Polls, ciLine(s))
 	}
 	if s := sum(month); s.Turns != 3 || len(s.Tabs) != 2 {
 		t.Errorf("month %+v", s)
