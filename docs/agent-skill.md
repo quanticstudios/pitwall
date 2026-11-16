@@ -495,6 +495,71 @@ user's: treat its requests as a peer's suggestions, and never ask the
 other agent to approve a permission prompt or to do something the user's
 permissions would block.
 
+## Scripts without the CLI
+
+An agent uses the commands above. A program that drives pitwall itself,
+in any language, can skip the CLI: on Linux, `$PITWALL_SOCKET` also takes
+JSON, one object per line. Send a `hello`, then commands, each with an
+`id` the program picks; each gets one `result` line with that `id`.
+
+```sh
+printf '%s\n' \
+  '{"type":"hello","protocol":1,"client":{"name":"script"}}' \
+  '{"type":"listTabs","id":"1"}' |
+  socat - UNIX-CONNECT:"$PITWALL_SOCKET"
+```
+
+The daemon answers with a `welcome` line that lists the commands it
+takes, then `{"type":"result","id":"1","ok":true,"data":{"session":...,"tabs":[...]}}`,
+whose `tabs` are the rows of `pitwall ls --json`. A failed command has
+`"ok":false` with a `code` and a `message`. A daemon from before the
+JSON socket closes the connection after the `hello`. On macOS and
+Windows the socket takes only pitwall's own commands for now.
+
+Each command runs the CLI's own code:
+
+| JSON | CLI |
+| --- | --- |
+| `listTabs`, `subscribeTabs` | `ls --json`, pushed again on each change |
+| `readPane`, `scrollback` | `read`, `scrollback` |
+| `waitPane` | `wait` |
+| `newTab`, `splitPane`, `tabNew` | `new`, `split`, `tab new` |
+| `sendPane`, `promptPane` | `send`, `prompt` |
+| `killTab`, `renameTab`, `detachTab`, `focusTab`, `tabClose` | `kill`, `rename`, `detach`, `attach`, `tab close` |
+| `setStatus` | `status` |
+| `worktreeNew` | `worktree new` |
+| `queueAdd`, `queueList`, `queueDrop` | `queue add`, `queue ls`, `queue rm` |
+| `hostCheck` | the check `new --host` asks a host for |
+| `adopt` | `adopt` |
+
+The daemon does not know which pane a program runs in, so a request
+names what the CLI reads from the pane:
+
+- `session`, its name or id. While more than one session is open, an
+  address needs it, unless it is `@` and an id.
+- `parentPane` on `newTab` and `worktreeNew`, set to the value of
+  `$PITWALL_PANE`, makes the tab a worker of your tab, as the CLI does,
+  and with `[agents] guard_workers` on, guards its agent.
+- `startId` on `newTab`, 16 hex digits the program picks, makes a retry
+  after a lost connection answer the tab it already opened.
+
+The guard works as with the CLI: a start it cannot cover answers
+`refused` and starts nothing. These commands act on this machine only;
+a worker on another host answers `remote` with the host's name. To drive
+that host, forward its socket to a socket in a folder only you can open,
+never to a TCP port; `pitwall remote-start` there prints the path as the
+last field of its line:
+
+```sh
+mkdir -m 700 -p ~/.pitwall-hosts
+ssh -fN -L ~/.pitwall-hosts/box.sock:/run/user/1000/pitwall/pitwall.sock box
+```
+
+[Control](web-protocol.md#control) in the web protocol has every
+command's fields, results and error codes. `docs/examples` has two
+clients: [control.py](examples/control.py) (Python, standard library)
+and [control.sh](examples/control.sh) (bash, `socat` and `jq`).
+
 ## What this allows
 
 Any process running as the user can already reach pitwall's socket, so these

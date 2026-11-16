@@ -227,6 +227,32 @@ and for a dashboard `progress` and `status`. Show a dashboard in the
 background with `--id build`, change it with `pitwall form --id build
 --update`, and end it with `--close`.
 
+## Scripts without the CLI
+
+Use the commands above yourself. When a program you write has to drive
+pitwall, in any language, it can skip the CLI: on Linux,
+`$PITWALL_SOCKET` takes JSON, one object per line. Send a `hello`, then
+commands, each with an `id`; each gets one `result` line with that `id`.
+
+```sh
+printf '%s\n' \
+  '{"type":"hello","protocol":1,"client":{"name":"script"}}' \
+  '{"type":"listTabs","id":"1"}' |
+  socat - UNIX-CONNECT:"$PITWALL_SOCKET"
+```
+
+It prints a `welcome` line, which lists the commands this daemon takes,
+then `{"type":"result","id":"1","ok":true,"data":{"session":...,"tabs":[...]}}`
+with the rows of `pitwall ls --json`. `readPane`, `waitPane`, `newTab`,
+`promptPane`, `sendPane`, `worktreeNew` and the rest do what `read`,
+`wait`, `new`, `prompt`, `send` and `worktree new` do, with the same
+guard, on this machine only. The daemon does not know which pane a
+script runs in: pass `session`, address panes as `@<id>`, and set
+`newTab`'s `parentPane` to the value of `$PITWALL_PANE` so the tab is
+your worker.
+Commands and fields:
+https://github.com/quanticstudios/pitwall/blob/main/docs/web-protocol.md#control
+
 ## Never
 
 - answer a worker's permission prompt or question for the user, or ask
