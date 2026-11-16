@@ -158,6 +158,24 @@
         },
         {
           "$ref": "#/$defs/setStatus"
+        },
+        {
+          "$ref": "#/$defs/worktreeNew"
+        },
+        {
+          "$ref": "#/$defs/queueAdd"
+        },
+        {
+          "$ref": "#/$defs/queueList"
+        },
+        {
+          "$ref": "#/$defs/queueDrop"
+        },
+        {
+          "$ref": "#/$defs/hostCheck"
+        },
+        {
+          "$ref": "#/$defs/adopt"
         }
       ]
     },
@@ -1263,7 +1281,8 @@
               }
             },
             "session": {
-              "$ref": "#/$defs/tabSession"
+              "$ref": "#/$defs/tabSession",
+              "description": "listTabs and queueList: the session."
             },
             "tabs": {
               "type": "array",
@@ -1311,11 +1330,11 @@
             },
             "tab": {
               "type": "string",
-              "description": "newTab and tabNew: the new tab's id."
+              "description": "newTab, tabNew and worktreeNew: the new tab's id."
             },
             "pane": {
               "type": "string",
-              "description": "newTab: the new tab's pane id; splitPane: the new pane's id."
+              "description": "newTab and worktreeNew: the new tab's pane id; splitPane: the new pane's id."
             },
             "closed": {
               "type": "boolean",
@@ -1324,6 +1343,100 @@
             "reply": {
               "type": "string",
               "description": "promptPane with wait: the reply of the turn the prompt started."
+            },
+            "problems": {
+              "type": "array",
+              "description": "hostCheck: what would stop the worker, or with warn what it would start without; empty when nothing would.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "what",
+                  "fix",
+                  "warn"
+                ],
+                "properties": {
+                  "what": {
+                    "type": "string"
+                  },
+                  "fix": {
+                    "type": "string",
+                    "description": "A command to run on this machine, or what to change; may be empty."
+                  },
+                  "warn": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "tasks": {
+              "type": "array",
+              "description": "queueList: the queued tasks, first to start first. Never a command line or an environment.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "n",
+                  "id",
+                  "title",
+                  "dir",
+                  "group",
+                  "worktree",
+                  "freshWorktree",
+                  "branch",
+                  "nextStart",
+                  "repeatMs"
+                ],
+                "properties": {
+                  "n": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Its number, as pitwall queue ls shows it."
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The first line of its prompt, or the program's name."
+                  },
+                  "dir": {
+                    "type": "string"
+                  },
+                  "group": {
+                    "type": "string",
+                    "description": "The group its tab joins, \"\" for none."
+                  },
+                  "worktree": {
+                    "type": "string"
+                  },
+                  "freshWorktree": {
+                    "type": "boolean"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "nextStart": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "RFC 3339, null to start when the queue has room."
+                  },
+                  "repeatMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "0 runs once."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "adopted": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "adopt: the ids of the tabs it adopted."
             }
           },
           "additionalProperties": false
@@ -4113,6 +4226,254 @@
         },
         "stale": {
           "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "worktreeNew": {
+      "description": "What pitwall worktree new does in the repo: open a tab in a new worktree, <repo>/.worktrees/<name>, on this machine.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "repo",
+        "name"
+      ],
+      "properties": {
+        "type": {
+          "const": "worktreeNew"
+        },
+        "id": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string",
+          "description": "An absolute path in the git repository the worktree comes from."
+        },
+        "name": {
+          "type": "string",
+          "description": "The worktree's folder, its new branch and the tab's name."
+        },
+        "session": {
+          "type": "string",
+          "description": "Without parentPane, the session whose group of the repo gets the tab: its id, exact name or a unique prefix of its name; left out for the most recently used one."
+        },
+        "parentPane": {
+          "type": "string",
+          "description": "The pane id of the agent that asks for the worktree: its tab becomes the parent, the tab joins its group, and [agents] guard_workers applies."
+        },
+        "from": {
+          "type": "string",
+          "description": "The ref a new branch starts from, as --from; left out for the default branch."
+        },
+        "branch": {
+          "type": "string",
+          "description": "An existing local or remote branch to check out, as --branch."
+        },
+        "pr": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A GitHub pull request to check out as branch pr-<n>, as --pr."
+        },
+        "preset": {
+          "type": "string",
+          "description": "An [[agents.preset]] name, as --preset."
+        },
+        "lane": {
+          "type": "string",
+          "description": "A fleet lane, as --lane: its preset with cmd as one brief. A lane on another host is remote."
+        },
+        "cmd": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The program and its arguments, found on the daemon's PATH; left out for an empty tab."
+        },
+        "guard": {
+          "type": "boolean",
+          "description": "Run the agent under the guard, as --guard. Refused when the agent's hooks cannot deny."
+        }
+      },
+      "additionalProperties": false
+    },
+    "queueAdd": {
+      "description": "What pitwall queue add does: queue an agent to start in dir once the queue has room.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "dir"
+      ],
+      "properties": {
+        "type": {
+          "const": "queueAdd"
+        },
+        "id": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string",
+          "description": "The session: its id, exact name or a unique prefix of its name; left out for the most recently used one."
+        },
+        "dir": {
+          "type": "string",
+          "description": "An absolute path: the folder the agent runs in, or with worktree the repository."
+        },
+        "cmd": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The agent, its arguments and its prompt, found on the daemon's PATH."
+        },
+        "preset": {
+          "type": "string",
+          "description": "An [[agents.preset]] name, before cmd."
+        },
+        "model": {
+          "type": "string",
+          "description": "A model for the agent, as --model."
+        },
+        "at": {
+          "type": "string",
+          "description": "HH:MM in the daemon's time zone: the first start, as --at."
+        },
+        "every": {
+          "type": "string",
+          "description": "A Go duration such as 24h: repeat from the first start, as --every."
+        },
+        "worktree": {
+          "type": "string",
+          "description": "A fresh worktree of this name for each run, as --worktree."
+        }
+      },
+      "additionalProperties": false
+    },
+    "queueList": {
+      "description": "What pitwall queue ls does: the session's queued tasks, first to start first.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "queueList"
+        },
+        "id": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string",
+          "description": "The session: its id, exact name or a unique prefix of its name; left out for the most recently used one."
+        }
+      },
+      "additionalProperties": false
+    },
+    "queueDrop": {
+      "description": "What pitwall queue rm does: take a task off the queue.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "task"
+      ],
+      "properties": {
+        "type": {
+          "const": "queueDrop"
+        },
+        "id": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string",
+          "description": "The session: its id, exact name or a unique prefix of its name. Needed for an address other than @ and an id while more than one session is open."
+        },
+        "task": {
+          "type": "string",
+          "description": "A task id from queueList, or its number there, 3 or #3, which needs session while more than one session is open."
+        }
+      },
+      "additionalProperties": false
+    },
+    "hostCheck": {
+      "description": "Whether a worker with these fields would start on this machine, as the check pitwall new --host asks a host for.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "hostCheck"
+        },
+        "id": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "string",
+          "description": "The worker's folder: an absolute path, or ~/ for the daemon's home folder."
+        },
+        "repo": {
+          "type": "string",
+          "description": "A repository the worker needs: an absolute path, or ~/ for the daemon's home folder. Checks its origin and GitHub access."
+        },
+        "clone": {
+          "type": "string",
+          "description": "origin's URL, for the clone command a missing repo's fix gives."
+        },
+        "cmd": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The program and its arguments."
+        },
+        "preset": {
+          "type": "string",
+          "description": "An [[agents.preset]] name, before cmd."
+        },
+        "guard": {
+          "type": "boolean",
+          "description": "Check the guard too, as newTab with guard."
+        }
+      },
+      "additionalProperties": false
+    },
+    "adopt": {
+      "description": "What pitwall adopt does in a tab: make it the parent of orphans of its session on this machine.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "tab"
+      ],
+      "properties": {
+        "type": {
+          "const": "adopt"
+        },
+        "id": {
+          "type": "string"
+        },
+        "tab": {
+          "type": "string",
+          "description": "The tab that takes the orphans over: an address as pitwall kill takes it, or @ and a tab id."
+        },
+        "session": {
+          "type": "string",
+          "description": "The session: its id, exact name or a unique prefix of its name. Needed for an address other than @ and an id while more than one session is open."
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Orphans' tab ids, with or without @, from listTabs with orphans."
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Every orphan of the session. Remote while one is a worker on another host."
         }
       },
       "additionalProperties": false

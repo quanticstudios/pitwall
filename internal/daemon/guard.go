@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -84,6 +85,10 @@ func agentDir(provider model.Provider, get func(string) string, cwd string) (key
 // is missing from the config dir it reads. env is what the pane gets on
 // top of the daemon's own environment.
 func guardGate(cmd, env []string, cwd string) error {
+	return guardGateContext(context.Background(), cmd, env, cwd)
+}
+
+func guardGateContext(ctx context.Context, cmd, env []string, cwd string) error {
 	get := envGet(env)
 	if get(guard.Env) == "" {
 		return nil // the hook guards only while it is set, to anything
@@ -115,11 +120,11 @@ func guardGate(cmd, env []string, cwd string) error {
 	if key == "" {
 		return fmt.Errorf("the guard covers Claude Code, Codex, pi, omp and OpenCode 1, not %s", program)
 	}
-	if err := agent.GuardHooked(provider, dir); err != nil {
+	if err := agent.GuardHookedContext(ctx, provider, dir); err != nil {
 		return fmt.Errorf("%v; run %s=%s pitwall hooks install", err, key, dir)
 	}
 	if provider == model.ProviderOpenCode {
-		return agent.GuardOpenCode(cmd[0], cwd, env)
+		return agent.GuardOpenCodeContext(ctx, cmd[0], cwd, env)
 	}
 	return nil
 }

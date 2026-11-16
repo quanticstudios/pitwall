@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
@@ -25,6 +26,14 @@ import (
 // may predate the guard. Either way the named binary must pass probe.
 // For OpenCode, callers must also check the actual program with GuardOpenCode.
 func GuardHooked(provider model.Provider, dir string) error {
+	return GuardHookedContext(context.Background(), provider, dir)
+}
+
+// GuardHookedContext is GuardHooked with a deadline for its hook probes.
+func GuardHookedContext(ctx context.Context, provider model.Provider, dir string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var path string
 	switch provider {
 	case model.ProviderClaude:
@@ -32,7 +41,7 @@ func GuardHooked(provider model.Provider, dir string) error {
 	case model.ProviderCodex:
 		path = filepath.Join(dir, "hooks.json")
 	case model.ProviderPi, model.ProviderOmp, model.ProviderOpenCode:
-		return guardGenerated(provider, dir)
+		return guardGenerated(ctx, provider, dir)
 	default:
 		return fmt.Errorf("the guard does not cover %q", provider)
 	}
@@ -72,6 +81,9 @@ func GuardHooked(provider model.Provider, dir string) error {
 			continue // why: a matcher would leave some tools unchecked
 		}
 		for _, h := range g.Hooks {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			// The installed hook runs synchronously on every call, through
 			// the shell that commandPath quotes for. Exec-form args would
 			// instead treat the entire command string as one executable.
@@ -79,7 +91,7 @@ func GuardHooked(provider model.Provider, dir string) error {
 				continue
 			}
 			if bin, ok := hookBinary(h.Command, provider); ok && h.Type == "command" {
-				if broken = probe(bin); broken == nil {
+				if broken = probe(ctx, bin); broken == nil {
 					return nil
 				}
 			}
@@ -91,7 +103,7 @@ func GuardHooked(provider model.Provider, dir string) error {
 	return fmt.Errorf("%s has no PreToolUse hook for every tool that runs an existing pitwall with hook %s", path, provider)
 }
 
-func guardGenerated(provider model.Provider, dir string) error {
+func guardGenerated(ctx context.Context, provider model.Provider, dir string) error {
 	path, generate := filepath.Join(dir, "extensions", "pitwall.ts"), PiExtension
 	if provider == model.ProviderOmp {
 		generate = OmpExtension
@@ -112,7 +124,7 @@ func guardGenerated(provider model.Provider, dir string) error {
 	if !bytes.Equal(b, generate(bin)) && (provider != model.ProviderOmp || !bytes.Equal(b, PiExtension(bin))) {
 		return fmt.Errorf("%s is not the current pitwall guard extension or plugin; install the current unedited copy", path)
 	}
-	if err := probe(bin); err != nil {
+	if err := probe(ctx, bin); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
@@ -124,12 +136,12 @@ const probeCommand = "git push origin main"
 
 // probe runs `bin guard` on probeCommand and returns why bin cannot guard
 // a tab: it did not start, did not answer in 3s, or did not exit 2.
-func probe(bin string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func probe(ctx context.Context, bin string) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "guard")
 	cmd.Stdin = strings.NewReader(`{"tool_input":{"command":"` + probeCommand + `"}}`)
-	cmd.WaitDelay = time.Second
+	childproc.Bound(cmd)
 	err := cmd.Run()
 	var exit *exec.ExitError
 	switch {
@@ -151,10 +163,16 @@ func probe(bin string) error {
 // OpenCode 2's shared background service cannot attribute guard calls to
 // a pane. Unknown versions fail closed. env is added to this process's.
 func GuardOpenCode(program, cwd string, env []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	return GuardOpenCodeContext(context.Background(), program, cwd, env)
+}
+
+// GuardOpenCodeContext is GuardOpenCode with a deadline for its version check.
+func GuardOpenCodeContext(ctx context.Context, program, cwd string, env []string) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, program, "--version")
-	cmd.Dir, cmd.Env, cmd.WaitDelay = cwd, append(os.Environ(), env...), time.Second
+	cmd.Dir, cmd.Env = cwd, append(os.Environ(), env...)
+	childproc.Bound(cmd)
 	b, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("cannot check OpenCode's guard support with --version: %w", err)

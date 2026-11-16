@@ -21,7 +21,9 @@ func PushAccess(ctx context.Context, dir string) (repo string, err error) {
 // PushAccessEnv is PushAccess using env for git and gh, or the daemon's
 // environment when env is nil.
 func PushAccessEnv(ctx context.Context, dir string, env []string) (repo string, err error) {
-	out, err := gitstat.CommandEnv(ctx, dir, env, "config", "--get", "remote.origin.url").Output()
+	config := gitstat.CommandEnv(ctx, dir, env, "config", "--get", "remote.origin.url")
+	childproc.Bound(config)
+	out, err := config.Output()
 	if err != nil {
 		return "", nil // no origin: the git checks report it
 	}

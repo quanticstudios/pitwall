@@ -405,12 +405,10 @@ func (r *remotes) orphans() (out []orphan, unreached []string) {
 		}
 		return tabJSON{}
 	}
-	for _, w := range r.state.Workspaces {
-		if w.SessionID == r.session.ID && !w.RemoteParent && w.Parent != "" && gone(w.Parent) {
-			t := tabsJSON(r.state, r.session.ID, map[string]bool{w.ID: true})[0]
-			t.Parent = w.Parent
-			out = append(out, orphan{row: t})
-		}
+	for _, w := range control.Orphans(r.state, r.session.ID) {
+		t := tabsJSON(r.state, r.session.ID, map[string]bool{w.ID: true})[0]
+		t.Parent = w.Parent
+		out = append(out, orphan{row: t})
 	}
 	for _, rec := range r.session.Workers {
 		if rec.Lost != "" || !gone(rec.Parent) {

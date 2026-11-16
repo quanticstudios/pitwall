@@ -27,6 +27,12 @@ const remoteTimeout = 10 * time.Second
 // environment, which are the daemon's own when the daemon runs it. With
 // cmd empty it checks only repo; with repo empty, only cmd.
 func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
+	return checkStart(ctx, m, true)
+}
+
+// diagnostics is false for JSON: transport stderr can contain arbitrary
+// credential values or argument lists that pattern redaction cannot identify.
+func checkStart(ctx context.Context, m proto.HostCheck, diagnostics bool) []proto.HostProblem {
 	var out []proto.HostProblem
 	add := func(warn bool, fix, format string, args ...any) {
 		out = append(out, proto.HostProblem{What: fmt.Sprintf(format, args...), Fix: fix, Warn: warn})
@@ -60,9 +66,9 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 			// still checks the final hooks before any pane can run.
 			add(true, "ensure the command and hooks exist in the prepared worktree; the start-time guard still applies", "agent preflight deferred until the worktree exists")
 		} else {
-			if err := guardGate(m.Cmd, m.Env, cwd); err != nil {
+			if err := guardGateContext(ctx, m.Cmd, m.Env, cwd); err != nil {
 				add(false, "", "%v: %v", errUnguarded, err)
-			} else if err := agent.GuardHooked(provider, dir); err != nil && key != "" {
+			} else if err := agent.GuardHookedContext(ctx, provider, dir); err != nil && key != "" {
 				add(true, key+"="+dir+" pitwall hooks install", "pitwall's hooks are missing, so the worker's state will not show: %v", err)
 			}
 			if err := agent.LoggedIn(provider, dir, get); err != nil {
@@ -74,7 +80,9 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 		return out
 	}
 	env := append(os.Environ(), m.Env...)
-	if result, err := gitstat.CommandEnv(ctx, repo, env, "rev-parse", "--is-inside-work-tree").Output(); err != nil || strings.TrimSpace(string(result)) != "true" {
+	check := gitstat.CommandEnv(ctx, repo, env, "rev-parse", "--is-inside-work-tree")
+	childproc.Bound(check)
+	if result, err := check.Output(); err != nil || strings.TrimSpace(string(result)) != "true" {
 		fix := "clone the repository there"
 		if m.Clone != "" {
 			fix = "git clone " + m.Clone + " " + m.Repo
@@ -92,7 +100,9 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 		if ssh == "" {
 			// The person's own transport. The guard replaces a value from
 			// .git/config, but one written after its read keeps local scope.
-			out, _ := gitstat.CommandEnv(ctx, repo, env, "config", "--show-scope", "--get", "core.sshCommand").Output()
+			config := gitstat.CommandEnv(ctx, repo, env, "config", "--show-scope", "--get", "core.sshCommand")
+			childproc.Bound(config)
+			out, _ := config.Output()
 			if scope, value, _ := strings.Cut(strings.TrimSpace(string(out)), "\t"); scope == "system" || scope == "global" || scope == "command" {
 				ssh = value
 			}
@@ -123,12 +133,20 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 	const login = "set up the ssh key or credential helper git uses for origin there, and accept origin's host key"
 	// Exit 2 is a readable origin without a HEAD, such as an empty repository.
 	if code, msg := remote("ls-remote", "--exit-code", "origin", "HEAD"); code != 0 && code != 2 {
-		add(false, login, "git cannot read origin: %s", msg)
+		what := "git cannot read origin"
+		if diagnostics {
+			what += ": " + msg
+		}
+		add(false, login, "%s", what)
 		return out // push and GitHub would fail the same way
 	}
 	// A dry run asks origin to accept the push without sending it.
 	if code, msg := remote("push", "--dry-run", "--no-verify", "--quiet", "origin", "HEAD:refs/heads/pitwall-check-"+strings.ToLower(rand.Text()[:8])); code != 0 {
-		add(false, login+", with write access", "git cannot push to origin: %s", msg)
+		what := "git cannot push to origin"
+		if diagnostics {
+			what += ": " + msg
+		}
+		add(false, login+", with write access", "%s", what)
 	} else {
 		// A server can accept receive-pack but reject the actual update.
 		// Without an actual write, a successful dry run does not prove permission.
@@ -137,7 +155,11 @@ func CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
 	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 	defer cancel()
 	if gh, err := forge.PushAccessEnv(ctx, repo, env); err != nil {
-		add(false, "gh auth login there, with an account that can push to "+gh, "%v", err)
+		what := "gh cannot verify push access to " + gh
+		if diagnostics {
+			what = err.Error()
+		}
+		add(false, "gh auth login there, with an account that can push to "+gh, "%s", what)
 	}
 	return out
 }

@@ -1,8 +1,9 @@
 package web
 
 // The control commands (docs/web-protocol.md, Control): what pitwall ls
-// --json, read, scrollback, wait, new, split, send, prompt and the tab
-// commands do, for programs on the daemon's own socket. Addresses resolve with the CLI's own code in internal/control;
+// --json, read, scrollback, wait, new, split, send, prompt, the tab
+// commands, worktree new, queue and adopt do, for programs on the daemon's
+// own socket, for tabs on this machine only. Addresses resolve with the CLI's own code in internal/control;
 // the request names its session, since the daemon's environment is not the
 // caller's. The TCP listeners leave Control nil and serve none of them.
 
@@ -27,6 +28,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/progstatus"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -58,10 +60,14 @@ type Control interface {
 	OpenPane(m proto.OpenPane, env []string) (string, error)
 	// NewTab is Do for m, and returns the new tab's id.
 	NewTab(ctx context.Context, m proto.NewTab) (string, error)
+	// CheckStart is what would stop the worker m describes from starting
+	// on this machine, or with Warn set, what it would start without.
+	CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem
 }
 
 var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane",
-	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus"}
+	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus",
+	"worktreeNew", "queueAdd", "queueDrop", "queueList", "hostCheck", "adopt"}
 
 // The control limits. Vars for tests.
 var (
@@ -672,6 +678,18 @@ func (s *Server) drive(c *conn, typ, id string, msg []byte) {
 		App        string   `json:"app"`
 		Progress   *int     `json:"progress"`
 		Message    string   `json:"message"`
+		Repo       string   `json:"repo"`
+		From       string   `json:"from"`
+		Branch     string   `json:"branch"`
+		PR         int      `json:"pr"`
+		Lane       string   `json:"lane"`
+		Clone      string   `json:"clone"`
+		At         string   `json:"at"`
+		Every      string   `json:"every"`
+		Worktree   string   `json:"worktree"`
+		Task       string   `json:"task"`
+		IDs        []string `json:"ids"`
+		All        bool     `json:"all"`
 	}
 	err := decode(msg, &r)
 	if err == nil {
@@ -682,7 +700,26 @@ func (s *Server) drive(c *conn, typ, id string, msg []byte) {
 		return
 	}
 	var data map[string]any
+	note := "" // a problem with a tab that did open
 	switch typ {
+	case "worktreeNew":
+		data, note, err = s.worktreeNew(ctx, st, r.Repo, r.Name, r.Session, r.ParentPane, r.Preset, r.Lane, r.Cmd, r.Guard, r.From, r.Branch, r.PR)
+	case "queueAdd":
+		err = s.queueAdd(ctx, st, r.Session, r.Dir, r.Preset, r.Model, r.At, r.Every, r.Worktree, r.Cmd)
+	case "queueList":
+		var sess model.Session
+		if sess, err = pickSession(st, r.Session, control.Caller{}); err == nil {
+			data = map[string]any{"session": sessionData(sess), "tasks": queueRows(st, sess.ID)}
+		}
+	case "queueDrop":
+		var t model.Task
+		if t, err = queuedTask(st, r.Session, r.Task); err == nil {
+			err = s.Control.Do(ctx, proto.DropTask{ID: t.ID})
+		}
+	case "hostCheck":
+		data, err = s.hostCheck(ctx, r.Dir, r.Repo, r.Clone, r.Preset, r.Cmd, r.Guard)
+	case "adopt":
+		data, err = s.adopt(ctx, st, r.Session, r.Tab, r.IDs, r.All)
 	case "newTab":
 		data, err = s.newTab(ctx, st, r.Dir, r.Name, r.Session, r.Preset, r.Model, r.ParentPane, r.StartID, r.Cmd, r.Guard, r.Detached)
 	case "splitPane":
@@ -780,23 +817,33 @@ func (s *Server) drive(c *conn, typ, id string, msg []byte) {
 			err = s.Control.Do(ctx, proto.AgentEvent{Pane: p.ID, Provider: model.Provider("report"), Payload: payload})
 		}
 	}
+	if err == nil && note != "" {
+		c.reply(ok(id, note, data))
+		return
+	}
 	c.reply(answer(id, data, err))
 }
 
 // driveFields are the keys each drive command takes besides type and id;
 // decode refuses others for all of them, onlyFields for this one.
 var driveFields = map[string][]string{
-	"newTab":     {"dir", "cmd", "name", "detached", "preset", "model", "guard", "parentPane", "session", "startId"},
-	"splitPane":  {"tab", "session", "down", "cmd"},
-	"sendPane":   {"pane", "session", "text", "fromPane"},
-	"promptPane": {"pane", "session", "text", "wait", "timeoutMs"},
-	"killTab":    {"tab", "session"},
-	"renameTab":  {"tab", "session", "title"},
-	"detachTab":  {"tab", "session"},
-	"focusTab":   {"tab", "session"},
-	"tabNew":     {"pane", "session"},
-	"tabClose":   {"pane", "session"},
-	"setStatus":  {"pane", "session", "text", "state", "app", "progress", "message"},
+	"newTab":      {"dir", "cmd", "name", "detached", "preset", "model", "guard", "parentPane", "session", "startId"},
+	"splitPane":   {"tab", "session", "down", "cmd"},
+	"sendPane":    {"pane", "session", "text", "fromPane"},
+	"promptPane":  {"pane", "session", "text", "wait", "timeoutMs"},
+	"killTab":     {"tab", "session"},
+	"renameTab":   {"tab", "session", "title"},
+	"detachTab":   {"tab", "session"},
+	"focusTab":    {"tab", "session"},
+	"tabNew":      {"pane", "session"},
+	"tabClose":    {"pane", "session"},
+	"setStatus":   {"pane", "session", "text", "state", "app", "progress", "message"},
+	"worktreeNew": {"repo", "name", "session", "parentPane", "from", "branch", "pr", "preset", "lane", "cmd", "guard"},
+	"queueAdd":    {"session", "dir", "cmd", "preset", "model", "at", "every", "worktree"},
+	"queueList":   {"session"},
+	"queueDrop":   {"session", "task"},
+	"hostCheck":   {"dir", "repo", "clone", "cmd", "preset", "guard"},
+	"adopt":       {"tab", "session", "ids", "all"},
 }
 
 // onlyFields refuses a key of msg that command typ does not take.
@@ -1043,4 +1090,233 @@ func (s *Server) promptPane(ctx context.Context, c *conn, id, pane, text string,
 		}
 		st = s.Control.State()
 	}
+}
+
+// worktreeNew opens a tab in a new worktree of the repo at repo, as
+// pitwall worktree new run there does, and answers its ids. A lane whose
+// workers start on another host is remote: this daemon starts nothing
+// elsewhere. note is a setup problem of a tab that opened.
+func (s *Server) worktreeNew(ctx context.Context, st model.State, repo, name, session, parentPane, preset, lane string, cmd []string, guarded bool, from, branch string, pr int) (data map[string]any, note string, err error) {
+	switch {
+	case !filepath.IsAbs(repo):
+		return nil, "", ctlErr{"invalid", "repo must be an absolute path"}
+	case strings.TrimSpace(name) == "":
+		return nil, "", ctlErr{"invalid", "name is required: the worktree's folder and branch"}
+	case parentPane != "" && !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == parentPane }):
+		return nil, "", ctlErr{"not-found", fmt.Sprintf("no pane %s", parentPane)}
+	}
+	settings := s.Control.Settings()
+	if lane != "" {
+		var host string
+		if preset, cmd, host, err = control.Lane(settings, lane, preset, cmd); err != nil {
+			return nil, "", ctlErr{"invalid", err.Error()}
+		}
+		if host != "" {
+			return nil, "", ctlErr{"remote", fmt.Sprintf("lane %s starts its workers on %s: run pitwall worktree new --lane %s, or connect to that host's socket", lane, host, lane)}
+		}
+	}
+	caller := control.Caller{Pane: parentPane}
+	cmd, vars, err := control.Launch(settings, preset, guarded || control.WorkerGuard(settings, caller, cmd, preset), cmd)
+	if err != nil {
+		return nil, "", ctlErr{"invalid", err.Error()}
+	}
+	root, err := control.MainRoot(ctx, repo)
+	if err != nil {
+		return nil, "", ctlErr{"invalid", fmt.Sprintf("%s: %v", repo, err)}
+	}
+	f, err := control.WorktreeFrom(ctx, root, from, branch, pr)
+	if err != nil {
+		return nil, "", ctlErr{"invalid", err.Error()}
+	}
+	msg := proto.NewWorkspace{Name: name, From: f, Cmd: cmd, Env: vars, ParentPane: parentPane, Lane: lane, ID: newStartID()}
+	if parentPane != "" {
+		msg.Root = root // the worktree joins the parent's group, as from that pane
+	} else {
+		sess, err := pickSession(st, session, caller)
+		if err != nil && (session != "" || len(st.Sessions) > 0) {
+			return nil, "", err // with no session open, the daemon makes one
+		}
+		group := func(st model.State) *model.Project {
+			for i, p := range st.Projects {
+				if (sess.ID == "" || p.SessionID == sess.ID) && p.Kind == model.ProjectGit && p.Root == root {
+					return &st.Projects[i]
+				}
+			}
+			return nil
+		}
+		p := group(st)
+		if p == nil {
+			if err := s.Control.Do(ctx, proto.AddProject{Path: root, SessionID: sess.ID}); err != nil {
+				return nil, "", err
+			}
+			if p = group(s.Control.State()); p == nil {
+				return nil, "", ctlErr{"conflict", fmt.Sprintf("pitwall did not group %s as a git repository", root)}
+			}
+		}
+		msg.ProjectID = p.ID
+	}
+	err = s.Control.Do(ctx, msg)
+	st = s.Control.State()
+	w := st.Workspace(msg.ID)
+	if w == nil {
+		if err == nil {
+			err = ctlErr{"conflict", "the worktree's tab did not open"}
+		}
+		return nil, "", err
+	}
+	data = map[string]any{"tab": w.ID}
+	if p := control.MainPane(control.TabPanes(st, *w)); p != nil {
+		data["pane"] = p.ID
+	}
+	if err != nil {
+		note = err.Error() // the tab opened; its setup had a problem
+	}
+	return data, note, nil
+}
+
+// queueAdd queues cmd, or a preset's agent with cmd, to run in dir, as
+// pitwall queue add does.
+func (s *Server) queueAdd(ctx context.Context, st model.State, session, dir, preset, modelName, at, every, worktree string, cmd []string) error {
+	if !filepath.IsAbs(dir) {
+		return ctlErr{"invalid", "dir must be an absolute path"}
+	}
+	next, repeat, err := model.ParseTaskSchedule(at, every, time.Now())
+	if err != nil {
+		return ctlErr{"invalid", err.Error()}
+	}
+	var vars []string
+	if len(cmd) > 0 || preset != "" {
+		if cmd, vars, err = control.Launch(s.Control.Settings(), preset, false, cmd); err != nil {
+			return ctlErr{"invalid", err.Error()}
+		}
+	}
+	if cmd, err = control.WithModel(cmd, modelName); err != nil {
+		return ctlErr{"invalid", err.Error()}
+	}
+	if len(cmd) == 0 {
+		return ctlErr{"invalid", "a task needs cmd or preset"}
+	}
+	sess, err := pickSession(st, session, control.Caller{})
+	if err != nil {
+		return err
+	}
+	return s.Control.Do(ctx, proto.NewTask{Task: model.Task{SessionID: sess.ID, Dir: dir, Cmd: cmd, Env: vars, NextStart: next, Repeat: repeat, Worktree: worktree, FreshWorktree: worktree != ""}, Queue: true})
+}
+
+// queueRows are session's queued tasks as pitwall queue ls lists them,
+// with a title, never the command line or its environment.
+func queueRows(st model.State, session string) []map[string]any {
+	rows := []map[string]any{}
+	for i, t := range control.Queued(st, session) {
+		group := ""
+		if p := slices.IndexFunc(st.Projects, func(p model.Project) bool { return p.ID == t.GroupID }); t.GroupID != "" && p >= 0 {
+			group = st.Projects[p].Name
+		}
+		var next any
+		if !t.NextStart.IsZero() {
+			next = t.NextStart.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, map[string]any{
+			"n": i + 1, "id": t.ID, "title": t.Title(), "dir": t.Dir, "group": group,
+			"worktree": t.Worktree, "freshWorktree": t.FreshWorktree, "branch": t.Branch,
+			"nextStart": next, "repeatMs": t.Repeat.Milliseconds(),
+		})
+	}
+	return rows
+}
+
+// queuedTask is the queued task an id from queueList names, or its number
+// there, which needs session while more than one session is open.
+func queuedTask(st model.State, session, task string) (model.Task, error) {
+	if i := slices.IndexFunc(st.Tasks, func(t model.Task) bool { return t.ID == task }); task != "" && i >= 0 {
+		return st.Tasks[i], nil
+	}
+	if session == "" && len(st.Sessions) > 1 {
+		return model.Task{}, ctlErr{"invalid", fmt.Sprintf("%d sessions are open: name one in session, or give the task's id", len(st.Sessions))}
+	}
+	sess, err := pickSession(st, session, control.Caller{})
+	if err != nil {
+		return model.Task{}, err
+	}
+	t, err := control.QueuedTask(control.Queued(st, sess.ID), task)
+	if err != nil {
+		return model.Task{}, ctlErr{"not-found", err.Error()}
+	}
+	return t, nil
+}
+
+// hostCheck answers what would stop a worker that newTab or worktreeNew
+// starts with these fields from starting on this machine, as the check
+// pitwall new --host asks a host for.
+func (s *Server) hostCheck(ctx context.Context, dir, repo, clone, preset string, cmd []string, guarded bool) (map[string]any, error) {
+	for _, p := range []string{dir, repo} {
+		if p != "" && p != "~" && !filepath.IsAbs(p) && !strings.HasPrefix(p, "~/") {
+			return nil, ctlErr{"invalid", "dir and repo are absolute paths, or start with ~/ for the daemon's home folder"}
+		}
+	}
+	cmd, vars, err := control.Launch(s.Control.Settings(), preset, guarded, cmd)
+	if err != nil {
+		return nil, ctlErr{"invalid", err.Error()}
+	}
+	if len(cmd) == 0 && repo == "" {
+		return nil, ctlErr{"invalid", "hostCheck needs cmd, preset or repo"}
+	}
+	problems := []map[string]any{}
+	for _, p := range s.Control.CheckStart(ctx, proto.HostCheck{Cmd: cmd, Env: vars, Repo: repo, Clone: clone, Cwd: dir}) {
+		problems = append(problems, map[string]any{"what": logs.Redact(p.What), "fix": logs.Redact(p.Fix), "warn": p.Warn})
+	}
+	return map[string]any{"problems": problems}, nil
+}
+
+// adopt makes tab the parent of orphans of its session on this machine,
+// the ones ids names or all of them, as pitwall adopt run in that tab does.
+// A worker on another host is remote, and all with one changes nothing.
+func (s *Server) adopt(ctx context.Context, st model.State, session, addr string, ids []string, all bool) (map[string]any, error) {
+	if (len(ids) > 0) == all {
+		return nil, ctlErr{"invalid", "adopt takes ids or all"}
+	}
+	tab, err := resolveTab(st, session, addr)
+	if err != nil {
+		return nil, err
+	}
+	orphans := control.Orphans(st, tab.SessionID)
+	var picked []string
+	if all {
+		if sess := st.Session(tab.SessionID); sess != nil {
+			for _, w := range sess.Workers {
+				if w.Lost == "" && st.Workspace(w.Parent) == nil {
+					return nil, ctlErr{"remote", fmt.Sprintf("@%s is on %s: adopt it with pitwall adopt, or give ids of this machine's orphans", w.ID, w.Host)}
+				}
+			}
+		}
+		for _, o := range orphans {
+			if o.ID != tab.ID && !st.AncestorOf(o.ID, tab.ID) { // the daemon refuses a loop
+				picked = append(picked, o.ID)
+			}
+		}
+	}
+	for _, id := range ids {
+		id = strings.TrimPrefix(id, "@")
+		switch {
+		case id == tab.ID:
+			return nil, ctlErr{"invalid", "a tab cannot adopt itself"}
+		case remoteHost(st, "@"+id) != "":
+			return nil, ctlErr{"remote", fmt.Sprintf("@%s is on %s: adopt it with pitwall adopt", id, remoteHost(st, "@"+id))}
+		case !slices.ContainsFunc(orphans, func(w model.Workspace) bool { return w.ID == id }):
+			return nil, ctlErr{"not-found", fmt.Sprintf("@%s is not an orphan of this session (see listTabs with orphans)", id)}
+		}
+		picked = append(picked, id)
+	}
+	if len(picked) == 0 {
+		return nil, ctlErr{"not-found", "no orphans to adopt (see listTabs with orphans)"}
+	}
+	for i, id := range picked {
+		if err := s.Control.Do(ctx, proto.Reparent{WorkspaceID: id, ParentTab: tab.ID}); err != nil {
+			if i > 0 {
+				err = ctlErr{"conflict", fmt.Sprintf("adopted @%s, then @%s: %v", strings.Join(picked[:i], ", @"), id, err)}
+			}
+			return nil, err
+		}
+	}
+	return map[string]any{"adopted": picked}, nil
 }

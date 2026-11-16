@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/gitenv"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
@@ -226,6 +227,7 @@ func parseConfig(out []byte) ([]configEntry, error) {
 // exit status 1 as an answer, such as no such ref, which a failed read is not.
 func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	childproc.Bound(cmd)
 	nowindow.Set(cmd)
 	cmd.Env = gitenv.Clean(env)
 	var stdout, stderr bytes.Buffer
