@@ -266,6 +266,12 @@ cancel. pitwall queues your text and types it, as your reply, the next time
 the agent waits for input, so choose No in the dialog yourself. A notice says
 when the text waits.
 
+A working agent that fails 5 calls in a row with the same error, as the
+Agent errors page groups them, shows **same error 5×** on its row in place
+of the time, with the count going up and the error in its hover card. It is
+probably retrying something that will not work. A successful call, the end
+of the turn or a key you type in the pane clears it.
+
 A working agent whose screen has not changed for 20 minutes shows
 **quiet 20m** on its row in place of the time, and in its hover card. An
 agent can hang mid-turn, and Gemini CLI never reports a failed turn, so

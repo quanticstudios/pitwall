@@ -45,7 +45,12 @@ type Tab struct {
 	// QuietSince is when the working agent's screen last changed, once
 	// it has been still for [agents] quiet_after; null otherwise.
 	QuietSince *time.Time `json:"quiet_since"`
-	Status     string     `json:"status"` // the line pitwall status set
+	// Repeats is how many failed calls in a row the working agent made
+	// with one error signature, once that reaches 5; 0 otherwise.
+	// Repeating is that signature, "" with Repeats 0.
+	Repeats   int    `json:"repeats"`
+	Repeating string `json:"repeating"`
+	Status    string `json:"status"` // the line pitwall status set
 	// Host is the [[hosts]] name of the machine the tab runs on, "" for
 	// this one. A tab there has N 0, so "#$n" never reaches a tab here.
 	Host string `json:"host"`
@@ -120,6 +125,9 @@ func Rows(state model.State, session string, only map[string]bool, where func(mo
 			for _, a := range state.Activities {
 				if a.PaneID == p.ID && !a.QuietSince.IsZero() {
 					t.QuietSince = &a.QuietSince
+				}
+				if a.PaneID == p.ID {
+					t.Repeats, t.Repeating = a.Repeats, a.Repeating
 				}
 			}
 		}

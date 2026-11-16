@@ -122,3 +122,67 @@ func TestChatErrorsKeepTab(t *testing.T) {
 		t.Errorf("chat error %+v", e)
 	}
 }
+
+// TestRepeatedError: 5 failed calls in a row with one signature flag a
+// working pane; a success, another error, a key from the user and the end
+// of the turn each clear it.
+func TestRepeatedError(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Path: "/home/u/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/home/u/repo"}},
+	}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The host differs each time; the signature masks it.
+	fail := func(n int) {
+		for i := range n {
+			hookJSON(t, d, `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/home/u/repo","hook_event_name":"PostToolUseFailure","tool_name":"WebFetch","tool_input":{"url":"https://example.com/`+string(rune('a'+i))+`"},"error":"Claude Code is unable to fetch from example.com/`+string(rune('a'+i))+`"}`)
+		}
+	}
+	repeats := func(want int) {
+		t.Helper()
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for _, a := range d.attended() {
+			if a.PaneID != "a" {
+				continue
+			}
+			if a.Repeats != want || (want > 0) != (a.Repeating != "") {
+				t.Fatalf("state %s, repeats %d %q, want %d", a.State, a.Repeats, a.Repeating, want)
+			}
+			return
+		}
+		if want > 0 {
+			t.Fatal("no activity")
+		}
+	}
+	hook(t, d, "claude_user_prompt_submit")
+	fail(4)
+	repeats(0)
+	fail(1)
+	repeats(5)
+	fail(2)
+	repeats(7)
+	hook(t, d, "claude_post_tool_use")
+	repeats(0)
+
+	fail(5)
+	hookJSON(t, d, `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/home/u/repo","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"magick a.png b.png"},"error":"magick not found"}`)
+	repeats(0)
+
+	fail(5)
+	d.noteUserKey("a", []byte("y"))
+	repeats(0)
+
+	fail(5)
+	hook(t, d, "claude_stop")
+	repeats(0)
+	hook(t, d, "claude_user_prompt_submit")
+	fail(1)
+	repeats(0) // a new turn counts from 1
+}

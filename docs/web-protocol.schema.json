@@ -4143,6 +4143,8 @@
         "since",
         "pr_state",
         "quiet_since",
+        "repeats",
+        "repeating",
         "status",
         "host",
         "addr",
@@ -4214,6 +4216,13 @@
             "string",
             "null"
           ]
+        },
+        "repeats": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repeating": {
+          "type": "string"
         },
         "status": {
           "type": "string"

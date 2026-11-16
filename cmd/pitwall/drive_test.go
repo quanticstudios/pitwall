@@ -147,11 +147,12 @@ func TestCLIListJSON(t *testing.T) {
 	st.PRs = map[string]model.PR{"w": {Number: 7, State: model.PROpen, Reason: model.ReasonChecksFailing}}
 	st.Workspaces[0].Status = "CI 3/7"
 	st.Activities[0].QuietSince = time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	st.Activities[0].Repeats, st.Activities[0].Repeating = 6, "magick not found"
 	fakeCLI(t, cliExchange{state: st})
 	code, out, stderr := cliOutput("ls", "--json")
 	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":2,"detached":false,` +
 		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"queued":0,"since":"2026-01-02T03:04:05Z"},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4,"queued":0,"since":null}],` +
-		`"parent":"","since":"2026-01-02T03:04:05Z","pr_state":"checks_failing","quiet_since":"2026-10-26T12:00:00Z","status":"CI 3/7","host":"","addr":"#1","stale":false}]` + "\n"
+		`"parent":"","since":"2026-01-02T03:04:05Z","pr_state":"checks_failing","quiet_since":"2026-10-26T12:00:00Z","repeats":6,"repeating":"magick not found","status":"CI 3/7","host":"","addr":"#1","stale":false}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
 	}

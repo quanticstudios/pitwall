@@ -442,6 +442,7 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		}
 	}()
 	d.mail.keyAt[pane] = time.Now()
+	d.dropRepeat(pane)
 	if draftKey { // a reply or an answer from the phone leaves no draft
 		if !d.mail.drafting[pane] {
 			d.mail.drafting[pane] = true

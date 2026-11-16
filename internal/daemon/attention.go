@@ -256,7 +256,8 @@ func (d *Daemon) pruneNotices() {
 // where no agent owns the pane (programActivity), its OSC notification in
 // place of its activity, Unseen set on each needs-you activity that
 // changed since its pane was last seen, Resumes on each a usage limit
-// stopped, and QuietSince on each working one whose screen stays still.
+// stopped, QuietSince on each working one whose screen stays still, and
+// Repeats on each working one that keeps failing the same way.
 // Callers hold d.mu.
 func (d *Daemon) attended() []model.Activity {
 	out := slices.Clone(d.st.Activities)
@@ -305,6 +306,9 @@ func (d *Daemon) attended() []model.Activity {
 		}
 		if q := d.quiet[out[i].PaneID]; q != nil && q.shown && out[i].State == model.StateWorking {
 			out[i].QuietSince = q.since
+		}
+		if r := d.repeats[out[i].PaneID]; r.n >= repeatAfter && out[i].State == model.StateWorking {
+			out[i].Repeats, out[i].Repeating = r.n, r.sig
 		}
 	}
 	return out

@@ -54,6 +54,12 @@ type Activity struct {
 	// QuietSince is when a working agent's screen last changed, once it
 	// has been still for [agents] quiet_after; zero otherwise.
 	QuietSince time.Time
+	// Repeats is how many failed calls in a row a working agent made with
+	// one error signature (errlog.Signature), once that reaches 5; 0
+	// otherwise. Repeating is that signature. Set by the daemon for
+	// clients.
+	Repeats   int
+	Repeating string
 	// Options are the labels a hook named for a question with one
 	// single-choice answer.
 	Options []string

@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"image/color"
@@ -240,7 +241,7 @@ func cardFor(v *view, ws model.Workspace) card {
 		c.pr = &pr
 	}
 	if a := v.activity[ws.ID]; a != nil {
-		c.state, c.detail, c.quiet = a.State, clampDetail(a.Detail), QuietText(v.now, a)
+		c.state, c.detail, c.quiet = a.State, clampDetail(cmp.Or(a.Repeating, a.Detail)), QuietText(v.now, a)
 		// A pill on the row may cut its option short.
 		if a.State == model.StateAwaitingInput && len(a.Buttons) > 0 {
 			c.detail = clampDetail(a.Detail + " " + strings.Join(a.Buttons, " / "))

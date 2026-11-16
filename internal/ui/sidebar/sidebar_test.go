@@ -164,6 +164,11 @@ func TestQuietText(t *testing.T) {
 	if got := QuietText(now, nil); got != "" {
 		t.Errorf("no activity: %q", got)
 	}
+	// A repeated error says more than a still screen.
+	a := &model.Activity{State: model.StateWorking, QuietSince: now.Add(-time.Hour), Repeats: 7, Repeating: "magick not found"}
+	if got := QuietText(now, a); got != "same error 7×" {
+		t.Errorf("repeats: %q", got)
+	}
 }
 
 func TestStateColors(t *testing.T) {

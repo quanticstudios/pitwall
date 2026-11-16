@@ -170,7 +170,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 `""`.
 
 ```json
-{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z"}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z","pr_state":"checks_failing","quiet_since":null,"status":"","host":"","addr":"#2","stale":false}
+{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z"}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z","pr_state":"checks_failing","quiet_since":null,"repeats":0,"repeating":"","status":"","host":"","addr":"#2","stale":false}
 ```
 
 `agent` is the agent's name (`claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
@@ -578,6 +578,10 @@ or `pitwall status 3 -- "waiting on review"` for tab 3. Without text, or
 with `--clear`, it removes the line. `ls --json` gives it as `status`, and
 `quiet_since` is when a working agent's screen last changed once it has
 stayed still for `[agents] quiet_after` (20 minutes), else `null`.
+`repeats` counts a working agent's failed calls in a row that share one
+error signature once there are 5, and `repeating` is that signature; the
+row then says `same error 5×`. A successful call, the end of the turn or
+a key from the user sets `repeats` back to 0.
 
 A long build or test run you start can report its progress on your tab:
 have its script call `pitwall status working --app make --progress 40`,
