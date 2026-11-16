@@ -26,6 +26,8 @@ takes `--dry-run`.
 
 - `pitwall --host`, `[[hosts]]` and `worktree new --host` work on Windows. Its ssh cannot share a connection, so each use is its own ssh, and a dedicated `ssh -N -L` forwards the host's socket to a loopback TCP port and exits with the window. An ssh the window starts has no console, so logins there need a key or an agent, not a password.
 - When the disk fills mid-write, the Agent errors and Timing logs no longer glue the next record onto the cut one. Settings, Agent errors and Timing also read back the whole record from lines a full disk already broke this way, which they used to skip.
+- Agent errors shows a likely fix for seven more causes: a missing Python module or program, zsh here-documents in a read-only sandbox, GitHub's API rate limit, `gh pr view` asking for deprecated project cards, a site that refuses fetches, and `pkill -f` killing the agent's own shell. On one user's log of 1,773 errors this lifts coverage from 131 to 779.
+- Agent errors shows a likely fix for seven more causes: a missing Python module or program, zsh here-documents in a read-only sandbox, GitHub's API rate limit, `gh pr view` asking for deprecated project cards, a site that refuses fetches, and `pkill -f` killing the agent's own shell with no output. On one user's log of 1,773 errors this lifts coverage from 131 to 763.
 
 ## v0.2.14
 
