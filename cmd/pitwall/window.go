@@ -247,9 +247,6 @@ var hostArgs []string
 // runHostGUI is runGUI on the daemon of an ssh host, which it starts when
 // none runs there.
 func runHostGUI(host, session string) error {
-	if runtime.GOOS == "windows" {
-		return errors.New("pitwall --host needs ssh's connection sharing (ControlMaster), which Windows' ssh lacks")
-	}
 	s, _ := config.Load()
 	r, err := newSSHHost(host, s.Hosts)
 	if err != nil {
