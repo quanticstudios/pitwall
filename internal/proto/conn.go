@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 func init() {
@@ -88,9 +90,16 @@ func (c *Conn) Send(msg any) (err error) {
 	defer c.mu.Unlock()
 	defer func() {
 		// Unsent type definitions invalidate the encoder's registry for a retry.
-		if err != nil {
-			c.Close()
+		if err == nil {
+			return
 		}
+		// A peer that is gone may have said why before it left, a version
+		// refusal for one: keep the read side so Recv still returns that.
+		if w, ok := c.c.(interface{ CloseWrite() error }); ok && errors.Is(err, syscall.EPIPE) {
+			w.CloseWrite()
+			return
+		}
+		c.Close()
 	}()
 	c.out.Reset()
 	c.out.Write([]byte{0, 0, 0, 0})

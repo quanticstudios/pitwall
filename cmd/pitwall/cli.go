@@ -101,9 +101,12 @@ func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 	if err := conn.socket.SetDeadline(time.Now().Add(wait)); err != nil {
 		return proto.StateMsg{}, err
 	}
+	// A daemon that refuses this client closes at once, so a send can fail
+	// with its reason still unread: read on, and report the reason.
+	var sendErr error
 	for _, request := range append(requests, proto.Sync{}) {
-		if err := conn.Send(request); err != nil {
-			return proto.StateMsg{}, err
+		if sendErr = conn.Send(request); sendErr != nil {
+			break
 		}
 	}
 	var daemonErr error
@@ -112,6 +115,9 @@ func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 		if err != nil {
 			if daemonErr != nil {
 				return proto.StateMsg{}, daemonErr
+			}
+			if sendErr != nil {
+				return proto.StateMsg{}, sendErr
 			}
 			return proto.StateMsg{}, err
 		}
