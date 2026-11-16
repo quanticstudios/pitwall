@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io/fs"
 	"maps"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -113,6 +114,16 @@ func ctlFail(err error) error {
 	return web.ControlError("conflict", err.Error())
 }
 
+// hostCheckTimeout bounds the entire JSON check, including local git config
+// reads and guard probes, rather than only its calls to origin and GitHub.
+var hostCheckTimeout = 30 * time.Second
+
 func (h ctlHub) CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
-	return CheckStart(ctx, m)
+	ctx, cancel := context.WithTimeout(ctx, hostCheckTimeout)
+	defer cancel()
+	problems := checkStart(ctx, m, false)
+	if err := ctx.Err(); err != nil {
+		return []proto.HostProblem{{What: "host check did not finish: " + err.Error(), Fix: "retry the check"}}
+	}
+	return problems
 }

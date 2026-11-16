@@ -121,6 +121,8 @@ func TestControlAdopt(t *testing.T) {
 	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1","ids":["w1"]}`, "invalid")
 	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1","ids":["w3"]}`, "not-found")
 	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1","ids":["@r9"]}`, "remote")
+	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1","ids":["w2","@r9"]}`, "remote")
+	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1","ids":["@r9","w2"]}`, "remote")
 	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1"}`, "invalid")
 	askLocal(t, f, c, `{"type":"adopt","id":"1","session":"main","tab":"#1","ids":["w2"],"all":true}`, "invalid")
 	askLocal(t, f, c, `{"type":"adopt","id":"1","tab":"@w3","all":true}`, "not-found") // nothing else in side

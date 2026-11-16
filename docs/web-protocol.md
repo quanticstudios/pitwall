@@ -1209,7 +1209,10 @@ starting on this machine: `cmd` or a `preset`'s agent on the daemon's
 nothing. `dir` and `repo` are absolute or start with `~/`, the daemon's
 home folder. `clone` is origin's URL for the fix of a missing `repo`.
 Each problem has `what`, a `fix` and `warn`: with `warn` the worker
-would start without it.
+would start without it. Raw git, SSH and `gh` error output is omitted, and
+credential patterns in the remaining messages are redacted. The whole
+check has a 30-second deadline, including git config reads and hook probes;
+cancelled subprocess pipes have at most one second to close.
 
 ```json
 {"type": "hostCheck", "id": "c24", "cmd": ["claude"], "guard": true, "repo": "~/src/pitwall"}

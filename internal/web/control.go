@@ -28,6 +28,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/progstatus"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -1262,7 +1263,7 @@ func (s *Server) hostCheck(ctx context.Context, dir, repo, clone, preset string,
 	}
 	problems := []map[string]any{}
 	for _, p := range s.Control.CheckStart(ctx, proto.HostCheck{Cmd: cmd, Env: vars, Repo: repo, Clone: clone, Cwd: dir}) {
-		problems = append(problems, map[string]any{"what": p.What, "fix": p.Fix, "warn": p.Warn})
+		problems = append(problems, map[string]any{"what": logs.Redact(p.What), "fix": logs.Redact(p.Fix), "warn": p.Warn})
 	}
 	return map[string]any{"problems": problems}, nil
 }
