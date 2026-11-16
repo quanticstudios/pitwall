@@ -2,8 +2,10 @@ package logs
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 )
@@ -14,8 +16,14 @@ import (
 type Rotating struct {
 	path string
 	max  int64
-	f    *os.File
+	f    file
 	size int64
+	torn bool // a cut line could not be truncated away; start the next on a new line
+}
+
+type file interface {
+	io.WriteCloser
+	Truncate(size int64) error
 }
 
 // OpenRotating opens path for appending as OpenFile does.
@@ -52,7 +60,23 @@ func (r *Rotating) Write(p []byte) (int, error) {
 			return 0, err
 		}
 	}
+	if r.torn {
+		if _, err := r.f.Write([]byte("\n")); err != nil {
+			return 0, err
+		}
+		r.size++
+		r.torn = false
+	}
 	n, err := r.f.Write(p)
+	if err != nil && n > 0 {
+		// A cut line would glue the next record onto it, and readers drop
+		// the whole line. Cut it off, or failing that end it.
+		if r.f.Truncate(r.size) != nil {
+			r.size += int64(n)
+			r.torn = true
+		}
+		return 0, err
+	}
 	r.size += int64(n)
 	return n, err
 }
@@ -65,7 +89,9 @@ func (r *Rotating) Close() error {
 }
 
 // ReadJSONL returns the lines of path.1 and path, oldest first, that
-// decode as T and that keep accepts. Missing files are no lines.
+// decode as T and that keep accepts. Missing files are no lines. A line
+// holding a cut record and then a whole one, as a full disk left them
+// before pitwall truncated failed writes, yields the whole one.
 func ReadJSONL[T any](path string, keep func(T) bool) ([]T, error) {
 	var out []T
 	for _, p := range []string{path + ".1", path} {
@@ -79,8 +105,7 @@ func ReadJSONL[T any](path string, keep func(T) bool) ([]T, error) {
 		sc := bufio.NewScanner(f)
 		sc.Buffer(nil, 1<<20)
 		for sc.Scan() {
-			var e T
-			if json.Unmarshal(sc.Bytes(), &e) == nil && keep(e) {
+			if e, ok := decodeLine[T](sc.Bytes()); ok && keep(e) {
 				out = append(out, e)
 			}
 		}
@@ -91,4 +116,26 @@ func ReadJSONL[T any](path string, keep func(T) bool) ([]T, error) {
 		}
 	}
 	return out, nil
+}
+
+// decodeLine decodes line, or else its first suffix starting at '{' that
+// is one whole value: trailing bytes fail Unmarshal, so a nested object of
+// the whole record never matches before the record itself.
+func decodeLine[T any](line []byte) (T, bool) {
+	var e T
+	if json.Unmarshal(line, &e) == nil {
+		return e, true
+	}
+	for i := 1; i < len(line); i++ {
+		j := bytes.IndexByte(line[i:], '{')
+		if j < 0 {
+			break
+		}
+		i += j
+		var e T
+		if json.Unmarshal(line[i:], &e) == nil {
+			return e, true
+		}
+	}
+	return e, false
 }

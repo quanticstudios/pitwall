@@ -25,6 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - `pitwall --host`, `[[hosts]]` and `worktree new --host` work on Windows. Its ssh cannot share a connection, so each use is its own ssh, and a dedicated `ssh -N -L` forwards the host's socket to a loopback TCP port and exits with the window. An ssh the window starts has no console, so logins there need a key or an agent, not a password.
+- When the disk fills mid-write, the Agent errors and Timing logs no longer glue the next record onto the cut one. Settings, Agent errors and Timing also read back the whole record from lines a full disk already broke this way, which they used to skip.
 
 ## v0.2.14
 
