@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"cmp"
+	"encoding/json"
 	"slices"
 	"time"
 
@@ -21,8 +23,27 @@ func (d *Daemon) syncTurns(now time.Time) {
 			if e, ok := d.turns.Close(id, now); ok {
 				d.o.Timing.Add(e)
 			}
+			delete(d.turnCwd, id)
 		}
 	}
+}
+
+// hookTurn keeps the agent's folder for timing without changing the
+// shell's saved folder. Callers hold d.mu.
+func (d *Daemon) hookTurn(p *model.Pane, payload []byte, now time.Time) {
+	var hook struct {
+		Cwd            string          `json:"cwd"`
+		TranscriptPath json.RawMessage `json:"transcript_path"`
+		ConversationID string          `json:"conversation_id"`
+	}
+	// A Claude or Codex /side fork is outside the pane's main turn.
+	if json.Unmarshal(payload, &hook) == nil && hook.Cwd != "" && (string(hook.TranscriptPath) != "null" || hook.ConversationID != "") {
+		if d.turnCwd == nil {
+			d.turnCwd = map[string]string{}
+		}
+		d.turnCwd[p.ID] = hook.Cwd
+	}
+	d.syncTurn(p, now)
 }
 
 // syncTurn is syncTurns for one pane. Callers hold d.mu.
@@ -37,16 +58,20 @@ func (d *Daemon) syncTurn(p *model.Pane, now time.Time) {
 		delete(d.repeats, p.ID)
 	}
 	if !d.turns.Has(p.ID) && (d.live.hookAt[p.ID].IsZero() || !timelog.Running(s)) {
+		delete(d.turnCwd, p.ID)
 		return
 	}
 	for _, e := range d.turns.State(d.where(p), s, now) {
 		d.o.Timing.Add(e)
 	}
+	if !d.turns.Has(p.ID) {
+		delete(d.turnCwd, p.ID)
+	}
 }
 
 // where names p and its tab for a timing line. Callers hold d.mu.
 func (d *Daemon) where(p *model.Pane) timelog.Where {
-	w := timelog.Where{Pane: p.ID, Tab: p.WorkspaceID, Provider: string(p.Provider), Cwd: p.Cwd}
+	w := timelog.Where{Pane: p.ID, Tab: p.WorkspaceID, Provider: string(p.Provider), Cwd: cmp.Or(d.turnCwd[p.ID], p.Cwd)}
 	if ws := d.workspace(p.WorkspaceID); ws != nil {
 		w.Project, w.Name, w.Branch = ws.ProjectID, ws.Name, ws.Branch
 	}
