@@ -5,6 +5,11 @@
     control.py [-s SESSION] read PANE               print a pane's screen
     control.py [-s SESSION] wait PANE UNTIL [MS]    wait until done, idle,
                                                     blocked or exit
+    control.py [-s SESSION] new DIR [-- CMD...]     open a tab, print its
+                                                    tab and pane ids
+    control.py [-s SESSION] prompt PANE TEXT [--wait]
+                                                    type a prompt; with
+                                                    --wait print the reply
 
 PANE is an address as pitwall read takes it: #1, 1.2, a title, or @ and a
 pane id. Linux only; see docs/web-protocol.md, Control. Standard library.
@@ -56,11 +61,13 @@ class Pitwall:
 def main():
     p = argparse.ArgumentParser(description="Drive pitwall over $PITWALL_SOCKET.")
     p.add_argument("-s", dest="session", help="the session, while more than one is open")
-    p.add_argument("command", nargs="?", choices=["read", "wait"])
-    p.add_argument("pane", nargs="?")
-    p.add_argument("until", nargs="?", choices=["done", "idle", "blocked", "exit"])
-    p.add_argument("ms", nargs="?", type=int)
+    p.add_argument("--wait", action="store_true", help="prompt: wait for the reply")
+    p.add_argument("command", nargs="?", choices=["read", "wait", "new", "prompt"])
+    p.add_argument("args", nargs="*")
     a = p.parse_args()
+    need = {None: (0, 0), "read": (1, 1), "wait": (2, 3), "new": (1, None), "prompt": (2, 2)}[a.command]
+    if len(a.args) < need[0] or need[1] is not None and len(a.args) > need[1]:
+        p.error(f"wrong arguments for {a.command}")
     path = os.environ.get("PITWALL_SOCKET")
     if not path:
         sys.exit("control.py: run it in a pitwall pane, or set PITWALL_SOCKET")
@@ -70,10 +77,23 @@ def main():
         for t in data["tabs"]:
             print(f"{t['addr']}\t{t['state'] or '-'}\t{t['title']}")
     elif a.command == "read":
-        print(pw.call("readPane", pane=a.pane, session=a.session, screen=True)["text"])
-    else:
-        data = pw.call("waitPane", pane=a.pane, session=a.session, until=a.until, timeoutMs=a.ms)
+        print(pw.call("readPane", pane=a.args[0], session=a.session, screen=True)["text"])
+    elif a.command == "wait":
+        until = a.args[1]
+        if until not in ("done", "idle", "blocked", "exit"):
+            p.error("UNTIL is done, idle, blocked or exit")
+        ms = int(a.args[2]) if len(a.args) > 2 else None
+        data = pw.call("waitPane", pane=a.args[0], session=a.session, until=until, timeoutMs=ms)
         print(json.dumps(data, separators=(",", ":")))
+    elif a.command == "new":
+        # A retry with the same startId never opens a second tab.
+        start = os.urandom(8).hex()
+        data = pw.call("newTab", dir=os.path.abspath(a.args[0]), cmd=a.args[1:] or None, session=a.session, startId=start)
+        print(f"{data['tab']}\t{data.get('pane', '')}")
+    else:
+        data = pw.call("promptPane", pane=a.args[0], text=a.args[1], session=a.session, wait=a.wait or None)
+        if a.wait:
+            print(data.get("reply") or f"{data['outcome']}: {data.get('question', '')}")
 
 
 if __name__ == "__main__":

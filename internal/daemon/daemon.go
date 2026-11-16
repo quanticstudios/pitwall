@@ -541,6 +541,30 @@ func NewWith(o Options) (*Daemon, error) {
 
 // fromState is a daemon holding st and no panes.
 func fromState(o Options, st model.State) *Daemon {
+	st.Starts = maps.Clone(st.Starts)
+	// Older state has only live tabs and the bounded reopen archive.
+	// Retain those identities before startup can prune either of them.
+	remember := func(w model.Workspace, name string) {
+		if !w.ClientID {
+			return
+		}
+		if st.Starts == nil {
+			st.Starts = map[string]model.TabStart{}
+		}
+		if _, ok := st.Starts[w.ID]; !ok {
+			st.Starts[w.ID] = model.TabStart{SessionID: w.SessionID, SessionName: name, Parent: w.Parent}
+		}
+	}
+	for _, w := range st.Workspaces {
+		name := ""
+		if s := st.Session(w.SessionID); s != nil {
+			name = s.Name
+		}
+		remember(w, name)
+	}
+	for _, c := range st.Closed {
+		remember(c.Tab, c.Session)
+	}
 	st.DevProxyPort = 0 // A handoff's listener belongs to the sending daemon.
 	if o.StatsInterval == 0 {
 		o.StatsInterval = 30 * time.Second
@@ -814,7 +838,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		// waits for it: closing it after Commit would read as the new
 		// daemon dying and resume these panes under two readers.
 		stop()
-		d.serveHandoff(nc, conn)
+		d.serveHandoff(nc, conn, hello.Level)
 		return
 	}
 	// A hook of another Version is served: its AgentEvent never changes.
@@ -1421,6 +1445,18 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result
 			result = errors.Join(result, d.removeWorktree(cleanup, owned, path, model.PortBlock{}, fresh, true, true, ""))
 		}
 	}()
+	if err := ctx.Err(); err != nil {
+		failedStart = true
+		return err
+	}
+	if d.closing || d.handedOff {
+		failedStart = true
+		return errors.New("daemon is closing")
+	}
+	if d.st.Session(p.SessionID) == nil {
+		failedStart = true
+		return fmt.Errorf("no session %s", p.SessionID)
+	}
 	if m.ID != "" {
 		// why: the same id may have started while the worktree was made.
 		if started, err := d.startedTab(m.ID, p.SessionID, m.ParentTab); started || err != nil {
@@ -1482,6 +1518,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) (result
 			}
 		}
 	}
+	d.rememberStart(w, m.ParentPane)
 	d.changed()
 	if err != nil {
 		return err
@@ -1615,26 +1652,33 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 }
 
 func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
+	_, err := d.openPaneEnv(m, path, nil)
+	return err
+}
+
+// openPaneEnv opens the pane m asks for, with the scrollback in path when
+// set and extra added to its environment, and returns its id.
+func (d *Daemon) openPaneEnv(m proto.OpenPane, path string, extra []string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(m.WorkspaceID)
 	if w == nil {
-		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+		return "", fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
 	if w.Chat != "" {
-		return errors.New("a chat tab has no panes")
+		return "", errors.New("a chat tab has no panes")
 	}
 	if w.Monitor {
-		return errors.New("a Monitor tab has no panes")
+		return "", errors.New("a Monitor tab has no panes")
 	}
 	var t *model.Tab
 	if ti := tabIndex(w, m.TabID); ti >= 0 {
 		t = &w.Tabs[ti]
 	} else if m.TabID != "" {
-		return fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
+		return "", fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
 	}
 	if m.Target != "" && (t == nil || !slices.Contains(layout.Panes(t.Layout), m.Target)) {
-		return fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
+		return "", fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
 	}
 	// A split opens where the pane it splits is, which a cd may have moved
 	// away from the session's folder.
@@ -1645,9 +1689,9 @@ func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
 		}
 	}
 	id := newID()
-	env := d.profileEnv(w)
+	env := append(d.profileEnv(w), extra...)
 	if err := d.start(id, m.Cmd, cwd, w.Ports, env); err != nil {
-		return err
+		return "", err
 	}
 	if path != "" {
 		d.cleanScrollback(id, d.panes[id], path)
@@ -1665,7 +1709,7 @@ func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
 		t.Layout = d.o.Split(t.Layout, m.Target, id, m.Dir)
 	}
 	d.changed()
-	return nil
+	return id, nil
 }
 
 // closePane closes a pane, and its tab and session when it was their last.
@@ -2192,6 +2236,9 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 }
 
 func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBlock, env []string, newVT vt.NewFunc) error {
+	if d.closing || d.handedOff {
+		return errors.New("daemon is closing")
+	}
 	if err := guardGate(cmd, env, cwd); err != nil {
 		err = fmt.Errorf("%w: %v", errUnguarded, err)
 		log.Printf("pane %s: %v", id, err)
@@ -2662,10 +2709,11 @@ func (d *Daemon) saveState(history bool) error {
 	return nil
 }
 
-// saveSnapshot is snapshot with each live pane's current directory, so a
-// restart relaunches the shell where the user left it.
+// saveSnapshot is snapshot with the start history and each live pane's
+// current directory, so a restart relaunches the shell where the user left it.
 func (d *Daemon) saveSnapshot() model.State {
 	s := d.snapshot()
+	s.Starts = maps.Clone(d.st.Starts)
 	s.Activities = append(s.Activities, d.restoreActivities()...)
 	for i, p := range s.Panes {
 		if h := d.panes[p.ID]; h != nil && !p.Exited {
@@ -2720,6 +2768,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Tasks = slices.Clone(s.Tasks)
 	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
 	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place
+	s.Starts = nil                    // grows with every JSON start, and no client reads it
 	s.Forms = slices.Clone(s.Forms)
 	for i := range s.Closed {
 		s.Closed[i].Pane.History = nil

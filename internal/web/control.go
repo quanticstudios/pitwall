@@ -1,25 +1,35 @@
 package web
 
 // The control commands (docs/web-protocol.md, Control): what pitwall ls
-// --json, read, scrollback and wait do, for programs on the daemon's own
-// socket. Addresses resolve with the CLI's own code in internal/control;
+// --json, read, scrollback, wait, new, split, send, prompt and the tab
+// commands do, for programs on the daemon's own socket. Addresses resolve with the CLI's own code in internal/control;
 // the request names its session, since the daemon's environment is not the
 // caller's. The TCP listeners leave Control nil and serve none of them.
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/control"
+	"github.com/quanticstudios/pitwall/internal/guard"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/progstatus"
+	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
 // Control is what the control commands read; the daemon implements it.
@@ -37,9 +47,21 @@ type Control interface {
 	// the daemon's lock, so neither blocks; exited runs before the state
 	// without the pane can be read.
 	Watch(changed func(), exited func(pane string, code int)) (stop func())
+	// Settings is the user's config: the presets and [agents].
+	Settings() config.Settings
+	// Do runs req, a request as a gob client sends it (internal/proto),
+	// as the daemon runs it for that client. Its error is a
+	// ControlError: refused when the guard stopped a start.
+	Do(ctx context.Context, req any) error
+	// OpenPane is Do for m, with env added to the new pane's
+	// environment; it returns the pane's id.
+	OpenPane(m proto.OpenPane, env []string) (string, error)
+	// NewTab is Do for m, and returns the new tab's id.
+	NewTab(ctx context.Context, m proto.NewTab) (string, error)
 }
 
-var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane"}
+var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane",
+	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus"}
 
 // The control limits. Vars for tests.
 var (
@@ -202,7 +224,7 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 		if bad(decode(msg, &r)) {
 			break
 		}
-		if !slices.Contains([]string{"done", "idle", "blocked", "exit"}, r.Until) || r.TimeoutMs < 0 || r.TimeoutMs > int64((1<<63-1)/time.Millisecond) {
+		if !slices.Contains([]string{"done", "idle", "blocked", "exit"}, r.Until) || badTimeout(r.TimeoutMs) {
 			c.reply(result(id, "invalid", "until is done, idle, blocked or exit, and timeoutMs must fit in a non-negative duration"))
 			break
 		}
@@ -217,34 +239,51 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 			break
 		}
 		watch.selectPane(p.ID)
-		x := s.ctlOf(c)
-		s.mu.Lock()
-		full := x.waits >= maxWaits
-		if !full {
-			x.waits++
-		}
-		s.mu.Unlock()
-		if full {
-			watch.stop()
-			c.reply(result(id, "busy", fmt.Sprintf("%d waits are pending on this connection", maxWaits)))
-			break
-		}
-		go func() {
-			defer func() {
-				s.mu.Lock()
-				x.waits--
-				s.mu.Unlock()
-			}()
-			s.waitPane(x.ctx, c, id, p.ID, r.Until, time.Duration(r.TimeoutMs)*time.Millisecond, st, watch)
-		}()
+		s.pending(c, id, watch, func(ctx context.Context) {
+			s.waitPane(ctx, c, id, p.ID, r.Until, time.Duration(r.TimeoutMs)*time.Millisecond, st, watch)
+		})
+	default:
+		s.drive(c, typ, id, msg)
 	}
 	return true
+}
+
+// badTimeout reports a timeoutMs that is negative or past a Duration.
+func badTimeout(ms int64) bool { return ms < 0 || ms > int64((1<<63-1)/time.Millisecond) }
+
+// pending runs wait in its own goroutine as one of c's pending waits, or
+// answers busy when maxWaits are pending already.
+func (s *Server) pending(c *conn, id string, watch *paneWatch, wait func(ctx context.Context)) {
+	x := s.ctlOf(c)
+	s.mu.Lock()
+	full := x.waits >= maxWaits
+	if !full {
+		x.waits++
+	}
+	s.mu.Unlock()
+	if full {
+		watch.stop()
+		c.reply(result(id, "busy", fmt.Sprintf("%d waits are pending on this connection", maxWaits)))
+		return
+	}
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			x.waits--
+			s.mu.Unlock()
+		}()
+		wait(x.ctx)
+	}()
 }
 
 // ctlErr is a failed control command's result code and message.
 type ctlErr struct{ code, msg string }
 
 func (e ctlErr) Error() string { return e.msg }
+
+// ControlError is a failed control command's result: code from the
+// results table in docs/web-protocol.md, and msg for a person.
+func ControlError(code, msg string) error { return ctlErr{code, msg} }
 
 // answer is the result for data, or for err.
 func answer(id string, data map[string]any, err error) map[string]any {
@@ -329,25 +368,41 @@ func sessionData(s model.Session) any {
 // or title needs session while more than one session is open; @ and an
 // id needs none. A tab on another host is a remote error naming it.
 func resolvePane(st model.State, name, addr string) (model.Pane, error) {
-	if addr == "" {
-		return model.Pane{}, ctlErr{"invalid", "pane is required: #N, N, TAB.N, a title or @ and an id"}
-	}
-	if host := remoteHost(st, addr); host != "" {
-		return model.Pane{}, ctlErr{"remote", fmt.Sprintf("%s is on %s: connect to that host's socket", addr, host)}
-	}
-	var id string
-	if !strings.HasPrefix(addr, "@") {
-		if name == "" && len(st.Sessions) > 1 {
-			return model.Pane{}, ctlErr{"invalid", fmt.Sprintf("%d sessions are open: name one in session to resolve %s", len(st.Sessions), addr)}
-		}
-		s, err := pickSession(st, name, control.Caller{})
-		if err != nil {
-			return model.Pane{}, err
-		}
-		id = s.ID
+	id, err := addrSession(st, name, "pane", addr)
+	if err != nil {
+		return model.Pane{}, err
 	}
 	_, p, err := control.ResolvePane(st, control.Caller{}, id, addr)
 	return p, err
+}
+
+// resolveTab finds the tab addr names, as pitwall kill does, under the
+// rules of resolvePane.
+func resolveTab(st model.State, name, addr string) (model.Workspace, error) {
+	id, err := addrSession(st, name, "tab", addr)
+	if err != nil {
+		return model.Workspace{}, err
+	}
+	return control.ResolveTab(st, control.Caller{}, id, addr)
+}
+
+// addrSession is the id of the session to resolve addr, the field what
+// of a request naming session name, in: "" for @ and an id.
+func addrSession(st model.State, name, what, addr string) (string, error) {
+	if addr == "" {
+		return "", ctlErr{"invalid", what + " is required: an address such as #1, a title, or @ and an id"}
+	}
+	if host := remoteHost(st, addr); host != "" {
+		return "", ctlErr{"remote", fmt.Sprintf("%s is on %s: connect to that host's socket", addr, host)}
+	}
+	if strings.HasPrefix(addr, "@") {
+		return "", nil
+	}
+	if name == "" && len(st.Sessions) > 1 {
+		return "", ctlErr{"invalid", fmt.Sprintf("%d sessions are open: name one in session to resolve %s", len(st.Sessions), addr)}
+	}
+	s, err := pickSession(st, name, control.Caller{})
+	return s.ID, err
 }
 
 // remoteHost is the host of the tab addr names when it is a worker on
@@ -412,6 +467,20 @@ func (w *paneWatch) selectPane(pane string) {
 	}
 }
 
+// exit looks up pane's exit code in st, else among the exits w saw, as
+// control.Wait.Step asks.
+func (w *paneWatch) exit(st model.State, pane string) func() (int, bool) {
+	return func() (int, bool) {
+		if i := slices.IndexFunc(st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
+			return st.Panes[i].ExitCode, st.Panes[i].Exited
+		}
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		code, exited := w.exits[pane]
+		return code, exited
+	}
+}
+
 // waitPane answers id once pane gets to until, as pitwall wait does, or
 // once timeout passes; nothing when ctx ends first.
 func (s *Server) waitPane(ctx context.Context, c *conn, id, pane, until string, timeout time.Duration, st model.State, watch *paneWatch) {
@@ -427,15 +496,7 @@ func (s *Server) waitPane(ctx context.Context, c *conn, id, pane, until string, 
 		if ctx.Err() != nil {
 			return
 		}
-		o := w.Step(st, pane, func() (int, bool) {
-			if i := slices.IndexFunc(st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
-				return st.Panes[i].ExitCode, st.Panes[i].Exited
-			}
-			watch.mu.Lock()
-			defer watch.mu.Unlock()
-			code, exited := watch.exits[pane]
-			return code, exited
-		})
+		o := w.Step(st, pane, watch.exit(st, pane))
 		if o.Reason != "" {
 			c.replyControl(ctx, ok(id, "", outcome(o)))
 			return
@@ -578,5 +639,408 @@ func (c *conn) queueControl(ctx context.Context, frame []byte, tabs bool) bool {
 		case <-ctx.Done():
 			return false
 		}
+	}
+}
+
+// drive runs the control commands that start and drive tabs, as pitwall
+// new, split, send, prompt, kill, rename, detach, attach, tab and status
+// do. Each start goes through control.Launch and the daemon's guard gate.
+func (s *Server) drive(c *conn, typ, id string, msg []byte) {
+	ctx := s.ctlOf(c).ctx
+	st := s.Control.State()
+	var r struct {
+		envelope
+		Session    string   `json:"session"`
+		Tab        string   `json:"tab"`
+		Pane       string   `json:"pane"`
+		Dir        string   `json:"dir"`
+		Cmd        []string `json:"cmd"`
+		Name       string   `json:"name"`
+		Detached   bool     `json:"detached"`
+		Preset     string   `json:"preset"`
+		Model      string   `json:"model"`
+		Guard      bool     `json:"guard"`
+		ParentPane string   `json:"parentPane"`
+		StartID    string   `json:"startId"`
+		Down       bool     `json:"down"`
+		Text       string   `json:"text"`
+		FromPane   string   `json:"fromPane"`
+		Wait       bool     `json:"wait"`
+		TimeoutMs  int64    `json:"timeoutMs"`
+		Title      string   `json:"title"`
+		State      string   `json:"state"`
+		App        string   `json:"app"`
+		Progress   *int     `json:"progress"`
+		Message    string   `json:"message"`
+	}
+	err := decode(msg, &r)
+	if err == nil {
+		err = onlyFields(typ, msg)
+	}
+	if err != nil {
+		c.reply(result(id, "invalid", fmt.Sprintf("%s: %v", typ, err)))
+		return
+	}
+	var data map[string]any
+	switch typ {
+	case "newTab":
+		data, err = s.newTab(ctx, st, r.Dir, r.Name, r.Session, r.Preset, r.Model, r.ParentPane, r.StartID, r.Cmd, r.Guard, r.Detached)
+	case "splitPane":
+		var w model.Workspace
+		if w, err = resolveTab(st, r.Session, r.Tab); err != nil {
+			break
+		}
+		open := proto.OpenPane{WorkspaceID: w.ID, TabID: w.ActiveTab, Dir: layout.Horizontal, Cmd: r.Cmd}
+		if r.Down {
+			open.Dir = layout.Vertical
+		}
+		for _, t := range w.Tabs {
+			if panes := layout.Panes(t.Layout); t.ID == w.ActiveTab && len(panes) > 0 {
+				open.Target = panes[len(panes)-1]
+			}
+		}
+		var env []string
+		if control.Guarded(st, w.ID) {
+			env = []string{guard.Env + "=1"} // the gate refuses what the guard cannot hook
+		}
+		var pane string
+		if pane, err = s.Control.OpenPane(open, env); err == nil {
+			data = map[string]any{"pane": pane}
+		}
+	case "sendPane":
+		var p model.Pane
+		switch p, err = resolvePane(st, r.Session, r.Pane); {
+		case err != nil:
+		case strings.TrimSpace(r.Text) == "":
+			err = ctlErr{"invalid", "text is empty"}
+		case r.FromPane != "" && !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == r.FromPane }):
+			err = ctlErr{"not-found", fmt.Sprintf("no pane %s", r.FromPane)}
+		default:
+			err = s.Control.Do(ctx, proto.Send{Pane: p.ID, From: r.FromPane, Text: r.Text})
+		}
+	case "promptPane":
+		if strings.TrimSpace(r.Text) == "" || badTimeout(r.TimeoutMs) {
+			err = ctlErr{"invalid", "text must not be empty, and timeoutMs must fit in a non-negative duration"}
+			break
+		}
+		watch := watchPane(s.Control)
+		st = s.Control.State() // after the watch, as waitPane's
+		p, err := resolvePane(st, r.Session, r.Pane)
+		if err != nil {
+			watch.stop()
+			c.reply(answer(id, nil, err))
+			return
+		}
+		watch.selectPane(p.ID)
+		s.pending(c, id, watch, func(ctx context.Context) {
+			s.promptPane(ctx, c, id, p.ID, r.Text, r.Wait, time.Duration(r.TimeoutMs)*time.Millisecond, st, watch)
+		})
+		return
+	case "killTab", "renameTab", "detachTab", "focusTab":
+		var w model.Workspace
+		if w, err = resolveTab(st, r.Session, r.Tab); err != nil {
+			break
+		}
+		req := map[string]any{
+			"killTab":   proto.KillSession{WorkspaceID: w.ID},
+			"renameTab": proto.RenameWorkspace{WorkspaceID: w.ID, Name: r.Title},
+			"detachTab": proto.DetachSession{WorkspaceID: w.ID, Detached: true},
+			"focusTab":  proto.FocusSession{WorkspaceID: w.ID},
+		}[typ]
+		if typ == "renameTab" && strings.TrimSpace(r.Title) == "" {
+			err = ctlErr{"invalid", "title is empty"}
+			break
+		}
+		err = s.Control.Do(ctx, req)
+	case "tabNew", "tabClose":
+		var p model.Pane
+		switch p, err = resolvePane(st, r.Session, r.Pane); {
+		case err != nil:
+		case typ == "tabClose":
+			err = s.Control.Do(ctx, proto.CloseTab{WorkspaceID: p.WorkspaceID})
+		case control.Guarded(st, p.WorkspaceID):
+			err = ctlErr{"refused", "the tab is guarded, and a new tab runs a shell, which the guard cannot cover"}
+		default:
+			var tab string
+			if tab, err = s.Control.NewTab(ctx, proto.NewTab{FromPane: p.ID}); err == nil {
+				data = map[string]any{"tab": tab}
+			}
+		}
+	case "setStatus":
+		var p model.Pane
+		if p, err = resolvePane(st, r.Session, r.Pane); err != nil {
+			break
+		}
+		if r.State == "" {
+			err = s.Control.Do(ctx, proto.SetStatus{WorkspaceID: p.WorkspaceID, Text: r.Text})
+			break
+		}
+		var payload []byte
+		if payload, err = programPayload(r.State, r.App, r.Progress, r.Message); err == nil {
+			err = s.Control.Do(ctx, proto.AgentEvent{Pane: p.ID, Provider: model.Provider("report"), Payload: payload})
+		}
+	}
+	c.reply(answer(id, data, err))
+}
+
+// driveFields are the keys each drive command takes besides type and id;
+// decode refuses others for all of them, onlyFields for this one.
+var driveFields = map[string][]string{
+	"newTab":     {"dir", "cmd", "name", "detached", "preset", "model", "guard", "parentPane", "session", "startId"},
+	"splitPane":  {"tab", "session", "down", "cmd"},
+	"sendPane":   {"pane", "session", "text", "fromPane"},
+	"promptPane": {"pane", "session", "text", "wait", "timeoutMs"},
+	"killTab":    {"tab", "session"},
+	"renameTab":  {"tab", "session", "title"},
+	"detachTab":  {"tab", "session"},
+	"focusTab":   {"tab", "session"},
+	"tabNew":     {"pane", "session"},
+	"tabClose":   {"pane", "session"},
+	"setStatus":  {"pane", "session", "text", "state", "app", "progress", "message"},
+}
+
+// onlyFields refuses a key of msg that command typ does not take.
+func onlyFields(typ string, msg []byte) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(msg, &keys); err != nil {
+		return err
+	}
+	for k := range keys {
+		if k != "type" && k != "id" && !slices.Contains(driveFields[typ], k) {
+			return fmt.Errorf("json: unknown field %q", k)
+		}
+	}
+	return nil
+}
+
+// newTab opens a tab as pitwall new does and answers its id and its main
+// pane's, or closed when a retry of startId finds the tab gone.
+func (s *Server) newTab(ctx context.Context, st model.State, dir, name, session, preset, modelName, parentPane, startID string, cmd []string, guarded, detached bool) (map[string]any, error) {
+	if !filepath.IsAbs(dir) {
+		return nil, ctlErr{"invalid", "dir must be an absolute path"}
+	}
+	if startID == "" {
+		startID = newStartID()
+	}
+	startID = strings.ToLower(startID) // one tab per id, whatever its case
+	if _, err := hex.DecodeString(startID); err != nil || len(startID) != 16 {
+		return nil, ctlErr{"invalid", "startId is 16 hex digits"}
+	}
+	if retry, err := matchingStart(st, session, parentPane, startID); retry || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return s.startResult(ctx, st, startID, detached)
+	}
+	if parentPane != "" && !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == parentPane }) {
+		return nil, ctlErr{"not-found", fmt.Sprintf("no pane %s", parentPane)}
+	}
+	caller := control.Caller{Pane: parentPane}
+	sess, err := pickSession(st, session, caller)
+	if err != nil && (session != "" || len(st.Sessions) > 0) {
+		return nil, err // with no session open, the daemon makes one
+	}
+	settings := s.Control.Settings()
+	cmd, vars, err := control.Launch(settings, preset, guarded || control.WorkerGuard(settings, caller, cmd, preset), cmd)
+	if err == nil {
+		cmd, err = control.WithModel(cmd, modelName)
+	}
+	if err != nil {
+		return nil, ctlErr{"invalid", err.Error()}
+	}
+	// why: the program is found on the daemon's PATH when the pane starts.
+	if err := s.Control.Do(ctx, proto.NewSession{Name: name, Cwd: dir, SessionID: sess.ID, Cmd: cmd, Env: vars, ParentPane: parentPane, ID: startID}); err != nil {
+		return nil, err
+	}
+	return s.startResult(ctx, s.Control.State(), startID, detached)
+}
+
+func (s *Server) startResult(ctx context.Context, st model.State, startID string, detached bool) (map[string]any, error) {
+	w := st.Workspace(startID)
+	if w == nil {
+		return map[string]any{"tab": startID, "closed": true}, nil
+	}
+	if detached && !w.Detached {
+		if err := s.Control.Do(ctx, proto.DetachSession{WorkspaceID: w.ID, Detached: true}); err != nil {
+			return nil, err
+		}
+	}
+	data := map[string]any{"tab": w.ID}
+	if p := control.MainPane(control.TabPanes(st, *w)); p != nil {
+		data["pane"] = p.ID
+	}
+	return data, nil
+}
+
+// matchingStart matches a retry against its retained identity before
+// resolving live-only inputs. The original session and parent can have
+// closed too; their records still identify them. A live session with the
+// same name is resolved normally, so it cannot claim the old session's id.
+func matchingStart(st model.State, session, parentPane, id string) (bool, error) {
+	closedTabs := st.Closed
+	start, retained := st.Starts[id]
+	if w := st.Workspace(id); w != nil {
+		name := ""
+		if sess := st.Session(w.SessionID); sess != nil {
+			name = sess.Name
+		}
+		closedTabs = []model.ClosedTab{{Tab: *w, Session: name}}
+	} else if retained && !slices.ContainsFunc(closedTabs, func(c model.ClosedTab) bool { return c.Tab.ID == id }) {
+		closedTabs = []model.ClosedTab{{Tab: model.Workspace{ID: id, SessionID: start.SessionID, Parent: start.Parent}, Session: start.SessionName}}
+	}
+	for _, closed := range closedTabs {
+		if closed.Tab.ID != id {
+			continue
+		}
+		parent, parentSession := "", ""
+		if parentPane != "" {
+			for _, p := range st.Panes {
+				if p.ID == parentPane {
+					parent, parentSession = p.WorkspaceID, st.SessionOf(p.WorkspaceID)
+				}
+			}
+			if parent == "" {
+				for _, c := range st.Closed {
+					if c.Pane.ID == parentPane {
+						parent, parentSession = c.Tab.ID, c.Tab.SessionID
+					}
+				}
+			}
+			if parent == "" {
+				if retained && start.ParentPane == parentPane && start.Parent == closed.Tab.Parent && start.SessionID == closed.Tab.SessionID {
+					parent, parentSession = start.Parent, start.SessionID
+				}
+			}
+			if parent == "" {
+				return false, ctlErr{"not-found", fmt.Sprintf("no pane %s", parentPane)}
+			}
+		}
+		sess, err := pickSession(st, session, control.Caller{Pane: parentPane})
+		sessionID := sess.ID
+		switch {
+		case session == "" && parentSession != "":
+			sessionID = parentSession
+		case err != nil && (session == closed.Tab.SessionID || session == closed.Session || session == "" && len(st.Sessions) == 0):
+			sessionID = closed.Tab.SessionID
+		case err != nil:
+			return false, err
+		}
+		// The daemon ignores a local parent from another session. Apply
+		// that same rule before matching the closed request's identity.
+		if parentSession != sessionID {
+			parent = ""
+		}
+		if closed.Tab.SessionID != sessionID || closed.Tab.Parent != parent {
+			return false, ctlErr{"conflict", fmt.Sprintf("tab id %s belongs to another tab", id)}
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// newStartID is a startId for a newTab that names none.
+func newStartID() string {
+	var b [8]byte
+	rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// programPayload is pitwall status <state>'s report-agent payload, checked
+// as that command checks its flags.
+func programPayload(state, app string, progress *int, msg string) ([]byte, error) {
+	r := progstatus.Report{State: progstatus.State(state), App: app, Progress: progstatus.NoProgress, Msg: msg}
+	if progress != nil {
+		r.Progress = *progress
+	}
+	switch {
+	case !slices.Contains([]progstatus.State{progstatus.Working, progstatus.Blocked, progstatus.Done, progstatus.Error, progstatus.Idle}, r.State):
+		return nil, ctlErr{"invalid", "state is working, blocked, done, error or idle"}
+	case r.App != "" && !progstatus.ValidApp(r.App):
+		return nil, ctlErr{"invalid", fmt.Sprintf("app must be 1 to %d bytes of letters, digits and _ . + -", progstatus.MaxApp)}
+	case progress != nil && (r.Progress < 0 || r.Progress > 100):
+		return nil, ctlErr{"invalid", "progress must be 0 to 100"}
+	case progress != nil && r.State != progstatus.Working && r.State != progstatus.Blocked:
+		return nil, ctlErr{"invalid", "progress needs working or blocked"}
+	case len(r.Msg) > progstatus.MaxMsgDecoded || !utf8.ValidString(r.Msg) || strings.ContainsFunc(r.Msg, progstatus.IsControl):
+		return nil, ctlErr{"invalid", fmt.Sprintf("message must be at most %d bytes of UTF-8 without control characters", progstatus.MaxMsgDecoded)}
+	}
+	// No name, so a daemon without program status refuses it as an agent report.
+	return json.Marshal(map[string]any{"name": "", "program": progstatus.Encode(r)})
+}
+
+// promptStartWait is how long a promptPane with wait waits for the agent
+// to start the turn it typed, as a time.Duration; tests shorten it.
+var promptStartWait atomic.Int64
+
+func init() { promptStartWait.Store(int64(30 * time.Second)) }
+
+// promptPane types text into pane's agent once it is idle, done or
+// parked, as pitwall prompt does, and answers then, or with wait once
+// that turn ends, with its reply. A blocked agent, or a pane that exits,
+// ends it as waitPane's outcomes; timeout bounds the whole of it.
+func (s *Server) promptPane(ctx context.Context, c *conn, id, pane, text string, wait bool, timeout time.Duration, st model.State, watch *paneWatch) {
+	defer watch.stop()
+	var expired, noStart <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		expired = t.C
+	}
+	var sent time.Time
+	started := false
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		i := slices.IndexFunc(st.Panes, func(p model.Pane) bool { return p.ID == pane })
+		if i < 0 || st.Panes[i].Exited {
+			c.replyControl(ctx, ok(id, "", outcome(control.NewWait("exit").Step(st, pane, watch.exit(st, pane)))))
+			return
+		}
+		agent, state, question := control.PaneState(st, st.Panes[i])
+		if a := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == pane }); !sent.IsZero() && a >= 0 && st.Activities[a].UpdatedAt.After(sent) {
+			started, noStart = true, nil
+		}
+		switch {
+		case sent.IsZero() && agent == "":
+			c.replyControl(ctx, result(id, "invalid", "the pane runs no agent"))
+			return
+		case (sent.IsZero() || started) && state == "blocked":
+			c.replyControl(ctx, ok(id, "", map[string]any{"outcome": control.Blocked, "question": question}))
+			return
+		case sent.IsZero() && (state == "idle" || state == "done" || state == "parked"):
+			// The daemon resumes a parked agent and types the prompt once it is back.
+			sent = time.Now()
+			if err := s.Control.Do(ctx, proto.Prompt{Pane: pane, Text: text}); err != nil {
+				c.replyControl(ctx, answer(id, nil, err))
+				return
+			}
+			if !wait {
+				c.replyControl(ctx, ok(id, "", nil))
+				return
+			}
+			t := time.NewTimer(time.Duration(promptStartWait.Load()))
+			defer t.Stop()
+			noStart = t.C
+		case started && (state == "done" || state == "idle"):
+			reply, err := s.Control.Read(pane, false)
+			if err != nil {
+				err = ctlErr{"not-found", "the turn ended, but: " + err.Error()}
+			}
+			c.replyControl(ctx, answer(id, map[string]any{"outcome": control.Reached, "state": state, "reply": reply}, err))
+			return
+		}
+		select {
+		case <-watch.wake:
+		case <-expired:
+			c.replyControl(ctx, result(id, "timeout", fmt.Sprintf("timed out after %s", timeout)))
+			return
+		case <-noStart:
+			c.replyControl(ctx, result(id, "timeout", "the agent did not start a turn"))
+			return
+		case <-ctx.Done():
+			return
+		}
+		st = s.Control.State()
 	}
 }

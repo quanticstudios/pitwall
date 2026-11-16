@@ -150,14 +150,19 @@ func (d *Daemon) removeWorkspace(id string, gone ...model.Pane) []Pane {
 // m.WorkspaceID (or FromPane's session) in the same group, with a shell in
 // FromPane's live directory, else Cwd, else that session's Path.
 func (d *Daemon) newTab(ctx context.Context, m proto.NewTab) error {
+	return d.newTabID(ctx, m, "")
+}
+
+// newTabID is newTab, the tab's id id when set.
+func (d *Daemon) newTabID(ctx context.Context, m proto.NewTab, id string) error {
 	d.mu.Lock()
-	id := m.WorkspaceID
-	if id == "" {
+	from := m.WorkspaceID
+	if from == "" {
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.FromPane }); i >= 0 {
-			id = d.st.Panes[i].WorkspaceID
+			from = d.st.Panes[i].WorkspaceID
 		}
 	}
-	w := d.workspace(id)
+	w := d.workspace(from)
 	var cwd string
 	if w != nil {
 		cwd = cmp.Or(m.Cwd, w.Path)
@@ -166,7 +171,7 @@ func (d *Daemon) newTab(ctx context.Context, m proto.NewTab) error {
 	if w == nil {
 		return fmt.Errorf("no tab %s", cmp.Or(m.WorkspaceID, m.FromPane))
 	}
-	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane, Profile: m.Profile}, id, nil, nil)
+	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane, Profile: m.Profile, ID: id}, from, nil, nil)
 }
 
 // renameTab names the session of m.Pane or m.WorkspaceID: a tab and its

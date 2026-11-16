@@ -84,9 +84,19 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if m.ID != "" {
-		if started, err := d.startedTab(m.ID, m.SessionID, m.ParentTab); started || err != nil {
-			return err
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d.closing || d.handedOff {
+		return errors.New("daemon is closing")
+	}
+	if m.ID != "" && m.ParentPane == "" {
+		// A retry that names its session and parent, as remote starts do,
+		// matches before resolving them: its session may have closed with it.
+		// A local parent must resolve first, even when the raw ParentTab
+		// happens to match an existing root tab.
+		if started, _ := d.startedTab(m.ID, m.SessionID, m.ParentTab); started {
+			return nil
 		}
 	}
 	at, sessions := len(d.st.Workspaces), len(d.st.Sessions)
@@ -126,6 +136,18 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 			m.GroupID = d.projectAt(m.SessionID, path)
 		}
 	}
+	parent := d.parentTab(m.ParentPane, m.SessionID)
+	if m.ParentTab != "" && m.ParentPane == "" {
+		parent = m.ParentTab // a tab on another machine
+	}
+	if m.ID != "" {
+		// A retry that leaves its session or parent for the daemon to find
+		// compares against what they resolve to.
+		if started, err := d.startedTab(m.ID, m.SessionID, parent); started || err != nil {
+			d.st.Sessions = d.st.Sessions[:sessions] // drop one made for this tab
+			return err
+		}
+	}
 	if m.Monitor && d.showMonitor(m.SessionID) {
 		return nil
 	}
@@ -137,10 +159,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	}
 	w := model.Workspace{ID: cmp.Or(m.ID, newID()), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	w.ClientID = m.ID != ""
-	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
-	if m.ParentTab != "" && m.ParentPane == "" {
-		w.Parent, w.RemoteParent = m.ParentTab, true
-	}
+	w.Parent, w.RemoteParent = parent, m.ParentTab != "" && m.ParentPane == ""
 	w.Profile = m.Profile
 	w.Monitor = m.Monitor
 	if prep != nil {
@@ -153,6 +172,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		return err
 	}
 	d.st.Workspaces = slices.Insert(d.st.Workspaces, at, w)
+	d.rememberStart(w, m.ParentPane)
 	if after != "" && m.GroupID == "" {
 		d.st.PlaceTopAfter(w.ID, after)
 	}
@@ -220,7 +240,42 @@ func (d *Daemon) startedTab(id, session, parent string) (bool, error) {
 			return false, taken
 		}
 	}
+	if start, ok := d.st.Starts[id]; ok {
+		if start.SessionID == session && start.Parent == parent {
+			return true, nil
+		}
+		return false, taken
+	}
 	return false, nil
+}
+
+// maxStartIDs bounds the start history. A full history evicts an id whose
+// tab is neither open nor in the reopen archive: one that closed at least
+// that archive's 200 closes ago, far past any retry.
+const maxStartIDs = 65_536
+
+// rememberStart retains a successfully created tab's original identity.
+// Callers hold d.mu.
+func (d *Daemon) rememberStart(w model.Workspace, parentPane string) {
+	if !w.ClientID {
+		return
+	}
+	if d.st.Starts == nil {
+		d.st.Starts = map[string]model.TabStart{}
+	}
+	if _, ok := d.st.Starts[w.ID]; !ok && len(d.st.Starts) >= maxStartIDs {
+		for id := range d.st.Starts {
+			if d.workspace(id) == nil && !slices.ContainsFunc(d.st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == id }) {
+				delete(d.st.Starts, id)
+				break
+			}
+		}
+	}
+	start := model.TabStart{SessionID: w.SessionID, Parent: w.Parent, ParentPane: parentPane}
+	if s := d.st.Session(w.SessionID); s != nil {
+		start.SessionName = s.Name
+	}
+	d.st.Starts[w.ID] = start
 }
 
 // showMonitor shows session's Monitor tab in the windows on that session,

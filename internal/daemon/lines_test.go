@@ -223,6 +223,11 @@ func TestJSONHandoff(t *testing.T) {
 	awaitContains(t, c, "echo0", "ready")
 	j := dialJSON(t, sock)
 	j.hello(t)
+	startReq := fmt.Sprintf(`{"type":"newTab","id":"n","dir":%q,"session":"s","parentPane":"echo0","cmd":["sleep","60"],"startId":"0123456789abcdef"}`, dir)
+	started := j.call(t, startReq)
+	if started["ok"] != true || dataOf(started)["pane"] == nil {
+		t.Fatalf("start before handoff: %v", started)
+	}
 	watch := dial(t, sock, "watch")
 	watch.waitState("the old state", func(model.State) bool { return true })
 
@@ -241,7 +246,17 @@ func TestJSONHandoff(t *testing.T) {
 	for range watch.in { // the old watch ends with its daemon
 	}
 
-	dialJSON(t, sock).hello(t)
+	retry := dialJSON(t, sock)
+	retry.hello(t)
+	if r := retry.call(t, startReq); r["ok"] != true || dataOf(r)["pane"] != dataOf(started)["pane"] {
+		t.Fatalf("retry after handoff: %v, originally %v", r, started)
+	}
+	if r := retry.call(t, `{"type":"killTab","id":"k","tab":"@0123456789abcdef"}`); r["ok"] != true {
+		t.Fatal(r)
+	}
+	if r := retry.call(t, startReq); r["ok"] != true || dataOf(r)["closed"] != true {
+		t.Fatalf("closed retry after handoff: %v", r)
+	}
 	c = dial(t, sock, "cli")
 	typeIn(c, "echo0", "a2\n")
 	awaitContains(t, c, "echo0", "out:a2")

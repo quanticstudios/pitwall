@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -128,9 +129,9 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		return errors.New("--branch cannot be used with --host: the branch may differ on the two machines. Use --from <branch> for a new branch off it")
 	}
 	// An agent's worker gets the guard when [agents] guard_workers says so.
-	if !guarded && os.Getenv("PITWALL_PANE") != "" && (len(cmd) > 0 || preset != "") {
+	if !guarded {
 		s, _ := config.Load()
-		guarded = s.GuardWorkers
+		guarded = control.WorkerGuard(s, envCaller(""), cmd, preset)
 	}
 	var vars []string
 	if cmd, vars, err = launch(preset, guarded, cmd, host == ""); err != nil {

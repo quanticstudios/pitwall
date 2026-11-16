@@ -545,9 +545,21 @@ type State struct {
 	// Closed are the tabs that closed, oldest first, within PruneClosed's
 	// bounds, for tab search to reopen.
 	Closed []ClosedTab `json:",omitempty"`
+	// Starts retains successful client-chosen start identities after the
+	// reopen archive expires. Entries contain no command or environment
+	// and are never evicted: a full history refuses new client ids.
+	Starts map[string]TabStart `json:",omitempty"`
 	// Forms are the open forms of `pitwall form`, oldest first. The daemon
 	// fills it in; it is not saved.
 	Forms []Form `json:"-"`
+}
+
+// TabStart is the immutable context of a successful client-chosen id.
+type TabStart struct {
+	SessionID   string
+	SessionName string
+	Parent      string
+	ParentPane  string
 }
 
 // Form is a form or dashboard from `pitwall form`, shown over the tab of

@@ -26,7 +26,8 @@ import (
 )
 
 // controlCommands are the control commands the socket serves.
-var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane"}
+var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane",
+	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus"}
 
 // controlDaemon serves session work with tabs build (#1, pane p1) and test
 // (#2, pane p2), each running a command, and a worker on box that build
@@ -364,6 +365,14 @@ func TestControlExamples(t *testing.T) {
 			}
 			if json.Unmarshal([]byte(buf.String()), &got); err != nil || got.Outcome != "exited" || got.Exit.Code != 3 || got.Exit.Unknown || got.Exit.Signal {
 				t.Fatalf("wait: %v\n%s", err, buf.String())
+			}
+			if ex.name != "control.py" {
+				return
+			}
+			out, err = run("new", t.TempDir(), "--", "sleep", "9").CombinedOutput()
+			tab, pane, _ := strings.Cut(strings.TrimSpace(string(out)), "\t")
+			if st := d.state(); err != nil || st.Workspace(tab) == nil || !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == pane && p.WorkspaceID == tab }) {
+				t.Fatalf("new: %v\n%s", err, out)
 			}
 		})
 	}

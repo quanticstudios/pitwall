@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 81 added State.Starts and model.TabStart: retained client start
+// identities survive closed-tab archive pruning.
 // Level 79 added HostCheck and HostCheckResult: whether a worker another
 // machine asks for can start here.
 // Level 78 added NewWorkspace.Timebox and Nudge, model.Lane.Timebox and
@@ -216,7 +218,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 80
+const Level = 81
+
+// StartHistoryLevel retains start identities across a daemon handoff.
+const StartHistoryLevel = 81
 
 // SectorDiskLevel is sector v0.1.9, whose samples and process table carry
 // DiskBps; an older peer drops the field.

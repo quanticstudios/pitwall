@@ -14,8 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/progstatus"
+	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
 // changingControl changes the live state immediately after copying the
@@ -313,10 +316,66 @@ func TestControlTabsReplaceSlowReader(t *testing.T) {
 // fakeControl is a daemon's state for the control commands; set and exit
 // change it as the daemon does, telling the watches.
 type fakeControl struct {
-	mu      sync.Mutex
-	st      model.State
-	text    string // what Read and Scrollback give
-	watches map[*[2]any]bool
+	mu       sync.Mutex
+	st       model.State
+	text     string // what Read and Scrollback give
+	reply    string // what Read gives without screen, "" for none kept
+	watches  map[*[2]any]bool
+	settings config.Settings
+	reqs     []any      // what Do, OpenPane and NewTab were asked
+	envs     [][]string // OpenPane's env, in order
+	fail     error      // what Do, OpenPane and NewTab answer
+	onDo     func(req any)
+}
+
+func (f *fakeControl) Settings() config.Settings { f.mu.Lock(); defer f.mu.Unlock(); return f.settings }
+
+// edit changes the fake's fields under its lock.
+func (f *fakeControl) edit(change func(f *fakeControl)) { f.mu.Lock(); defer f.mu.Unlock(); change(f) }
+
+// Do records req; a NewSession opens a tab with its ID and pane n+ID,
+// once, as the daemon's start ids do.
+func (f *fakeControl) Do(ctx context.Context, req any) error {
+	f.mu.Lock()
+	f.reqs = append(f.reqs, req)
+	err, onDo := f.fail, f.onDo
+	f.mu.Unlock()
+	if m, isNew := req.(proto.NewSession); isNew && err == nil {
+		f.set(func(st *model.State) {
+			if st.Workspace(m.ID) == nil && !slices.ContainsFunc(st.Closed, func(c model.ClosedTab) bool { return c.Tab.ID == m.ID }) {
+				st.Workspaces = append(st.Workspaces, model.Workspace{ID: m.ID, SessionID: m.SessionID, Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "n" + m.ID}}}})
+				st.Panes = append(st.Panes, model.Pane{ID: "n" + m.ID, WorkspaceID: m.ID, Env: m.Env})
+			}
+		})
+	}
+	if onDo != nil {
+		onDo(req)
+	}
+	return err
+}
+
+func (f *fakeControl) OpenPane(m proto.OpenPane, env []string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs, f.envs = append(f.reqs, m), append(f.envs, env)
+	return "new", f.fail
+}
+
+func (f *fakeControl) NewTab(ctx context.Context, m proto.NewTab) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, m)
+	return "tab", f.fail
+}
+
+// asked is the last request Do, OpenPane or NewTab got, nil for none.
+func (f *fakeControl) asked() any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.reqs) == 0 {
+		return nil
+	}
+	return f.reqs[len(f.reqs)-1]
 }
 
 func (f *fakeControl) State() model.State {
@@ -331,8 +390,13 @@ func (f *fakeControl) State() model.State {
 }
 
 func (f *fakeControl) Read(pane string, screen bool) (string, error) {
-	if !screen {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !screen && f.reply == "" {
 		return "", errors.New("no reply kept")
+	}
+	if !screen {
+		return f.reply, nil
 	}
 	return f.text, nil
 }
@@ -503,6 +567,9 @@ func TestControlSessions(t *testing.T) {
 // TestControlNoProcessFields: no control result carries a command line,
 // an environment, a process or the monitor.
 func TestControlNoProcessFields(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
+	}
 	f, c := controlServer(t)
 	forbidden := regexp.MustCompile(`(?i)^(cmd|command|env|environ|args|argv|pid|process|processes|monitor|resume)`)
 	var frames []map[string]any
@@ -513,6 +580,11 @@ func TestControlNoProcessFields(t *testing.T) {
 		`{"type":"readPane","id":"1","pane":"@p1","screen":true}`,
 		`{"type":"scrollback","id":"1","pane":"@p1"}`,
 		`{"type":"waitPane","id":"1","pane":"@p1","until":"exit"}`,
+		`{"type":"newTab","id":"1","dir":"/src","cmd":["claude"],"session":"main"}`,
+		`{"type":"splitPane","id":"1","tab":"@w1","cmd":["claude"]}`,
+		`{"type":"tabNew","id":"1","pane":"@p2"}`,
+		`{"type":"setStatus","id":"1","pane":"@p2","text":"ok"}`,
+		`{"type":"sendPane","id":"1","pane":"@p3","text":"ok"}`,
 	} {
 		if strings.Contains(req, "waitPane") {
 			c.line(t, req)
@@ -643,11 +715,11 @@ func TestControlTabs(t *testing.T) {
 // client that sends large reads and reads nothing is held back.
 func TestControlTooLarge(t *testing.T) {
 	f, c := controlServer(t)
-	f.text = strings.Repeat("x", maxResultBytes)
+	f.edit(func(f *fakeControl) { f.text = strings.Repeat("x", maxResultBytes) })
 	if r := ask(t, c, `{"type":"readPane","id":"1","pane":"@p1","screen":true}`); r["code"] != "tooLarge" {
 		t.Fatalf("%.200v", r)
 	}
-	f.text = strings.Repeat("x", 1<<20)
+	f.edit(func(f *fakeControl) { f.text = strings.Repeat("x", 1<<20) })
 	req := []byte(`{"type":"readPane","id":"1","pane":"@p1",` + strings.Repeat(" ", 10_000) + `"screen":true}` + "\n") // 10 MB in all
 	wrote := make(chan struct{})
 	go func() {
@@ -686,5 +758,212 @@ func TestNoControlOnWebSocket(t *testing.T) {
 		if r := c.json(t); r["code"] != "unsupported" {
 			t.Errorf("%s: %v", typ, r)
 		}
+	}
+}
+
+// TestControlDrive: each command that starts or drives a tab asks the
+// daemon what the CLI command asks, after the same checks.
+func TestControlDrive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
+	}
+	type tc struct {
+		req, code string
+		want      any // the request the daemon gets; nil for none
+	}
+	f, c := controlServer(t)
+	f.edit(func(f *fakeControl) {
+		f.settings.Presets = []config.AgentPreset{{Name: "safe", Agent: "claude", Args: []string{"--x"}, Env: []string{"A=1"}, Guard: true}}
+	})
+	for _, tc := range []tc{
+		{`{"type":"newTab","id":"1","dir":"/src","cmd":["claude"],"session":"main","startId":"00000000000000AA","name":"fix"}`, "",
+			proto.NewSession{Name: "fix", Cwd: "/src", SessionID: "m1", Cmd: []string{"claude"}, ID: "00000000000000aa"}},
+		{`{"type":"newTab","id":"1","dir":"/src","preset":"safe","model":"opus","parentPane":"p3","startId":"00000000000000ab"}`, "",
+			proto.NewSession{Cwd: "/src", SessionID: "s1", Cmd: []string{"claude", "--model", "opus", "--x"}, Env: []string{"A=1", "PITWALL_GUARD=1"}, ParentPane: "p3", ID: "00000000000000ab"}},
+		{`{"type":"newTab","id":"1","dir":"src"}`, "invalid", nil},
+		{`{"type":"newTab","id":"1","dir":"/src","startId":"xyz"}`, "invalid", nil},
+		{`{"type":"newTab","id":"1","dir":"/src","guard":true}`, "invalid", nil},
+		{`{"type":"newTab","id":"1","dir":"/src","preset":"nope"}`, "invalid", nil},
+		{`{"type":"newTab","id":"1","dir":"/src","parentPane":"p9"}`, "not-found", nil},
+		{`{"type":"newTab","id":"1","dir":"/src","cmd":["sh"],"env":["PITWALL_GUARD=0"]}`, "invalid", nil},
+		{`{"type":"newTab","id":"1","dir":"/src","pane":"#1"}`, "invalid", nil},
+		{`{"type":"splitPane","id":"1","tab":"#2","session":"main","down":true,"cmd":["make"]}`, "",
+			proto.OpenPane{WorkspaceID: "w2", Dir: layout.Vertical, Cmd: []string{"make"}}},
+		{`{"type":"splitPane","id":"1","tab":"@r9"}`, "remote", nil},
+		{`{"type":"sendPane","id":"1","pane":"@p1","text":"hi","fromPane":"p2"}`, "", proto.Send{Pane: "p1", From: "p2", Text: "hi"}},
+		{`{"type":"sendPane","id":"1","pane":"@p1","text":" "}`, "invalid", nil},
+		{`{"type":"sendPane","id":"1","pane":"@p1","text":"hi","fromPane":"p9"}`, "not-found", nil},
+		{`{"type":"killTab","id":"1","tab":"docs","session":"side"}`, "", proto.KillSession{WorkspaceID: "w3"}},
+		{`{"type":"killTab","id":"1","tab":"docs","session":"side","title":"x"}`, "invalid", nil},
+		{`{"type":"killTab","id":"1","tab":"#1"}`, "invalid", nil}, // two sessions
+		{`{"type":"renameTab","id":"1","tab":"@w1","title":"ship"}`, "", proto.RenameWorkspace{WorkspaceID: "w1", Name: "ship"}},
+		{`{"type":"renameTab","id":"1","tab":"@w1","title":""}`, "invalid", nil},
+		{`{"type":"detachTab","id":"1","tab":"@w1"}`, "", proto.DetachSession{WorkspaceID: "w1", Detached: true}},
+		{`{"type":"focusTab","id":"1","tab":"@w1"}`, "", proto.FocusSession{WorkspaceID: "w1"}},
+		{`{"type":"tabNew","id":"1","pane":"@p2"}`, "", proto.NewTab{FromPane: "p2"}},
+		{`{"type":"tabClose","id":"1","pane":"@p2"}`, "", proto.CloseTab{WorkspaceID: "w2"}},
+		{`{"type":"setStatus","id":"1","pane":"@p2","text":"deploying"}`, "", proto.SetStatus{WorkspaceID: "w2", Text: "deploying"}},
+		{`{"type":"setStatus","id":"1","pane":"@p2","state":"working","progress":40,"app":"make"}`, "",
+			proto.AgentEvent{Pane: "p2", Provider: "report", Payload: []byte(`{"name":"","program":"` + progstatus.Encode(progstatus.Report{State: progstatus.Working, App: "make", Progress: 40}) + `"}`)}},
+		{`{"type":"setStatus","id":"1","pane":"@p2","state":"done","progress":40}`, "invalid", nil},
+		{`{"type":"setStatus","id":"1","pane":"@p2","state":"later"}`, "invalid", nil},
+	} {
+		f.edit(func(f *fakeControl) { f.reqs = nil })
+		r := ask(t, c, tc.req)
+		if code, _ := r["code"].(string); code != tc.code {
+			t.Errorf("%s: %v, want code %q", tc.req, r, tc.code)
+			continue
+		}
+		got := f.asked()
+		if tc.want == nil && got != nil || tc.want != nil && fmt.Sprintf("%#v", got) != fmt.Sprintf("%#v", tc.want) {
+			if fmt.Sprintf("%#v", got) != fmt.Sprintf("%#v", tc.want) {
+				t.Errorf("%s: asked %#v, want %#v", tc.req, got, tc.want)
+			}
+		}
+	}
+	r := ask(t, c, `{"type":"newTab","id":"1","dir":"/src","session":"main","startId":"00000000000000aa"}`)
+	if d := data(r); d["tab"] != "00000000000000aa" || d["pane"] != "n00000000000000aa" || d["closed"] != nil {
+		t.Errorf("newTab data %v", r)
+	}
+	f.set(func(st *model.State) {
+		st.Workspaces = slices.DeleteFunc(st.Workspaces, func(w model.Workspace) bool { return w.ID == "00000000000000aa" })
+		st.Closed = append(st.Closed, model.ClosedTab{Tab: model.Workspace{ID: "00000000000000aa", SessionID: "m1"}, Session: "main"})
+	})
+	if r := ask(t, c, `{"type":"newTab","id":"1","dir":"/src","session":"main","startId":"00000000000000aa"}`); data(r)["closed"] != true {
+		t.Errorf("a retry of a closed tab: %v", r)
+	}
+	f.edit(func(f *fakeControl) { f.fail = ControlError("refused", "the guard") })
+	if r := ask(t, c, `{"type":"splitPane","id":"1","tab":"@w1"}`); r["code"] != "refused" {
+		t.Errorf("a refused split: %v", r)
+	}
+}
+
+// TestControlGuardedTab: a split of a guarded tab carries the guard, and
+// tabNew there is refused; an unguarded tab's split carries nothing.
+func TestControlGuardedTab(t *testing.T) {
+	f, c := controlServer(t)
+	f.set(func(st *model.State) { st.Panes[0].Env = []string{"PITWALL_GUARD=1"} })
+	ask(t, c, `{"type":"splitPane","id":"1","tab":"@w1","cmd":["claude"]}`)
+	ask(t, c, `{"type":"splitPane","id":"2","tab":"@w2"}`)
+	if r := ask(t, c, `{"type":"tabNew","id":"3","pane":"@p1"}`); r["code"] != "refused" {
+		t.Errorf("tabNew in a guarded tab: %v", r)
+	}
+	f.edit(func(f *fakeControl) {
+		if fmt.Sprint(f.envs) != "[[PITWALL_GUARD=1] []]" || len(f.reqs) != 2 {
+			t.Errorf("split envs %q, requests %v", f.envs, f.reqs)
+		}
+	})
+}
+
+// TestControlWorkerGuard: [agents] guard_workers guards an agent a pane
+// starts, not a shell, and not a tab opened from outside a pane.
+func TestControlWorkerGuard(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
+	}
+	f, c := controlServer(t)
+	f.edit(func(f *fakeControl) { f.settings.GuardWorkers = true })
+	for _, tc := range []struct{ req, env string }{
+		{`{"type":"newTab","id":"1","dir":"/src","cmd":["claude"],"parentPane":"p1"}`, "[PITWALL_GUARD=1]"},
+		{`{"type":"newTab","id":"1","dir":"/src","parentPane":"p1"}`, "[]"},
+		{`{"type":"newTab","id":"1","dir":"/src","cmd":["claude"],"session":"main"}`, "[]"},
+	} {
+		ask(t, c, tc.req)
+		if env := fmt.Sprint(f.asked().(proto.NewSession).Env); env != tc.env {
+			t.Errorf("%s: env %s, want %s", tc.req, env, tc.env)
+		}
+	}
+}
+
+// TestControlPrompt: promptPane types once the agent's turn ended, and
+// with wait answers with the reply of the turn it started.
+func TestControlPrompt(t *testing.T) {
+	f, c := controlServer(t)
+	f.edit(func(f *fakeControl) { f.reply = "all green" })
+	act := func(state model.AgentState) {
+		f.set(func(st *model.State) {
+			st.Activities[0].State, st.Activities[0].UpdatedAt = state, time.Now().Add(time.Millisecond)
+		})
+	}
+	onDo := func(req any) {
+		if _, typed := req.(proto.Prompt); typed {
+			go func() {
+				act(model.StateWorking)
+				act(model.StateCompleted)
+			}()
+		}
+	}
+	f.edit(func(f *fakeControl) { f.onDo = onDo })
+	c.line(t, `{"type":"promptPane","id":"1","pane":"@p1","text":"run the tests","wait":true,"timeoutMs":20000}`)
+	for start := time.Now(); f.watching() == 0; time.Sleep(time.Millisecond) {
+		if time.Since(start) > 5*time.Second {
+			t.Fatal("promptPane does not watch")
+		}
+	}
+	if f.asked() != nil {
+		t.Fatal("typed while the agent's turn ran")
+	}
+	act(model.StateCompleted) // the last turn ends
+	r := c.json(t)
+	checkFrame(t, r)
+	if d := data(r); d["outcome"] != "reached" || d["reply"] != "all green" || fmt.Sprint(f.asked()) != fmt.Sprint(proto.Prompt{Pane: "p1", Text: "run the tests"}) {
+		t.Fatalf("promptPane %v, asked %v", r, f.asked())
+	}
+	f.edit(func(f *fakeControl) { f.onDo = nil })
+	if r := ask(t, c, `{"type":"promptPane","id":"2","pane":"@p1","text":"again"}`); r["ok"] != true || r["data"] != nil {
+		t.Errorf("promptPane without wait: %v", r)
+	}
+	if r := ask(t, c, `{"type":"promptPane","id":"3","pane":"@p2","text":"hi"}`); r["code"] != "invalid" {
+		t.Errorf("a shell: %v", r)
+	}
+	f.set(func(st *model.State) {
+		st.Activities[0].State, st.Activities[0].Detail = model.StateAwaitingInput, "which branch?"
+	})
+	if r := ask(t, c, `{"type":"promptPane","id":"4","pane":"@p1","text":"hi"}`); data(r)["outcome"] != "blocked" || data(r)["question"] != "which branch?" {
+		t.Errorf("a blocked agent: %v", r)
+	}
+	f.set(func(st *model.State) { st.Activities[0].State = model.StateCompleted })
+	old := promptStartWait.Swap(int64(10 * time.Millisecond))
+	defer promptStartWait.Store(old)
+	if r := ask(t, c, `{"type":"promptPane","id":"5","pane":"@p1","text":"hi","wait":true}`); r["code"] != "timeout" {
+		t.Errorf("a turn that never starts: %v", r)
+	}
+}
+
+func TestControlClosedStartContext(t *testing.T) {
+	const id = "0123456789abcdef"
+	for _, tc := range []struct {
+		name, session, pane, parent, savedPane, code string
+		noSessions                                   bool
+	}{
+		{name: "root", session: "main"},
+		{name: "wrong session", session: "side", code: "conflict"},
+		{name: "wrong parent", session: "main", pane: "p1", code: "conflict"},
+		{name: "child", pane: "p1", parent: "w1", savedPane: "p1"},
+		{name: "another child", pane: "p2", parent: "w1", savedPane: "p1", code: "conflict"},
+		{name: "missing parent", pane: "gone", parent: "w1", savedPane: "p1", code: "not-found"},
+		{name: "closed session id", session: "m1", noSessions: true},
+		{name: "closed session name", session: "main", noSessions: true},
+		{name: "closed implicit session", noSessions: true},
+		{name: "unknown session", session: "other", noSessions: true, code: "not-found"},
+		{name: "closed parent", pane: "gone", parent: "w1", savedPane: "gone", noSessions: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := twoSessions()
+			if tc.noSessions {
+				st.Sessions, st.Workspaces, st.Panes = nil, nil, nil
+			}
+			st.Starts = map[string]model.TabStart{id: {SessionID: "m1", SessionName: "main", Parent: tc.parent, ParentPane: tc.savedPane}}
+			closed, err := matchingStart(st, tc.session, tc.pane, id)
+			code := ""
+			if e, ok := err.(ctlErr); ok {
+				code = e.code
+			} else if err != nil {
+				code = "not-found"
+			}
+			if closed != (tc.code == "") || code != tc.code {
+				t.Fatalf("closed=%v err=%v, want code %q", closed, err, tc.code)
+			}
+		})
 	}
 }
