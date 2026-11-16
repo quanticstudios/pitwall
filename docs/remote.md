@@ -445,6 +445,10 @@ Some things stay on the machine they belong to:
 - On Windows a remote tab's ssh has no console, so it cannot ask for a
   password or passphrase: logins there need a key, an agent or another
   passwordless method.
+- On Windows the forward listens on a loopback TCP port, not a socket
+  file only you can open. While a window or command is connected, any
+  program on that Windows machine, another user's included, can reach the
+  host's daemon through that port.
 
 ## Web client
 
