@@ -28,6 +28,7 @@ takes `--dry-run`.
 - When the disk fills mid-write, the Agent errors and Timing logs no longer glue the next record onto the cut one. Settings, Agent errors and Timing also read back the whole record from lines a full disk already broke this way, which they used to skip.
 - Agent errors shows a likely fix for seven more causes: a missing Python module or program, zsh here-documents in a read-only sandbox, GitHub's API rate limit, `gh pr view` asking for deprecated project cards, a site that refuses fetches, and `pkill -f` killing the agent's own shell. On one user's log of 1,773 errors this lifts coverage from 131 to 779.
 - Agent errors shows a likely fix for seven more causes: a missing Python module or program, zsh here-documents in a read-only sandbox, GitHub's API rate limit, `gh pr view` asking for deprecated project cards, a site that refuses fetches, and `pkill -f` killing the agent's own shell with no output. On one user's log of 1,773 errors this lifts coverage from 131 to 763.
+- Settings, Timing has a Waiting on CI section: the hours agents spent in `gh` and the sleeps and polls around it, their share of turn time, and the commands that took it, named by program and subcommand only, such as `gh pr checks`. Copy report includes it.
 
 ## v0.2.14
 

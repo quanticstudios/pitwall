@@ -21,6 +21,7 @@ type Summary struct {
 	Parts       map[string]int64 // Model, Wait and each tool kind
 	Days        []Day
 	Sinks       []Sink
+	Polls       []Sink // CI's kept commands by Poll name, the most time first
 	Tabs        []Tab
 }
 
@@ -97,8 +98,8 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 		s.Days = append(s.Days, Day{Date: d, Parts: map[string]int64{}})
 	}
 	var walls, replies []int64
-	sinks := map[string]*Sink{}
-	runs := map[string][]int64{}
+	sinks, polls := map[string]*Sink{}, map[string]*Sink{}
+	runs, pollRuns := map[string][]int64{}, map[string][]int64{}
 	tabs := map[string]*Tab{}
 	for _, e := range evs {
 		if e.Kind != Turn || e.T.Before(from) || e.T.After(to) {
@@ -134,6 +135,15 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 			sinks[k].Count++
 			sinks[k].Total += c.Ms
 			runs[k] = append(runs[k], c.Ms)
+			if c.Kind == CI {
+				k = cmp.Or(Poll(c.Command), "other commands") // filed under CI by an older pitwall
+				if polls[k] == nil {
+					polls[k] = &Sink{Command: k, Kind: CI}
+				}
+				polls[k].Count++
+				polls[k].Total += c.Ms
+				pollRuns[k] = append(pollRuns[k], c.Ms)
+			}
 		}
 		if e.Tab == "" {
 			continue
@@ -152,13 +162,7 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 	}
 	s.Median, s.P90 = quantile(walls, 0.5), quantile(walls, 0.9)
 	s.Reply, s.Replies = quantile(replies, 0.5), len(replies)
-	for k, sk := range sinks {
-		sk.Median = quantile(runs[k], 0.5)
-		s.Sinks = append(s.Sinks, *sk)
-	}
-	slices.SortFunc(s.Sinks, func(a, b Sink) int {
-		return cmp.Or(cmp.Compare(b.Total, a.Total), strings.Compare(a.Command, b.Command))
-	})
+	s.Sinks, s.Polls = ranked(sinks, runs), ranked(polls, pollRuns)
 	for _, e := range evs {
 		t := tabs[e.Tab]
 		if t == nil {
@@ -192,6 +196,19 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 	}
 	slices.SortFunc(s.Tabs, func(a, b Tab) int { return cmp.Or(b.Last.Compare(a.Last), strings.Compare(a.ID, b.ID)) })
 	return s
+}
+
+// ranked is sinks with their medians from runs, the most time first.
+func ranked(sinks map[string]*Sink, runs map[string][]int64) []Sink {
+	var out []Sink
+	for k, sk := range sinks {
+		sk.Median = quantile(runs[k], 0.5)
+		out = append(out, *sk)
+	}
+	slices.SortFunc(out, func(a, b Sink) int {
+		return cmp.Or(cmp.Compare(b.Total, a.Total), strings.Compare(a.Command, b.Command))
+	})
+	return out
 }
 
 // idleCapSince is the cutoff for legacy estimates, from dd06be3b.
@@ -294,6 +311,15 @@ func Report(s Summary, n int, span string) string {
 	b.WriteString("\n## Where the time goes\n\n| Part | Hours | Share |\n| --- | --- | --- |\n")
 	for _, k := range s.ByTime() {
 		fmt.Fprintf(&b, "| %s | %s | %s |\n", Label(k), Hours(s.Parts[k]), Pct(s.Parts[k], total))
+	}
+	if ci := s.Parts[CI]; ci > 0 {
+		fmt.Fprintf(&b, "\n## Waiting on CI\n\nAgents spent %s, %s of turn time, in `gh` and the sleeps and polls around it.\n", Hours(ci), Pct(ci, total))
+		if len(s.Polls) > 0 {
+			b.WriteString("\n| Command | Runs | Median | Total |\n| --- | --- | --- | --- |\n")
+			for _, k := range s.Polls[:min(n, len(s.Polls))] {
+				fmt.Fprintf(&b, "| `%s` | %d | %s | %s |\n", k.Command, k.Count, Dur(k.Median), Dur(k.Total))
+			}
+		}
 	}
 	if len(s.Sinks) > 0 {
 		b.WriteString("\n## Slowest commands, by total time\n\nEach turn keeps its five slowest commands of a second or more.\n\n| Command | Kind | Runs | Median | Total |\n| --- | --- | --- | --- | --- |\n")

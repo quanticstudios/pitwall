@@ -405,3 +405,45 @@ func TestSummarize(t *testing.T) {
 		}
 	}
 }
+
+// TestPoll: a CI line is named by the program that made it CI, with its
+// subcommand and no arguments.
+func TestPoll(t *testing.T) {
+	for line, want := range map[string]string{
+		"gh pr checks 12 --watch":                               "gh pr checks",
+		"for i in $(seq 30); do gh pr checks 4; sleep 30; done": "gh pr checks",
+		`H=$(git rev-parse HEAD); gh run list --commit "$H"`:    "gh run list",
+		"rtk gh api -X GET repos/o/r":                           "gh api",
+		"until grep -q done /tmp/x; do sleep 5; done":           "sleep",
+		"sleep 300":                                       "sleep",
+		`bash -c "sleep 60 && gh run watch 9"`:            "gh run watch",
+		"cd /a && git push -q && gh pr view --json state": "gh pr view",
+		"echo hi": "",
+	} {
+		if got := Poll(line); got != want {
+			t.Errorf("Poll(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
+// TestSummarizePolls: CI time is ranked by poll name, and the report
+// gives its hours and share.
+func TestSummarizePolls(t *testing.T) {
+	evs := []Event{
+		{T: at(100), Kind: Turn, Tab: "t", Start: at(0), Ms: 100000, Model: 40000, Tools: map[string]int64{CI: 60000},
+			Slow: []Cmd{{"gh pr checks 3 --watch", CI, 30000}, {"sleep 20", CI, 20000}, {"go test ./...", Test, 5000}}},
+		{T: at(300), Kind: Turn, Tab: "t", Start: at(200), Ms: 100000, Model: 90000, Tools: map[string]int64{CI: 10000},
+			Slow: []Cmd{{"for i in 1 2; do gh pr checks 3; done", CI, 10000}}},
+	}
+	s := Summarize(evs, at(0), at(1000), time.UTC)
+	want := []Sink{{"gh pr checks", CI, 2, 30000, 40000}, {"sleep", CI, 1, 20000, 20000}}
+	if !slices.Equal(s.Polls, want) {
+		t.Fatalf("polls %+v", s.Polls)
+	}
+	r := Report(s, 10, "the last 7 days")
+	for _, want := range []string{"## Waiting on CI", "0.0h, 35% of turn time", "| `gh pr checks` | 2 | 30s | 40s |"} {
+		if !strings.Contains(r, want) {
+			t.Errorf("report lacks %q:\n%s", want, r)
+		}
+	}
+}

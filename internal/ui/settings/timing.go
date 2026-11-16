@@ -45,6 +45,7 @@ const (
 	timingEmpty   = "Appears after an agent with pitwall's hooks finishes its first turn."
 	timingLoading = "Reading the timing log…"
 	topSinks      = 10
+	topPolls      = 5
 	topTabs       = 10
 )
 
@@ -236,12 +237,17 @@ func (p *Page) timing() []section {
 		section{title: "Where the time goes",
 			desc: "Each turn runs from your prompt to the agent stopping. Tool time comes from the hooks around each call, counted once when calls run in parallel; model time is the rest. Hover a part for its hours.",
 			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.split(gtx, s) }}}},
+		section{title: "Waiting on CI",
+			desc: "Time in gh and in the sleeps and polls around it, inside turns, and the commands that took it. Each turn keeps its five slowest commands of a second or more, so the commands can add up to less.",
+			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.ciWait(gtx, s) }}}},
 		section{title: "Agent hours per day",
 			desc: "The agents' time in turns that ended each day, waiting on you left out.",
 			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.dayHours(gtx, s) }}}},
 		section{title: "Biggest time sinks",
 			desc: "Commands by their total time, with numbers, paths and quoted text set aside. Each turn keeps its five slowest commands of a second or more, redacted.",
-			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.sinks(gtx, s) }}}},
+			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions {
+				return p.sinks(gtx, s.Sinks[:min(topSinks, len(s.Sinks))], "No command ran for a second or more in this window.")
+			}}}},
 		section{title: "Per task",
 			desc: "Recent tabs: the agents' time, the part of it in tools, your time in approvals and replies, and how long each step to a merged pull request took.",
 			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.taskList(gtx, s) }}}},
@@ -373,14 +379,37 @@ func (p *Page) dayHours(gtx gl.Context, s *timelog.Summary) gl.Dimensions {
 	return p.panel(gtx, func(gtx gl.Context) gl.Dimensions { return p.dayBars(gtx, c) })
 }
 
-// sinks is the slowest commands, ranked by total time, each with its
-// runs and median and a bar of its total against the biggest.
-func (p *Page) sinks(gtx gl.Context, s *timelog.Summary) gl.Dimensions {
-	th := p.th
-	if len(s.Sinks) == 0 {
-		return p.chartEmpty(gtx, "No command ran for a second or more in this window.")
+// ciWait is CI's hours and share of turn time, over the commands that
+// spent it.
+func (p *Page) ciWait(gtx gl.Context, s *timelog.Summary) gl.Dimensions {
+	ci := s.Parts[timelog.CI]
+	if ci <= 0 {
+		return p.chartEmpty(gtx, "No time in gh, CI polls or sleeps in this window.")
 	}
-	ks := s.Sinks[:min(topSinks, len(s.Sinks))]
+	return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return p.para(gtx, p.th.UIFont, p.th.Sp(theme.Body), p.th.Fg, ciLine(s))
+		}),
+		gl.Rigid(gl.Spacer{Height: 12}.Layout),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return p.sinks(gtx, s.Polls[:min(topPolls, len(s.Polls))], "No CI command ran for a second or more in this window.")
+		}),
+	)
+}
+
+// ciLine is CI's hours and share of turn time.
+func ciLine(s *timelog.Summary) string {
+	ci := s.Parts[timelog.CI]
+	return fmt.Sprintf("Agents waited %s on CI and gh, %s of turn time.", timelog.Dur(ci), timelog.Pct(ci, s.Agent+s.Wait))
+}
+
+// sinks is ks, commands ranked by total time, each with its runs and
+// median and a bar of its total against the biggest, or empty for none.
+func (p *Page) sinks(gtx gl.Context, ks []timelog.Sink, empty string) gl.Dimensions {
+	th := p.th
+	if len(ks) == 0 {
+		return p.chartEmpty(gtx, empty)
+	}
 	peak := ks[0].Total
 	return p.panel(gtx, func(gtx gl.Context) gl.Dimensions {
 		var kids []gl.FlexChild

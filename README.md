@@ -306,7 +306,8 @@ fix the causes in CLAUDE.md, your shell config or a missing tool.
 
 **Settings, Timing shows where your agents' time goes.** Each turn splits
 into the model, tests, builds, CI, other tools and waiting on you, per day
-and per task from prompt to merge, with the slowest commands. Copy report
+and per task from prompt to merge, with the slowest commands and the `gh`
+polls that held up turns. Copy report
 hands that to an agent too. Both pages read logs the daemon keeps with
 secrets redacted; the timing log holds no prompts or output.
 
