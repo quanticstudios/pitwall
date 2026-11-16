@@ -27,7 +27,8 @@ import (
 
 // controlCommands are the control commands the socket serves.
 var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane",
-	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus"}
+	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus",
+	"worktreeNew", "queueAdd", "queueDrop", "queueList", "hostCheck", "adopt"}
 
 // controlDaemon serves session work with tabs build (#1, pane p1) and test
 // (#2, pane p2), each running a command, and a worker on box that build

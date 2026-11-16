@@ -889,6 +889,15 @@ code, and its result's `data` holds what that command prints.
 | `focusTab` | `pitwall attach`, without opening a window | none |
 | `tabNew`, `tabClose` | `pitwall tab new`, `tab close` in that pane | `tab`, none |
 | `setStatus` | `pitwall status` | none |
+| `worktreeNew` | `pitwall worktree new` in the repo | `tab`, `pane` |
+| `queueAdd`, `queueDrop` | `pitwall queue add`, `queue rm` | none |
+| `queueList` | `pitwall queue ls` | `session`, `tasks` |
+| `hostCheck` | the check `pitwall new --host` asks a host for | `problems` |
+| `adopt` | `pitwall adopt` run in `tab` | `adopted` |
+
+These commands act on this machine only. A request that would start or
+change a worker on another host answers `remote` and names the host, so
+nothing starts there; use the CLI, or that host's socket.
 
 A program outside a pane has no pane or session of its own, so a request
 names them:
@@ -1139,6 +1148,95 @@ pane does, with `app`, `progress` (working or blocked only) and
 {"type": "setStatus", "id": "c19", "pane": "@p8d2", "state": "working", "app": "deploy", "progress": 40}
 ```
 
+### worktreeNew
+
+`worktreeNew` opens a tab in a new worktree, `<repo>/.worktrees/<name>`,
+as `pitwall worktree new <name>` run in `repo` does: `repo` is an
+absolute path in the repository. `from`, `branch` and `pr` pick what it
+checks out, as `--from`, `--branch` and `--pr`; with none, a new branch
+`name` off the default branch. `cmd` runs in it, or a `preset`'s agent,
+or with `lane` (fleet mode) the lane's preset with the words of `cmd` as
+one brief; without them the tab opens empty. A lane whose workers start
+on another host is `remote`. `guard` and `parentPane` work as for
+`newTab`, and the tab joins the group of `parentPane`'s tab; without
+`parentPane` it joins the repository's group in `session`, which the
+daemon makes when missing.
+
+A worktree that opened but whose setup had a problem answers `ok` with
+the problem in `message`, as the CLI prints `#N` and then the problem.
+
+```json
+{"type": "worktreeNew", "id": "c20", "repo": "/home/me/src/pitwall", "name": "fix-login", "parentPane": "p7c1", "preset": "safe", "cmd": ["fix the login loop"]}
+```
+
+```json
+{"type": "result", "id": "c20", "ok": true, "data": {"tab": "5d0e8a2c9b1f7a34", "pane": "p9a3"}}
+```
+
+### queueAdd, queueList and queueDrop
+
+`queueAdd` queues `cmd`, or a `preset`'s agent with `cmd` after it, to
+start in `dir` once the session's queue has room, as `pitwall queue add`
+does with `--preset`, `--model`, `--at`, `--every` and `--worktree`.
+`dir` is an absolute path. `queueList` lists the session's queued tasks,
+first to start first, each with its `title` (its prompt's first line)
+but never its command line or environment. `queueDrop` takes `task` off
+the queue: an `id` from `queueList`, or its `n`, which needs `session`
+while more than one session is open.
+
+```json
+{"type": "queueAdd", "id": "c21", "session": "work", "dir": "/home/me/src/pitwall", "cmd": ["codex", "fix the flaky test"], "at": "02:00"}
+```
+
+```json
+{"type": "queueList", "id": "c22", "session": "work"}
+```
+
+```json
+{"type": "result", "id": "c22", "ok": true, "data": {"session": {"id": "4f1c2a9e", "name": "work"}, "tasks": [{"n": 1, "id": "7b2e", "title": "fix the flaky test", "dir": "/home/me/src/pitwall", "group": "pitwall", "worktree": "", "freshWorktree": false, "branch": "", "nextStart": "2026-11-16T02:00:00Z", "repeatMs": 0}]}}
+```
+
+```json
+{"type": "queueDrop", "id": "c23", "task": "7b2e"}
+```
+
+### hostCheck
+
+`hostCheck` answers what would stop a worker with these fields from
+starting on this machine: `cmd` or a `preset`'s agent on the daemon's
+`PATH`, its hooks and login, with `guard` the guard's check, and with
+`repo` a work tree whose origin git and `gh` can reach. It starts
+nothing. `dir` and `repo` are absolute or start with `~/`, the daemon's
+home folder. `clone` is origin's URL for the fix of a missing `repo`.
+Each problem has `what`, a `fix` and `warn`: with `warn` the worker
+would start without it.
+
+```json
+{"type": "hostCheck", "id": "c24", "cmd": ["claude"], "guard": true, "repo": "~/src/pitwall"}
+```
+
+```json
+{"type": "result", "id": "c24", "ok": true, "data": {"problems": [{"what": "claude is not on the daemon's PATH", "fix": "install it, or add its folder to the PATH pitwall's daemon starts with (docs/remote.md)", "warn": false}]}}
+```
+
+### adopt
+
+`adopt` makes `tab` the parent of orphans of its session, the tabs whose
+parent tab is gone, as `pitwall adopt` run in that tab does: those
+`ids` lists (from `listTabs` with `orphans`), or `all`. `all` skips
+`tab` itself and its own ancestors. A worker on another host is
+`remote`, and `all` while one is an orphan changes nothing; adopt those
+with the CLI. This daemon does not see the tabs of a session it no
+longer has on other hosts, which `pitwall adopt --all` also takes.
+
+```json
+{"type": "adopt", "id": "c25", "tab": "@9f2c4e1a7b3d5c60", "all": true}
+```
+
+```json
+{"type": "result", "id": "c25", "ok": true, "data": {"adopted": ["b9e0"]}}
+```
+
 `docs/examples` has two clients that list the tabs and read a pane:
 [`control.py`](examples/control.py) (Python, standard library) and
 [`control.sh`](examples/control.sh) (bash, `socat` and `jq`).
@@ -1160,9 +1258,9 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | `forge` | `gh` failed; `message` has its words |
 | `tooLarge` | the result is over 4 MiB, on the [local socket](#local-socket) |
 | `ambiguous` | a [control](#control) address or session matches more than one |
-| `remote` | a control address names a tab on another host |
+| `remote` | a control address names a tab on another host, or a request would act on a worker or lane there |
 | `timeout` | a `waitPane` or `promptPane` passed its `timeoutMs`, or the prompted turn never started |
-| `refused` | the guard cannot cover a `newTab`, `splitPane` or `tabNew`; nothing started |
+| `refused` | the guard cannot cover a `newTab`, `worktreeNew`, `splitPane` or `tabNew`; nothing started |
 | `jev` | deprecated: this server never sends it |
 
 A client treats a code it does not know as a failure with `message` to

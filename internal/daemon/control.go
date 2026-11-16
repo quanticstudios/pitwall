@@ -112,3 +112,7 @@ func ctlFail(err error) error {
 	}
 	return web.ControlError("conflict", err.Error())
 }
+
+func (h ctlHub) CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
+	return CheckStart(ctx, m)
+}

@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -96,7 +96,7 @@ func queueCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	tasks := slices.DeleteFunc(slices.Clone(state.Tasks), func(t model.Task) bool { return t.SessionID != session.ID })
+	tasks := control.Queued(state, session.ID)
 	switch command {
 	case "ls":
 		return listTasks(out, state, tasks)
@@ -114,11 +114,11 @@ func queueCommand(args []string, out io.Writer) error {
 		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd, Env: vars, NextStart: next, Repeat: repeat, Worktree: worktree, FreshWorktree: worktree != ""}, Queue: true})
 		return err
 	}
-	n, err := strconv.Atoi(strings.TrimPrefix(args[0], "#"))
-	if err != nil || n < 1 || n > len(tasks) {
-		return fmt.Errorf("no queued task %s (see pitwall queue ls)", args[0])
+	t, err := control.QueuedTask(tasks, args[0])
+	if err != nil {
+		return err
 	}
-	_, err = syncCLI(conn, proto.DropTask{ID: tasks[n-1].ID})
+	_, err = syncCLI(conn, proto.DropTask{ID: t.ID})
 	return err
 }
 

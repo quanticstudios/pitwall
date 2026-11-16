@@ -348,6 +348,17 @@ func (f *fakeControl) Do(ctx context.Context, req any) error {
 			}
 		})
 	}
+	if m, isNew := req.(proto.NewWorkspace); isNew && err == nil {
+		f.set(func(st *model.State) {
+			st.Workspaces = append(st.Workspaces, model.Workspace{ID: m.ID, SessionID: "m1", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "n" + m.ID}}}})
+			st.Panes = append(st.Panes, model.Pane{ID: "n" + m.ID, WorkspaceID: m.ID, Env: m.Env})
+		})
+	}
+	if m, isAdd := req.(proto.AddProject); isAdd && err == nil {
+		f.set(func(st *model.State) {
+			st.Projects = append(st.Projects, model.Project{ID: "g" + m.Path, SessionID: m.SessionID, Root: m.Path, Kind: model.ProjectGit})
+		})
+	}
 	if onDo != nil {
 		onDo(req)
 	}
@@ -359,6 +370,17 @@ func (f *fakeControl) OpenPane(m proto.OpenPane, env []string) (string, error) {
 	defer f.mu.Unlock()
 	f.reqs, f.envs = append(f.reqs, m), append(f.envs, env)
 	return "new", f.fail
+}
+
+// CheckStart records m and finds a problem with a program named missing.
+func (f *fakeControl) CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reqs = append(f.reqs, m)
+	if len(m.Cmd) > 0 && m.Cmd[0] == "missing" {
+		return []proto.HostProblem{{What: "missing is not on the daemon's PATH", Fix: "install it"}}
+	}
+	return nil
 }
 
 func (f *fakeControl) NewTab(ctx context.Context, m proto.NewTab) (string, error) {
@@ -571,6 +593,9 @@ func TestControlNoProcessFields(t *testing.T) {
 		t.Skip("the fixtures use Unix paths; the daemon serves control on Linux only")
 	}
 	f, c := controlServer(t)
+	f.set(func(st *model.State) {
+		st.Tasks = []model.Task{{ID: "t1", SessionID: "m1", Dir: "/work", Cmd: []string{"make", "fix it"}, Env: []string{"SECRET=1"}}}
+	})
 	forbidden := regexp.MustCompile(`(?i)^(cmd|command|env|environ|args|argv|pid|process|processes|monitor|resume)`)
 	var frames []map[string]any
 	for _, req := range []string{
@@ -585,6 +610,8 @@ func TestControlNoProcessFields(t *testing.T) {
 		`{"type":"tabNew","id":"1","pane":"@p2"}`,
 		`{"type":"setStatus","id":"1","pane":"@p2","text":"ok"}`,
 		`{"type":"sendPane","id":"1","pane":"@p3","text":"ok"}`,
+		`{"type":"queueList","id":"1","session":"main"}`,
+		`{"type":"hostCheck","id":"1","cmd":["sh"]}`,
 	} {
 		if strings.Contains(req, "waitPane") {
 			c.line(t, req)

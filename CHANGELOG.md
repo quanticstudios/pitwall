@@ -35,6 +35,7 @@ takes `--dry-run`.
 - Restarting the daemon from the window hands the panes to the new version with their programs running. `pitwall update` no longer stops programs when the handoff fails: the old daemon keeps serving, and `pitwall update --restart` restarts it. A daemon started from this release refuses the handoff when systemd runs it as a service, since the unit would stop its panes. Updating from v0.2.13 or earlier with panes you want to keep: install with the install script first, then run `pitwall update`. Old daemons under systemd lack the guard: install the binary without running `update`, then restart the unit when you can stop its panes.
 - `pitwall update --version vX` installs release vX, older or newer, and hands the running daemon to it.
 - On Linux, programs open, split, prompt, send to and close tabs over `$PITWALL_SOCKET`, with the same guard as the CLI and `startId` retries that never open a second tab.
+- On Linux, `worktreeNew`, the queue commands, `hostCheck` and `adopt` on `$PITWALL_SOCKET` match the CLI for tabs on this machine.
 - A command that an older or newer daemon turns away always says so and names `pitwall update`; it sometimes printed `broken pipe`.
 
 ## v0.2.13
