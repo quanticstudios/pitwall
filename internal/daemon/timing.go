@@ -46,7 +46,7 @@ func (d *Daemon) syncTurn(p *model.Pane, now time.Time) {
 
 // where names p and its tab for a timing line. Callers hold d.mu.
 func (d *Daemon) where(p *model.Pane) timelog.Where {
-	w := timelog.Where{Pane: p.ID, Tab: p.WorkspaceID, Provider: string(p.Provider)}
+	w := timelog.Where{Pane: p.ID, Tab: p.WorkspaceID, Provider: string(p.Provider), Cwd: p.Cwd}
 	if ws := d.workspace(p.WorkspaceID); ws != nil {
 		w.Project, w.Name, w.Branch = ws.ProjectID, ws.Name, ws.Branch
 	}

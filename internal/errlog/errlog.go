@@ -65,6 +65,9 @@ type Event struct {
 	// cut: about what the failure cost the agent in tokens, see Tokens.
 	Size int   `json:"size,omitempty"`
 	Ms   int64 `json:"ms,omitempty"` // how long the call ran, when the agent says
+	// Turn is when the pane's running turn started, the start of its line
+	// in timing.jsonl; zero outside a turn.
+	Turn time.Time `json:"turn,omitzero"`
 }
 
 // Tokens is about how many tokens e's command and output took.
@@ -92,6 +95,9 @@ func (l *Log) Add(e Event) {
 	}
 	e = Trim(e)
 	e.V, e.T = Version, e.T.UTC().Truncate(time.Millisecond)
+	if !e.Turn.IsZero() {
+		e.Turn = e.Turn.UTC().Truncate(time.Millisecond)
+	}
 	b, err := json.Marshal(e)
 	if err != nil {
 		return

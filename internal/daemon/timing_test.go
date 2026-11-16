@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/timelog"
 )
 
 // TestTimingLogged: a prompt, a test run and a Stop reach timing.jsonl
-// as the tab's first prompt and a turn with the test's time.
+// as the tab's first prompt and a turn with the test's time and folder;
+// a call that failed in the turn reaches errors.jsonl with its start.
 func TestTimingLogged(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	f.saved = model.State{
@@ -27,6 +29,12 @@ func TestTimingLogged(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.Timing = l
+	errPath := filepath.Join(t.TempDir(), "errors.jsonl")
+	el, err := errlog.Open(errPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Errors = el
 	d, err := NewWith(o)
 	if err != nil {
 		t.Fatal(err)
@@ -36,8 +44,11 @@ func TestTimingLogged(t *testing.T) {
 	hookJSON(t, d, head+`"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"x1","tool_input":{"command":"go test ./..."}}`)
 	time.Sleep(40 * time.Millisecond)
 	hookJSON(t, d, head+`"hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"x1","tool_input":{"command":"go test ./..."},"tool_response":{"stdout":"ok"}}`)
+	hookJSON(t, d, head+`"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_use_id":"x2","tool_input":{"command":"go vet ./..."},"error":"Exit code 1\nvet: bad"}`)
 	hookJSON(t, d, head+`"hook_event_name":"Stop","last_assistant_message":"Fixed."}`)
+	hookJSON(t, d, head+`"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_use_id":"x3","tool_input":{"command":"ls nope"},"error":"Exit code 2\nno such file"}`)
 	l.Close(time.Second)
+	el.Close(time.Second)
 
 	evs, err := timelog.Read(path, time.Time{})
 	if err != nil {
@@ -52,6 +63,16 @@ func TestTimingLogged(t *testing.T) {
 	e := evs[1]
 	if e.Kind != timelog.Turn || e.End != timelog.Completed || e.Pane != "a" || e.Tab != "w" || e.Branch != "fix-x" || e.Name != "fix" || e.Provider != "claude" {
 		t.Errorf("turn %+v", e)
+	}
+	if e.Cwd != "/home/u/repo" {
+		t.Errorf("turn cwd %q", e.Cwd)
+	}
+	errs, err := errlog.Read(errPath, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(errs) != 2 || !errs[0].Turn.Equal(e.Start) || !errs[1].Turn.IsZero() {
+		t.Errorf("error turns %+v, turn start %v", errs, e.Start)
 	}
 	if e.Tools[timelog.Test] < 30 || e.Model+e.Wait+e.Tools[timelog.Test] != e.Ms {
 		t.Errorf("parts %+v", e)

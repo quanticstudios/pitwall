@@ -13,7 +13,7 @@ import (
 
 // Where is the pane a turn runs in, and its tab, for the line.
 type Where struct {
-	Pane, Tab, Project, Name, Branch, Provider string
+	Pane, Tab, Project, Name, Branch, Provider, Cwd string
 }
 
 // Tracker assembles turns from each pane's activity state and its agent's
@@ -60,6 +60,14 @@ func Running(s model.AgentState) bool { return s == model.StateWorking || waitin
 
 // Has reports whether a turn runs in pane.
 func (tr *Tracker) Has(pane string) bool { return tr.turns[pane] != nil }
+
+// Started is when the turn running in pane started, or zero.
+func (tr *Tracker) Started(pane string) time.Time {
+	if t := tr.turns[pane]; t != nil {
+		return t.start
+	}
+	return time.Time{}
+}
 
 // Panes are the panes with a turn running.
 func (tr *Tracker) Panes() iter.Seq[string] { return maps.Keys(tr.turns) }
@@ -192,7 +200,7 @@ func (t *turn) closeOpen(now time.Time, match func(call) bool) {
 }
 
 func (t *turn) line(kind string, at time.Time) Event {
-	return Event{T: at, Kind: kind, Pane: t.w.Pane, Tab: t.w.Tab, Project: t.w.Project, Name: t.w.Name, Branch: t.w.Branch, Provider: t.w.Provider}
+	return Event{T: at, Kind: kind, Pane: t.w.Pane, Tab: t.w.Tab, Project: t.w.Project, Name: t.w.Name, Branch: t.w.Branch, Provider: t.w.Provider, Cwd: t.w.Cwd}
 }
 
 // finish ends pane's turn at now, or sooner if the agent went quiet

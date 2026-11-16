@@ -1082,7 +1082,8 @@ Settings, Agent errors shows where your agents waste steps and tokens. From
 the hooks, the daemon keeps every tool call that failed and every turn the
 API ended, in `errors.jsonl` in the state folder: its time, agent, command
 or file path, the end of its output, exit code, folder and how long it ran.
-It skips nothing. A command that exited 1 with no output, as grep finding
+An error inside a turn also carries the turn's start (`turn`), which is the
+`start` of that turn's line in `timing.jsonl`. It skips nothing. A command that exited 1 with no output, as grep finding
 nothing, is marked quiet and a call you stopped is marked interrupted, and
 each of those gets a group of its own. Secrets in the command and output
 are redacted before the line is written, and at 10 MB the file moves to
@@ -1138,7 +1139,7 @@ and tokens and outlines its group in the list below in the cause's color.
 Settings, Timing shows where your agents' time goes. A turn runs from your
 prompt to the agent stopping, failing, being interrupted or its pane
 closing, and the daemon writes one line per turn to `timing.jsonl` in the
-state folder: its tab, branch, agent, start and end, and how its time split
+state folder: its tab, branch, agent, folder (`cwd`), start and end, and how its time split
 between the model, tools and waiting on you for an approval or an answer.
 Tool time comes from the hooks around each call, so parallel calls count
 once, and commands sort into tests, builds, lint, git, CI and `gh` (watches
