@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quanticstudios/pitwall/internal/logs"
 )
 
 func TestSignature(t *testing.T) {
@@ -160,6 +162,19 @@ func TestAddHugeOutput(t *testing.T) {
 	}
 	if n := len([]rune(e.Output)); n != outputLen || !strings.HasSuffix(e.Output, " Error: tests failed") || strings.Contains(e.Output, "HEAD") {
 		t.Errorf("output %d runes, ends %q", n, string([]rune(e.Output)[n-30:]))
+	}
+}
+
+// TestTrimTwice: Add trims an event the daemon already trimmed, which must
+// keep the size, the cut and the redaction it had.
+func TestTrimTwice(t *testing.T) {
+	e := Trim(Event{Command: strings.Repeat("make ", 200) + "TOKEN=abcdefghijklmnopqrstuvwxyz0123456789",
+		Output: strings.Repeat("é é\n", 1<<11) + "TOKEN=abcdefghijklmnopqrstuvwxyz0123456789\nError: tests failed"})
+	if twice := Trim(e); twice != e {
+		t.Errorf("trimmed twice:\n%+v\nonce:\n%+v", twice, e)
+	}
+	if e.Size < 1<<13 || len([]rune(e.Output)) != outputLen || strings.Contains(e.Output, "abcdefghij") || !strings.Contains(e.Output, "TOKEN="+logs.Redacted) {
+		t.Errorf("trimmed once: size %d, %d runes", e.Size, len([]rune(e.Output)))
 	}
 }
 

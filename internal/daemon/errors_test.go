@@ -252,3 +252,41 @@ func TestRepeatedErrorCodexRedacted(t *testing.T) {
 		t.Fatalf("success did not clear repeat: %+v", a)
 	}
 }
+
+// TestRepeatedErrorStoredSignature: the repeat marker names the signature
+// the Agent errors page groups the stored line under, even when the error
+// word sits early in an output longer than the line keeps.
+func TestRepeatedErrorStoredSignature(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Path: "/work/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/work/repo"}},
+	}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	path := filepath.Join(t.TempDir(), "errors.jsonl")
+	l, err := errlog.Open(path)
+	must(t, err)
+	o.Errors = l
+	d, err := NewWith(o)
+	must(t, err)
+	out := "error: early failure\n" + strings.Repeat("still going along\n", 60) + "done\n"
+	payload, err := json.Marshal(map[string]any{"session_id": "s1", "transcript_path": "/t.jsonl", "hook_event_name": "PostToolUse", "tool_name": "Bash",
+		"tool_input": map[string]any{"command": []string{"sh", "-c", "make"}}, "tool_response": map[string]any{"output": out, "exit_code": 2}})
+	must(t, err)
+	for range repeatAfter {
+		must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: payload}))
+	}
+	l.Close(time.Second)
+	evs, err := errlog.Read(path, time.Time{})
+	if err != nil || len(evs) != repeatAfter {
+		t.Fatalf("events %d, err %v", len(evs), err)
+	}
+	g := errlog.Groups(evs)
+	d.mu.Lock()
+	a := d.attended()[0]
+	d.mu.Unlock()
+	if len(g) != 1 || a.Repeats != repeatAfter || a.Repeating != g[0].Sig {
+		t.Fatalf("marker %d %q, Agent errors page groups %+v", a.Repeats, a.Repeating, g)
+	}
+}

@@ -2018,15 +2018,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if f.Shell {
 			kind = errlog.Command
 		}
-		e := errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
+		// Trimmed once here: the signature is the one the Agent errors page
+		// groups the stored line under, and Redact never sees megabytes.
+		e := errlog.Trim(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
 			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
-			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms}
+			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
 		d.logError(p.WorkspaceID, e)
 		if f.Interrupted {
 			d.dropRepeat(p.ID) // the user stepped in
 		} else {
-			// Match the redacted errors the Agent errors page groups.
-			e.Command, e.Output = logs.Redact(e.Command), logs.Redact(e.Output)
 			d.noteFailure(p.ID, errlog.Signature(e))
 		}
 	} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {
