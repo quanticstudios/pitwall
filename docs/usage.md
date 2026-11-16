@@ -1102,8 +1102,12 @@ how many tokens its commands and output took, at four characters a token; Most f
 Most tokens sort by either. A group with a known cause shows a Likely fix
 line: quote globs zsh would expand, quote words that start with `=`,
 install a missing command, read a file again before editing it, check
-`package.json` before `npm run`, or pick a model your plan includes. Rate
-limits and overloaded APIs are marked as nothing to fix locally.
+`package.json` before `npm run`, or pick a model your plan includes. It
+also knows a missing Python module, a sandbox that blocks zsh
+here-documents, GitHub's API rate limit from polling `gh`, the deprecated
+project cards `gh pr view` asks for, a site that refuses fetches, and
+`pkill -f` killing the agent's own shell. Rate limits and overloaded APIs
+are marked as nothing to fix locally.
 
 Copy report puts the top groups in the order shown, each with its latest
 command, output and likely fix, on the clipboard as Markdown to paste into
