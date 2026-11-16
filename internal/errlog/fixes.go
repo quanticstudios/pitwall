@@ -55,7 +55,7 @@ var Fixes = []Fix{
 		Fix: "GitHub's API rate limit ran out, usually from agents polling gh. Tell the agent not to poll gh pr checks or gh run watch; the limit resets within the hour."},
 	{Match: regexp.MustCompile(`Projects \(classic\) is being deprecated.*projectCards`),
 		Fix: "gh pr view and gh pr edit ask for classic project cards, which GitHub deprecated. Update gh, or tell the agent to pass --json with the fields it needs to gh pr view."},
-	{Match: regexp.MustCompile(`^Claude Code is unable to fetch from |domains are not accessible to our user agent`),
+	{Match: regexp.MustCompile(`Claude Code is unable to fetch from |domains are not accessible to our user agent`),
 		Fix: "The site refuses the agent's fetches, and retrying does not help. Tell the agent to stop after two refusals and use another source."},
 	{Match: regexp.MustCompile(`^\s*pkill\s+(?:-[A-Za-z]+\s+)*(?:-[A-Za-z]*f[A-Za-z]*|--full)(?:\s|$)`), Command: true, Exit: 144, EmptyOutput: true,
 		Fix: "pkill -f matched the agent's own shell, whose command line holds the pattern, and killed it. Tell the agent to find the PID with pgrep and kill <pid>."},
