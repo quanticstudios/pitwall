@@ -1096,7 +1096,9 @@ What each agent reports:
 The page groups the errors of the last 7 days, 30 days or all time by the
 line that says what went wrong, with numbers, paths and quoted text set
 aside, so `zsh: no matches found: --include=*.go` and `--include=*.ts` count
-as one. Each group names its latest error's tab when the log has its name,
+as one. Color codes and zoxide's start-up warning do not count as that line.
+An error with no such line, or only a path or a number, groups by its tool
+and exit code, such as `Bash failed with exit 144`. Each group names its latest error's tab when the log has its name,
 even after that tab closes. Each group shows how often it happened and about
 how many tokens its commands and output took, at four characters a token; Most frequent and
 Most tokens sort by either. A group with a known cause shows a Likely fix

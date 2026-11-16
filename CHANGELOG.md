@@ -29,6 +29,7 @@ takes `--dry-run`.
 - Agent errors shows a likely fix for seven more causes: a missing Python module or program, zsh here-documents in a read-only sandbox, GitHub's API rate limit, `gh pr view` asking for deprecated project cards, a site that refuses fetches, and `pkill -f` killing the agent's own shell. On one user's log of 1,773 errors this lifts coverage from 131 to 779.
 - Agent errors shows a likely fix for seven more causes: a missing Python module or program, zsh here-documents in a read-only sandbox, GitHub's API rate limit, `gh pr view` asking for deprecated project cards, a site that refuses fetches, and `pkill -f` killing the agent's own shell with no output. On one user's log of 1,773 errors this lifts coverage from 131 to 763.
 - Settings, Timing has a Waiting on CI section: the hours agents spent in `gh` and the sleeps and polls around it, their share of turn time, and the commands that took it, named by program and subcommand only, such as `gh pr checks`. Copy report includes it.
+- Settings, Agent errors groups errors by the line that says what went wrong even when the output has color codes or zoxide's "detected a possible configuration issue" warning in it. An error whose output is empty, or only a path or a number, groups by its tool and exit code, such as `Bash failed with exit 144`, instead of under one `Bash failed`, `<path>` or `N` group. Errors already in the log regroup the same way when you open the page.
 
 ## v0.2.14
 
