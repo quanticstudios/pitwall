@@ -361,6 +361,11 @@ be on box at the same path under the home folder, so `~/Work/app` here is
 it. In fleet mode a lane with `host = "box"` sends its workers there
 without `--host`, and `--host local` keeps one here.
 
+When a host command fails to connect, `pitwall host status box` says why
+in ssh's own words, without prompting. If it asks for a login or a
+Tailscale check, tell the user to run `pitwall host login box` in their
+own shell; you cannot answer it.
+
 On a host with the start check, box's pitwall first checks that the agent
 is on its PATH, that a `--guard` worker has pitwall's hooks there, and for
 `worktree new` that the repository is there, git can read origin and make

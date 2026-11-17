@@ -54,7 +54,7 @@ func TestCompletion(t *testing.T) {
 	}
 	for _, c := range cmds {
 		switch c {
-		case "", "-v", "version", "remote-start": // the bare window, aliases of --version, and an internal one
+		case "", "-v", "version", "remote-start", "remote-status": // the bare window, aliases of --version, and internal ones
 			continue
 		}
 		if !slices.Contains(top, c) {
@@ -65,7 +65,7 @@ func TestCompletion(t *testing.T) {
 		"session": {"ls", "new", "attach", "rename", "kill"}, "worktree": {"ls", "new", "lanes", "rm", "prune"},
 		"tab": {"new", "rename", "close"}, "hooks": {"install", "uninstall"}, "completion": {"bash", "zsh", "fish"},
 		"config": {"path", "default", "init", "check", "schema"}, "remote": {"pair", "devices", "revoke"},
-		"queue": {"ls", "add", "rm"},
+		"queue": {"ls", "add", "rm"}, "host": {"status", "login"},
 	} {
 		if !slices.Equal(subs[name], want) {
 			t.Errorf("%s completes %q, want %q", name, subs[name], want)

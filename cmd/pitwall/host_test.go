@@ -36,7 +36,7 @@ func TestRemoteSSHArgs(t *testing.T) {
 		"-o", "ServerAliveInterval=15",
 		"-o", "ConnectTimeout=10",
 	}
-	hosts := []config.Host{{Name: "box", SSH: "me@box.example"}, {Name: "gpu", SSH: "gpu-alias"}, {Name: "bare"}}
+	hosts := []config.Host{{Name: "box", SSH: "me@box.example"}, {Name: "gpu", SSH: "gpu-alias"}, {Name: "bare"}, {Name: "-oProxyCommand=example; echo example", SSH: "me@box"}}
 	locals := map[string]bool{} // one window forwards each host to its own socket
 	for _, c := range []struct {
 		name, dest string
@@ -47,6 +47,7 @@ func TestRemoteSSHArgs(t *testing.T) {
 		{"gpu", "gpu-alias", true, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start --restart'`},
 		{"bare", "bare", false, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start'`},
 		{"me@elsewhere", "me@elsewhere", false, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start'`},
+		{"-oProxyCommand=example; echo example", "me@box", false, `sh -c 'PATH="$PATH:$HOME/.local/bin"; b=pitwall; command -v pitwall-core >/dev/null && b=pitwall-core; exec "$b" remote-start'`},
 	} {
 		r, err := newSSHHost(c.name, hosts)
 		if err != nil {
@@ -66,6 +67,9 @@ func TestRemoteSSHArgs(t *testing.T) {
 	}
 	if _, err := newSSHHost("-oProxyCommand=x", nil); err == nil {
 		t.Error("an option as the destination was accepted")
+	}
+	if _, err := newSSHHost("box", []config.Host{{Name: "box", SSH: "-oProxyCommand=example"}}); err == nil {
+		t.Error("an option in a configured destination was accepted")
 	}
 }
 
@@ -95,8 +99,8 @@ func TestRemoteErrors(t *testing.T) {
 	prev := version
 	t.Cleanup(func() { version = prev })
 	r := &sshHost{name: "box", dest: "me@box"}
-	release := "ssh me@box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | PITWALL_VERSION=v0.1.0-alpha.30 sh -s -- --core'"
-	latest := "ssh me@box 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh -s -- --core'"
+	release := "ssh -- 'me@box' 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | PITWALL_VERSION=v0.1.0-alpha.30 sh -s -- --core'"
+	latest := "ssh -- 'me@box' 'curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh -s -- --core'"
 	started := func(v int) func() error {
 		return func() error {
 			_, err := r.parseStart(fmt.Sprintf("Welcome to box\n%s\t%d\t0\tv0.1.0-alpha.9\t/run/user/1000/pitwall/pitwall.sock\n", remoteMark, v))
@@ -157,7 +161,7 @@ func TestRemoteStartFindsCore(t *testing.T) {
 		{"both restart", []string{"pitwall", "pitwall-core"}, true, "pitwall-core remote-start --restart"},
 		{"core", []string{"pitwall-core"}, false, "pitwall-core remote-start"},
 		{"desktop", []string{"pitwall"}, false, "pitwall remote-start"},
-		{"none", nil, false, "neither pitwall-core nor pitwall is on the PATH there or in ~/.local/bin. Install pitwall-core with:\n  ssh me@box 'curl -fsSL " + getScript + " | sh -s -- --core'"},
+		{"none", nil, false, "neither pitwall-core nor pitwall is on the PATH there or in ~/.local/bin. Install pitwall-core with:\n  ssh -- 'me@box' 'curl -fsSL " + getScript + " | sh -s -- --core'"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			bin := t.TempDir()

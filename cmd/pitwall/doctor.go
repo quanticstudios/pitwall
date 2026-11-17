@@ -115,6 +115,9 @@ func runDoctor(w io.Writer) int {
 	for _, n := range s.Notes {
 		info(fmt.Sprint(n))
 	}
+	for _, st := range checkHosts(nil, s.Hosts) {
+		report(st.OK, "host "+st.Host, st.detail(), st.Fix)
+	}
 
 	// docs/remote.md: without linger, logging out deletes the runtime folder
 	// that holds the socket.
