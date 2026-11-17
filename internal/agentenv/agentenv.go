@@ -19,14 +19,16 @@ var Markers = []string{
 	"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENT",
 	"CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT",
 	"CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED", "CODEX_CI",
-	"TERM_SESSION_ID", "ITERM_SESSION_ID", "WEZTERM_PANE", "KITTY_WINDOW_ID", "WT_SESSION",
+	"TERM_SESSION_ID", "ITERM_SESSION_ID", "WEZTERM_PANE", "KITTY_WINDOW_ID", "WT_SESSION", "GHOSTTY_SURFACE_ID",
 }
 
-// Marker reports whether name is in Markers or names Ghostty's surface.
+// Marker reports whether name is in Markers. Ghostty's resource paths and
+// shell integration settings are not session ids; only GHOSTTY_SURFACE_ID is.
+// See https://ghostty.org/docs/install/release-notes/1-4-0.
 // Windows names are case-insensitive, so the match is too.
 func Marker(name string) bool {
 	name = strings.ToUpper(name)
-	return slices.Contains(Markers, name) || strings.HasPrefix(name, "GHOSTTY_")
+	return slices.Contains(Markers, name)
 }
 
 // Clean copies env without the markers.

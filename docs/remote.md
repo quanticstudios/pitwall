@@ -367,6 +367,12 @@ Panes start with the unit's environment, so a command such as `pitwall new
 -- claude` finds only what is on systemd's `PATH`. Add
 `Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin` under
 `[Service]`, with your own folders, when an agent lives elsewhere.
+
+Whether started by systemd or a terminal, the daemon drops the starting
+agent's and terminal's session markers before starting panes and chats.
+User settings and resource paths still pass through, and a preset's or
+tab's explicit `env` takes precedence. See [agent presets](usage.md#agent-presets).
+
 Crash traces go to `journalctl --user -u pitwall`; the daemon's own log
 stays in `daemon.log`.
 

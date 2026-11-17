@@ -245,6 +245,11 @@ command and runs in view, then the agent starts:
 pitwall new -n billing ../billing -- sh -c 'pnpm install && exec claude "$0"' "Add the refund flow"
 ```
 
+Workers inherit the daemon's environment with the starting agent's session
+markers removed, so a worker has its own session and transcript. User
+settings still pass through. A preset's or tab's explicit `env` takes
+precedence, including when it sets a session marker deliberately.
+
 A worker still in setup has no agent state yet, and `wait --children`
 waits for it like the rest. Until you wait, you are still orchestrating:
 `pitwall read #N` prints a worker's last reply and `pitwall send #N --
