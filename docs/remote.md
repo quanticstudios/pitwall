@@ -71,6 +71,25 @@ laptop does, deletes the runtime folder that holds the daemon's socket, and
 the next window can no longer reach the daemon your agents run in.
 `pitwall doctor`, run on the host over ssh, says whether linger is on.
 
+### Check a host
+
+`pitwall host status` checks every `[[hosts]]` entry at once, and
+`pitwall host status box` only box. Each line says whether ssh got in,
+the host's pitwall version and protocol, whether its daemon runs, and how
+long the check took. The check starts no daemon. ssh runs with
+`BatchMode=yes`, so it never waits for a password, and gives up after 15
+seconds. When it fails, the line carries ssh's last three lines: a host key
+that changed, a key the host refused, or Tailscale SSH's "requires an
+additional check" with the URL to visit. The command exits 1 when any host
+failed, and `--json` prints one object per host for scripts. `pitwall
+doctor` adds the same line for each host.
+
+`pitwall host login box` runs ssh to box at your terminal, so you can type
+a password, answer MFA or open the Tailscale check, and then checks box.
+On Linux and macOS it opens the shared connection that `--host` reuses for
+10 minutes. From a pitwall pane it refuses to run without a terminal on
+stdin, so an agent never waits on a prompt; run it yourself in a shell.
+
 ### Several hosts in one window
 
 To see a host's sessions in every plain `pitwall` window, next to this

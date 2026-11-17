@@ -171,7 +171,12 @@ const usage = `usage:
                              focus the pane next to the calling one, for
                              vim at the edge of its windows (see docs/keys.md)
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
-  pitwall doctor             check the install, the daemon, hooks and config; changes nothing
+  pitwall doctor             check the install, the daemon, hooks, config and [[hosts]]; changes nothing
+  pitwall host status [--json] [name]
+                             check each [[hosts]] entry over ssh, never prompting: reachable,
+                             its pitwall's version and protocol, its daemon, the time taken
+  pitwall host login <name>  ssh to name at this terminal to answer a password, MFA or
+                             Tailscale check, then check it
   pitwall update [--restart] [--version vX]
                              install the latest release, or release vX older or newer,
                              over this binary, then hand the running daemon's panes to
@@ -206,6 +211,10 @@ func main() {
 		return
 	case "remote-start":
 		err = runRemoteStart(os.Args[2:], os.Stdout)
+	case "remote-status":
+		err = runRemoteStatus(os.Stdout)
+	case "host":
+		os.Exit(runHost(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "daemon":
 		if len(os.Args) == 3 && os.Args[2] == "--handoff" {
 			err = runHandoffDaemon(os.NewFile(3, "handoff answer"))
