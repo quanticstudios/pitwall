@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/quanticstudios/pitwall/internal/agentenv"
 	"github.com/quanticstudios/pitwall/internal/daemon"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -239,5 +240,36 @@ func TestBuildHasNoFlavor(t *testing.T) {
 	daemonSetup(filepath.Join(t.TempDir(), "pitwall.sock"))
 	if daemon.Build != versionString() || !strings.HasPrefix(versionLine(), versionString()) {
 		t.Fatalf("Build %q, version %q, --version %q", daemon.Build, versionString(), versionLine())
+	}
+}
+
+// A daemon started from inside Claude Code hands its panes no
+// CLAUDE_CODE_CHILD_SESSION, which would turn off their transcripts.
+func TestDaemonSetupDropsAgentMarkers(t *testing.T) {
+	setHome(t, t.TempDir())
+	for _, name := range agentenv.Markers {
+		t.Setenv(name, "parent")
+	}
+	socket := filepath.Join(t.TempDir(), "pitwall.sock")
+	keep := map[string]string{
+		"PITWALL_SOCKET": socket, "PITWALL_PANE": "p1", "PITWALL_GUARD": "1",
+		"PITWALL_UPDATE_URL": "https://example.com/releases/latest", "PITWALL_ATTACH": "tab1",
+		"CLAUDE_CONFIG_DIR": "/claude", "CLAUDE_CODE_SIMPLE": "1", "CODEX_HOME": "/codex",
+		"GHOSTTY_RESOURCES_DIR": "/ghostty", "CLAUDE_CODE_EFFORT_LEVEL": "high",
+	}
+	for name, value := range keep {
+		t.Setenv(name, value)
+	}
+	t.Setenv("PITWALL_SOCKET", "old.sock")
+	daemonSetup(socket)
+	for _, name := range agentenv.Markers {
+		if _, ok := os.LookupEnv(name); ok {
+			t.Errorf("daemonSetup kept %s", name)
+		}
+	}
+	for name, value := range keep {
+		if os.Getenv(name) != value {
+			t.Errorf("daemonSetup changed %s", name)
+		}
 	}
 }

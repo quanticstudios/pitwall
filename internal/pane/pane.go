@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agentenv"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -114,7 +115,8 @@ func (p *Pane) Start() {
 }
 
 // environ is os.Environ() without the variables that make nested tools think
-// they already run inside tmux or zellij, and without a worktree tab's
+// they already run inside tmux or zellij, or inside the agent or terminal
+// session that started the daemon (agentenv), and without a worktree tab's
 // ports when pitwall itself started from one of its panes.
 func environ() []string {
 	var out []string
@@ -122,7 +124,7 @@ func environ() []string {
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		if k == "TMUX" || k == "TMUX_PANE" || strings.HasPrefix(k, "ZELLIJ") ||
-			k == "PITWALL_PORTS" || k == "PITWALL_PORT_BASE" || k == "PITWALL_URL" || ported && k == "PORT" {
+			k == "PITWALL_PORTS" || k == "PITWALL_PORT_BASE" || k == "PITWALL_URL" || ported && k == "PORT" || agentenv.Marker(k) {
 			continue
 		}
 		out = append(out, kv)

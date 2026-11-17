@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/daemon"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/tmuxshim"
 )
@@ -270,5 +272,47 @@ func TestTmuxShimOldDaemon(t *testing.T) {
 	var out bytes.Buffer
 	if code := runTmuxShim([]string{"--", "sh"}, os.Stdin, &out, &out); code != 1 || !strings.Contains(out.String(), "needs daemon protocol level") {
 		t.Fatalf("%d %s", code, &out)
+	}
+}
+
+func TestTmuxShimEnvironment(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicit=%t", explicit), func(t *testing.T) {
+			testTmuxShimEnvironment(t, explicit)
+		})
+	}
+}
+
+func testTmuxShimEnvironment(t *testing.T, explicit bool) {
+	t.Helper()
+	lead := model.Pane{ID: "lead"}
+	wantChild, wantSurface := "unset", "unset"
+	if explicit {
+		lead.Env = []string{"CLAUDE_CODE_CHILD_SESSION=own", "GHOSTTY_SURFACE_ID=own", "CLAUDE_CONFIG_DIR=/original"}
+		wantChild, wantSurface = "own", "own"
+	}
+	fakeCLI(t, cliExchange{level: proto.Level, state: model.State{Panes: []model.Pane{lead}}})
+	t.Setenv("PITWALL_PANE", "lead")
+	t.Setenv("PITWALL_GUARD", "1")
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "parent")
+	t.Setenv("CODEX_THREAD_ID", "parent")
+	t.Setenv("GHOSTTY_SURFACE_ID", "0x1234")
+	t.Setenv("GHOSTTY_RESOURCES_DIR", "/ghostty")
+	t.Setenv("CLAUDE_CONFIG_DIR", "/claude")
+	var out bytes.Buffer
+	code := runTmuxShim([]string{"--", "sh", "-c", `
+test "${CLAUDE_CODE_CHILD_SESSION-unset}" = "$1" &&
+test "${CODEX_THREAD_ID-unset}" = unset &&
+test "${GHOSTTY_SURFACE_ID-unset}" = "$2" &&
+test "$GHOSTTY_RESOURCES_DIR" = /ghostty &&
+test "$CLAUDE_CONFIG_DIR" = /claude &&
+test "$PITWALL_GUARD" = 1 &&
+test "$TMUX_PANE" = '%lead' &&
+test "${TMUX%%,*}" = "$PITWALL_SOCKET"`, "sh", wantChild, wantSurface}, os.Stdin, &out, &out)
+	if code != 0 {
+		t.Fatalf("tmux-shim environment: exit %d: %s", code, &out)
+	}
+	if os.Getenv("CLAUDE_CODE_CHILD_SESSION") != "parent" {
+		t.Fatal("tmux-shim changed the launcher's environment")
 	}
 }

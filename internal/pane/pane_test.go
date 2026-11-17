@@ -145,6 +145,25 @@ func TestEnv(t *testing.T) {
 	if got := f.String(); !strings.Contains(got, "[unset|unset|unset|unset]") {
 		t.Fatalf("inherited ports %q", got)
 	}
+
+	// The session markers of the agent that started the daemon stay out,
+	// settings stay in, and Config.Env still wins.
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+	t.Setenv("GHOSTTY_RESOURCES_DIR", "/ghostty")
+	t.Setenv("GHOSTTY_SURFACE_ID", "parent")
+	f = &fakeVT{}
+	p, err := Start(Config{ID: "p44", Cmd: []string{"sh", "-c", `printf '[%s|%s|%s|%s|%s]' "${CLAUDECODE-unset}" "${CLAUDE_CODE_CHILD_SESSION-unset}" "${CLAUDE_CODE_USE_BEDROCK-unset}" "$GHOSTTY_RESOURCES_DIR" "$GHOSTTY_SURFACE_ID"`},
+		Env: []string{"CLAUDECODE=own", "GHOSTTY_SURFACE_ID=own"}, Cols: 80, Rows: 24, NewVT: func(int, int, io.Writer) vt.Emulator { return f }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	waitDone(t, p)
+	if got := f.String(); !strings.Contains(got, "[own|unset|1|/ghostty|own]") {
+		t.Fatalf("agent markers %q", got)
+	}
 }
 
 func TestCwd(t *testing.T) {
