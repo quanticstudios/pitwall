@@ -32,10 +32,14 @@ const statusTimeout = 15 * time.Second
 // Keep only the tail of each stream, even when a shell startup file is noisy.
 const statusOutputLimit = 8 * 1024
 
-type statusOutput struct{ data []byte }
+type statusOutput struct {
+	data      []byte
+	truncated bool
+}
 
 func (b *statusOutput) Write(p []byte) (int, error) {
 	n := len(p)
+	b.truncated = b.truncated || len(b.data)+n > statusOutputLimit
 	if n >= statusOutputLimit {
 		b.data = append(b.data[:0], p[n-statusOutputLimit:]...)
 	} else {
@@ -45,6 +49,15 @@ func (b *statusOutput) Write(p []byte) (int, error) {
 		b.data = append(b.data, p...)
 	}
 	return n, nil
+}
+
+func (b *statusOutput) String() string {
+	if b.truncated {
+		// A retained tail may start inside a secret and lack the marker
+		// Redact needs, such as API_TOKEN= or BEGIN PRIVATE KEY.
+		return "ssh output exceeded 8 KiB; diagnostics omitted"
+	}
+	return string(b.data)
 }
 
 const hostUsage = `usage:
@@ -110,7 +123,7 @@ func checkHost(r *sshHost) hostStatus {
 	cmd.WaitDelay = time.Second
 	start := time.Now()
 	err := cmd.Run()
-	st := r.parseStatus(string(stdout.data), string(stderr.data), err, ctx.Err() != nil)
+	st := r.parseStatus(stdout.String(), stderr.String(), err, ctx.Err() != nil)
 	st.RTTMillis = time.Since(start).Milliseconds()
 	return st
 }
@@ -119,7 +132,7 @@ func checkHost(r *sshHost) hostStatus {
 // run's error and whether it timed out.
 func (r *sshHost) parseStatus(out, stderr string, err error, timedOut bool) hostStatus {
 	st := hostStatus{Host: r.name}
-	login := "pitwall host login " + r.name
+	login := hostLoginCommand(r.name)
 	var exit *exec.ExitError
 	switch {
 	case timedOut:
@@ -299,7 +312,7 @@ func printHosts(sts []hostStatus, asJSON bool, w io.Writer) int {
 // at its stdin to answer, so it may not.
 func hostLogin(name string, hosts []config.Host, stdin *os.File) error {
 	if os.Getenv("PITWALL_PANE") != "" && !term.IsTerminal(stdin.Fd()) {
-		return fmt.Errorf("pitwall host login asks for a password or check at a terminal and this one has none; run pitwall host login %s yourself in a shell", name)
+		return fmt.Errorf("pitwall host login asks for a password or check at a terminal and this one has none; run %s yourself in a shell", hostLoginCommand(name))
 	}
 	r, err := newSSHHost(name, hosts)
 	if err != nil {
@@ -311,4 +324,8 @@ func hostLogin(name string, hosts []config.Host, stdin *os.File) error {
 		return fmt.Errorf("ssh to %s: %w", name, err)
 	}
 	return nil
+}
+
+func hostLoginCommand(name string) string {
+	return "pitwall host login -- " + shellQuote(name)
 }

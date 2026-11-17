@@ -302,7 +302,7 @@ func (r *sshHost) install() string {
 	if strings.HasPrefix(version, "v") {
 		pin = "PITWALL_VERSION=" + version + " "
 	}
-	return fmt.Sprintf("ssh %s 'curl -fsSL %s | %ssh -s -- --core'", r.dest, getScript, pin)
+	return fmt.Sprintf("ssh -- %s 'curl -fsSL %s | %ssh -s -- --core'", shellQuote(r.dest), getScript, pin)
 }
 
 // close drops the forward and its socket here. The host's daemon keeps

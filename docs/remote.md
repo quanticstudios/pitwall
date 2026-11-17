@@ -85,7 +85,8 @@ failed, including a daemon that refuses the check or does not answer.
 A host with no daemon is reachable and passes. The check retains at most
 8 KiB from each ssh output stream, redacts known secret patterns in
 diagnostics, and does not print shell startup output when the reply is
-invalid. `--json` prints one object per host for scripts. `pitwall
+invalid. Diagnostics over that limit are omitted, since a partial secret
+may no longer be recognizable. `--json` prints one object per host for scripts. `pitwall
 doctor` adds the same line for each host.
 
 `pitwall host login box` runs ssh to box at your terminal, so you can type
