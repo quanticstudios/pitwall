@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -168,7 +167,7 @@ func readCommand(args []string, out io.Writer) error {
 	screen := flags.Bool("screen", false, "")
 	args, err := parseFlags(flags, args)
 	if err != nil || len(args) != 1 {
-		return errors.New("usage: pitwall read [-s session] <pane> [--screen]")
+		return errors.New("usage: pitwall read [--host name] [-s session] <pane> [--screen]")
 	}
 	conn, err := dialCLI()
 	if err != nil {
@@ -190,7 +189,7 @@ func readCommand(args []string, out io.Writer) error {
 	defer r.close()
 	h, _, p, err := r.pane(args[0])
 	if err != nil {
-		addr := args[0]
+		addr := hostLocal(args[0])
 		if name, rest, ok := strings.Cut(strings.TrimPrefix(addr, "#"), ":"); ok && slices.Contains(r.names(), name) {
 			h, addr = r.host(name), rest
 		}
@@ -280,7 +279,7 @@ func sendCommand(args []string, in io.Reader) error {
 		args, text = args[:1], args[1:]
 	}
 	if err != nil || len(args) != 1 {
-		return errors.New("usage: pitwall send [-s session] <pane> [-- text | text | -]")
+		return errors.New("usage: pitwall send [--host name] [-s session] <pane> [-- text | text | -]")
 	}
 	msg, err := textArg(text, in, "message")
 	if err != nil {
@@ -308,7 +307,7 @@ func sendCommand(args []string, in io.Reader) error {
 	if err != nil {
 		return err
 	}
-	from := os.Getenv("PITWALL_PANE")
+	from := envCaller("").Pane
 	if !slices.ContainsFunc(m.State.Panes, func(sp model.Pane) bool { return sp.ID == from }) {
 		from = "" // a script, or a pane of another daemon
 	}
@@ -354,7 +353,7 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 		args, text = args[:1], args[1:]
 	}
 	if err != nil || len(args) != 1 {
-		return waitError, errors.New("usage: pitwall prompt [-s session] <pane> [--wait] [--timeout 10m] [-- text | text | -]")
+		return waitError, errors.New("usage: pitwall prompt [--host name] [-s session] <pane> [--wait] [--timeout 10m] [-- text | text | -]")
 	}
 	msg, err := textArg(text, in, "prompt")
 	if err != nil {
@@ -431,7 +430,7 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 		return waitError, errOlder
 	}
 	pane := p.ID
-	if h == nil && pane == os.Getenv("PITWALL_PANE") {
+	if h == nil && pane == envCaller("").Pane {
 		return waitError, errors.New("that is this pane: prompt another agent's pane")
 	}
 	find := func(state model.State) int {

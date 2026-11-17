@@ -23,9 +23,10 @@ func init() {
 }
 
 // SocketPath is $XDG_RUNTIME_DIR/pitwall/pitwall.sock, or without
-// XDG_RUNTIME_DIR /tmp/pitwall-<uid>/pitwall.sock (%LOCALAPPDATA%\pitwall
-// on Windows). It creates the directory with mode 0700 and rejects unsafe
-// existing directories.
+// XDG_RUNTIME_DIR, an owned /run/user/<uid>/pitwall on Linux, else
+// /tmp/pitwall-<uid>/pitwall.sock (%LOCALAPPDATA%\pitwall on Windows).
+// A running daemon in /tmp keeps its path. It creates the directory with
+// mode 0700 and rejects unsafe existing directories.
 func SocketPath() (string, error) {
 	dir := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "pitwall")
 	if os.Getenv("XDG_RUNTIME_DIR") == "" {

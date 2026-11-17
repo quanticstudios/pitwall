@@ -50,6 +50,14 @@ func dialCLI() (*cliConn, error) { return dialKind("cli") }
 
 // dialKind connects as a client of kind (see proto.Hello).
 func dialKind(kind string) (*cliConn, error) {
+	if onHost != "" {
+		conn, done, err := dialHost(onHost, kind)
+		if err != nil {
+			return nil, err
+		}
+		hostDones = append(hostDones, done)
+		return conn, nil
+	}
 	path, err := socketPath()
 	if err != nil {
 		return nil, err
@@ -139,6 +147,20 @@ func versionRefusal(v int) error {
 
 func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	var err error
+	if hostCommand(args) {
+		var host string
+		if args, host, err = cutHost(args); err != nil {
+			fmt.Fprintln(errOut, "pitwall:", err)
+			return 1
+		}
+		onHost = host
+		defer func() {
+			for _, done := range hostDones {
+				done()
+			}
+			onHost, hostDones = "", nil
+		}()
+	}
 	switch {
 	case len(args) > 0 && args[0] == "agent":
 		err = agentCommand(args[1:], out)
@@ -617,6 +639,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	switch command {
 	case "ls":
+		if onHost != "" && (orphans || children) {
+			return errHostChildren
+		}
 		if orphans || children && workersOf(state, callerPaneTab(state)) != nil {
 			r := newRemotes(conn, state, session)
 			defer r.close()
@@ -632,9 +657,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			}
 		}
 		if asJSON {
-			return json.NewEncoder(out).Encode(tabsJSON(state, session.ID, only))
+			return json.NewEncoder(out).Encode(tabRows(state, session.ID, only, hostWhere(state, session.ID)))
 		}
-		return listTabs(out, state, session.ID, only, tree, nil, nil)
+		return listTabs(out, state, session.ID, only, tree, hostWhere(state, session.ID), nil)
 	case "adopt":
 		r := newRemotes(conn, state, session)
 		defer r.close()
@@ -836,6 +861,9 @@ func absCmd(cmd []string) error {
 // envCaller is the caller this process is: session as -s named it, in
 // the pane $PITWALL_PANE names.
 func envCaller(session string) control.Caller {
+	if onHost != "" {
+		return control.Caller{Session: session} // the pane is this machine's
+	}
 	return control.Caller{Session: session, Pane: os.Getenv("PITWALL_PANE")}
 }
 

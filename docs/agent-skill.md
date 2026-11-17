@@ -428,6 +428,21 @@ run the command on box, from its repository; the branch stays:
 ssh box 'cd ~/Work/app && pitwall worktree rm login-fix'
 ```
 
+To see tabs on a `[[hosts]]` machine that you did not start, such as the
+user's own agents there, add `--host <name>` to `ls`, `read`, `send`,
+`prompt`, `wait`, `kill` or `session ls`. The command then runs against
+that machine's pitwall, and `-s <session>` picks a session there:
+
+```sh
+pitwall session ls --host desktop
+pitwall ls --host desktop -s main --json   # rows: "host": "desktop", "addr": "desktop:2"
+pitwall read --host desktop desktop:2
+```
+
+Pass each row's `addr` back with the same `--host`. Without `-s` the
+session is the one used last there. `ls --children`, `ls --orphans` and
+`wait --children` follow your own tab and refuse `--host`.
+
 Reopening your tab makes its workers yours again. If you are a new
 orchestrator taking over from a tab that is gone, find the workers that
 lost their parent and take them:

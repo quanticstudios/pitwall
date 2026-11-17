@@ -8,7 +8,7 @@
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
 | Agent errors log    | `~/.local/state/pitwall/errors.jsonl` (Settings, Agent errors) |
 | Timing log          | `~/.local/state/pitwall/timing.jsonl` (Settings, Timing)      |
-| Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
+| Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else on Linux `/run/user/<uid>/pitwall/` when you own it, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Paired phones       | `~/.local/state/pitwall/remote/` (token hashes, mode 0600)    |
 | Web client token    | `~/.local/state/pitwall/web.json` (mode 0600, `pitwall web token --rotate`) |

@@ -19,7 +19,8 @@ import (
 )
 
 const sessionUsage = `usage:
-  pitwall session ls [--json]              list sessions
+  pitwall session ls [--json] [--host name]
+                                           list sessions, here or on a [[hosts]] machine
   pitwall session new [name] [-d] [dir]    make a session and open a window on it (-d: don't)
   pitwall session attach <name>            open a window on a session, or raise the one showing it
   pitwall session rename [old] <new>       rename a session (the current one without old)
