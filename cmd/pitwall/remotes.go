@@ -58,8 +58,12 @@ func (r *remotes) close() {
 	}
 }
 
-// names is the hosts the session has a part or a worker on, sorted.
+// names is the hosts the session has a part or a worker on, sorted, and
+// none under --host.
 func (r *remotes) names() []string {
+	if onHost != "" {
+		return nil // the hosts named in onHost's state are its own
+	}
 	var out []string
 	for _, p := range r.session.Remotes {
 		out = append(out, p.Host)
@@ -259,6 +263,7 @@ func (r *remotes) pane(addr string) (*hostPart, model.Workspace, model.Pane, err
 }
 
 func (r *remotes) find(addr string, pane bool) (*hostPart, model.Workspace, model.Pane, error) {
+	addr = hostLocal(addr)
 	on := func(st model.State, session, a string) (model.Workspace, model.Pane, error) {
 		if pane {
 			if id, ok := strings.CutPrefix(a, "@"); ok {

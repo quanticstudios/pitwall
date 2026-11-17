@@ -160,10 +160,13 @@ func waitTab(args []string, out, errOut io.Writer) (int, error) {
 		return waitError, err
 	}
 	if len(args) > 1 || *children && len(args) == 1 || !slices.Contains([]string{"done", "idle", "blocked", "exit"}, *until) {
-		return waitError, errors.New("usage: pitwall wait [-s session] [tab[.N] | --children [--done-line]] --until done|idle|blocked|exit [--timeout 10m]")
+		return waitError, errors.New("usage: pitwall wait [--host name] [-s session] [tab[.N] | --children [--done-line]] --until done|idle|blocked|exit [--timeout 10m]")
 	}
 	if *doneLine && (!*children || *until != "done") {
 		return waitError, errors.New("--done-line goes with --children --until done")
+	}
+	if *children && onHost != "" {
+		return waitError, errHostChildren
 	}
 	name := ""
 	if len(args) == 1 {

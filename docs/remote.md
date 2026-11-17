@@ -145,6 +145,37 @@ shows, or in a [shared session](#shared-sessions) on the machine you pick. `pitw
 machine they run on, except for `--host` and an agent's
 [workers on another machine](#workers-on-another-machine).
 
+### Tabs on another machine
+
+`ls`, `read`, `send`, `prompt`, `wait`, `kill` and `session ls` take
+`--host <name>` and then run against that host's daemon, with no window
+open, over the same ssh connection `pitwall --host` uses. It starts the
+daemon there when none runs, and a version mismatch fails with the same
+message as `pitwall --host`. `-s <session>` picks a session there; without
+it the command acts on the session used last there.
+
+```sh
+pitwall session ls --host box
+pitwall ls --host box -s work --json    # rows carry "host": "box", "addr": "box:2"
+pitwall read --host box box:2
+pitwall send --host box box:2 -- "rebase on main"
+pitwall wait --host box 2 --until done
+```
+
+`box:2`, `#box:2` and `box:@<id>` mean box's own tab 2 or id, as do `2`
+and `@<id>` with `--host box`. From a pitwall pane `--host` takes only a
+`[[hosts]]` name and ssh never prompts, as for `new --host`. `ls
+--children`, `ls --orphans` and `wait --children` follow the calling
+pane's tab here and refuse `--host`.
+
+On Linux, when a login sets no `XDG_RUNTIME_DIR`, as Tailscale SSH and
+some other logins without PAM do, pitwall looks for the daemon's socket
+in `/run/user/<uid>/pitwall` when that folder belongs to you, so it finds
+the daemon a desktop login started there. A daemon already listening in
+`/tmp/pitwall-<uid>` keeps that folder until it stops. Stale socket files
+do not hide a running daemon or keep a replacement in `/tmp`. An explicit
+`XDG_RUNTIME_DIR` keeps its existing behavior and always picks that folder.
+
 ### Shared sessions
 
 A session can hold tabs from this machine and from the hosts with
@@ -469,8 +500,9 @@ Some things stay on the machine they belong to:
 - The agent panel shows the agent's state, but not its transcript or the
   changed files, which are on the host.
 - `pitwall ls`, `new`, `wait` and the other commands talk to the daemon of
-  the machine they run on. Run them on the host, for example in one of its
-  panes, unless you start a tab there with `--host` or reach an agent's
+  the machine they run on, unless you add `--host` (see
+  [Tabs on another machine](#tabs-on-another-machine)), start a tab there
+  with `new --host` or reach an agent's
   [workers on another machine](#workers-on-another-machine).
 - On Windows a remote tab's ssh has no console, so it cannot ask for a
   password or passphrase: logins there need a key, an agent or another

@@ -145,6 +145,10 @@ const usage = `usage:
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
+  --host <name>              ls, read, send, prompt, wait, kill and session ls
+                             act on that [[hosts]] machine's daemon over ssh,
+                             -s picking a session there; ls --json rows
+                             carry "host" and an addr, box:3, they all take
   pitwall rename [old] <new> rename a tab
   pitwall tab new            open a tab next to the calling pane's tab
   pitwall tab rename [name...]  name the calling pane's tab (empty clears)
