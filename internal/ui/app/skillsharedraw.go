@@ -510,7 +510,12 @@ func (u *ui) ssOverviewRows(v skillshare.View, busy bool) []ssW {
 		}
 	}
 	if len(updates) > 0 {
-		rows = append(rows, ssSpace(8), u.ssSection("Update available", len(updates), th.Blue, nil))
+		var all gl.Widget
+		if len(updates) > 1 {
+			ups := updates
+			all = u.ssButton("ov-update-all", kit.Secondary.When(!busy), "Update all", func() { u.ssUpdate(ups, false, v.Project) })
+		}
+		rows = append(rows, ssSpace(8), u.ssSection("Update available", len(updates), th.Blue, all))
 		for _, it := range updates {
 			it := it
 			rows = append(rows, u.ssRow(v, it, showScope, u.ssButton("upd:"+it.Key, kit.Secondary.When(!busy), "Update", func() {
