@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A daemon started from inside Claude Code no longer turns off transcript saving in every pane. The daemon, its panes, its chats and `pitwall tmux-shim` now drop the session markers the starting agent or terminal set: Claude Code's `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `AI_AGENT`, `CLAUDE_CODE_ENTRYPOINT` and `CLAUDE_CODE_SSE_PORT`, Codex's `CODEX_THREAD_ID`, `CODEX_SANDBOX`, `CODEX_SANDBOX_NETWORK_DISABLED` and `CODEX_CI`, and the terminal ids `TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WEZTERM_PANE`, `KITTY_WINDOW_ID`, `WT_SESSION` and `GHOSTTY_*`. Settings such as `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_USE_BEDROCK` and `ANTHROPIC_*` still pass through, and a preset or tab can still set any of them.
+
 ## v0.2.15
 
 - `pitwall --host`, `[[hosts]]` and `worktree new --host` work on Windows. Its ssh cannot share a connection, so each use is its own ssh, and a dedicated `ssh -N -L` forwards the host's socket to a loopback TCP port and exits with the window. An ssh the window starts has no console, so logins there need a key or an agent, not a password.

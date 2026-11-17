@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/agentenv"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/tmuxshim"
 )
@@ -142,7 +143,7 @@ func runTmuxShim(args []string, in *os.File, out, errOut io.Writer) int {
 		program = filepath.Join(dir, "tmux")
 	}
 	command := exec.Command(program, args[1:]...)
-	command.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "TMUX="+socket+fmt.Sprintf(",%d,0", os.Getpid()), "TMUX_PANE="+tmuxshim.ID("%", from), "PITWALL_SOCKET="+socket)
+	command.Env = append(agentenv.Clean(os.Environ()), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "TMUX="+socket+fmt.Sprintf(",%d,0", os.Getpid()), "TMUX_PANE="+tmuxshim.ID("%", from), "PITWALL_SOCKET="+socket)
 	command.Stdin, command.Stdout, command.Stderr = in, out, errOut
 	if err = command.Run(); err != nil {
 		var exited *exec.ExitError

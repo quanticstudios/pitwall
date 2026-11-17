@@ -20,6 +20,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/agentenv"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/daemon"
 	"github.com/quanticstudios/pitwall/internal/logind"
@@ -350,6 +351,10 @@ func daemonSetup(path string) {
 	// Panes inherit this, so their hooks reach this daemon even when the
 	// shell inside changes XDG_RUNTIME_DIR.
 	os.Setenv("PITWALL_SOCKET", path)
+	// Started from inside an agent, the daemon would hand that agent's
+	// session markers to every pane and chat: Claude Code then saves no
+	// transcript.
+	agentenv.Unset()
 	vt.SetPalette(config.Palette()) // color queries answer with the theme the GUI draws
 	if home, err := os.UserHomeDir(); err == nil {
 		for _, p := range agent.RefreshSkill(home) {

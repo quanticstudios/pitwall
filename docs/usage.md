@@ -2359,6 +2359,14 @@ Code's `--model` and `--effort`, Codex's `-m` and `-c`, pi's `--model`.
 OpenCode drops `-m` on resume, but OpenCode picks the model and variant of
 the session's last message when it opens one, so the preset's model stays.
 
+Tabs and chats start from the daemon's environment without the session
+markers of whatever started the daemon, so a Claude Code in a tab is a
+session of its own even when the daemon started from another Claude Code.
+The list is `Markers` in `internal/agentenv`: Claude Code's `CLAUDECODE`
+and `CLAUDE_CODE_CHILD_SESSION` family, Codex's `CODEX_THREAD_ID` and
+sandbox flags, and terminal ids such as `TERM_SESSION_ID`. A preset's or
+tab's `env` still sets any of them.
+
 ### The guard
 
 The guard stops an agent from running the commands that are yours to run:

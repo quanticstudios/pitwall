@@ -241,3 +241,16 @@ func TestBuildHasNoFlavor(t *testing.T) {
 		t.Fatalf("Build %q, version %q, --version %q", daemon.Build, versionString(), versionLine())
 	}
 }
+
+// A daemon started from inside Claude Code hands its panes no
+// CLAUDE_CODE_CHILD_SESSION, which would turn off their transcripts.
+func TestDaemonSetupDropsAgentMarkers(t *testing.T) {
+	setHome(t, t.TempDir())
+	t.Setenv("PITWALL_SOCKET", "")
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "1")
+	t.Setenv("CLAUDE_CONFIG_DIR", "/claude")
+	daemonSetup(filepath.Join(t.TempDir(), "pitwall.sock"))
+	if _, ok := os.LookupEnv("CLAUDE_CODE_CHILD_SESSION"); ok || os.Getenv("CLAUDE_CONFIG_DIR") != "/claude" {
+		t.Fatal("daemonSetup kept a session marker or dropped a setting")
+	}
+}
