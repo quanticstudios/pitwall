@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -28,6 +28,24 @@ const daemonMark = "pitwall-daemon"
 
 // statusTimeout bounds one host's check, ssh's connect included.
 const statusTimeout = 15 * time.Second
+
+// Keep only the tail of each stream, even when a shell startup file is noisy.
+const statusOutputLimit = 8 * 1024
+
+type statusOutput struct{ data []byte }
+
+func (b *statusOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	if n >= statusOutputLimit {
+		b.data = append(b.data[:0], p[n-statusOutputLimit:]...)
+	} else {
+		if excess := len(b.data) + n - statusOutputLimit; excess > 0 {
+			b.data = b.data[excess:]
+		}
+		b.data = append(b.data, p...)
+	}
+	return n, nil
+}
 
 const hostUsage = `usage:
   pitwall host status [--json] [name]
@@ -86,13 +104,13 @@ func checkHost(r *sshHost) hostStatus {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, r.ssh, r.sshArgs(nil, strings.Replace(startCommand(false), "remote-start", "remote-status", 1))...)
 	nowindow.Set(cmd)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	var stdout, stderr statusOutput
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	// why: a shared connection's master stays in the background holding the pipes.
 	cmd.WaitDelay = time.Second
 	start := time.Now()
-	out, err := cmd.Output()
-	st := r.parseStatus(string(out), stderr.String(), err, ctx.Err() != nil)
+	err := cmd.Run()
+	st := r.parseStatus(string(stdout.data), string(stderr.data), err, ctx.Err() != nil)
 	st.RTTMillis = time.Since(start).Milliseconds()
 	return st
 }
@@ -119,23 +137,50 @@ func (r *sshHost) parseStatus(out, stderr string, err error, timedOut bool) host
 		return st
 	case err != nil && !errors.Is(err, exec.ErrWaitDelay):
 		st.Reachable = errors.As(err, &exit)
-		st.Error = r.sshError(stderr, err).Error()
+		st.Error = r.sshError(sshTail(stderr), err).Error()
 		return st
 	}
 	st.Reachable = true
+	var header string
+	daemonSeen := false
+	invalid := func() hostStatus {
+		st.Error = fmt.Sprintf("pitwall on %s did not report a valid status", r.name)
+		return st
+	}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.SplitN(strings.TrimRight(line, "\r"), "\t", 5)
 		switch {
-		case len(f) == 5 && f[0] == remoteMark:
-			st.Protocol, _ = strconv.Atoi(f[1])
-			st.Level, _ = strconv.Atoi(f[2])
-			st.Version = f[3]
-		case len(f) == 2 && f[0] == daemonMark:
-			st.Daemon = f[1]
+		case f[0] == remoteMark:
+			if len(f) != 5 || header != "" {
+				return invalid()
+			}
+			var protocolErr, levelErr error
+			st.Protocol, protocolErr = strconv.Atoi(f[1])
+			st.Level, levelErr = strconv.Atoi(f[2])
+			if protocolErr != nil || levelErr != nil || st.Protocol < 1 || st.Level < 0 || f[3] == "" || f[4] == "" {
+				return invalid()
+			}
+			st.Version = logs.Redact(f[3])
+			// Reuse the existing version-mismatch message, with only this
+			// validated record. Never pass shell startup output to parseStart.
+			header = strings.Join([]string{remoteMark, f[1], f[2], st.Version, f[4]}, "\t")
+		case f[0] == daemonMark:
+			if len(f) != 2 || daemonSeen || f[1] == "" {
+				return invalid()
+			}
+			daemonSeen = true
+			st.Daemon = logs.Redact(f[1])
 		}
 	}
-	if _, err := r.parseStart(out); err != nil {
+	if header == "" || !daemonSeen {
+		return invalid()
+	}
+	if _, err := r.parseStart(header); err != nil {
 		st.Error = err.Error() // it ends in the install command
+		return st
+	}
+	if st.Daemon != "not running" && !strings.HasPrefix(st.Daemon, "running ") {
+		st.Error = "daemon on " + r.name + ": " + st.Daemon
 		return st
 	}
 	st.OK = true
@@ -145,6 +190,10 @@ func (r *sshHost) parseStatus(out, stderr string, err error, timedOut bool) host
 // sshTail is the last lines ssh printed, where it says why it failed: a
 // host key, a refused key, or a Tailscale check's URL.
 func sshTail(stderr string) string {
+	stderr = logs.Redact(stderr)
+	if len(stderr) > statusOutputLimit {
+		stderr = stderr[len(stderr)-statusOutputLimit:]
+	}
 	var lines []string
 	for _, l := range strings.Split(strings.TrimSpace(stderr), "\n") {
 		if l = strings.TrimSpace(l); l != "" {

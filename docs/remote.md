@@ -81,7 +81,11 @@ long the check took. The check starts no daemon. ssh runs with
 seconds. When it fails, the line carries ssh's last three lines: a host key
 that changed, a key the host refused, or Tailscale SSH's "requires an
 additional check" with the URL to visit. The command exits 1 when any host
-failed, and `--json` prints one object per host for scripts. `pitwall
+failed, including a daemon that refuses the check or does not answer.
+A host with no daemon is reachable and passes. The check retains at most
+8 KiB from each ssh output stream, redacts known secret patterns in
+diagnostics, and does not print shell startup output when the reply is
+invalid. `--json` prints one object per host for scripts. `pitwall
 doctor` adds the same line for each host.
 
 `pitwall host login box` runs ssh to box at your terminal, so you can type
