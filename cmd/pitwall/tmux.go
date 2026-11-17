@@ -11,38 +11,39 @@ import (
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/agentenv"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/tmuxshim"
 )
 
-func tmuxConnection() (*cliConn, string, error) {
+func tmuxConnection() (*cliConn, model.Pane, error) {
 	from := os.Getenv("PITWALL_PANE")
 	if from == "" {
-		return nil, "", errors.New("tmux-shim must run inside a pitwall pane")
+		return nil, model.Pane{}, errors.New("tmux-shim must run inside a pitwall pane")
 	}
 	conn, err := dialCLI()
 	if err != nil {
-		return nil, "", err
+		return nil, model.Pane{}, err
 	}
 	state, err := syncMsg(conn)
 	if err == nil && state.Level < proto.TmuxLevel {
 		err = fmt.Errorf("tmux-shim needs daemon protocol level %d; this daemon is at %d", proto.TmuxLevel, state.Level)
 	}
-	found := false
+	var pane model.Pane
 	for _, p := range state.State.Panes {
 		if p.ID == from {
-			found = true
+			pane = p
 			break
 		}
 	}
-	if err == nil && !found {
+	if err == nil && pane.ID == "" {
 		err = errors.New("tmux-shim: PITWALL_PANE does not name a pane in this daemon")
 	}
 	if err != nil {
 		conn.Close()
-		return nil, "", err
+		return nil, model.Pane{}, err
 	}
-	return conn, from, nil
+	return conn, pane, nil
 }
 
 func runTmux(args []string, out io.Writer) error {
@@ -71,7 +72,7 @@ func runTmux(args []string, out io.Writer) error {
 		return err
 	}
 	defer conn.Close()
-	request := proto.Tmux{From: from, Args: global.Args, Env: []string{"PATH=" + os.Getenv("PATH"), "TMUX=" + socket + fmt.Sprintf(",%d,0", os.Getpid()), "PITWALL_SOCKET=" + socket}}
+	request := proto.Tmux{From: from.ID, Args: global.Args, Env: []string{"PATH=" + os.Getenv("PATH"), "TMUX=" + socket + fmt.Sprintf(",%d,0", os.Getpid()), "PITWALL_SOCKET=" + socket}}
 	if err = conn.Send(request); err != nil {
 		return err
 	}
@@ -143,7 +144,15 @@ func runTmuxShim(args []string, in *os.File, out, errOut io.Writer) int {
 		program = filepath.Join(dir, "tmux")
 	}
 	command := exec.Command(program, args[1:]...)
-	command.Env = append(agentenv.Clean(os.Environ()), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "TMUX="+socket+fmt.Sprintf(",%d,0", os.Getpid()), "TMUX_PANE="+tmuxshim.ID("%", from), "PITWALL_SOCKET="+socket)
+	env := agentenv.Clean(os.Environ())
+	// The pane's explicit markers still win, as they do in pane.Start.
+	// Other settings keep the values the shell passed to the shim.
+	for _, kv := range from.Env {
+		if name, _, _ := strings.Cut(kv, "="); agentenv.Marker(name) {
+			env = append(env, kv)
+		}
+	}
+	command.Env = append(env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "TMUX="+socket+fmt.Sprintf(",%d,0", os.Getpid()), "TMUX_PANE="+tmuxshim.ID("%", from.ID), "PITWALL_SOCKET="+socket)
 	command.Stdin, command.Stdout, command.Stderr = in, out, errOut
 	if err = command.Run(); err != nil {
 		var exited *exec.ExitError
