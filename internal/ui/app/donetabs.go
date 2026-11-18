@@ -59,7 +59,7 @@ func (u *ui) queueDone(a model.Activity, title string) {
 
 // applyDone moves queued tabs into the list and, while the window has
 // focus, drops the tab on screen: the user is looking at it.
-func (u *ui) applyDone() {
+func (u *ui) applyDone(st *model.State) {
 	u.focusMu.Lock()
 	notes := u.doneNotes
 	u.doneNotes = nil
@@ -67,9 +67,24 @@ func (u *ui) applyDone() {
 	for _, n := range notes {
 		u.doneTabs.add(n.act, n.title)
 	}
-	if u.winFocused && u.nav.workspace != "" {
-		u.doneTabs.drop(u.nav.workspace)
+	if ws := u.doneView(st); u.winFocused && ws != "" {
+		u.doneTabs.drop(ws)
 	}
+}
+
+// doneView is the tab whose panes are visible, following markSeen's
+// policy for covering pages and peeks. A selected but hidden tab is unseen.
+func (u *ui) doneView(st *model.State) string {
+	if u.nav.peek != "" {
+		if p := findPane(st, u.nav.peek); p != nil {
+			return p.WorkspaceID
+		}
+		return ""
+	}
+	if u.settings.Shown() || u.reader.On() || u.review.on || u.boardOn || u.mon.on {
+		return ""
+	}
+	return u.nav.workspace
 }
 
 // drawDone stacks the finished tabs' chips bottom-right in the pane area gtx
@@ -79,7 +94,12 @@ func (u *ui) drawDone(gtx gl.Context) {
 	is, gap := gtx.Dp(14), gtx.Dp(6)
 	pad := image.Pt(gtx.Dp(10), gtx.Dp(6))
 	closeW := gtx.Dp(24)
-	right := gtx.Constraints.Max.X - gtx.Dp(16)
+	margin := gtx.Dp(16)
+	right := gtx.Constraints.Max.X - margin
+	textWidth := right - margin - (2*pad.X + is + gap + closeW)
+	if textWidth <= 0 {
+		return
+	}
 	y := gtx.Constraints.Max.Y - gtx.Dp(24)
 	for i := len(u.doneTabs.items) - 1; i >= 0; i-- {
 		it := u.doneTabs.items[i]
@@ -92,10 +112,15 @@ func (u *ui) drawDone(gtx gl.Context) {
 			u.doneTabs.drop(it.ws)
 			continue
 		}
-		call, ts := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, it.title)
+		tgtx := gtx
+		tgtx.Constraints.Max.X = textWidth
+		call, ts := textCall(tgtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, it.title)
 		h := max(ts.Y, is) + 2*pad.Y
 		w := pad.X + is + gap + ts.X + pad.X + closeW
 		at := image.Pt(right-w, y-h)
+		if at.Y < 0 {
+			break // keep older notices queued until there is room to draw them
+		}
 		y = at.Y - gtx.Dp(6)
 
 		chip := op.Offset(at).Push(gtx.Ops)

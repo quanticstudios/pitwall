@@ -56,6 +56,10 @@ func (u *ui) applyJump(st *model.State) {
 		return
 	}
 	u.settings.Hide()
+	u.review.hide()
+	u.reader.Close()
+	u.boardOn, u.mon.on = false, false
+	u.nav.peek = ""
 	u.nav.tabMode, u.nav.paneMode = false, false
 	u.nav.selectWorkspace(st, a.WorkspaceID, a.PaneID)
 }

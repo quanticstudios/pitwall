@@ -134,13 +134,11 @@ func Run(b Backend) error {
 	go config.WatchOmarchy(stop, reload) // follows an Omarchy theme switch
 	u.watchTheme = l.s.ThemeName
 	u.report = func(probs []string) { reportProblems(probs, &reported) }
-	u.notifications = newNotifier(b, w.Invalidate, desktopSender(), func(a model.Activity) {
+	u.notifications = newNotifier(b, u.cfg.Notifications, w.Invalidate, desktopSender(), func(a model.Activity) {
 		u.queueJump(a)
 		w.Invalidate()
 		w.Perform(system.ActionRaise)
-	})
-	u.notifications.setRules(u.cfg.Notifications)
-	u.notifications.setFinished(func(a model.Activity, title string) {
+	}, func(a model.Activity, title string) {
 		u.queueDone(a, title)
 		w.Invalidate()
 	})
@@ -889,7 +887,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.nav.noLastPrompt = false
 		u.showNotice(pgtx, "No prompt pane is open", image.Rectangle{Max: pgtx.Constraints.Max})
 	}
-	u.applyDone()
+	u.applyDone(&st)
 	u.drawNotice(pgtx)
 	u.drawDone(pgtx)
 	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
@@ -982,7 +980,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	u.layoutLink(gtx, &st, link)
 	if u.notifications != nil {
-		u.notifications.setView(nil, u.nav.workspace, u.nav.session)
+		u.notifications.setView(nil, u.doneView(&st), u.nav.session)
 	}
 }
 

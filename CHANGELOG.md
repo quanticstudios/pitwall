@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Finished-tab notices keep their configured sound, stay pending while another view hides the tab, and fit within the pane area. Clicking one opens its terminal from a covering view. Notifications name a remote tab's host even in a shared session.
 - When a tab you opened finishes its turn, a notice shows at the bottom right of the window instead of a desktop notification. Click it to go to the tab, or × to dismiss it. Workers' tabs, the ones a pane started, still notify as before. The window keeps the newest four notices and drops one once you are on its tab with the window focused.
 - The skillshare Overview has an Update all button when more than one update is available.
 - A daemon started from inside Claude Code no longer turns off transcript saving in every pane. The daemon, its panes, its chats and `pitwall tmux-shim` now drop the session markers the starting agent or terminal set: Claude Code's `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `AI_AGENT`, `CLAUDE_CODE_ENTRYPOINT` and `CLAUDE_CODE_SSE_PORT`, Codex's `CODEX_THREAD_ID`, `CODEX_SANDBOX`, `CODEX_SANDBOX_NETWORK_DISABLED` and `CODEX_CI`, and the terminal ids `TERM_SESSION_ID`, `ITERM_SESSION_ID`, `WEZTERM_PANE`, `KITTY_WINDOW_ID`, `WT_SESSION` and `GHOSTTY_SURFACE_ID`. Settings such as `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_*` and Ghostty's resource paths still pass through, and a preset or tab can still set any of them.

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
@@ -77,7 +78,7 @@ func TestDesktopSenderMissing(t *testing.T) {
 func TestNotifierWithoutWindow(t *testing.T) {
 	b := NewFakeBackend()
 	delivered := make(chan notification, 20)
-	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n }, nil)
+	n := newNotifier(b, config.DefaultNotifySettings(), func() {}, func(_ context.Context, n notification) { delivered <- n }, nil, nil)
 	defer n.close()
 	focused := false
 	n.setView(&focused, "", "")
@@ -106,7 +107,7 @@ func TestNotifierCoalescesWithoutFrames(t *testing.T) {
 	// Simulate a connected backend's baseline before attaching the notifier.
 	set(model.StateWorking)
 	delivered := make(chan notification, 10)
-	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n }, nil)
+	n := newNotifier(b, config.DefaultNotifySettings(), func() {}, func(_ context.Context, n notification) { delivered <- n }, nil, nil)
 	defer n.close()
 	set(model.StateAwaitingInput)
 	select {
@@ -144,6 +145,21 @@ func TestNotificationTitle(t *testing.T) {
 	}
 }
 
+func TestNotificationTitleNamesSharedTabHost(t *testing.T) {
+	b := FakeShared{FakeBackend: NewFakeBackend(), Tab: "w1"}
+	st := b.State()
+	for _, id := range []string{"w1", "w2"} {
+		w := findWorkspace(&st, id)
+		want := notificationTitle(&st, *w)
+		if id == "w1" {
+			want = "box · " + want
+		}
+		if got := notificationTitleOn(b, &st, *w); got != want {
+			t.Errorf("%s notification title = %q, want %q", id, got, want)
+		}
+	}
+}
+
 // Each session's notifications come from one window: the one showing it,
 // or for a session no window shows, the window whose session sorts first.
 func TestNotifiesOnce(t *testing.T) {
@@ -162,6 +178,153 @@ func TestNotifiesOnce(t *testing.T) {
 	// With no window counted (the fake backend), a window notifies all.
 	if !notifies(&model.State{Sessions: []model.Session{{ID: "a"}, {ID: "c"}}}, "c", "a") {
 		t.Error("lone window stays quiet")
+	}
+}
+
+// Completion routing is installed before the notifier starts, including
+// when the backend changes between its initial State and Changed calls.
+type finishingBackend struct{ *FakeBackend }
+
+func (b finishingBackend) Changed() <-chan struct{} {
+	b.mu.Lock()
+	if b.st.Activities[0].State == model.StateWorking {
+		b.st.Activities[0].State = model.StateCompleted
+		b.st.Activities[0].Unseen = true
+		b.st.Activities[0].UpdatedAt = time.Now()
+		b.bump()
+	}
+	b.mu.Unlock()
+	return b.FakeBackend.Changed()
+}
+
+func TestNotifierFinishedCallbackReadyAtStartup(t *testing.T) {
+	b := finishingBackend{NewFakeBackend()}
+	b.mu.Lock()
+	b.st.Activities = []model.Activity{notifyActivity(model.StateWorking, time.Now())}
+	b.st.Activities[0].WorkspaceID = "w1"
+	b.mu.Unlock()
+	delivered := make(chan notification, 1)
+	finished := make(chan doneNote, 1)
+	n := newNotifier(b, config.DefaultNotifySettings(), func() {}, func(_ context.Context, nt notification) { delivered <- nt }, nil,
+		func(a model.Activity, title string) { finished <- doneNote{a, title} })
+	defer n.close()
+	select {
+	case note := <-finished:
+		if note.act.WorkspaceID != "w1" || note.title == "" {
+			t.Fatalf("finished = %+v", note)
+		}
+	case nt := <-delivered:
+		t.Fatalf("startup completion reached desktop: %+v", nt)
+	case <-time.After(2 * time.Second):
+		t.Fatal("missing startup completion")
+	}
+}
+
+func TestNotifierRulesReadyAtStartup(t *testing.T) {
+	b := finishingBackend{NewFakeBackend()}
+	b.mu.Lock()
+	b.st.Activities = []model.Activity{notifyActivity(model.StateWorking, time.Now())}
+	b.st.Activities[0].WorkspaceID = "w1"
+	b.mu.Unlock()
+	rules := config.DefaultNotifySettings()
+	rules.Done = false
+	changed := make(chan struct{}, 1)
+	delivered := make(chan notification, 1)
+	finished := make(chan doneNote, 1)
+	n := newNotifier(b, rules, func() { changed <- struct{}{} }, func(_ context.Context, nt notification) { delivered <- nt }, nil,
+		func(a model.Activity, title string) { finished <- doneNote{a, title} })
+	select {
+	case <-changed:
+	case <-time.After(2 * time.Second):
+		n.close()
+		t.Fatal("startup completion was not processed")
+	}
+	n.close() // wait for the delivery decision before inspecting the channels
+	if len(delivered) != 0 || len(finished) != 0 {
+		t.Fatal("startup completion ignored disabled done notifications")
+	}
+}
+
+func TestNotifierRoutesFinishedTabsAtStartup(t *testing.T) {
+	for _, tc := range []struct {
+		name, parent, session, mine string
+		sound                       bool
+		wantWindow                  bool
+	}{
+		{name: "user tab", session: "s1", mine: "s1", wantWindow: true},
+		{name: "worker", parent: "parent", session: "s1", mine: "s1"},
+		{name: "session without a window", session: "s2", mine: "s1", wantWindow: true},
+		{name: "configured sound", session: "s1", mine: "s1", sound: true, wantWindow: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := finishingBackend{NewFakeBackend()}
+			b.mu.Lock()
+			b.st.Activities = []model.Activity{notifyActivity(model.StateWorking, time.Now())}
+			b.st.Activities[0].WorkspaceID = "w1"
+			for i := range b.st.Workspaces {
+				if b.st.Workspaces[i].ID == "w1" {
+					b.st.Workspaces[i].Parent = tc.parent
+					b.st.Workspaces[i].SessionID = tc.session
+				}
+			}
+			b.st.Sessions[0].Windows = 1
+			b.mu.Unlock()
+			delivered := make(chan notification, 4)
+			finished := make(chan doneNote, 4)
+			// Configure the notifier before run to make sound and ownership
+			// deterministic while the completion arrives on its first read.
+			ctx, cancel := context.WithCancel(context.Background())
+			n := &notifier{session: tc.mine, rules: config.DefaultNotifySettings(), done: make(chan struct{}), cancel: cancel,
+				finished: func(a model.Activity, title string) { finished <- doneNote{a, title} }}
+			if tc.sound {
+				n.rules.Sound = "configured.oga"
+			}
+			go n.run(ctx, b, b.State(), func() {}, func(_ context.Context, nt notification) { delivered <- nt })
+			defer n.close()
+			if tc.wantWindow {
+				select {
+				case note := <-finished:
+					if note.act.WorkspaceID != "w1" || note.title == "" {
+						t.Fatalf("finished = %+v", note)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("missing in-window notice")
+				}
+				if tc.sound {
+					select {
+					case nt := <-delivered:
+						if !nt.soundOnly || nt.sound != n.rules.Sound {
+							t.Fatalf("sound = %+v", nt)
+						}
+					case <-time.After(2 * time.Second):
+						t.Fatal("missing completion sound")
+					}
+				}
+			} else {
+				select {
+				case nt := <-delivered:
+					if nt.soundOnly || nt.activity.WorkspaceID != "w1" {
+						t.Fatalf("desktop = %+v", nt)
+					}
+				case <-finished:
+					t.Fatal("worker reached window notice list")
+				case <-time.After(2 * time.Second):
+					t.Fatal("missing desktop notification")
+				}
+			}
+		})
+	}
+}
+
+func TestSoundOnlySkipsDesktopCommand(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var output bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(old)
+	desktopSender()(context.Background(), notification{soundOnly: true})
+	if output.Len() != 0 {
+		t.Fatalf("sound-only delivery attempted desktop command: %q", output.String())
 	}
 }
 
