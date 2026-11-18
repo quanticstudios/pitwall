@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- `pitwall host status` says a host's pitwall is too old for the check when its help text runs past the 8 KiB output limit, instead of only that the output was too long.
+
 ## v0.2.16
 
 - When a tab you opened finishes its turn, a notice shows at the bottom right of the window instead of a desktop notification. Click it to go to the tab, or × to dismiss it. Workers' tabs, the ones a pane started, still notify as before. The window keeps the newest four notices and drops one once you are on its tab with the window focused. A configured sound still plays, and a remote tab's notice names its host.
