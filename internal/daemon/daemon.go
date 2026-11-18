@@ -1994,6 +1994,8 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		case next.State == "":
 		default:
 			next.PaneID, next.WorkspaceID = p.ID, p.WorkspaceID
+			// why: a turn that ended on a background shell reads Background, not Working, until the agent works again.
+			next.Background = next.State == model.StateWorking && d.live.background[p.ID]
 			if next.Provider == "" {
 				next.Provider = m.Provider
 			}

@@ -73,6 +73,10 @@ type Activity struct {
 	// after the hook that announces one: Enter picks the highlighted option,
 	// so a typed reply cannot go in.
 	Menu bool
+	// Background marks a working activity whose agent ended its turn with a
+	// background shell or subagent still running: the agent is idle until
+	// that work ends and wakes it, which a long-lived shell never does.
+	Background bool
 }
 
 // ResumedDetail is the Detail of a working activity whose agent the
@@ -172,7 +176,7 @@ func Tier(a *Activity) AttentionTier {
 }
 
 func Pulses(a *Activity) bool {
-	return a != nil && (a.State == StateWorking || a.State == StateConnecting)
+	return a != nil && (a.State == StateWorking && !a.Background || a.State == StateConnecting)
 }
 
 // Watching identifies finished root tabs whose live workers still work.
@@ -200,6 +204,9 @@ func (s *State) Watching() map[string]bool {
 // PillLabel is a state's short label, "Working" or "Approval". It names
 // no agent: every place that shows it also shows the agent's mark or name.
 func PillLabel(a Activity) string {
+	if a.State == StateWorking && a.Background {
+		return "Background"
+	}
 	return shortLabels[a.State]
 }
 
