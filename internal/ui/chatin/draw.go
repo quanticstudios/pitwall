@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gioui.org/font"
+	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -61,6 +62,50 @@ func row(gtx layout.Context, gap, h int, ws ...layout.Widget) layout.Dimensions 
 		x += d.Size.X
 	}
 	return layout.Dimensions{Size: image.Pt(x, h)}
+}
+
+// textButton is a 28dp ghost button with a Small label.
+func textButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, label string) layout.Dimensions {
+	gtx.Constraints.Min = image.Point{}
+	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		h, pad := gtx.Dp(28), gtx.Dp(10)
+		m := op.Record(gtx.Ops)
+		d := text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, label)
+		call := m.Stop()
+		size := image.Pt(d.Size.X+2*pad, h)
+		ghostFill(gtx, th, b, size)
+		o := op.Offset(image.Pt(pad, (h-d.Size.Y)/2)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		return layout.Dimensions{Size: size}
+	})
+}
+
+// iconButton is a 28dp ghost button with a 14dp icon.
+func iconButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, label string) layout.Dimensions {
+	gtx.Constraints.Min = image.Point{}
+	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		semantic.LabelOp(label).Add(gtx.Ops)
+		s, is := gtx.Dp(28), gtx.Dp(14)
+		ghostFill(gtx, th, b, image.Pt(s, s))
+		o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
+		sidebar.Icon(gtx, icon, is, th.Muted)
+		o.Pop()
+		return layout.Dimensions{Size: image.Pt(s, s)}
+	})
+}
+
+// ghostFill is a ghost control's fill: Hover under the pointer, Pressed
+// held down.
+func ghostFill(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point) {
+	fill := theme.Transparent
+	switch {
+	case b.Pressed():
+		fill = th.Pressed
+	case b.Hovered():
+		fill = th.Hover
+	}
+	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 }
 
 // heading is a popover's section title.
@@ -139,8 +184,9 @@ const (
 )
 
 // tip shows label above b, size big at the origin, once the pointer has
-// rested on it for tipDelay.
-func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point, label string) {
+// rested on it for tipDelay: centered, or ending at its right edge for a
+// control at the right end of the row.
+func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point, label string, right bool) {
 	if c.hover == nil {
 		c.hover = map[*widget.Clickable]time.Time{}
 	}
@@ -169,7 +215,11 @@ func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable,
 		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, label)
 	})
 	body := rec.Stop()
-	o := op.Offset(image.Pt((size.X-d.Size.X)/2, -d.Size.Y-gtx.Dp(6))).Push(gtx.Ops)
+	x := (size.X - d.Size.X) / 2
+	if right {
+		x = size.X - d.Size.X
+	}
+	o := op.Offset(image.Pt(x, -d.Size.Y-gtx.Dp(6))).Push(gtx.Ops)
 	kit.Surface(gtx, image.Rectangle{Max: d.Size}, gtx.Dp(theme.RadiusControl), kit.Floating, th.BorderStrong, th.SurfaceElevated)
 	body.Add(gtx.Ops)
 	o.Pop()

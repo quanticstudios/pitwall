@@ -195,7 +195,7 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
 // and for the phone app "chevron-left", "chevrons-up-down", "settings",
 // "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", and "skillshare", its mark in its own colors, and for
-// the chat composer "circle", "image" and "map") in a size box, for lists
+// the chat composer "circle", "image", "map" and "list-plus") in a size box, for lists
 // outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
@@ -203,7 +203,7 @@ func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dim
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
 		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer,
-		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "map": icMap, "skillshare": icSkillshare, "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
+		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "map": icMap, "list-plus": "M11 12H3M16 6H3M16 18H3M18 9v6M21 12h-6", "skillshare": icSkillshare, "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

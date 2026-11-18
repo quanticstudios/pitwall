@@ -2,6 +2,7 @@ package chatin
 
 import (
 	"context"
+	"encoding/base64"
 	"image"
 	"image/color"
 	"io"
@@ -40,15 +41,17 @@ type Composer struct {
 	ed    widget.Editor
 	draft Draft
 
-	sendBtn, modeBtn, modelBtn widget.Clickable
-	rm                         map[int]*widget.Clickable // per image, its remove x
-	items                      map[string]*widget.Clickable
-	menu                       bool       // the model popover is open
-	popT                       anim.Value // its fade and scale in, 0 to 1
-	scrim, pop                 int        // the popover's click-outside and own tags
-	modelX                     int        // the model control's left edge in the card
-	hover                      map[*widget.Clickable]time.Time
-	tipSeen                    time.Time // the last frame a tooltip showed
+	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
+	modeBtn, modelBtn widget.Clickable
+	gone              map[string]bool           // queued messages removed here that the chat still lists
+	rm                map[int]*widget.Clickable // per image, its remove x
+	items             map[string]*widget.Clickable
+	menu              bool       // the model popover is open
+	popT              anim.Value // its fade and scale in, 0 to 1
+	scrim, pop        int        // the popover's click-outside and own tags
+	modelX            int        // the model control's left edge in the card
+	hover             map[*widget.Clickable]time.Time
+	tipSeen           time.Time // the last frame a tooltip showed
 
 	reading int            // clipboard or dropped images on their way
 	reads   chan imageRead // their results, read on the UI goroutine
@@ -224,6 +227,73 @@ func (c *Composer) RemoveImage(n int) {
 	c.draft.Images = slices.DeleteFunc(c.draft.Images, func(im Image) bool { return im.N == n })
 }
 
+// Button is what the composer's main button shows and does.
+type Button uint8
+
+const (
+	ButtonSendOff Button = iota // idle and empty: a dim arrow that does nothing
+	ButtonSend                  // idle with a draft: the arrow, which sends
+	ButtonStop                  // working and empty: the square, which stops the turn
+	ButtonQueue                 // working with a draft: Queue, with a quiet Stop beside it
+)
+
+// ButtonOf is the main button for a chat with s and a draft or none.
+// A pending request counts as working: a message then queues.
+func ButtonOf(s *session.Snapshot, draft bool) Button {
+	working := s.Busy() || Pending(s)
+	switch {
+	case working && draft:
+		return ButtonQueue
+	case working:
+		return ButtonStop
+	case draft:
+		return ButtonSend
+	}
+	return ButtonSendOff
+}
+
+func (c *Composer) hasDraft() bool {
+	return strings.TrimSpace(c.ed.Text()) != "" || len(c.draft.Images) > 0
+}
+
+// PullBack puts queued message q back in the box, after any draft, its
+// images renumbered into the draft.
+func (c *Composer) PullBack(q session.QueuedInput) {
+	text := q.Text
+	type swap struct{ mark, tok string }
+	var swaps []swap
+	for i, a := range q.Attachments {
+		data, err := base64.StdEncoding.DecodeString(a.Data)
+		if a.Kind != "image" || err != nil {
+			continue
+		}
+		thumb, err := Thumb(data, 96, 128)
+		if err != nil {
+			continue
+		}
+		tok := c.draft.Add(Image{Data: data, Mime: a.MimeType, Thumb: paint.NewImageOp(thumb)})
+		old := ""
+		if n, ok := strings.CutPrefix(a.ID, "image-"); ok {
+			old = "[Image #" + n + "]"
+		}
+		// why: through a mark, so #1 renumbered to #2 is not then taken for the old #2.
+		mark := "\x00" + itoa(i) + "\x00"
+		if old != "" && strings.Contains(text, old) {
+			text = strings.Replace(text, old, mark, 1)
+		} else {
+			text = strings.TrimRight(text, " ") + " " + mark
+		}
+		swaps = append(swaps, swap{mark, tok})
+	}
+	for _, sw := range swaps {
+		text = strings.Replace(text, sw.mark, sw.tok, 1)
+	}
+	if cur := c.ed.Text(); strings.TrimSpace(cur) != "" {
+		text = strings.TrimRight(cur, "\n") + "\n" + text
+	}
+	c.SetText(text)
+}
+
 // setMenu opens or closes the model popover: 150 ms in, 100 ms out.
 func (c *Composer) setMenu(now time.Time, open bool) {
 	c.menu = open
@@ -377,12 +447,37 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 	}
 	if c.sendBtn.Clicked(gtx) {
-		if env.Snap.Busy() {
+		switch ButtonOf(env.Snap, c.hasDraft()) {
+		case ButtonStop:
 			c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
-		} else {
+		case ButtonSend, ButtonQueue:
 			c.submit(env, gtx.Now)
 		}
 		gtx.Execute(key.FocusCmd{Tag: ed})
+	}
+	if c.stopBtn.Clicked(gtx) {
+		c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
+		gtx.Execute(key.FocusCmd{Tag: ed})
+	}
+	for id := range c.gone {
+		if !slices.ContainsFunc(env.Snap.QueuedInputs, func(q session.QueuedInput) bool { return q.ID == id }) {
+			delete(c.gone, id)
+		}
+	}
+	for _, q := range env.Snap.QueuedInputs {
+		edit, rm := c.click("qedit:"+q.ID).Clicked(gtx), c.click("qrm:"+q.ID).Clicked(gtx)
+		if (!edit && !rm) || c.gone[q.ID] {
+			continue
+		}
+		if c.gone == nil {
+			c.gone = map[string]bool{}
+		}
+		c.gone[q.ID] = true
+		c.out = append(c.out, proto.ChatQueue{Chat: env.Chat, Action: "remove", ID: q.ID})
+		if edit {
+			c.PullBack(q)
+			gtx.Execute(key.FocusCmd{Tag: ed})
+		}
 	}
 	if c.modeBtn.Clicked(gtx) {
 		c.cycleMode(env, gtx.Now)
@@ -437,11 +532,20 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	cg := gtx
 	cg.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
 	m := op.Record(gtx.Ops)
+	queued := c.queued(cg, th, env)
+	qcall := m.Stop()
+	m = op.Record(gtx.Ops)
 	card := c.card(cg, th, env)
 	call := m.Stop()
 	top := gtx.Dp(theme.SpaceM)
+	if queued.Size.Y > 0 {
+		top += queued.Size.Y + gtx.Dp(theme.SpaceS)
+	}
 	h := top + card.Size.Y + gtx.Dp(theme.SpaceL)
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: image.Pt(full, h)}.Op())
+	qoff := op.Offset(image.Pt((full-w)/2, gtx.Dp(theme.SpaceM))).Push(gtx.Ops)
+	qcall.Add(gtx.Ops)
+	qoff.Pop()
 	off := op.Offset(image.Pt((full-w)/2, top)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	if t := c.popT.Get(gtx); c.menu || t > 0 {
@@ -655,14 +759,14 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, false)
-				c.tip(gtx, th, &c.modeBtn, d.Size, "Permission mode · Shift+Tab")
+				c.tip(gtx, th, &c.modeBtn, d.Size, "Permission mode (Shift+Tab)", false)
 				c.modelX = gtx.Dp(theme.SpaceS) + d.Size.X + gtx.Dp(theme.SpaceXS)
 				return d
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modelBtn, "", label, pickFg(th), true)
-				c.tip(gtx, th, &c.modelBtn, d.Size, "Model and effort")
+				c.tip(gtx, th, &c.modelBtn, d.Size, "Model and effort", false)
 				return d
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -676,13 +780,20 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				busy := env.Snap.Busy()
-				d := c.send(gtx, th, busy, strings.TrimSpace(c.ed.Text()) != "" || len(c.draft.Images) > 0)
-				tip := "Send · Enter"
-				if busy {
-					tip = "Stop · Esc"
+				if ButtonOf(env.Snap, c.hasDraft()) != ButtonQueue {
+					return layout.Dimensions{}
 				}
-				c.tip(gtx, th, &c.sendBtn, d.Size, tip)
+				return layout.Inset{Right: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					d := c.ghostStop(gtx, th)
+					c.tip(gtx, th, &c.stopBtn, d.Size, "Stop (Esc)", true)
+					return d
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				b := ButtonOf(env.Snap, c.hasDraft())
+				d := c.send(gtx, th, b)
+				tip := map[Button]string{ButtonSendOff: "Send (Enter)", ButtonSend: "Send (Enter)", ButtonStop: "Stop (Esc)", ButtonQueue: "Queue: sends when Claude finishes (Enter)"}[b]
+				c.tip(gtx, th, &c.sendBtn, d.Size, tip, true)
 				return d
 			}),
 		)
@@ -768,43 +879,139 @@ func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimens
 	})
 }
 
-// send is the 28dp button: a square Stop while the chat works, else an
-// arrow, dim while the box is empty.
-func (c *Composer) send(gtx layout.Context, th *theme.Theme, busy, ready bool) layout.Dimensions {
+// send is the 28dp main button for b: the arrow, dim while the box is
+// empty; the square Stop; or Queue.
+func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
 	return c.sendBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		s := gtx.Dp(28)
 		rect := image.Rectangle{Max: image.Pt(s, s)}
 		fill, fg := th.SurfaceElevated, th.Muted
-		switch {
-		case busy:
+		switch b {
+		case ButtonStop:
 			fill, fg = th.Fg, th.Bg
 			semantic.LabelOp("Stop").Add(gtx.Ops)
-		case ready:
+		case ButtonQueue:
+			fill, fg = th.Primary, th.OnPrimary
+			semantic.LabelOp("Queue").Add(gtx.Ops)
+		case ButtonSend:
 			fill, fg = th.Primary, th.OnPrimary
 			semantic.LabelOp("Send").Add(gtx.Ops)
 		default:
 			semantic.LabelOp("Send").Add(gtx.Ops)
 		}
-		switch {
-		case c.sendBtn.Pressed() && (busy || ready):
+		switch live := b != ButtonSendOff; {
+		case c.sendBtn.Pressed() && live:
 			fill = theme.Mix(fill, th.Bg, 0.2)
-		case c.sendBtn.Hovered() && (busy || ready):
+		case c.sendBtn.Hovered() && live:
 			fill = theme.Mix(fill, th.Fg, 0.12)
 		}
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(7)).Op(gtx.Ops))
-		if busy {
-			q := gtx.Dp(10)
-			o := (s - q) / 2
-			paint.FillShape(gtx.Ops, fg, clip.UniformRRect(image.Rect(o, o, o+q, o+q), gtx.Dp(2)).Op(gtx.Ops))
-		} else {
-			is := gtx.Dp(14)
-			o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
+		is := gtx.Dp(14)
+		o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
+		switch b {
+		case ButtonStop:
+			stopSquare(gtx, is, fg)
+		case ButtonQueue:
+			sidebar.Icon(gtx, "list-plus", is, fg)
+		default:
 			sidebar.Icon(gtx, "arrow-up", is, fg)
-			o.Pop()
 		}
+		o.Pop()
 		return layout.Dimensions{Size: rect.Max}
 	})
+}
+
+// stopSquare is Stop's 10dp square, centered in a size box.
+func stopSquare(gtx layout.Context, size int, col color.NRGBA) {
+	q := gtx.Dp(10)
+	o := (size - q) / 2
+	paint.FillShape(gtx.Ops, col, clip.UniformRRect(image.Rect(o, o, o+q, o+q), gtx.Dp(2)).Op(gtx.Ops))
+}
+
+// ghostStop is the quiet 28dp Stop beside Queue.
+func (c *Composer) ghostStop(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	gtx.Constraints.Min = image.Point{}
+	return c.stopBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		semantic.LabelOp("Stop").Add(gtx.Ops)
+		s := gtx.Dp(28)
+		fill, fg := theme.Transparent, th.Muted
+		switch {
+		case c.stopBtn.Pressed():
+			fill, fg = th.Pressed, th.Fg
+		case c.stopBtn.Hovered():
+			fill, fg = th.Hover, th.Fg
+		}
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: image.Pt(s, s)}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		is := gtx.Dp(14)
+		o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
+		stopSquare(gtx, is, fg)
+		o.Pop()
+		return layout.Dimensions{Size: image.Pt(s, s)}
+	})
+}
+
+// queued is the messages waiting for the turn to end, above the card: a
+// count when there are several, then a row each with the queue icon,
+// the first line, Edit and a remove x.
+func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
+	var qs []session.QueuedInput
+	for _, q := range env.Snap.QueuedInputs {
+		if !c.gone[q.ID] {
+			qs = append(qs, q)
+		}
+	}
+	if len(qs) == 0 {
+		return layout.Dimensions{}
+	}
+	var kids []layout.FlexChild
+	if len(qs) > 1 {
+		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: theme.SpaceM, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, itoa(len(qs))+" queued")
+			})
+		}))
+	}
+	for _, q := range qs {
+		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.queuedRow(gtx, th, q) }))
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+}
+
+func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, q session.QueuedInput) layout.Dimensions {
+	h := gtx.Dp(30)
+	w := gtx.Constraints.Max.X
+	line, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
+	if line == "" && len(q.Attachments) > 0 {
+		line = "Image"
+	}
+	edit, rm := c.click("qedit:"+q.ID), c.click("qrm:"+q.ID)
+	// The buttons first, from the right, to know what the text may take.
+	m := op.Record(gtx.Ops)
+	bg := gtx
+	bg.Constraints = layout.Constraints{Max: image.Pt(w, h)}
+	bd := row(bg, gtx.Dp(theme.Space2XS), h,
+		func(gtx layout.Context) layout.Dimensions { return textButton(gtx, th, edit, "Edit") },
+		func(gtx layout.Context) layout.Dimensions {
+			d := iconButton(gtx, th, rm, "x", "Remove queued message")
+			return d
+		})
+	bcall := m.Stop()
+	o := op.Offset(image.Pt(w-bd.Size.X, 0)).Push(gtx.Ops)
+	bcall.Add(gtx.Ops)
+	o.Pop()
+	tg := gtx
+	tg.Constraints = layout.Constraints{Max: image.Pt(max(0, w-bd.Size.X-gtx.Dp(theme.SpaceS)-gtx.Dp(theme.SpaceM)), h)}
+	o = op.Offset(image.Pt(gtx.Dp(theme.SpaceM), 0)).Push(gtx.Ops)
+	row(tg, gtx.Dp(theme.SpaceS), h,
+		func(gtx layout.Context) layout.Dimensions {
+			return sidebar.Icon(gtx, "list-plus", gtx.Dp(14), th.Muted)
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			return text(gtx, th, th.UIFont, th.Sp(theme.Body), theme.Mix(th.Fg, th.Bg, 0.2), line)
+		})
+	o.Pop()
+	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
 // popover is the model picker over the transcript, above the model

@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -345,5 +346,76 @@ func TestComposerKeys(t *testing.T) {
 	h.snap.SessionState = session.StateReady
 	if m := h.press(key.NameEscape, 0); len(m) != 0 {
 		t.Fatalf("Escape while idle sent %v", m)
+	}
+}
+
+// The main button: the arrow when idle (dim with nothing typed), Stop
+// while the chat works with an empty box, and Queue once there is a
+// draft, a pending request counting as work.
+func TestButtonOf(t *testing.T) {
+	idle := &session.Snapshot{SessionState: session.StateReady}
+	running := &session.Snapshot{SessionState: session.StateRunning}
+	pending := &session.Snapshot{SessionState: session.StateReady, PendingApprovals: []session.Approval{{ID: "a"}}}
+	for _, c := range []struct {
+		name  string
+		s     *session.Snapshot
+		draft bool
+		want  Button
+	}{
+		{"idle, empty", idle, false, ButtonSendOff},
+		{"idle, text", idle, true, ButtonSend},
+		{"running, empty", running, false, ButtonStop},
+		{"running, text", running, true, ButtonQueue},
+		{"request pending, text", pending, true, ButtonQueue},
+	} {
+		if got := ButtonOf(c.s, c.draft); got != c.want {
+			t.Errorf("%s: %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// Queued messages: Edit takes one out of the queue and back into the
+// box after the draft, its images renumbered; the x only takes it out;
+// either hides the row before the chat drops it.
+func TestQueuedRows(t *testing.T) {
+	h := newHarness(t)
+	img := base64.StdEncoding.EncodeToString(pngOf(4, 4))
+	h.snap.SessionState = session.StateRunning
+	h.snap.QueuedInputs = []session.QueuedInput{
+		{ID: "q1", Text: "first [Image #2] and [Image #1]", Attachments: []session.Attachment{
+			{ID: "image-1", Kind: "image", MimeType: "image/png", Data: img},
+			{ID: "image-2", Kind: "image", MimeType: "image/png", Data: img},
+		}},
+		{ID: "q2", Text: "second"},
+	}
+	h.c.SetText("draft [Image #1]")
+	h.c.draft.Add(Image{Data: []byte{1}, Mime: "image/png"})
+	h.frame()
+	h.c.click("qedit:q1").Click()
+	m := h.frame()
+	if len(m) != 1 || !reflect.DeepEqual(m[0], proto.ChatQueue{Chat: "c1", Action: "remove", ID: "q1"}) {
+		t.Fatalf("Edit sent %+v", m)
+	}
+	if want := "draft [Image #1]\nfirst [Image #3] and [Image #2]"; h.c.Text() != want {
+		t.Fatalf("pulled back %q, want %q", h.c.Text(), want)
+	}
+	if got := numbers(h.c.Images()); !slices.Equal(got, []int{1, 3, 2}) {
+		t.Fatalf("images %v", got)
+	}
+	h.c.click("qrm:q2").Click()
+	if m := h.frame(); len(m) != 1 || !reflect.DeepEqual(m[0], proto.ChatQueue{Chat: "c1", Action: "remove", ID: "q2"}) {
+		t.Fatalf("remove sent %+v", m)
+	}
+	if !h.c.gone["q1"] || !h.c.gone["q2"] {
+		t.Fatal("removed rows still show")
+	}
+	h.snap.QueuedInputs = nil
+	h.frame()
+	if len(h.c.gone) != 0 {
+		t.Fatal("rows the chat dropped are still remembered")
+	}
+	// Enter with a draft while running queues and never interrupts.
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).How != "queue" {
+		t.Fatalf("Enter sent %+v", m)
 	}
 }
