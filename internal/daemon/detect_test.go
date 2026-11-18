@@ -83,6 +83,20 @@ func TestSetActivityClearsSessionOnProviderChange(t *testing.T) {
 	}
 }
 
+func TestSetActivityClearsBackground(t *testing.T) {
+	d, _ := talkDaemon(t)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"shell","status":"running"}]}`)
+	// Keep state and detail equal to exercise the detection fast path.
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].Background = true
+	d.setActivity(t.Context(), "a", model.ProviderClaude, model.StateWorking, "")
+	bg := d.live.background["a"]
+	d.mu.Unlock()
+	if a := d.activityOf("a"); a.Background || bg || !model.Pulses(&a) {
+		t.Fatalf("detected work kept background state: %+v, tracked %v", a, bg)
+	}
+}
+
 func TestDetectedAgentWorksThenCompletes(t *testing.T) {
 	d, lp, id := openLive(t, 200)
 	lp.show(codexWorking, false)

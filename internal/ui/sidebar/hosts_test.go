@@ -44,6 +44,7 @@ func TestSessionActivity(t *testing.T) {
 		{"error above approval", []model.Activity{approval, err, work, plan, input, done, seen, pr}, model.StateError},
 		{"PR above done", []model.Activity{done, pr}, model.StatePROpen},
 		{"connecting", []model.Activity{{State: model.StateConnecting}}, model.StateConnecting},
+		{"background", []model.Activity{{State: model.StateWorking, Background: true}}, model.StateWorking},
 		{"terminal and watching", []model.Activity{{State: model.StateTerminalRunning}, {State: model.StateWatching}}, ""},
 		{"empty", nil, ""},
 	} {
@@ -57,6 +58,21 @@ func TestSessionActivity(t *testing.T) {
 				t.Fatalf("sessionActivity = %q, want %q", state, tt.state)
 			}
 		})
+	}
+}
+
+func TestGroupSummaryCountsBackgroundWork(t *testing.T) {
+	v := &view{activity: map[string]*model.Activity{"w": {State: model.StateWorking, Background: true}}}
+	got := groupSummary(v, []model.Workspace{{ID: "w"}})
+	if len(got) != 1 || got[0].state != model.StateWorking || got[0].n != 1 {
+		t.Fatalf("background work missing from group counts: %+v", got)
+	}
+}
+
+func TestSubCountIncludesBackgroundAndConnecting(t *testing.T) {
+	acts := []model.Activity{{State: model.StateWorking, Background: true}, {State: model.StateConnecting}}
+	if got := subCount(2, 0, acts); got != "2 agents · 2 working" {
+		t.Fatalf("background work changed the working count: %q", got)
 	}
 }
 

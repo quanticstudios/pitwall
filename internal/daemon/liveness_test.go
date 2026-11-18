@@ -192,6 +192,22 @@ func TestAnswerAtApproval(t *testing.T) {
 	}
 }
 
+func TestSettleBusyClearsBackground(t *testing.T) {
+	d, lp, id := liveDaemon(t, model.StateWorking)
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex(id)].Background = true
+	d.live.background = map[string]bool{id: true}
+	d.mu.Unlock()
+	lp.show(spinnerScreen, false)
+	d.settle(id, time.Now())
+	d.mu.Lock()
+	bg := d.live.background[id]
+	d.mu.Unlock()
+	if a := d.activityOf(id); a.Background || bg || !model.Pulses(&a) {
+		t.Fatalf("busy screen kept background state: %+v, tracked %v", a, bg)
+	}
+}
+
 func TestEmptyPlanKeepsWaiting(t *testing.T) {
 	for _, title := range []string{
 		"Exit plan mode?",

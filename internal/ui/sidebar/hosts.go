@@ -83,7 +83,7 @@ func sessionActivity(acts []model.Activity) *model.Activity {
 				finished = urgent(finished, a)
 			}
 		default:
-			if model.Pulses(a) {
+			if a.State == model.StateWorking || a.State == model.StateConnecting {
 				work = urgent(work, a)
 			}
 		}
