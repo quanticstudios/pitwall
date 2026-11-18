@@ -25,6 +25,8 @@ takes `--dry-run`.
 ## Unreleased
 
 - The desktop chat tab has a composer under the transcript. Enter sends and Shift+Enter adds a line. While Claude works, Enter queues what you type and the button shows Queue, with a quiet Stop beside it. Esc stops the turn. Queued messages wait above the box, where Edit takes one back and the x drops it. Pasted or dropped images show as chips and `[Image #N]` tokens. The control row holds the permission mode (Shift+Tab cycles it), a model and effort picker, and a context meter that turns yellow at 75%. Each chat keeps its draft while you switch tabs.
+- The notices at the bottom right of the window are two-line cards: a dot in the state's color, the tab, and what happened, such as "Approval needed · Bash: git push". A tab that waits on you, a worker's too, now gets one for a question, an approval, a plan or an error, and loses it once answered. While the window is in the background those also send a desktop notification. Set `sound` under `[notifications]` for a sound; there is none by default.
+- A Claude tab whose turn ended with a shell still running in the background, such as a dev server, now reads Background instead of Working, and its row stops shimmering. It goes back to Working when the agent picks up again.
 - `pitwall host status` says a host's pitwall is too old for the check when its help text runs past the 8 KiB output limit, instead of only that the output was too long.
 
 ## v0.2.16

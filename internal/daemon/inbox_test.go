@@ -40,6 +40,25 @@ func TestWakeTab(t *testing.T) {
 	}
 }
 
+func TestBackgroundWorkKeepsTabActive(t *testing.T) {
+	now := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
+	old := now.Add(-4 * 24 * time.Hour)
+	w := model.Workspace{ID: "w", UpdatedAt: old}
+	a := model.Activity{WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateWorking, Background: true, UpdatedAt: old}
+	if idleSettles(w, []model.Activity{a}, true, now, 3, nil) {
+		t.Error("settled a tab with background work")
+	}
+	a.WorkspaceID = "worker"
+	if idleSettles(w, []model.Activity{a}, true, now, 3, map[string]bool{"worker": true}) {
+		t.Error("settled a parent with background work")
+	}
+	a.WorkspaceID, a.UpdatedAt = "w", now
+	w.Settled = old
+	if !wakeTab(&w, []model.Activity{a}, nil) || !w.Settled.IsZero() {
+		t.Error("background activity did not unsettle its tab")
+	}
+}
+
 // A worker that asks for the user wakes and unsettles the tab it hangs
 // under; a worker that works or finishes leaves it where it is.
 func TestWakeTabByWorker(t *testing.T) {

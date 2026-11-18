@@ -15,7 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// doneMax is how many finished tabs the window lists; the oldest goes first.
+// doneMax is how many notices the window lists; the oldest goes first.
 const doneMax = 4
 
 // doneItem is one finished orchestrator tab: a click opens it, the × drops it.
@@ -64,12 +64,41 @@ func (u *ui) applyDone(st *model.State) {
 	notes := u.doneNotes
 	u.doneNotes = nil
 	u.focusMu.Unlock()
+	current := st
+	if len(notes) > 0 && u.b != nil {
+		// A notifier can enqueue after this frame captured st. Read after
+		// draining so a fresh wait is never pruned against that older frame.
+		latest := u.b.State()
+		current = &latest
+	}
+	u.doneTabs.items = slices.DeleteFunc(u.doneTabs.items, func(it *doneItem) bool {
+		a, keep := noticeActivity(current, it.act)
+		it.act = a
+		return !keep
+	})
+	// Answered requests must not consume a slot and evict a live card.
 	for _, n := range notes {
-		u.doneTabs.add(n.act, n.title)
+		if a, keep := noticeActivity(current, n.act); keep {
+			u.doneTabs.add(a, n.title)
+		}
 	}
 	if ws := u.doneView(st); u.winFocused && ws != "" {
 		u.doneTabs.drop(ws)
 	}
+}
+
+// noticeActivity keeps a finished turn, or the latest detail of a pane
+// still waiting in the notice's state. Same-state updates do not notify
+// again, but their request text must stay current.
+func noticeActivity(st *model.State, a model.Activity) (model.Activity, bool) {
+	if !model.WaitsOnUser(a) {
+		return a, true
+	}
+	i := slices.IndexFunc(st.Activities, func(c model.Activity) bool { return c.PaneID == a.PaneID })
+	if i < 0 || st.Activities[i].State != a.State {
+		return a, false
+	}
+	return st.Activities[i], true
 }
 
 // doneView is the tab whose panes are visible, following markSeen's
@@ -87,17 +116,20 @@ func (u *ui) doneView(st *model.State) string {
 	return u.nav.workspace
 }
 
-// drawDone stacks the finished tabs' chips bottom-right in the pane area gtx
-// fills. A click on a chip jumps to its tab; the × drops it.
+// drawDone stacks the notices bottom-right in the pane area gtx fills, as
+// herdr's toasts: a dot in the state's color, the tab on the first line, what
+// happened on a muted second one. A click on a card jumps to its tab; the ×
+// drops it.
 func (u *ui) drawDone(gtx gl.Context) {
 	th := u.th
-	is, gap := gtx.Dp(14), gtx.Dp(6)
-	pad := image.Pt(gtx.Dp(10), gtx.Dp(6))
-	closeW := gtx.Dp(24)
+	dot, gap := gtx.Dp(8), gtx.Dp(12)
+	pad := image.Pt(gtx.Dp(16), gtx.Dp(12))
+	closeW := gtx.Dp(32)
 	margin := gtx.Dp(16)
 	right := gtx.Constraints.Max.X - margin
-	textWidth := right - margin - (2*pad.X + is + gap + closeW)
-	if textWidth <= 0 {
+	w := min(gtx.Dp(400), right-margin)
+	textWidth := w - (pad.X + dot + gap + closeW)
+	if textWidth <= gtx.Dp(80) {
 		return
 	}
 	y := gtx.Constraints.Max.Y - gtx.Dp(24)
@@ -114,29 +146,41 @@ func (u *ui) drawDone(gtx gl.Context) {
 		}
 		tgtx := gtx
 		tgtx.Constraints.Max.X = textWidth
-		call, ts := textCall(tgtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, it.title)
-		h := max(ts.Y, is) + 2*pad.Y
-		w := pad.X + is + gap + ts.X + pad.X + closeW
+		head, hs := textCall(tgtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, it.title)
+		body, bs := textCall(tgtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, model.NoticeBody(it.act))
+		lineGap := gtx.Dp(3)
+		h := pad.Y + hs.Y + lineGap + bs.Y + pad.Y
 		at := image.Pt(right-w, y-h)
 		if at.Y < 0 {
 			break // keep older notices queued until there is room to draw them
 		}
-		y = at.Y - gtx.Dp(6)
+		y = at.Y - gtx.Dp(8)
 
 		chip := op.Offset(at).Push(gtx.Ops)
-		rad := gtx.Dp(6)
+		rad := gtx.Dp(8)
 		box := image.Pt(w, h)
-		paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rad).Op(gtx.Ops))
+		state := sidebar.StateColor(th, it.act.State)
+		border := th.Border
+		if model.WaitsOnUser(it.act) {
+			border = theme.Mix(th.Border, state, 0.6)
+		}
+		paint.FillShape(gtx.Ops, border, clip.UniformRRect(image.Rectangle{Max: box}, rad).Op(gtx.Ops))
 		paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rad-1).Op(gtx.Ops))
 		openSz := image.Pt(w-closeW, h)
 		g := gtx
 		g.Constraints = gl.Constraints{Min: openSz, Max: openSz}
 		it.open.Layout(g, func(g gl.Context) gl.Dimensions {
-			o := op.Offset(image.Pt(pad.X, (h-is)/2)).Push(g.Ops)
-			sidebar.Icon(g, "check", is, th.Green)
+			if it.open.Hovered() {
+				paint.FillShape(g.Ops, theme.Mix(th.Surface, th.Fg, 0.05), clip.UniformRRect(image.Rect(1, 1, openSz.X, openSz.Y-1), rad-1).Op(g.Ops))
+			}
+			dy := pad.Y + (hs.Y-dot)/2
+			paint.FillShape(g.Ops, state, clip.Ellipse{Min: image.Pt(pad.X, dy), Max: image.Pt(pad.X+dot, dy+dot)}.Op(g.Ops))
+			x := pad.X + dot + gap
+			o := op.Offset(image.Pt(x, pad.Y)).Push(g.Ops)
+			head.Add(g.Ops)
 			o.Pop()
-			o = op.Offset(image.Pt(pad.X+is+gap, (h-ts.Y)/2)).Push(g.Ops)
-			call.Add(g.Ops)
+			o = op.Offset(image.Pt(x, pad.Y+hs.Y+lineGap)).Push(g.Ops)
+			body.Add(g.Ops)
 			o.Pop()
 			return gl.Dimensions{Size: openSz}
 		})
@@ -144,8 +188,8 @@ func (u *ui) drawDone(gtx gl.Context) {
 		c.Constraints = gl.Constraints{Min: image.Pt(closeW, h), Max: image.Pt(closeW, h)}
 		o := op.Offset(image.Pt(w-closeW, 0)).Push(gtx.Ops)
 		it.close.Layout(c, func(c gl.Context) gl.Dimensions {
-			cc, cs := textCall(c, th, th.UIFont, th.Sp(theme.Small), th.Muted, "×")
-			off := op.Offset(image.Pt((closeW-cs.X)/2, (h-cs.Y)/2)).Push(c.Ops)
+			cc, cs := textCall(c, th, th.UIFont, th.Sp(theme.Large), th.Muted, "×")
+			off := op.Offset(image.Pt((closeW-cs.X)/2, pad.Y+(hs.Y-cs.Y)/2)).Push(c.Ops)
 			cc.Add(c.Ops)
 			off.Pop()
 			return gl.Dimensions{Size: image.Pt(closeW, h)}

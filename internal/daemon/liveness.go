@@ -166,7 +166,9 @@ func (d *Daemon) settle(id string, at time.Time) {
 		}
 	}
 	d.recordExplanation(id, d.st.Activities[i].Provider, model.StateWorking, "settle-working", trace)
-	if a := &d.st.Activities[i]; a.State != model.StateWorking {
+	delete(d.live.background, id)
+	if a := &d.st.Activities[i]; a.State != model.StateWorking || a.Background {
+		a.Background = false
 		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", time.Now()
 		d.changed()
 	}
@@ -279,6 +281,7 @@ func (d *Daemon) dropActivity(id string) {
 		return
 	}
 	delete(d.live.asked, id)
+	delete(d.live.background, id)
 	if i := d.activityIndex(id); i >= 0 {
 		d.st.Activities = slices.Delete(d.st.Activities, i, i+1)
 		d.changed()

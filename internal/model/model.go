@@ -1013,7 +1013,7 @@ func (s *State) Summary(session string) SessionSummary {
 			agents[a.Provider] = true
 		}
 		switch {
-		case agent && Pulses(&a):
+		case agent && (a.State == StateWorking || a.State == StateConnecting):
 			out.Working++
 		case Tier(&a) == TierAttention || NeedsYou(a.State) && a.Unseen:
 			out.NeedsYou++
