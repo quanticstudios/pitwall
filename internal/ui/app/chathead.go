@@ -128,7 +128,7 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
 			}))
 	}
-	kids = append(kids, gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{} }))
+	kids = append(kids, gl.Flexed(1, fill))
 	if claude {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
@@ -182,7 +182,8 @@ func (u *ui) layoutTerminalBar(gtx gl.Context, st *model.State, ws *model.Worksp
 		}),
 		gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout),
 		gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
-			return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, what)
+			d := label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, what)
+			return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, d.Size.Y)}
 		}),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, &h.back, withKey("Back to chat", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
@@ -223,6 +224,11 @@ func (u *ui) strip(gtx gl.Context, fill color.NRGBA, kids []gl.FlexChild) int {
 		return gl.Flex{Alignment: gl.Middle}.Layout(gtx, kids...)
 	})
 	return hgt
+}
+
+// fill takes the width it is given, as a Flexed spacer must.
+func fill(gtx gl.Context) gl.Dimensions {
+	return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
 }
 
 // label is one line of s, cut with an ellipsis to the width it gets.

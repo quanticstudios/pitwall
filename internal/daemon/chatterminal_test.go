@@ -31,7 +31,9 @@ func TestChatTerminal(t *testing.T) {
 	}
 	id, drv := r.Chat, prov.driver(t)
 	drv.event(session.Event{Type: session.EventResumeID, ResumeID: "7f3c2a10-0000-4000-8000-000000000001"})
-	waitChat(gui, "running", func(s model.State) bool { return chatOf(s).State == session.StateRunning })
+	// An approval after the id: once it shows, the loop has the id too.
+	drv.event(session.Event{Type: session.EventRequestOpened, RequestID: "r1", RequestType: session.RequestCommand, Detail: "make"})
+	waitChat(gui, "approval pending", func(s model.State) bool { return chatOf(s).Pending == 1 })
 
 	terminal := func(on bool) {
 		t.Helper()
@@ -111,7 +113,7 @@ func TestChatTerminal(t *testing.T) {
 			sys = append(sys, strings.Fields(it.Text)[0])
 		}
 	}
-	if want := []string{"Interrupted:", "Continued", "Back", "Continued", "Back"}; !slices.Equal(sys, want) {
+	if want := []string{"Interrupted:", "Expired:", "Continued", "Back", "Continued", "Back"}; !slices.Equal(sys, want) {
 		t.Fatalf("system items start %q, want %q", sys, want)
 	}
 }

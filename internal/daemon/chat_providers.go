@@ -10,6 +10,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/acp"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"github.com/quanticstudios/pitwall/internal/session/fake"
 )
 
@@ -21,7 +22,9 @@ func configuredProviders() map[model.Provider]session.Provider {
 	for _, p := range problems {
 		log.Printf("chat providers: %s", p.Msg)
 	}
-	return fake.ProvidersFromEnv(acpProviders(s.ACPAgents), nil)
+	real := acpProviders(s.ACPAgents)
+	real[model.ProviderClaude] = claude.Provider{} // [chat] claude starts Claude Code on it
+	return fake.ProvidersFromEnv(real, nil)
 }
 
 func acpProviders(agents []config.ACPAgent) map[model.Provider]session.Provider {

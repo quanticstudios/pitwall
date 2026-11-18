@@ -39,7 +39,11 @@ func (d *Daemon) chatTerminal(ctx context.Context, c *chat, on bool) error {
 		return chatError{"unsupported", "only a Claude chat has a terminal view"}
 	}
 	if c.drv != nil && c.snap.Busy() {
-		if err := c.drv.Interrupt(ctx); err != nil {
+		// A claude that never answers the interrupt is closed all the same.
+		ictx, cancel := context.WithTimeout(ctx, chatClose)
+		err := c.drv.Interrupt(ictx)
+		cancel()
+		if err != nil {
 			log.Printf("chat %s: interrupt for the terminal: %q", c.id, err)
 		}
 		c.cfg.Held = true
