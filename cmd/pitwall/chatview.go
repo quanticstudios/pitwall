@@ -57,6 +57,15 @@ func (b *backend) Chat(id string) (session.Snapshot, bool) {
 	return s, ok
 }
 
+// ChatFailed implements app.ChatFailer.
+func (b *backend) ChatFailed(id string) (string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	msg, ok := b.chatErr[id]
+	delete(b.chatErr, id)
+	return msg, ok
+}
+
 // take applies a ChatRead's reply and reports whether the transcript
 // changed. A delta that does not apply makes the next read ask for a
 // snapshot, and the old transcript stays on screen until it comes.

@@ -51,6 +51,7 @@ type backend struct {
 	ssID    uint64                            // the last Skillshare's ID
 	ssWaits map[uint64]*ssWait                // Skillshare calls waiting for their replies
 	chat    chatCache                         // the transcript of the chat on screen
+	chatErr map[string]string                 // per chat, the last refused Chat* request's message, not yet taken
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
 	// stays across a reconnect, for the view's stale state.
 	mon     proto.MonitorSample
@@ -88,7 +89,7 @@ var errOlderDaemon = errors.New("the daemon is older than this window")
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.
 func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), retry: make(chan struct{}, 1),
-		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, icons: map[string]*proto.FaviconResult{}, pastes: map[string]proto.PasteImageResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
+		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, icons: map[string]*proto.FaviconResult{}, pastes: map[string]proto.PasteImageResult{}, chatErr: map[string]string{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if c == nil {
 		b.outErr = errNotConnected
 		close(b.done)
@@ -545,6 +546,9 @@ func (b *backend) recvLoop() {
 		case proto.ChatResult:
 			if m.Chat == b.chat.id && m.Code == "not-found" {
 				b.chat.out = false
+			}
+			if m.Code != "" && m.Code != "not-found" {
+				b.chatErr[m.Chat] = m.Message
 			}
 		case proto.FaviconResult:
 			b.icons[m.Dir] = &m

@@ -1259,6 +1259,14 @@ func (m *multi) Chat(id string) (session.Snapshot, bool) {
 	return session.Snapshot{}, false
 }
 
+// ChatFailed answers from the backend of the host that owns chat id.
+func (m *multi) ChatFailed(id string) (string, bool) {
+	if h := m.of(id); h != nil {
+		return h.b.ChatFailed(id)
+	}
+	return "", false
+}
+
 // Monitor answers from the backend of the host that owns Monitor tab ws.
 func (m *multi) Monitor(ws string) (proto.MonitorSample, time.Time, bool) {
 	if h := m.of(ws); h != nil {

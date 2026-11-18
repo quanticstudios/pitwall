@@ -349,6 +349,10 @@ const TeardownLevel = 63
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
 
+// ChatAttachLevel added ChatSend.Attachments: images sent with a chat
+// message.
+const ChatAttachLevel = 42
+
 // CommandsLevel adds OSC 133 command blocks.
 const CommandsLevel = 57
 

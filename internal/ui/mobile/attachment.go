@@ -1,22 +1,17 @@
 package mobile
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 
 	"gioui.org/io/clipboard"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op/paint"
 	"gioui.org/widget"
-	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
-	_ "golang.org/x/image/webp"
 )
 
 type attachment struct {
@@ -30,33 +25,10 @@ type imageAPI interface {
 }
 
 func newAttachment(b []byte) (*attachment, error) {
-	if len(b) > proto.MaxPasteImage {
-		return nil, errors.New("the image is over 20 MiB")
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
-	if err != nil {
-		return nil, errors.New("choose a PNG, JPEG, GIF or WebP picture")
-	}
-	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > 40_000_000 {
-		return nil, errors.New("the picture exceeds 40 megapixels")
-	}
-	im, _, err := image.Decode(bytes.NewReader(b))
+	// Keep only a thumbnail after decoding; the original bytes go to the daemon.
+	thumb, err := chatin.Thumb(b, 64, 64)
 	if err != nil {
 		return nil, err
-	}
-	// Keep only a thumbnail after decoding; the original bytes go to the daemon.
-	w, h := 64, 64
-	if cfg.Width > cfg.Height {
-		h = max(1, 64*cfg.Height/cfg.Width)
-	} else {
-		w = max(1, 64*cfg.Width/cfg.Height)
-	}
-	thumb := image.NewNRGBA(image.Rect(0, 0, w, h))
-	bounds := im.Bounds()
-	for y := range h {
-		for x := range w {
-			thumb.Set(x, y, im.At(bounds.Min.X+x*bounds.Dx()/w, bounds.Min.Y+y*bounds.Dy()/h))
-		}
 	}
 	return &attachment{data: b, thumb: paint.NewImageOp(thumb)}, nil
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -248,6 +249,17 @@ func (u *ui) dropFiles(e app.FileDropEvent) {
 		return
 	}
 	st := u.b.State()
+	if ws := findWorkspace(&st, u.nav.workspace); ws != nil && ws.Chat != "" {
+		// A chat tab has no panes: the images go to its composer.
+		if u.link().Level < proto.ChatAttachLevel {
+			return
+		}
+		cmp := u.composer(&st, ws.Chat)
+		for _, path := range e.Paths {
+			cmp.Reading(chatin.Env{Invalidate: u.invalidate}, func(context.Context) ([]byte, error) { return readDroppedImage(path) })
+		}
+		return
+	}
 	for id, p := range u.panes {
 		if !e.Position.In(p.rect) || findPane(&st, id) == nil {
 			continue
