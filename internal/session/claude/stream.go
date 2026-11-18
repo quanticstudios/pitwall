@@ -25,6 +25,9 @@ type stream struct {
 
 	contextModel  string
 	contextTokens *int64
+	usage         *session.Event // the last usage event, which a new context size updates
+
+	commands []string // the slash_commands system/init last listed
 
 	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
 
@@ -57,6 +60,9 @@ type line struct {
 	Model        string   `json:"model"`
 	Version      string   `json:"claude_code_version"`
 	Capabilities []string `json:"capabilities"`
+	// SlashCommands are names without the slash; the terminal ones need the TUI.
+	SlashCommands         []string `json:"slash_commands"`
+	TerminalSlashCommands []string `json:"terminal_slash_commands"`
 
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
@@ -202,6 +208,15 @@ func (s *stream) system(l line) []session.Event {
 		if l.Model != "" {
 			s.contextModel = l.Model
 		}
+		if l.SlashCommands != nil && !slices.Equal(l.SlashCommands, s.commands) {
+			s.commands = l.SlashCommands
+			cmds := make([]session.Command, 0, len(l.SlashCommands))
+			for _, name := range l.SlashCommands {
+				cmds = append(cmds, session.Command{Name: name,
+					Terminal: session.TerminalCommand(name) || slices.Contains(l.TerminalSlashCommands, name)})
+			}
+			out = append(out, session.Event{Type: session.EventCommands, Commands: cmds})
+		}
 		return out
 	case "permission_denied":
 		var text string
@@ -256,14 +271,22 @@ func (s *stream) assistant(l line) []session.Event {
 	if m.Model != "" {
 		s.contextModel = m.Model
 	}
+	var out []session.Event
 	if u := m.Usage; u != nil {
 		t := u.Input + u.Output + u.CacheRead + u.CacheCreation
+		// The composer's context meter moves with each API response, not
+		// only when the turn ends; the counts stay the last result's.
+		if s.usage != nil && (s.contextTokens == nil || *s.contextTokens != t) {
+			e := *s.usage
+			e.ContextTokens = &t
+			s.usage = &e
+			out = append(out, e)
+		}
 		s.contextTokens = &t
 	}
 	if l.UUID != "" {
 		s.point = l.UUID
 	}
-	var out []session.Event
 	for _, b := range blocks {
 		id := m.ID + ":" + strconv.Itoa(s.blocks[m.ID])
 		s.blocks[m.ID]++
@@ -407,6 +430,8 @@ func (s *stream) result(l line) []session.Event {
 	if w := l.ModelUsage[s.contextModel].ContextWindow; w > 0 {
 		u.MaxTokens = &w
 	}
+	live := u
+	s.usage = &live
 	u.Report = r
 	out = append(out, u)
 

@@ -27,8 +27,8 @@ var _ session.Provider = Provider{}
 var _ session.Driver = (*driver)(nil)
 
 func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Origin, emit func(session.Event)) (session.Driver, error) {
-	if from.Fork || from.At != "" || cfg.Model != "" || cfg.Effort != "" || cfg.Mode != "" {
-		return nil, fmt.Errorf("ACP fork, rewind and initial settings: %w", session.ErrUnsupported)
+	if from.Fork || from.At != "" {
+		return nil, fmt.Errorf("ACP fork and rewind: %w", session.ErrUnsupported)
 	}
 	if !filepath.IsAbs(cfg.Cwd) {
 		return nil, fmt.Errorf("ACP cwd must be absolute")
@@ -86,7 +86,7 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 			Version string `json:"version"`
 		} `json:"agentInfo"`
 	}
-	if err = d.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}, "clientInfo": map[string]string{"name": "pitwall", "version": "1"}}, &init); err != nil {
+	if err = d.call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": clientCapabilities, "clientInfo": map[string]string{"name": "pitwall", "version": "1"}}, &init); err != nil {
 		return fail(err)
 	}
 	if init.ProtocolVersion != 1 {
@@ -102,7 +102,9 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 		params["sessionId"] = from.Resume
 	}
 	var setup struct {
-		SessionID string `json:"sessionId"`
+		SessionID     string         `json:"sessionId"`
+		Modes         *modeState     `json:"modes"`
+		ConfigOptions []configOption `json:"configOptions"`
 	}
 	if err = d.call(ctx, method, params, &setup); err != nil {
 		return fail(err)
@@ -120,6 +122,9 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 	}
 	d.s.id = setup.SessionID
 	d.s.images = init.AgentCapabilities.PromptCapabilities.Image
+	for _, e := range d.s.configure(setup.Modes, setup.ConfigOptions) {
+		d.post(e)
+	}
 	caps := []string{"non-resumable"}
 	if init.AgentCapabilities.LoadSession {
 		caps = []string{"session/load"}
@@ -130,8 +135,16 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 	}
 	d.post(session.Event{Type: session.EventState, State: session.StateReady})
 	d.mu.Unlock()
+	if err = d.Set(ctx, session.Settings{Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode}); err != nil {
+		return fail(err)
+	}
 	return d, nil
 }
+
+// clientCapabilities are what pitwall answers besides prompts and
+// permissions: form elicitations, which claude-agent-acp needs before it
+// offers AskUserQuestion at all.
+var clientCapabilities = map[string]any{"elicitation": map[string]any{"form": map[string]any{}}}
 
 type rpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -257,7 +270,7 @@ func (d *driver) Interrupt(ctx context.Context) error {
 		return err
 	}
 	d.s.cancelled = true
-	return d.cancelPermissions()
+	return d.cancelRequests()
 }
 
 func (d *driver) Approve(ctx context.Context, id string, decision session.Decision) error {
@@ -300,7 +313,9 @@ func (d *driver) Approve(ctx context.Context, id string, decision session.Decisi
 	return fmt.Errorf("ACP permission option %s: %w", kind, session.ErrUnsupported)
 }
 
-func (d *driver) Answer(ctx context.Context, _ string, _ map[string][]string) error {
+// Answer accepts a form elicitation with the answered fields; with none it
+// declines, which claude-agent-acp tells the model as skipped questions.
+func (d *driver) Answer(ctx context.Context, id string, answers map[string][]string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -309,34 +324,80 @@ func (d *driver) Answer(ctx context.Context, _ string, _ map[string][]string) er
 	if d.dead || d.closing {
 		return session.ErrClosed
 	}
-	return session.ErrUnsupported
+	in, ok := d.s.inputs[id]
+	if !ok {
+		return &session.ProviderError{Op: "answer", Message: "request is no longer pending"}
+	}
+	result := map[string]any{"action": "decline"}
+	if content := in.content(answers); len(content) > 0 {
+		result = map[string]any{"action": "accept", "content": content}
+	}
+	if err := d.reply(in.ID, result); err != nil {
+		return err
+	}
+	delete(d.s.inputs, id)
+	d.post(session.Event{Type: session.EventInputResolved, RequestID: id})
+	return nil
 }
+
+// Set sends session/set_mode when the agent advertised modes, and
+// session/set_config_option for a mode, model or effort option it
+// advertised; ErrUnsupported, before sending anything, for one it did not.
 func (d *driver) Set(ctx context.Context, s session.Settings) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.dead || d.closing {
+		d.mu.Unlock()
 		return session.ErrClosed
 	}
-	if s == (session.Settings{}) {
-		return nil
+	calls, err := d.s.settings(s)
+	d.mu.Unlock()
+	if err != nil {
+		return err
 	}
-	return session.ErrUnsupported
+	for _, c := range calls {
+		var r struct {
+			ConfigOptions []configOption `json:"configOptions"`
+		}
+		if err := d.call(ctx, c.method, c.params, &r); err != nil {
+			return err
+		}
+		d.mu.Lock()
+		if c.method == "session/set_mode" {
+			d.s.mode = s.Mode
+		}
+		if r.ConfigOptions != nil {
+			for _, e := range d.s.configure(nil, r.ConfigOptions) {
+				d.post(e)
+			}
+		}
+		d.mu.Unlock()
+	}
+	return nil
 }
 
 func (d *driver) reply(id json.RawMessage, result any) error {
 	return d.write(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-func (d *driver) cancelPermissions() error {
+// cancelRequests answers every open permission and elicitation with the
+// cancelled outcome ACP requires once a turn is cancelled or over.
+func (d *driver) cancelRequests() error {
 	for id, p := range d.s.permissions {
 		if err := d.reply(p.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}); err != nil {
 			return err
 		}
 		delete(d.s.permissions, id)
 		d.post(session.Event{Type: session.EventRequestResolved, RequestID: id})
+	}
+	for id, in := range d.s.inputs {
+		if err := d.reply(in.ID, map[string]string{"action": "cancel"}); err != nil {
+			return err
+		}
+		delete(d.s.inputs, id)
+		d.post(session.Event{Type: session.EventInputResolved, RequestID: id})
 	}
 	return nil
 }
