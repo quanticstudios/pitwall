@@ -308,12 +308,13 @@ func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions 
 	tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, r.when.Local().Format("15:04"))
 	})
-	rx := w - gtx.Dp(cardPadX) - td.Size.X
-	at(gtx, image.Pt(rx, (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
 	lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, r.line)
 	})
-	at(gtx, image.Pt(x, (h-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
+	base := centerBase(h, ld)
+	rx := w - gtx.Dp(cardPadX) - td.Size.X
+	at(gtx, image.Pt(rx, onBase(base, td)), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
+	at(gtx, image.Pt(x, onBase(base, ld)), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
 	x += ld.Size.X + gtx.Dp(theme.SpaceS)
 	if room := rx - gtx.Dp(12) - x; room > 0 && r.what != "" {
 		g := gtx
@@ -325,7 +326,7 @@ func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions 
 		wc, wd := measure(g, func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, f, th.Sp(theme.Small), th.TextQuiet, firstLine(r.what))
 		})
-		at(gtx, image.Pt(x, (h-wd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { wc.Add(gtx.Ops); return wd })
+		at(gtx, image.Pt(x, onBase(base, wd)), func(gtx layout.Context) layout.Dimensions { wc.Add(gtx.Ops); return wd })
 	}
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }

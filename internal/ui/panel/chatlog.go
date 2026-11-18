@@ -205,13 +205,14 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 			icon(gtx, image.Pt(x, (hh-isz)/2), sum.icon, 14, th.Muted)
 		}
 		x += isz + gtx.Dp(8)
-		rc, rd := measure(gtx, func(gtx layout.Context) layout.Dimensions { return d.result(gtx, sum, failed) })
-		rx := w - gtx.Dp(rowPad) - rd.Size.X
-		at(gtx, image.Pt(rx, (hh-rd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { rc.Add(gtx.Ops); return rd })
 		vc, vd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, sum.verb)
 		})
-		at(gtx, image.Pt(x, (hh-vd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { vc.Add(gtx.Ops); return vd })
+		base := centerBase(hh, vd) // the row's one baseline, the verb centered
+		rc, rd := measure(gtx, func(gtx layout.Context) layout.Dimensions { return d.result(gtx, sum, failed) })
+		rx := w - gtx.Dp(rowPad) - rd.Size.X
+		at(gtx, image.Pt(rx, onBase(base, rd)), func(gtx layout.Context) layout.Dimensions { rc.Add(gtx.Ops); return rd })
+		at(gtx, image.Pt(x, onBase(base, vd)), func(gtx layout.Context) layout.Dimensions { vc.Add(gtx.Ops); return vd })
 		x += vd.Size.X + gtx.Dp(theme.SpaceS)
 		if room := rx - gtx.Dp(12) - x; room > 0 && sum.arg != "" {
 			g := gtx
@@ -223,7 +224,7 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 				}
 				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), theme.Mix(th.Fg, th.Bg, 0.2), arg)
 			})
-			at(gtx, image.Pt(x, (hh-ad.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
+			at(gtx, image.Pt(x, onBase(base, ad)), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
 		}
 		return layout.Dimensions{Size: image.Pt(w, hh)}
 	}
@@ -309,7 +310,8 @@ func (d *cdraw) foldRow(gtx layout.Context, id, ic, verb, arg string, body layou
 		vc, vd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, verb)
 		})
-		at(gtx, image.Pt(x, (hh-vd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { vc.Add(gtx.Ops); return vd })
+		base := centerBase(hh, vd)
+		at(gtx, image.Pt(x, onBase(base, vd)), func(gtx layout.Context) layout.Dimensions { vc.Add(gtx.Ops); return vd })
 		x += vd.Size.X + gtx.Dp(theme.SpaceS)
 		if room := w - gtx.Dp(rowPad) - x; room > 0 && arg != "" {
 			g := gtx
@@ -317,7 +319,7 @@ func (d *cdraw) foldRow(gtx layout.Context, id, ic, verb, arg string, body layou
 			ac, ad := measure(g, func(gtx layout.Context) layout.Dimensions {
 				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.Muted, arg)
 			})
-			at(gtx, image.Pt(x, (hh-ad.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
+			at(gtx, image.Pt(x, onBase(base, ad)), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
 		}
 		return layout.Dimensions{Size: image.Pt(w, hh)}
 	})

@@ -217,7 +217,7 @@ func hrow(gtx layout.Context, gap int, ws ...layout.Widget) layout.Dimensions {
 		calls[i], dims[i] = measure(g, w)
 		h = max(h, dims[i].Size.Y)
 	}
-	x := 0
+	x, base := 0, 0
 	for i := range ws {
 		if dims[i].Size.X == 0 {
 			continue
@@ -225,12 +225,27 @@ func hrow(gtx layout.Context, gap int, ws ...layout.Widget) layout.Dimensions {
 		if x > 0 {
 			x += gap
 		}
-		o := op.Offset(image.Pt(x, (h-dims[i].Size.Y)/2)).Push(gtx.Ops)
+		y := (h - dims[i].Size.Y) / 2
+		if base == 0 {
+			base = h - (y + dims[i].Size.Y - dims[i].Baseline)
+		}
+		o := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
 		calls[i].Add(gtx.Ops)
 		o.Pop()
 		x += dims[i].Size.X
 	}
-	return layout.Dimensions{Size: image.Pt(x, h)}
+	return layout.Dimensions{Size: image.Pt(x, h), Baseline: base}
+}
+
+// centerBase is the baseline, from the top of a row h tall, that centers
+// text dims in it: the one baseline the row's other texts sit on.
+func centerBase(h int, dims layout.Dimensions) int {
+	return (h-dims.Size.Y)/2 + dims.Size.Y - dims.Baseline
+}
+
+// onBase is the top at which text dims sits on baseline base.
+func onBase(base int, dims layout.Dimensions) int {
+	return base - (dims.Size.Y - dims.Baseline)
 }
 
 // --- rows ---
