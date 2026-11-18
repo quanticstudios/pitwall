@@ -5,6 +5,7 @@ import (
 
 	gl "gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -36,9 +37,13 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	s, ok := ch.Chat(ws.Chat)
 	if ok {
 		aide := curHost() == "" && findAide() != nil
+		u.transcript.Width, u.transcript.Copy = unit.Dp(u.cfg.Chat.Width), putClipboard
 		u.transcript.Layout(gtx, u.th, &s, aide)
 		for _, a := range u.transcript.Answers() {
 			u.send(proto.ChatApprove{Chat: ws.Chat, Request: a.Request, Decision: a.Decision})
+		}
+		for _, a := range u.transcript.Inputs() {
+			u.send(proto.ChatAnswer{Chat: ws.Chat, Request: a.Request, Answers: a.Answers})
 		}
 		if u.transcript.OpenAide() {
 			openAide(findAide())

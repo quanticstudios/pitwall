@@ -2,10 +2,15 @@ package panel
 
 import (
 	"image"
-	"strconv"
+	"io"
+	"slices"
 	"strings"
 	"time"
 
+	"gioui.org/io/clipboard"
+	gioevent "gioui.org/io/event"
+	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -13,54 +18,116 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
-	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/session"
-	"github.com/quanticstudios/pitwall/internal/ui/kit"
-	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// transcriptWidth is the widest the transcript's column grows.
-const transcriptWidth unit.Dp = 760
-
-// outputLines is how much of a tool's output or diff an opened call shows,
-// from its end.
-const outputLines = 60
-
-// Transcript draws a chat's transcript in the main area with the panel's
-// rows: prompts, assistant text, one line per tool call that a click
-// opens, reasoning folded, and what the chat waits on: an approval with
-// Allow, Allow for session and Deny, a question with the pitwall chat
-// command that answers it. Only the items in view are laid out, so a
-// 2,000-item chat costs a frame what a short one does.
+// Transcript draws a chat as a desktop chat app does, in a centered
+// column: prompts as bubbles on the right, each turn's tool calls in one
+// work log that folds to a line, replies as markdown with copy buttons,
+// and approvals and questions as cards where the chat stopped, answered
+// by their buttons or the number keys. Only the rows in view are laid
+// out, so a 2,000-item chat costs a frame what a short one does.
 type Transcript struct {
-	chat  string // the chat drawn; another one starts afresh
-	list  layout.List
-	open  map[string]bool              // item ids unfolded
-	btn   map[string]*widget.Clickable // per item that folds, made when first drawn
-	epoch time.Time
-	laid  int // items laid out in the last frame
+	// Width is the column's widest, [chat] width; 0 uses the whole area.
+	Width unit.Dp
+	// Copy puts text on the clipboard: the window's clipboard path. Nil
+	// writes it directly.
+	Copy func(gtx layout.Context, text string)
+
+	chat   string // the chat drawn; another one starts afresh
+	list   layout.List
+	blocks []block
+	rows   []trow
+	laid   int // transcript items laid out in the last frame
+	live   bool
+	epoch  time.Time
+	now    time.Time
+
+	open   map[string]bool // folds the user opened or closed, by id
+	clicks map[string]*widget.Clickable
+	sels   map[string]*widget.Selectable
+	docs   map[string]*reply    // parsed replies by item id
+	copied map[string]time.Time // copy buttons, while they show Copied
+	thumbs thumbs
+	focus  int // the transcript's own key focus tag
+	drawn  []*widget.Selectable
+	picked *widget.Selectable // the selectable with the selection
 
 	answer  map[string]*[3]widget.Clickable // per pending approval, one per decisions entry
-	sent    map[string]bool                 // approvals answered here that the chat has not resolved yet
+	sent    map[string]bool                 // requests answered here that the chat has not resolved yet
 	answers []Answer                        // not taken by Answers yet
+	inputs  []InputAnswer                   // not taken by Inputs yet
+	asks    map[string]*ask                 // per pending question request
+	done    []resolved                      // requests answered here, as one line each
+	keyReq  string                          // the approval the number keys answer
+	keyAsk  string                          // else the question they pick in
+	askQs   map[string][]session.Question   // pending questions by request
+	what    map[string]string               // pending approvals' commands, for their line
+	items   int                             // len(Content) this frame
+	diffs   map[string]diffCache            // edits' lines by item id
+	avg     avgChar                         // the UI font's average character
+
+	more    widget.Clickable
+	menu    bool
 	aideBtn widget.Clickable
 	aide    bool // Open in aide was clicked, until OpenAide takes it
 }
 
-// Answer is an approval answered with its buttons.
+// Answer is an approval answered with its buttons or keys.
 type Answer struct {
 	Request  string
 	Decision string // allow, allow-session, deny
 }
 
+// InputAnswer is a question answered on its card: question id to the
+// chosen labels or typed text, as proto.ChatAnswer carries.
+type InputAnswer struct {
+	Request string
+	Answers map[string][]string
+}
+
 // decisions are what the approval buttons answer, in their order.
 var decisions = [3]string{"allow", "allow-session", "deny"}
+
+// decisionLine is how an answered approval's line says the decision.
+var decisionLine = map[string]string{"allow": "Allowed", "allow-session": "Allowed for this session", "deny": "Denied"}
+
+// resolved is a request answered here: a line after the item that was
+// last when it was answered.
+type resolved struct {
+	id, line, what string
+	at             int // len(Content) when answered
+	when           time.Time
+}
+
+// ask is a question card's state.
+type ask struct {
+	pick   []int // per question, the option picked; len(options) is the typed answer, -1 none
+	other  []widget.Editor
+	opts   [][]widget.Clickable // per question, one per option and one for the typed row
+	submit widget.Clickable
+}
+
+// trow is one row of the list: a block, an answered request's line, or
+// what follows the items.
+type trow struct {
+	b    block
+	res  *resolved
+	tail layout.Widget
+}
 
 // Answers returns the approvals answered since the last call, once each.
 func (t *Transcript) Answers() []Answer {
 	a := t.answers
 	t.answers = nil
+	return a
+}
+
+// Inputs returns the questions answered since the last call, once each.
+func (t *Transcript) Inputs() []InputAnswer {
+	a := t.inputs
+	t.inputs = nil
 	return a
 }
 
@@ -71,303 +138,394 @@ func (t *Transcript) OpenAide() bool {
 	return o
 }
 
-// Layout draws s filling gtx's constraints, with an Open in aide button
-// when aide is set.
+// Key answers the newest request by key name: 1, 2 or 3 an approval,
+// a number picks a question's option and Enter sends it. It reports
+// whether the key did something. The window's composer calls it while
+// it is empty; the transcript takes the keys itself when it has focus.
+func (t *Transcript) Key(name string) bool {
+	opts := 0
+	if a := t.asks[t.keyAsk]; a != nil && len(a.opts) > 0 {
+		opts = len(a.opts[t.askQuestion(a)]) - 1
+	}
+	act, ok := actionFor(name, t.keyReq != "", opts)
+	if !ok {
+		return false
+	}
+	switch {
+	case act.decision != "":
+		t.decide(t.keyReq, act.decision)
+	case act.submit:
+		t.sendAsk(t.keyAsk)
+	default:
+		a := t.asks[t.keyAsk]
+		a.pick[t.askQuestion(a)] = act.option
+	}
+	return true
+}
+
+// askQuestion is the question the number keys pick in: the first
+// without an answer, else the last.
+func (t *Transcript) askQuestion(a *ask) int {
+	for i, p := range a.pick {
+		if p < 0 {
+			return i
+		}
+	}
+	return len(a.pick) - 1
+}
+
+func (t *Transcript) reset(chat string) {
+	*t = Transcript{Width: t.Width, Copy: t.Copy, chat: chat,
+		open: map[string]bool{}, clicks: map[string]*widget.Clickable{}, sels: map[string]*widget.Selectable{},
+		docs: map[string]*reply{}, copied: map[string]time.Time{},
+		answer: map[string]*[3]widget.Clickable{}, sent: map[string]bool{}, asks: map[string]*ask{}}
+	t.list.Axis = layout.Vertical
+}
+
+func (t *Transcript) click(id string) *widget.Clickable {
+	c := t.clicks[id]
+	if c == nil {
+		c = new(widget.Clickable)
+		t.clicks[id] = c
+	}
+	return c
+}
+
+func (t *Transcript) sel(id string) *widget.Selectable {
+	s := t.sels[id]
+	if s == nil {
+		s = new(widget.Selectable)
+		t.sels[id] = s
+	}
+	t.drawn = append(t.drawn, s)
+	return s
+}
+
+// toggled flips fold id when its clickable was clicked, and reports
+// whether it is open.
+func (t *Transcript) toggled(gtx layout.Context, id string, def bool) bool {
+	open := isOpen(t.open, id, def)
+	for t.click(id).Clicked(gtx) {
+		open = !open
+		t.open[id] = open
+	}
+	return open
+}
+
+// copy puts text on the clipboard, and key's button shows Copied.
+func (t *Transcript) copy(gtx layout.Context, key, text string) {
+	t.copied[key] = gtx.Now
+	if t.Copy != nil {
+		t.Copy(gtx, text)
+		return
+	}
+	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(text))})
+}
+
+// copiedFor is how long a copy button shows its check.
+const copiedFor = 1500 * time.Millisecond
+
+func (t *Transcript) isCopied(key string) bool {
+	at, ok := t.copied[key]
+	if ok && t.now.Sub(at) < copiedFor {
+		t.live = true
+		return true
+	}
+	return false
+}
+
+// decide answers approval id once.
+func (t *Transcript) decide(id, decision string) {
+	if id == "" || t.sent[id] {
+		return
+	}
+	t.sent[id] = true
+	t.answers = append(t.answers, Answer{Request: id, Decision: decision})
+	if t.keyReq == id {
+		t.keyReq = ""
+	}
+	t.done = append(t.done, resolved{id: id, line: decisionLine[decision], what: t.what[id], at: t.items, when: t.now})
+}
+
+// sendAsk answers question request id with its card's picks, once each
+// question has one.
+func (t *Transcript) sendAsk(id string) {
+	a := t.asks[id]
+	if a == nil || t.sent[id] {
+		return
+	}
+	ans, ok := a.answers(t.askQs[id])
+	if !ok {
+		return
+	}
+	t.sent[id] = true
+	t.inputs = append(t.inputs, InputAnswer{Request: id, Answers: ans})
+	var picked []string
+	for _, v := range ans {
+		picked = append(picked, v...)
+	}
+	slices.Sort(picked)
+	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), at: t.items, when: t.now})
+}
+
+// answers are the card's picks by question id, false while a question
+// has none.
+func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
+	out := map[string][]string{}
+	for i, q := range qs {
+		if i >= len(a.pick) {
+			return nil, false
+		}
+		switch p := a.pick[i]; {
+		case p >= 0 && p < len(q.Options):
+			out[q.ID] = []string{q.Options[p].Label}
+		case p == len(q.Options) && strings.TrimSpace(a.other[i].Text()) != "":
+			out[q.ID] = []string{strings.TrimSpace(a.other[i].Text())}
+		default:
+			return nil, false
+		}
+	}
+	return out, len(qs) > 0
+}
+
+// Layout draws s filling gtx's constraints, with Open in aide in a quiet
+// menu when aide is set.
 func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
 	if t.open == nil || t.chat != s.SessionID {
-		*t = Transcript{chat: s.SessionID, open: map[string]bool{}, btn: map[string]*widget.Clickable{}, answer: map[string]*[3]widget.Clickable{}, sent: map[string]bool{}}
-		t.list.Axis = layout.Vertical
+		t.reset(s.SessionID)
 	}
 	if t.epoch.IsZero() {
 		t.epoch = gtx.Now
 	}
-	for id, b := range t.btn {
-		if b.Clicked(gtx) {
-			t.open[id] = !t.open[id]
-		}
-	}
-	pending := map[string]bool{}
-	for _, a := range s.PendingApprovals {
-		pending[a.ID] = true
-	}
-	for id, bs := range t.answer {
-		for i := range bs {
-			if bs[i].Clicked(gtx) && pending[id] && !t.sent[id] {
-				t.sent[id] = true
-				t.answers = append(t.answers, Answer{Request: id, Decision: decisions[i]})
-			}
-		}
-		if !pending[id] { // resolved, here or elsewhere
-			delete(t.answer, id)
-			delete(t.sent, id)
-		}
-	}
+	t.now, t.live, t.laid, t.drawn = gtx.Now, false, 0, t.drawn[:0]
+	t.settle(gtx, s)
 	if t.aideBtn.Clicked(gtx) && aide {
-		t.aide = true
+		t.aide, t.menu = true, false
 	}
-	t.laid = 0
+	for t.more.Clicked(gtx) {
+		t.menu = !t.menu
+	}
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: size}.Op())
-	d := &drawer{p: &Panel{}, th: th, c: palette(th), t: gtx.Now.Sub(t.epoch).Seconds()}
-	tail := t.tail(d, s)
-	w := max(0, min(size.X-2*gtx.Dp(24), gtx.Dp(transcriptWidth)))
-	column := func(gtx layout.Context, it layout.Widget) layout.Dimensions {
-		gtx.Constraints = layout.Constraints{Max: image.Pt(w, gtx.Constraints.Max.Y)}
-		off := op.Offset(image.Pt((size.X-w)/2, 0)).Push(gtx.Ops)
-		dims := it(gtx)
-		off.Pop()
-		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y)}
+
+	// A press on the transcript takes the keys from the composer, and a
+	// press outside a selection clears it.
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: &t.focus, Kinds: pointer.Press}, key.FocusFilter{Target: &t.focus})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
+			gtx.Execute(key.FocusCmd{Tag: &t.focus})
+			t.menu = false
+		}
 	}
-	// It follows the newest item once it overflows, from the end the first
+	bg := clip.Rect{Max: size}.Push(gtx.Ops)
+	gioevent.Op(gtx.Ops, &t.focus)
+	bg.Pop()
+	t.keys(gtx)
+
+	d := &cdraw{t: t, th: th, s: s, sec: gtx.Now.Sub(t.epoch).Seconds()}
+	side := gtx.Dp(theme.SpaceXL)
+	col := max(0, size.X-2*side)
+	if t.Width > 0 {
+		col = min(col, gtx.Dp(t.Width))
+	}
+	d.col, d.prose = col, proseCap(col, d.avgChar(gtx))
+	x0 := (size.X - col) / 2
+	t.blocks = blocks(s.Content, t.blocks)
+	t.buildRows(d)
+
+	// It follows the newest row once it overflows, from the end the first
 	// time it does; a short one stays at the top.
 	follow := t.list.Position.Length > size.Y
 	if follow && !t.list.ScrollToEnd {
 		t.list.Position.BeforeEnd = false
 	}
 	t.list.ScrollToEnd = follow
-	t.list.Layout(gtx, 1+len(s.Content)+len(tail)+1, func(gtx layout.Context, i int) layout.Dimensions {
+	gap := gtx.Dp(14)
+	t.list.Layout(gtx, len(t.rows)+2, func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
-			return space(20)(gtx)
-		case i < len(s.Content):
-			t.laid++
-			return column(gtx, t.item(d, &s.Content[i]))
-		case i < len(s.Content)+len(tail):
-			return column(gtx, tail[i-len(s.Content)])
+			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(20))}
+		case i >= len(t.rows):
+			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(24))}
 		}
-		return space(32)(gtx)
-	})
-	if aide {
-		m := op.Record(gtx.Ops)
-		bgtx := gtx
-		bgtx.Constraints.Min = image.Point{}
-		bd := kit.Button(bgtx, th, &t.aideBtn, kit.Secondary, kit.Small, "Open in aide")
-		call := m.Stop()
-		off := op.Offset(image.Pt(size.X-bd.Size.X-gtx.Dp(16), gtx.Dp(12))).Push(gtx.Ops)
-		call.Add(gtx.Ops)
+		r := &t.rows[i]
+		gtx.Constraints = layout.Constraints{Max: image.Pt(col, gtx.Constraints.Max.Y)}
+		off := op.Offset(image.Pt(x0, 0)).Push(gtx.Ops)
+		var dims layout.Dimensions
+		switch {
+		case r.tail != nil:
+			dims = r.tail(gtx)
+		case r.res != nil:
+			dims = d.resolvedLine(gtx, r.res)
+		default:
+			t.laid += r.b.hi - r.b.lo
+			dims = d.block(gtx, r.b)
+		}
 		off.Pop()
+		if dims.Size.Y == 0 {
+			return layout.Dimensions{Size: image.Pt(size.X, 0)}
+		}
+		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gap)}
+	})
+	t.pickSelection(gtx)
+	if aide {
+		d.moreMenu(gtx, size)
 	}
-	if d.p.live {
+	if t.live {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 	}
 	return layout.Dimensions{Size: size}
 }
 
-// item is one transcript item's widget.
-func (t *Transcript) item(d *drawer, it *session.Item) layout.Widget {
-	body := d.th.Sp(theme.Body)
-	switch it.Kind {
-	case session.KindUserPrompt:
-		return pad(14, 0, 6, 0, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.X = gtx.Constraints.Max.X
-			return boxed(gtx, layout.Inset{Top: 9, Bottom: 10, Left: 12, Right: 12}, d.text(d.th.UIFont, body, d.c.fg, it.Text, 0), func(sz image.Point) {
-				rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.c.card2, d.c.border)
-			})
-		})
-	case session.KindAssistantText:
-		return pad(6, 0, 6, 0, d.text(d.th.UIFont, body, d.c.fg, it.Text, 0))
-	case session.KindSystem:
-		return pad(4, 0, 4, 0, d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.muted, it.Text, 0))
-	case session.KindReasoningText, session.KindReasoningSummaryText:
-		return t.fold(d, it.ID, d.ui(d.th.Sp(theme.Small), d.c.quiet, "Thinking"), d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.muted, it.Text, 0))
-	case session.KindToolCall:
-		if it.Tool == nil {
-			return space(0)
-		}
-		return t.fold(d, it.ID, d.call(*it.Tool), d.output(*it.Tool))
-	case session.KindCommandOutput, session.KindFileChangeOutput:
-		return t.fold(d, it.ID, d.ui(d.th.Sp(theme.Small), d.c.quiet, "Output"), d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.muted, lastLines(it.Text, outputLines), 0))
-	}
-	return space(0)
-}
-
-// fold is a one-line head that a click opens to show body under it.
-func (t *Transcript) fold(d *drawer, id string, head, body layout.Widget) layout.Widget {
-	b := t.btn[id]
-	if b == nil {
-		b = new(widget.Clickable)
-		t.btn[id] = b
-	}
-	open := t.open[id]
-	chev := "chevron-right"
-	if open {
-		chev = "chevron-down"
-	}
-	return func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		ws := []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
-				return boxed(gtx, layout.Inset{Top: 4, Bottom: 4, Left: 6, Right: 6}, func(gtx layout.Context) layout.Dimensions {
-					return row(gtx,
-						part{w: pad(3, 0, 0, 0, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, chev, gtx.Dp(12), d.c.quiet) })},
-						part{gap: gtx.Dp(6), flex: true, w: head},
-					)
-				}, func(sz image.Point) {
-					if b.Hovered() {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
-					}
-				})
-			})
-		})}
-		if open {
-			ws = append(ws, layout.Rigid(pad(2, 6, 6, 22, body)))
-		}
-		return pad(1, 0, 1, 0, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
-		})(gtx)
-	}
-}
-
-// call is a tool call's line: the tool, then what it ran on; a spinner
-// while it runs, red when it failed.
-func (d *drawer) call(c session.ToolCall) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		toolCol, argCol := d.c.fg, d.c.muted
-		tool := d.text(semibold(d.th.UIFont), d.th.Sp(theme.Small), toolCol, c.ToolName, 1)
-		switch c.Status {
-		case "failed":
-			tool = d.text(semibold(d.th.UIFont), d.th.Sp(theme.Small), d.c.red, c.ToolName, 1)
-		case "running":
-			argCol = d.c.blue
-		}
-		arg := flow.ToolArg(c)
-		if c.Status == "running" && c.Progress != "" {
-			arg = firstLine(c.Progress)
-		}
-		parts := []part{{w: tool}, {gap: gtx.Dp(8), flex: true, w: d.text(d.th.MonoFont, d.th.Sp(theme.Small), argCol, arg, 1)}}
-		if c.Status == "running" {
-			parts = append([]part{{w: func(gtx layout.Context) layout.Dimensions {
-				d.p.live = true
-				off := op.Offset(image.Pt(0, gtx.Dp(3))).Push(gtx.Ops)
-				defer off.Pop()
-				return spinner(gtx, gtx.Dp(9), d.c.bg, d.c.blue, d.t)
-			}}}, parts...)
-			parts[1].gap = gtx.Dp(6)
-		}
-		return row(gtx, parts...)
-	}
-}
-
-// output is an opened call's command, diff and output, the end of each.
-func (d *drawer) output(c session.ToolCall) layout.Widget {
-	var b strings.Builder
-	if c.Command != "" {
-		b.WriteString("$ " + c.Command + "\n")
-	}
-	for _, s := range []string{c.Diff, c.Output} {
-		if s = strings.TrimRight(s, "\n"); s != "" {
-			b.WriteString(lastLines(s, outputLines) + "\n")
-		}
-	}
-	if c.ExitCode != nil && *c.ExitCode != 0 {
-		b.WriteString("exit " + strconv.Itoa(*c.ExitCode))
-	}
-	txt := strings.TrimRight(b.String(), "\n")
-	if txt == "" {
-		txt = "No output."
-	}
-	return d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.muted, txt, 0)
-}
-
-// tail is what follows the items: the chat's error, what it waits on, a
-// spinner while it works.
-func (t *Transcript) tail(d *drawer, s *session.Snapshot) []layout.Widget {
-	var out []layout.Widget
-	if s.LastError != nil && *s.LastError != "" {
-		out = append(out, pad(8, 0, 4, 0, d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.red, *s.LastError, 0)))
-	}
-	chat := s.SessionID
-	if len(chat) > 8 {
-		chat = chat[:8]
+// settle drops the state of requests the chat resolved, and takes the
+// clicks on the cards' buttons.
+func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
+	pending := map[string]bool{}
+	t.keyReq, t.keyAsk, t.items = "", "", len(s.Content)
+	if t.what == nil {
+		t.what = map[string]string{}
 	}
 	for _, a := range s.PendingApprovals {
-		what := strings.TrimSpace(deref(a.Detail))
-		if what == "" && a.Request != nil {
-			what = strings.TrimSpace(a.Request.ToolName + " " + firstLine(a.Request.Command))
+		pending[a.ID] = true
+		t.what[a.ID] = requestWhat(a)
+		if !t.sent[a.ID] {
+			t.keyReq = a.ID
 		}
-		out = append(out, d.waiting("Waiting for approval", what, "", t.buttons(d, a.ID)))
+	}
+	if t.askQs == nil {
+		t.askQs = map[string][]session.Question{}
 	}
 	for _, in := range s.PendingUserInputs {
-		what := deref(in.Detail)
-		for _, q := range in.Questions {
-			what = strings.TrimSpace(what + "\n" + q.Prompt)
+		pending[in.ID] = true
+		t.askQs[in.ID] = in.Questions
+		if !t.sent[in.ID] {
+			t.keyAsk = in.ID
 		}
-		out = append(out, d.waiting("Waiting for an answer", what, "pitwall chat answer "+chat+" "+in.ID+" -- answer", nil))
-	}
-	if p := s.PlanApproval; p != nil {
-		out = append(out, d.waiting("Plan ready", deref(p.Detail), "", nil))
-	}
-	if s.SessionState == session.StateRunning {
-		out = append(out, pad(8, 0, 0, 6, func(gtx layout.Context) layout.Dimensions {
-			return row(gtx,
-				part{w: func(gtx layout.Context) layout.Dimensions {
-					d.p.live = true
-					off := op.Offset(image.Pt(0, gtx.Dp(3))).Push(gtx.Ops)
-					defer off.Pop()
-					return spinner(gtx, gtx.Dp(9), d.c.bg, d.c.blue, d.t)
-				}},
-				part{gap: gtx.Dp(8), flex: true, w: d.ui(d.th.Sp(theme.Small), d.c.muted, "Working…")},
-			)
-		}))
-	}
-	return out
-}
-
-// buttons are an approval's Allow, Allow for session and Deny, or a line
-// saying its answer went out.
-func (t *Transcript) buttons(d *drawer, id string) layout.Widget {
-	bs := t.answer[id]
-	if bs == nil {
-		bs = new([3]widget.Clickable)
-		t.answer[id] = bs
-	}
-	if t.sent[id] {
-		return d.ui(d.th.Sp(theme.Small), d.c.muted, "Answer sent…")
-	}
-	return func(gtx layout.Context) layout.Dimensions {
-		btn := func(i int, k kit.Kind, label string) layout.FlexChild {
-			return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return kit.Button(gtx, d.th, &bs[i], k, kit.Small, label)
-				})
-			})
+		a := t.asks[in.ID]
+		if a == nil {
+			a = &ask{}
+			for _, q := range in.Questions {
+				a.pick = append(a.pick, recommended(q))
+				a.opts = append(a.opts, make([]widget.Clickable, len(q.Options)+1))
+			}
+			a.other = make([]widget.Editor, len(in.Questions))
+			for i := range a.other {
+				a.other[i].SingleLine, a.other[i].Submit = true, true
+			}
+			t.asks[in.ID] = a
 		}
-		return layout.Flex{}.Layout(gtx, btn(0, kit.Primary, "Allow"), btn(1, kit.Secondary, "Allow for session"), btn(2, kit.Danger, "Deny"))
+	}
+	for id, bs := range t.answer {
+		for i := range bs {
+			if bs[i].Clicked(gtx) && pending[id] {
+				t.decide(id, decisions[i])
+			}
+		}
+		if !pending[id] {
+			delete(t.answer, id)
+		}
+	}
+	for id, a := range t.asks {
+		for qi := range a.opts {
+			for oi := range a.opts[qi] {
+				if a.opts[qi][oi].Clicked(gtx) {
+					a.pick[qi] = oi
+					if oi == len(a.opts[qi])-1 {
+						gtx.Execute(key.FocusCmd{Tag: &a.other[qi]})
+					}
+				}
+			}
+			for {
+				ev, ok := a.other[qi].Update(gtx)
+				if !ok {
+					break
+				}
+				switch ev.(type) {
+				case widget.ChangeEvent:
+					if a.other[qi].Text() != "" {
+						a.pick[qi] = len(a.opts[qi]) - 1
+					}
+				case widget.SubmitEvent:
+					t.sendAsk(id)
+				}
+			}
+		}
+		if a.submit.Clicked(gtx) && pending[id] {
+			t.sendAsk(id)
+		}
+		if !pending[id] {
+			delete(t.asks, id)
+			delete(t.askQs, id)
+		}
+	}
+	for id := range t.sent {
+		if !pending[id] {
+			delete(t.sent, id)
+			delete(t.what, id)
+		}
 	}
 }
 
-// waiting is a yellow card for a request the chat waits on, with the
-// command that answers it or the buttons that do.
-func (d *drawer) waiting(eyebrow, what, how string, actions layout.Widget) layout.Widget {
-	return pad(10, 0, 4, 0, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return boxed(gtx, layout.Inset{Top: 11, Bottom: 12, Left: 14, Right: 14}, func(gtx layout.Context) layout.Dimensions {
-			ws := []layout.FlexChild{layout.Rigid(d.text(semibold(d.th.UIFont), d.th.Sp(theme.Caption), d.c.yellow, strings.ToUpper(eyebrow), 1))}
-			if what != "" {
-				ws = append(ws, layout.Rigid(pad(5, 0, 0, 0, d.text(d.th.UIFont, d.th.Sp(theme.Body), d.c.fg, what, 6))))
-			}
-			if how != "" {
-				ws = append(ws, layout.Rigid(pad(6, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.muted, how, 1))))
-			}
-			if actions != nil {
-				ws = append(ws, layout.Rigid(pad(10, 0, 0, 0, actions)))
-			}
-			gtx.Constraints.Min.X = gtx.Constraints.Max.X
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
-		}, func(sz image.Point) {
-			rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(10), theme.Mix(d.c.bg, d.c.yellow, 0.06), theme.Mix(d.c.bg, d.c.yellow, 0.38))
-		})
-	})
+// keys takes the number keys and Enter while nothing else holds the
+// keyboard: the transcript, one of its selections, or no one.
+func (t *Transcript) keys(gtx layout.Context) {
+	mine := gtx.Focused(nil) || gtx.Focused(&t.focus) || t.picked != nil && gtx.Focused(t.picked)
+	if !mine || t.keyReq == "" && t.keyAsk == "" {
+		return
+	}
+	fs := []gioevent.Filter{key.Filter{Name: key.NameReturn}, key.Filter{Name: key.NameEnter}}
+	for _, n := range "123456789" {
+		fs = append(fs, key.Filter{Name: key.Name(string(n))})
+	}
+	for {
+		ev, ok := gtx.Event(fs...)
+		if !ok {
+			return
+		}
+		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+			t.Key(string(e.Name))
+		}
+	}
 }
 
-// lastLines is s cut to its last n lines.
-func lastLines(s string, n int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return s
+// pickSelection keeps one selection in the transcript: a new one clears
+// the last.
+func (t *Transcript) pickSelection(gtx layout.Context) {
+	for _, s := range t.drawn {
+		if s != t.picked && gtx.Focused(s) {
+			if t.picked != nil {
+				t.picked.ClearSelection()
+			}
+			t.picked = s
+		}
 	}
-	return "…\n" + strings.Join(lines[len(lines)-n:], "\n")
+	if t.picked != nil && gtx.Focused(&t.focus) {
+		t.picked.ClearSelection()
+		t.picked = nil
+	}
+}
+
+// buildRows lays the blocks, the answered requests' lines and the tail
+// out as the list's rows.
+func (t *Transcript) buildRows(d *cdraw) {
+	t.rows = t.rows[:0]
+	k := 0
+	for _, b := range t.blocks {
+		for ; k < len(t.done) && t.done[k].at <= b.lo; k++ {
+			t.rows = append(t.rows, trow{res: &t.done[k]})
+		}
+		t.rows = append(t.rows, trow{b: b})
+	}
+	for ; k < len(t.done); k++ {
+		t.rows = append(t.rows, trow{res: &t.done[k]})
+	}
+	for _, w := range d.tail() {
+		t.rows = append(t.rows, trow{tail: w})
+	}
 }
 
 func deref(s *string) string {
