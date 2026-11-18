@@ -63,7 +63,7 @@ func wakeTab(w *model.Workspace, acts []model.Activity, workers map[string]bool)
 		if !w.SnoozedUntil.IsZero() && asks(a.State) && a.UpdatedAt.After(w.SnoozedAt) {
 			w.SnoozedUntil, w.SnoozedAt, changed = time.Time{}, time.Time{}, true
 		}
-		if !w.Settled.IsZero() && (asks(a.State) || model.Pulses(&a)) && a.UpdatedAt.After(w.Settled) {
+		if !w.Settled.IsZero() && (asks(a.State) || a.State == model.StateWorking || a.State == model.StateConnecting) && a.UpdatedAt.After(w.Settled) {
 			w.Settled, changed = time.Time{}, true
 		}
 	}
@@ -108,7 +108,7 @@ func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.
 	last := w.UpdatedAt
 	for _, a := range acts {
 		if workers[a.WorkspaceID] {
-			if model.Pulses(&a) || asks(a.State) && a.State != model.StateError {
+			if a.State == model.StateWorking || a.State == model.StateConnecting || asks(a.State) && a.State != model.StateError {
 				return false
 			}
 			if a.UpdatedAt.After(last) {
@@ -119,7 +119,7 @@ func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.
 			continue
 		}
 		agent = true
-		if model.Pulses(&a) || asks(a.State) && a.State != model.StateError {
+		if a.State == model.StateWorking || a.State == model.StateConnecting || asks(a.State) && a.State != model.StateError {
 			return false
 		}
 	}

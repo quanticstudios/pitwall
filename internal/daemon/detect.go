@@ -266,13 +266,14 @@ func (d *Daemon) setActivity(ctx context.Context, id string, prov model.Provider
 		return
 	}
 	p := &d.st.Panes[pi]
+	delete(d.live.background, id)
 	now := time.Now()
 	next := model.Activity{PaneID: id, WorkspaceID: p.WorkspaceID, Provider: prov, State: state, Detail: detail, UpdatedAt: now}
 	i := d.activityIndex(id)
 	switch {
 	case i < 0:
 		d.st.Activities = append(d.st.Activities, next)
-	case d.st.Activities[i].Provider == prov && d.st.Activities[i].State == state && d.st.Activities[i].Detail == detail:
+	case d.st.Activities[i].Provider == prov && d.st.Activities[i].State == state && d.st.Activities[i].Detail == detail && !d.st.Activities[i].Background:
 		return
 	default:
 		if d.st.Activities[i].Provider == prov {

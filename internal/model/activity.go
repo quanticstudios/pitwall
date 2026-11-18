@@ -194,7 +194,8 @@ func (s *State) Watching() map[string]bool {
 	out := map[string]bool{}
 	for _, ws := range s.Workspaces {
 		r := s.Root(ws)
-		if a := activity[r]; live[ws.ID] && live[r] && a != nil && a.State == StateCompleted && Pulses(activity[ws.ID]) {
+		worker := activity[ws.ID]
+		if a := activity[r]; live[ws.ID] && live[r] && a != nil && a.State == StateCompleted && worker != nil && (worker.State == StateWorking || worker.State == StateConnecting) {
 			out[r] = true
 		}
 	}

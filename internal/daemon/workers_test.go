@@ -359,3 +359,41 @@ func TestBackgroundClearsWhenAgentWorks(t *testing.T) {
 		t.Fatalf("after a new prompt: %q background %v", a.State, a.Background)
 	}
 }
+
+func TestBackgroundChangesWithoutStateOrDetailChange(t *testing.T) {
+	d, _ := doneWorkerDaemon(t)
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"run"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"shell","status":"running"}]}`)
+	if a := d.activityOf("a"); !a.Background || model.Pulses(&a) {
+		t.Fatalf("empty Stop reply did not set Background: %+v", a)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"PreToolUse","tool_name":"Bash"}`)
+	if a := d.activityOf("a"); a.Background || !model.Pulses(&a) {
+		t.Fatalf("work hook did not clear Background: %+v", a)
+	}
+}
+
+func TestBackgroundHandoffEndsOnSubagentStop(t *testing.T) {
+	d, _ := doneWorkerDaemon(t)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"Waiting","background_tasks":[{"type":"subagent","status":"running"}]}`)
+	// Takeover constructs the daemon from the handed-off state, preserving
+	// live processes rather than relaunching them as NewWith does.
+	d.mu.Lock()
+	st := d.snapshot()
+	next := fromState(d.o, st)
+	d.mu.Unlock()
+	lp := &livePane{fakePane: &fakePane{dirty: make(chan struct{}), done: make(chan struct{})}}
+	lp.fgGroup.Store(100)
+	t.Cleanup(func() { lp.Close() })
+	next.mu.Lock()
+	next.run("a", lp, [2]int{80, 24}, nil)
+	owned := !next.live.hookAt["a"].IsZero() && next.live.fg["a"] == 100
+	next.mu.Unlock()
+	if !owned {
+		t.Fatal("handed-off background work lost hook ownership to screen detection")
+	}
+	claudeHook(t, next, "a", `{"hook_event_name":"SubagentStop","agent_id":"s1","background_tasks":[]}`)
+	if a := next.activityOf("a"); a.State != model.StateCompleted || a.Background || a.Detail != "Waiting" {
+		t.Fatalf("handed-off background work did not finish: %+v", a)
+	}
+}

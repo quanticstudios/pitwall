@@ -258,7 +258,7 @@ func subCount(agents, workers int, acts []model.Activity) string {
 	}
 	n := 0
 	for _, a := range acts {
-		if a.State == top.State || model.Pulses(&a) && model.Pulses(top) {
+		if a.State == top.State || (a.State == model.StateWorking || a.State == model.StateConnecting) && (top.State == model.StateWorking || top.State == model.StateConnecting) {
 			n++
 		}
 	}

@@ -580,6 +580,16 @@ func fromState(o Options, st model.State) *Daemon {
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, holds: map[string]chan chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}, chats: map[string]*chat{}}
 	d.prs = prPoll{seen: map[string]*prSeen{}, sent: map[string][]string{}, wake: make(chan struct{}, 1)}
 	d.mail = newMail()
+	// A handoff preserves live background work. NewWith drops activities
+	// before calling fromState because it relaunches the saved processes.
+	for _, a := range st.Activities {
+		if a.State == model.StateWorking && a.Background {
+			if d.live.background == nil {
+				d.live.background = map[string]bool{}
+			}
+			d.live.background[a.PaneID] = true
+		}
+	}
 	return d
 }
 
@@ -1960,6 +1970,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	} else if !agent.SubagentHook(m.Payload) && (mapped && activity.State == model.StateWorking || derived && (next.State == "" || ended(next.State))) {
 		delete(d.live.background, p.ID)
 	}
+	// Derive suppresses equal state/detail, but entering or leaving
+	// background work is still an activity change, even without a reply.
+	if !derived && prev != nil && prev.Background != (prev.State == model.StateWorking && d.live.background[p.ID]) {
+		next, derived = *prev, true
+		next.UpdatedAt = now
+	}
 	command, asks := agent.AskedCommand(m.Payload)
 	// why: Derive sees no change in two requests with one description, and an answer to the first must not land on the second.
 	if asks && !derived && prev != nil && prev.State == model.StatePendingApproval && command != d.askedOf(*prev) {
@@ -2305,6 +2321,11 @@ func (d *Daemon) paneVT(id string, ports model.PortBlock, newVT vt.NewFunc) vt.N
 // starts with queued. Callers hold d.mu.
 func (d *Daemon) run(id string, p Pane, size [2]int, queued [][]byte) {
 	d.panes[id] = p
+	if d.live.background[id] {
+		// Background came from a hook in the handing-off daemon. Keep
+		// detection from treating its idle input box as a finished turn.
+		d.sawHook(id)
+	}
 	d.sizes[id] = size
 	in, hold := make(chan []byte, max(inputQueue, len(queued))), make(chan chan []byte)
 	for _, b := range queued {
