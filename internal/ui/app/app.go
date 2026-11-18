@@ -140,6 +140,10 @@ func Run(b Backend) error {
 		w.Perform(system.ActionRaise)
 	})
 	u.notifications.setRules(u.cfg.Notifications)
+	u.notifications.setInbox(func(a model.Activity, title string) {
+		u.queueInbox(a, title)
+		w.Invalidate()
+	})
 	defer u.notifications.close()
 	if f, ok := b.(Focuser); ok {
 		select {
@@ -309,9 +313,11 @@ type ui struct {
 
 	// focusReq is the latest attach request, kept until its session is in
 	// the state.
-	focusMu  sync.Mutex
-	focusReq *proto.FocusSession
-	jumpReq  *model.Activity // a clicked notification's, see queueJump
+	focusMu    sync.Mutex
+	focusReq   *proto.FocusSession
+	jumpReq    *model.Activity // a clicked notification's, see queueJump
+	inboxNotes []inboxNote     // finished tabs from the notifier, see queueInbox
+	inbox      inbox           // finished orchestrator tabs, see drawInbox
 
 	drags     []*gesture.Drag
 	drag      *layout.Node // layout being dragged, drawn instead of the state's
@@ -883,7 +889,9 @@ func (u *ui) layout(gtx gl.Context) {
 		u.nav.noLastPrompt = false
 		u.showNotice(pgtx, "No prompt pane is open", image.Rectangle{Max: pgtx.Constraints.Max})
 	}
+	u.applyInbox()
 	u.drawNotice(pgtx)
+	u.drawInbox(pgtx)
 	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
 	off.Pop()
 	pc.Pop()

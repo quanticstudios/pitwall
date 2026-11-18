@@ -84,9 +84,10 @@ type notifier struct {
 	mu      sync.Mutex
 	focused bool
 	active  string
-	session string                // the window's session
-	rules   config.NotifySettings // [notifications]
-	jump    func(model.Activity)  // shows a's pane and raises the window; nil for none
+	session string                       // the window's session
+	rules   config.NotifySettings        // [notifications]
+	jump    func(model.Activity)         // shows a's pane and raises the window; nil for none
+	inbox   func(model.Activity, string) // lists a finished orchestrator tab; nil for none
 	wake    chan struct{}
 	cancel  context.CancelFunc
 	done    chan struct{}
@@ -101,6 +102,13 @@ func newNotifier(b Backend, invalidate func(), send func(context.Context, notifi
 }
 
 func (n *notifier) close() { n.cancel(); <-n.done }
+
+// setInbox sets where finished orchestrator tabs go instead of the desktop.
+func (n *notifier) setInbox(f func(model.Activity, string)) {
+	n.mu.Lock()
+	n.inbox = f
+	n.mu.Unlock()
+}
 
 // setView records the window's focus, or else the tab and session it
 // shows.
@@ -172,11 +180,17 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			n.mu.Lock()
 			viewing := n.focused && n.active == a.WorkspaceID
 			rules := n.rules
+			inbox := n.inbox
 			n.mu.Unlock()
 			ws := findWorkspace(&st, a.WorkspaceID)
 			show, sound := notifyRule(rules, a, now)
 			if show && !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
 				h.Sent(a.WorkspaceID, time.Now())
+				// A finished tab the user opened goes to the in-app inbox, not the desktop.
+				if inbox != nil && model.Orchestrator(*ws) && model.InboxDone(a) {
+					inbox(a, hostPrefix(b, ws.SessionID)+notificationTitle(&st, *ws))
+					continue
+				}
 				nt := notification{activity: a, title: hostPrefix(b, ws.SessionID) + notificationTitle(&st, *ws), answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
 				if sound {
 					nt.sound = rules.Sound
