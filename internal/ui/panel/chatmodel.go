@@ -240,6 +240,12 @@ func summarize(c *session.ToolCall, lines []diffLine, start, now time.Time) tool
 			s.arg = plural(len(c.Tasks), "task")
 		}
 	}
+	if server, tool, ok := strings.Cut(strings.TrimPrefix(c.ToolName, "mcp__"), "__"); ok && strings.HasPrefix(c.ToolName, "mcp__") {
+		s.verb, s.icon = strings.ReplaceAll(tool, "_", " "), "puzzle"
+		if s.arg == "" {
+			s.arg = server
+		}
+	}
 	if s.arg == "" && len(c.Files) > 0 {
 		s.arg = c.Files[0].Path
 	}
@@ -280,7 +286,7 @@ func summarize(c *session.ToolCall, lines []diffLine, start, now time.Time) tool
 func toolTook(c *session.ToolCall) string {
 	a, errA := time.Parse(time.RFC3339Nano, c.StartedAt)
 	b, errB := time.Parse(time.RFC3339Nano, c.EndedAt)
-	if errA != nil || errB != nil || b.Before(a) {
+	if errA != nil || errB != nil || b.Sub(a) < 100*time.Millisecond {
 		return ""
 	}
 	return seconds(b.Sub(a))
@@ -533,8 +539,8 @@ func logTitle(took time.Duration, tools int, running bool) string {
 		verb = "Working for "
 	}
 	t := verb + duration(took)
-	if took <= 0 && !running {
-		t = "Worked"
+	if took < time.Second {
+		t = strings.TrimSuffix(verb, " for ")
 	}
 	if tools > 0 {
 		t += " · " + plural(tools, "tool")

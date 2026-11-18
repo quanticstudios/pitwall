@@ -16,6 +16,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -29,15 +30,15 @@ type cdraw struct {
 	col, prose int     // the column's width, and reply prose's
 }
 
-// avgChar is the UI font's average character width, measured once per
-// theme and scale.
+// avgChar is the UI font's character width as CSS's ch unit has it, the
+// width of "0", measured once per theme and scale.
 type avgChar struct {
 	th *theme.Theme
 	px float32
 	w  int
 }
 
-const sample = "The quick brown fox jumps over the lazy dog, then naps."
+const sample = "0000000000"
 
 func (d *cdraw) avgChar(gtx layout.Context) int {
 	a := &d.t.avg
@@ -165,7 +166,7 @@ func (d *cdraw) keycap(gtx layout.Context, k string, onPrimary bool) layout.Dime
 	th := d.th
 	fill, ring, fg := th.SurfaceSecondary, th.BorderStrong, th.Fg
 	if onPrimary {
-		fill, ring, fg = theme.Mix(th.Primary, th.Bg, 0.22), theme.Mix(th.Primary, th.Bg, 0.36), th.OnPrimary
+		fill, ring, fg = theme.Mix(th.Primary, th.Bg, 0.3), theme.Mix(th.Primary, th.Bg, 0.42), th.Fg
 	}
 	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, medium(th.MonoFont), th.Sp(theme.Caption), fg, k)
@@ -288,7 +289,7 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 // promptText is a prompt's selectable text, its [Image #N] tokens drawn
 // as chips over the words.
 func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensions {
-	txt := strings.TrimRight(it.Text, "\n ")
+	txt := mdview.Detab(strings.TrimRight(it.Text, "\n "))
 	if txt == "" {
 		return layout.Dimensions{}
 	}

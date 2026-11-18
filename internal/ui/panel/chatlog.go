@@ -153,7 +153,10 @@ func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
 	if txt == "" {
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}
 	}
-	return layout.Inset{Top: 7, Bottom: 8, Left: 54, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: 8, Bottom: 9, Left: 54, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		if it.Kind == session.KindAssistantText {
+			return d.markdown(gtx, it.ID, d.t.reply(it))
+		}
 		return d.selectable(gtx, d.t.sel(it.ID), th.UIFont, th.Sp(theme.Small), c, txt)
 	})
 }
@@ -384,16 +387,17 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 	th := d.th
 	w := gtx.Constraints.Max.X
 	all := d.t.open["all:"+id]
+	whole := lines
+	hdr, hf := path, th.UIFont
+	if len(lines) > 0 && lines[0].kind == '@' { // the header shows the first hunk's line
+		hdr, hf, lines = lines[0].text, th.MonoFont, lines[1:]
+	}
 	shown := lines
 	if !all && len(shown) > diffHead {
 		shown = shown[:diffHead]
 	}
-	hdr := path
 	nums := false
 	for _, l := range lines {
-		if l.kind == '@' && hdr == path {
-			hdr = l.text
-		}
 		nums = nums || l.old > 0 || l.new > 0
 	}
 	// The header: the first hunk's @@ line, else the file; Copy diff.
@@ -440,7 +444,7 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, hh-1), Max: image.Pt(w, hh)}.Op())
 	ck := d.t.click("copy:diff:" + id)
 	if ck.Clicked(gtx) {
-		d.t.copy(gtx, "diff:"+id, unifiedText(path, lines))
+		d.t.copy(gtx, "diff:"+id, unifiedText(path, whole))
 	}
 	bc, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.ghost(gtx, ck, "clipboard", "Copy diff", d.t.isCopied("diff:"+id), 22)
@@ -449,7 +453,7 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 	g = gtx
 	g.Constraints.Max.X = max(0, w-bd.Size.X-gtx.Dp(20))
 	hc, hdim := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, th.UIFont, th.Sp(theme.Caption), th.Muted, hdr)
+		return d.lbl(gtx, hf, th.Sp(theme.Caption), th.Muted, hdr)
 	})
 	at(gtx, image.Pt(gtx.Dp(10), (hh-hdim.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { hc.Add(gtx.Ops); return hdim })
 	// Tints and gutters behind each line, where the text put it.

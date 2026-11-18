@@ -285,7 +285,7 @@ func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start,
 	when := ""
 	if !end.IsZero() {
 		when = end.Local().Format("15:04")
-		if !start.IsZero() && end.After(start) {
+		if !start.IsZero() && end.Sub(start) >= time.Second {
 			when += " · " + duration(end.Sub(start))
 		}
 	}
