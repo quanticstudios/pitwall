@@ -322,7 +322,9 @@ func TestSoundOnlySkipsDesktopCommand(t *testing.T) {
 	old := log.Writer()
 	log.SetOutput(&output)
 	defer log.SetOutput(old)
-	desktopSender()(context.Background(), notification{soundOnly: true})
+	send := desktopSender() // Windows logs its toast preload here, before the call under test
+	output.Reset()
+	send(context.Background(), notification{soundOnly: true})
 	if output.Len() != 0 {
 		t.Fatalf("sound-only delivery attempted desktop command: %q", output.String())
 	}
