@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -135,8 +136,31 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 	}
 	d.post(session.Event{Type: session.EventState, State: session.StateReady})
 	d.mu.Unlock()
-	if err = d.Set(ctx, session.Settings{Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode}); err != nil {
-		return fail(err)
+	// Saved settings are best-effort: a model or mode the agent no longer
+	// offers must not keep the chat from starting.
+	var notices []session.Event
+	for _, s := range []struct {
+		name, value string
+		set         session.Settings
+	}{{"model", cfg.Model, session.Settings{Model: cfg.Model}}, {"effort", cfg.Effort, session.Settings{Effort: cfg.Effort}}, {"mode", cfg.Mode, session.Settings{Mode: cfg.Mode}}} {
+		if s.value == "" {
+			continue
+		}
+		var pe *session.ProviderError
+		if err = d.Set(ctx, s.set); errors.Is(err, session.ErrUnsupported) || errors.As(err, &pe) {
+			notices = append(notices, session.Event{Type: session.EventContent, Kind: session.KindSystem,
+				ItemID: fmt.Sprintf("acp-setting-%s-%d", s.name, time.Now().UnixNano()),
+				Text:   fmt.Sprintf("The saved %s %s was not applied: %v", s.name, s.value, err)})
+		} else if err != nil {
+			return fail(err)
+		}
+	}
+	if len(notices) > 0 {
+		d.mu.Lock()
+		for _, e := range append(notices, d.s.configure(nil, nil)...) {
+			d.post(e)
+		}
+		d.mu.Unlock()
 	}
 	return d, nil
 }

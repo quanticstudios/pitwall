@@ -76,8 +76,11 @@ Supported operations and events:
   `thought_level` category options. v1.28.0 has no `session/set_model`; the
   config option is the stable way. A value that is already current sends
   nothing. A setting the agent gave no way to change returns
-  `ErrUnsupported` before anything is sent. A chat's saved model, effort and
-  mode are applied the same way when the process starts.
+  `ErrUnsupported` before anything is sent. When the process starts, it applies a
+  chat's saved model, effort and mode the same way, one at a time. A setting
+  the agent rejects or cannot change leaves a system message naming it and
+  the reason, the session starts anyway, and the snapshot shows the agent's
+  real model and mode.
 - User input. The driver advertises `elicitation.form` and turns each form
   `elicitation/create` during a turn into a user-input request: one question
   per `requestedSchema` property, in schema order. A string with `oneOf` or

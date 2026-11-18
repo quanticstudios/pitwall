@@ -589,18 +589,34 @@ func TestCommandsAndSettings(t *testing.T) {
 	}
 }
 
-// A chat that saved a mode starts with it; one already current sends nothing.
+// A chat that saved settings starts with them where the agent takes them.
+// One it rejects or cannot change leaves a notice, and the chat still
+// starts with the agent's real model and mode.
 func TestStartSettings(t *testing.T) {
+	modeOption := map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "ask", "options": []any{}}
 	steps := script(t)[:2]
-	steps[1].Send = []json.RawMessage{result(2, map[string]any{"sessionId": "s1",
-		"configOptions": []any{map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "ask", "options": []any{}}, modelOption("acme-large")}})}
-	steps = append(steps, step{Receive: rpc(3, "session/set_config_option", map[string]string{"sessionId": "s1", "configId": "mode", "value": "code"}),
-		Send: []json.RawMessage{result(3, map[string]any{})}})
-	if _, err := startWith(t, steps, session.Config{Mode: "code", Model: "acme-large"}, session.Origin{}); err != nil {
+	steps[1].Send = []json.RawMessage{result(2, map[string]any{"sessionId": "s1", "configOptions": []any{modeOption, modelOption("acme-small")}})}
+	steps = append(steps,
+		step{Receive: rpc(3, "session/set_config_option", map[string]string{"sessionId": "s1", "configId": "model", "value": "acme-gone"}),
+			Send: []json.RawMessage{raw(map[string]any{"jsonrpc": "2.0", "id": 3, "error": map[string]any{"code": -32602, "message": "Invalid value for config option model: acme-gone"}})}},
+		step{Receive: rpc(4, "session/set_config_option", map[string]string{"sessionId": "s1", "configId": "mode", "value": "code"}),
+			Send: []json.RawMessage{result(4, map[string]any{})}})
+	h, err := startWith(t, steps, session.Config{Model: "acme-gone", Effort: "high", Mode: "code"}, session.Origin{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := startWith(t, script(t)[:2], session.Config{Mode: "code"}, session.Origin{}); !errors.Is(err, session.ErrUnsupported) {
-		t.Fatalf("mode without modes or a mode option: %v", err)
+	h.wait(t, session.EventState)
+	h.wait(t, session.EventSettings) // the real settings, after the notices
+	snap := snapshot(t, h.all)
+	var notices []string
+	for _, it := range snap.Content {
+		if it.Kind == session.KindSystem {
+			notices = append(notices, it.Text)
+		}
+	}
+	if snap.Model == nil || *snap.Model != "acme-small" || len(notices) != 2 ||
+		!strings.Contains(notices[0], "model acme-gone") || !strings.Contains(notices[0], "Invalid value") || !strings.Contains(notices[1], "effort high") {
+		t.Fatalf("model %v, notices %q", snap.Model, notices)
 	}
 }
 
