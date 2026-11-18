@@ -14,15 +14,15 @@ func TestOrchestratorSkipsWorkers(t *testing.T) {
 	}
 }
 
-func TestInboxDoneStates(t *testing.T) {
+func TestTurnDoneStates(t *testing.T) {
 	for _, s := range []AgentState{StateCompleted, StatePROpen} {
-		if !InboxDone(Activity{State: s}) {
-			t.Errorf("%v should list in the inbox", s)
+		if !TurnDone(Activity{State: s}) {
+			t.Errorf("%v should show a notice", s)
 		}
 	}
 	for _, s := range []AgentState{StateWorking, StateAwaitingInput, StateError} {
-		if InboxDone(Activity{State: s}) {
-			t.Errorf("%v should not list in the inbox", s)
+		if TurnDone(Activity{State: s}) {
+			t.Errorf("%v should not show a notice", s)
 		}
 	}
 }

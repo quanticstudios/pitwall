@@ -15,11 +15,11 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// inboxMax is how many finished tabs the inbox keeps; the oldest goes first.
-const inboxMax = 4
+// doneMax is how many finished tabs the window lists; the oldest goes first.
+const doneMax = 4
 
-// inboxItem is one finished orchestrator tab: a click opens it, the × drops it.
-type inboxItem struct {
+// doneItem is one finished orchestrator tab: a click opens it, the × drops it.
+type doneItem struct {
 	ws    string
 	act   model.Activity
 	title string
@@ -27,69 +27,69 @@ type inboxItem struct {
 	close widget.Clickable
 }
 
-// inbox lists finished orchestrator tabs, newest last.
-type inbox struct{ items []*inboxItem }
+// doneList lists finished orchestrator tabs, newest last.
+type doneList struct{ items []*doneItem }
 
 // add lists a's tab as title, replacing an earlier entry for it.
-func (ib *inbox) add(a model.Activity, title string) {
-	ib.drop(a.WorkspaceID)
-	ib.items = append(ib.items, &inboxItem{ws: a.WorkspaceID, act: a, title: title})
-	if len(ib.items) > inboxMax {
-		ib.items = ib.items[len(ib.items)-inboxMax:]
+func (d *doneList) add(a model.Activity, title string) {
+	d.drop(a.WorkspaceID)
+	d.items = append(d.items, &doneItem{ws: a.WorkspaceID, act: a, title: title})
+	if len(d.items) > doneMax {
+		d.items = d.items[len(d.items)-doneMax:]
 	}
 }
 
 // drop removes the entry for workspace ws, if any.
-func (ib *inbox) drop(ws string) {
-	ib.items = slices.DeleteFunc(ib.items, func(it *inboxItem) bool { return it.ws == ws })
+func (d *doneList) drop(ws string) {
+	d.items = slices.DeleteFunc(d.items, func(it *doneItem) bool { return it.ws == ws })
 }
 
-// inboxNote is a finished tab from the notifier, waiting for the next frame.
-type inboxNote struct {
+// doneNote is a finished tab from the notifier, waiting for the next frame.
+type doneNote struct {
 	act   model.Activity
 	title string
 }
 
-// queueInbox hands a finished tab to the next frame, from the notifier.
-func (u *ui) queueInbox(a model.Activity, title string) {
+// queueDone hands a finished tab to the next frame, from the notifier.
+func (u *ui) queueDone(a model.Activity, title string) {
 	u.focusMu.Lock()
-	u.inboxNotes = append(u.inboxNotes, inboxNote{a, title})
+	u.doneNotes = append(u.doneNotes, doneNote{a, title})
 	u.focusMu.Unlock()
 }
 
-// applyInbox moves queued tabs into the inbox and drops the tab on screen,
-// which the user is already looking at.
-func (u *ui) applyInbox() {
+// applyDone moves queued tabs into the list and, while the window has
+// focus, drops the tab on screen: the user is looking at it.
+func (u *ui) applyDone() {
 	u.focusMu.Lock()
-	notes := u.inboxNotes
-	u.inboxNotes = nil
+	notes := u.doneNotes
+	u.doneNotes = nil
 	u.focusMu.Unlock()
 	for _, n := range notes {
-		u.inbox.add(n.act, n.title)
+		u.doneTabs.add(n.act, n.title)
 	}
-	if u.nav.workspace != "" {
-		u.inbox.drop(u.nav.workspace)
+	if u.winFocused && u.nav.workspace != "" {
+		u.doneTabs.drop(u.nav.workspace)
 	}
 }
 
-// drawInbox stacks the inbox's chips bottom-right in the pane area gtx
+// drawDone stacks the finished tabs' chips bottom-right in the pane area gtx
 // fills. A click on a chip jumps to its tab; the × drops it.
-func (u *ui) drawInbox(gtx gl.Context) {
+func (u *ui) drawDone(gtx gl.Context) {
 	th := u.th
 	is, gap := gtx.Dp(14), gtx.Dp(6)
 	pad := image.Pt(gtx.Dp(10), gtx.Dp(6))
 	closeW := gtx.Dp(24)
 	right := gtx.Constraints.Max.X - gtx.Dp(16)
 	y := gtx.Constraints.Max.Y - gtx.Dp(24)
-	for i := len(u.inbox.items) - 1; i >= 0; i-- {
-		it := u.inbox.items[i]
+	for i := len(u.doneTabs.items) - 1; i >= 0; i-- {
+		it := u.doneTabs.items[i]
 		if it.close.Clicked(gtx) {
-			u.inbox.drop(it.ws)
+			u.doneTabs.drop(it.ws)
 			continue
 		}
 		if it.open.Clicked(gtx) {
 			u.queueJump(it.act)
-			u.inbox.drop(it.ws)
+			u.doneTabs.drop(it.ws)
 			continue
 		}
 		call, ts := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, it.title)
