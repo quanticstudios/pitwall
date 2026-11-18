@@ -1,6 +1,7 @@
 package app
 
 import (
+	"image"
 	"time"
 
 	gl "gioui.org/layout"
@@ -33,6 +34,10 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 		})
 		return
 	}
+	head := u.layoutChatHead(gtx, st, ws)
+	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
+	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)
+	gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
 	s, ok := ch.Chat(ws.Chat)
 	if ok {
 		aide := curHost() == "" && findAide() != nil

@@ -26,6 +26,9 @@ import (
 // all of them.
 func (u *ui) markSeen(st *model.State) {
 	f := u.nav.focused()
+	if w := findWorkspace(st, u.nav.workspace); f == "" && w != nil && w.Chat != "" {
+		f = w.Chat // a chat tab shows its chat, whose activity has the chat's id
+	}
 	if !u.winFocused || u.settings.Shown() || u.boardOn || u.mon.on || u.review.on || u.reader.On() {
 		f = ""
 	}
