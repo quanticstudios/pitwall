@@ -55,8 +55,8 @@ func TestBlocks(t *testing.T) {
 // TestOpenRules: the running turn's log starts open and a finished one
 // folded; only a failed call starts open; what the user set wins.
 func TestOpenRules(t *testing.T) {
-	if !logOpen(true) || logOpen(false) {
-		t.Fatal("log: running open, finished folded")
+	if !logOpen(true, false) || logOpen(false, false) || !logOpen(false, true) {
+		t.Fatal("log: running or failed open, finished folded")
 	}
 	for status, want := range map[string]bool{"failed": true, "running": false, "completed": false} {
 		if got := toolOpen(&session.ToolCall{Status: status}); got != want {

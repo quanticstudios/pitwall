@@ -23,6 +23,10 @@ import (
 // before Show all.
 const outTail = 12
 
+// bodyIndent is where a tool row's text starts, and its opened body
+// with it: the side padding, the chevron, the icon and their gaps.
+const bodyIndent = rowPad + 14 + theme.SpaceS + 14 + theme.SpaceS
+
 // diffHead is how many lines of an edit an opened row shows before Show
 // all.
 const diffHead = 60
@@ -51,9 +55,9 @@ func (d *cdraw) diff(it *session.Item) []diffLine {
 func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, running bool) layout.Dimensions {
 	th := d.th
 	id := "log:" + d.s.Content[b.lo].ID
-	open := d.t.toggled(gtx, id, logOpen(running))
+	open := d.t.toggled(gtx, id, logOpen(running, b.failed))
 	w := gtx.Constraints.Max.X
-	hh := gtx.Dp(30)
+	hh := gtx.Dp(rowH)
 	took := end.Sub(start)
 	if running {
 		took = d.t.now.Sub(start)
@@ -93,10 +97,8 @@ func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, runni
 	paint.FillShape(gtx.Ops, th.Surface, clip.Rect{Max: image.Pt(w, hh)}.Op())
 	c := d.t.click(id)
 	clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		if c.Hovered() {
-			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.03), clip.Rect{Max: image.Pt(w, hh)}.Op())
-		}
-		x := gtx.Dp(10)
+		rowFill(gtx, th, c, image.Pt(w, hh))
+		x := gtx.Dp(rowPad)
 		chev := "chevron-right"
 		if open {
 			chev = "chevron-down"
@@ -110,12 +112,12 @@ func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, runni
 			x += gtx.Dp(11) + gtx.Dp(8)
 		}
 		tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, logTitle(took, b.tools, running))
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, logTitle(took, b.tools, running))
 		})
 		at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
 		if n := turnTokens(d.s, b.turn); n > 0 {
 			kc, kd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Caption), th.TextQuiet, tokens(n))
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, tokens(n))
 			})
 			at(gtx, image.Pt(w-gtx.Dp(10)-kd.Size.X, (hh-kd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { kc.Add(gtx.Ops); return kd })
 		}
@@ -137,7 +139,7 @@ func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
 		}
 	case session.KindReasoningText, session.KindReasoningSummaryText:
 		return d.foldRow(gtx, it.ID, "brain", "Thinking", firstLine(it.Text), func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel(it.ID), th.UIFont, th.Sp(theme.Small), th.Muted, strings.TrimSpace(it.Text))
+			return d.selectable(gtx, d.t.sel(it.ID), d.small(th.Muted), strings.TrimSpace(it.Text))
 		})
 	case session.KindCommandOutput, session.KindFileChangeOutput:
 		return d.foldRow(gtx, it.ID, "terminal", "Output", "", func(gtx layout.Context) layout.Dimensions {
@@ -153,11 +155,11 @@ func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
 	if txt == "" {
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}
 	}
-	return layout.Inset{Top: 8, Bottom: 9, Left: 54, Right: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: 8, Bottom: 9, Left: bodyIndent, Right: rowPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		if it.Kind == session.KindAssistantText {
 			return d.markdown(gtx, it.ID, d.t.reply(it))
 		}
-		return d.selectable(gtx, d.t.sel(it.ID), th.UIFont, th.Sp(theme.Small), c, txt)
+		return d.selectable(gtx, d.t.sel(it.ID), d.small(c), txt)
 	})
 }
 
@@ -176,13 +178,13 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 		d.t.live = true
 	}
 	w := gtx.Constraints.Max.X
-	hh := gtx.Dp(30)
+	hh := gtx.Dp(rowH)
 	head := func(gtx layout.Context) layout.Dimensions {
 		ck := d.t.click(it.ID)
-		if body != nil && ck.Hovered() {
-			paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Fg, 0.035), clip.Rect{Max: image.Pt(w, hh)}.Op())
+		if body != nil {
+			rowFill(gtx, th, ck, image.Pt(w, hh))
 		}
-		x := gtx.Dp(10)
+		x := gtx.Dp(rowPad)
 		if body != nil {
 			chev := "chevron-right"
 			if open {
@@ -204,18 +206,22 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 		}
 		x += isz + gtx.Dp(8)
 		rc, rd := measure(gtx, func(gtx layout.Context) layout.Dimensions { return d.result(gtx, sum, failed) })
-		rx := w - gtx.Dp(10) - rd.Size.X
+		rx := w - gtx.Dp(rowPad) - rd.Size.X
 		at(gtx, image.Pt(rx, (hh-rd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { rc.Add(gtx.Ops); return rd })
 		vc, vd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Fg, sum.verb)
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, sum.verb)
 		})
 		at(gtx, image.Pt(x, (hh-vd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { vc.Add(gtx.Ops); return vd })
-		x += vd.Size.X + gtx.Dp(7)
+		x += vd.Size.X + gtx.Dp(theme.SpaceS)
 		if room := rx - gtx.Dp(12) - x; room > 0 && sum.arg != "" {
 			g := gtx
 			g.Constraints.Max.X = room
 			ac, ad := measure(g, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), theme.Mix(th.Muted, th.Fg, 0.62), sum.arg)
+				arg := sum.arg
+				if sum.path {
+					arg = middleCut(arg, room, gtx.Sp(th.Sp(theme.Body))*55/100)
+				}
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), theme.Mix(th.Fg, th.Bg, 0.2), arg)
 			})
 			at(gtx, image.Pt(x, (hh-ad.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
 		}
@@ -231,8 +237,8 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 		return hd
 	}
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-gtx.Dp(54)-gtx.Dp(10)), gtx.Constraints.Max.Y)}
-	bd := at(g, image.Pt(gtx.Dp(54), hd.Size.Y), body)
+	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-gtx.Dp(bodyIndent)-gtx.Dp(rowPad)), gtx.Constraints.Max.Y)}
+	bd := at(g, image.Pt(gtx.Dp(bodyIndent), hd.Size.Y), body)
 	return layout.Dimensions{Size: image.Pt(w, hd.Size.Y+bd.Size.Y+gtx.Dp(10))}
 }
 
@@ -250,7 +256,7 @@ func (d *cdraw) result(gtx layout.Context, sum toolSummary, failed bool) layout.
 	case sum.add > 0 || sum.del > 0:
 		return hrow(gtx, gtx.Dp(5), part(th.Readable(th.Green, th.Bg), "+"+strconv.Itoa(sum.add)), part(th.Readable(th.Red, th.Bg), "-"+strconv.Itoa(sum.del)))
 	case sum.passed:
-		return hrow(gtx, gtx.Dp(7), part(th.Readable(th.Green, th.Bg), "passed"), part(th.Muted, sum.result))
+		return hrow(gtx, gtx.Dp(theme.SpaceS), part(th.Readable(th.Green, th.Bg), "passed"), part(th.Muted, sum.result))
 	}
 	if sum.result == "" {
 		return layout.Dimensions{}
@@ -267,7 +273,7 @@ func (d *cdraw) toolBody(it *session.Item, sum toolSummary, lines []diffLine, ou
 		return func(gtx layout.Context) layout.Dimensions { return d.diffBox(gtx, it.ID, path, lines) }
 	case sum.kind == "search" && out != "":
 		return func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel(it.ID), d.th.MonoFont, d.th.Sp(theme.Small), theme.Mix(d.th.Muted, d.th.Fg, 0.8), mdview.Detab(out))
+			return d.selectable(gtx, d.t.sel(it.ID), d.mono(), mdview.Detab(out))
 		}
 	case sum.kind == "bash":
 		cmd := c.Command
@@ -287,31 +293,29 @@ func (d *cdraw) toolBody(it *session.Item, sum toolSummary, lines []diffLine, ou
 func (d *cdraw) foldRow(gtx layout.Context, id, ic, verb, arg string, body layout.Widget) layout.Dimensions {
 	th := d.th
 	open := d.t.toggled(gtx, id, false)
-	w, hh := gtx.Constraints.Max.X, gtx.Dp(30)
+	w, hh := gtx.Constraints.Max.X, gtx.Dp(rowH)
 	ck := d.t.click(id)
 	hd := clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
-		if ck.Hovered() {
-			paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Fg, 0.035), clip.Rect{Max: image.Pt(w, hh)}.Op())
-		}
+		rowFill(gtx, th, ck, image.Pt(w, hh))
 		chev := "chevron-right"
 		if open {
 			chev = "chevron-down"
 		}
-		x := gtx.Dp(10)
+		x := gtx.Dp(rowPad)
 		icon(gtx, image.Pt(x+gtx.Dp(1), (hh-gtx.Dp(12))/2), chev, 12, th.Muted)
 		x += gtx.Dp(22)
 		icon(gtx, image.Pt(x, (hh-gtx.Dp(14))/2), ic, 14, th.Muted)
 		x += gtx.Dp(22)
 		vc, vd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Fg, verb)
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, verb)
 		})
 		at(gtx, image.Pt(x, (hh-vd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { vc.Add(gtx.Ops); return vd })
-		x += vd.Size.X + gtx.Dp(7)
-		if room := w - gtx.Dp(10) - x; room > 0 && arg != "" {
+		x += vd.Size.X + gtx.Dp(theme.SpaceS)
+		if room := w - gtx.Dp(rowPad) - x; room > 0 && arg != "" {
 			g := gtx
 			g.Constraints.Max.X = room
 			ac, ad := measure(g, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, arg)
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.Muted, arg)
 			})
 			at(gtx, image.Pt(x, (hh-ad.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
 		}
@@ -321,8 +325,8 @@ func (d *cdraw) foldRow(gtx layout.Context, id, ic, verb, arg string, body layou
 		return hd
 	}
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-gtx.Dp(64)), gtx.Constraints.Max.Y)}
-	bd := at(g, image.Pt(gtx.Dp(54), hd.Size.Y), body)
+	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-gtx.Dp(bodyIndent)-gtx.Dp(rowPad)), gtx.Constraints.Max.Y)}
+	bd := at(g, image.Pt(gtx.Dp(bodyIndent), hd.Size.Y), body)
 	return layout.Dimensions{Size: image.Pt(w, hd.Size.Y+bd.Size.Y+gtx.Dp(10))}
 }
 
@@ -344,11 +348,11 @@ func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string) layout.Dimension
 		txt = strings.TrimSpace(strings.TrimPrefix(txt, "\n") + "\n(no output)")
 	}
 	w := gtx.Constraints.Max.X
-	px, py := gtx.Dp(10), gtx.Dp(8)
+	px, py := gtx.Dp(theme.SpaceM), gtx.Dp(10)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px-gtx.Dp(24)), gtx.Constraints.Max.Y)}
+	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px-gtx.Dp(hit)), gtx.Constraints.Max.Y)}
 	call, td := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return d.selectable(gtx, d.t.sel("out:"+id), th.MonoFont, th.Sp(theme.Small), theme.Mix(th.Muted, th.Fg, 0.82), mdview.Detab(txt))
+		return d.selectable(gtx, d.t.sel("out:"+id), d.mono(), mdview.Detab(txt))
 	})
 	h := td.Size.Y + 2*py
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
@@ -361,8 +365,8 @@ func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string) layout.Dimension
 	if ck.Clicked(gtx) {
 		d.t.copy(gtx, "out:"+id, copyText)
 	}
-	at(gtx, image.Pt(w-gtx.Dp(24), gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
-		return d.ghost(gtx, ck, "clipboard", "", d.t.isCopied("out:"+id), 20)
+	at(gtx, image.Pt(w-gtx.Dp(hit)-gtx.Dp(2), gtx.Dp(2)), func(gtx layout.Context) layout.Dimensions {
+		return d.ghost(gtx, ck, "clipboard", "", d.t.isCopied("out:"+id))
 	})
 	if hidden == 0 && !(all && full > outTail) {
 		return layout.Dimensions{Size: image.Pt(w, h)}
@@ -376,7 +380,7 @@ func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string) layout.Dimension
 		d.t.open["all:"+id] = !all
 	}
 	md := at(gtx, image.Pt(0, h+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
-		return d.ghost(gtx, sk, "chevron-down", more, false, 22)
+		return d.ghost(gtx, sk, "chevron-down", more, false)
 	})
 	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(4)+md.Size.Y)}
 }
@@ -401,7 +405,7 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 		nums = nums || l.old > 0 || l.new > 0
 	}
 	// The header: the first hunk's @@ line, else the file; Copy diff.
-	hh := gtx.Dp(26)
+	hh := gtx.Dp(rowH)
 	rad := gtx.Dp(theme.RadiusControl)
 	var b strings.Builder
 	starts := make([]int, 0, len(shown))
@@ -435,7 +439,7 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-textX-gtx.Dp(10)), 1<<20)}
 	call, td := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return d.selectable(gtx, sl, th.MonoFont, mono, th.Fg, b.String())
+		return d.selectable(gtx, sl, d.mono(), b.String())
 	})
 	py := gtx.Dp(4)
 	h := hh + td.Size.Y + 2*py
@@ -447,13 +451,13 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 		d.t.copy(gtx, "diff:"+id, unifiedText(path, whole))
 	}
 	bc, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.ghost(gtx, ck, "clipboard", "Copy diff", d.t.isCopied("diff:"+id), 22)
+		return d.ghost(gtx, ck, "clipboard", "Copy diff", d.t.isCopied("diff:"+id))
 	})
 	at(gtx, image.Pt(w-gtx.Dp(2)-bd.Size.X, (hh-bd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { bc.Add(gtx.Ops); return bd })
 	g = gtx
 	g.Constraints.Max.X = max(0, w-bd.Size.X-gtx.Dp(20))
 	hc, hdim := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, hf, th.Sp(theme.Caption), th.Muted, hdr)
+		return d.lbl(gtx, hf, th.Sp(theme.Small), th.Muted, hdr)
 	})
 	at(gtx, image.Pt(gtx.Dp(10), (hh-hdim.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { hc.Add(gtx.Ops); return hdim })
 	// Tints and gutters behind each line, where the text put it.
@@ -508,7 +512,18 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 		d.t.open["all:"+id] = !all
 	}
 	md := at(gtx, image.Pt(0, h+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
-		return d.ghost(gtx, sk, "chevron-down", more, false, 22)
+		return d.ghost(gtx, sk, "chevron-down", more, false)
 	})
 	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(4)+md.Size.Y)}
+}
+
+// rowFill is a clickable row's Hover fill under the pointer, Pressed while
+// held.
+func rowFill(gtx layout.Context, th *theme.Theme, c *widget.Clickable, size image.Point) {
+	switch {
+	case c.Pressed():
+		paint.FillShape(gtx.Ops, th.Pressed, clip.Rect{Max: size}.Op())
+	case c.Hovered():
+		paint.FillShape(gtx.Ops, th.Hover, clip.Rect{Max: size}.Op())
+	}
 }

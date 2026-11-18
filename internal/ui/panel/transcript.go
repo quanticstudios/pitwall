@@ -4,6 +4,7 @@ import (
 	"image"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,10 +67,11 @@ type Transcript struct {
 	what    map[string]string               // pending approvals' commands, for their line
 	items   int                             // len(Content) this frame
 	diffs   map[string]diffCache            // edits' lines by item id
-	avg     avgChar                         // the UI font's average character
 
 	more    widget.Clickable
 	menu    bool
+	pill    widget.Clickable // New output
+	seen    string           // what the chat held when the reader was last at its end
 	aideBtn widget.Clickable
 	aide    bool // Open in aide was clicked, until OpenAide takes it
 }
@@ -115,6 +117,7 @@ type trow struct {
 	b    block
 	res  *resolved
 	tail layout.Widget
+	gap  unit.Dp // space above it
 }
 
 // Answers returns the approvals answered since the last call, once each.
@@ -332,7 +335,7 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 	if t.Width > 0 {
 		col = min(col, gtx.Dp(t.Width))
 	}
-	d.col, d.prose = col, proseCap(col, d.avgChar(gtx))
+	d.col, d.proseW = col, proseCap(col, d.avgChar(gtx))
 	x0 := (size.X - col) / 2
 	t.blocks = blocks(s.Content, t.blocks)
 	t.buildRows(d)
@@ -344,17 +347,17 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		t.list.Position.BeforeEnd = false
 	}
 	t.list.ScrollToEnd = follow
-	gap := gtx.Dp(14)
 	t.list.Layout(gtx, len(t.rows)+2, func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
-			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(20))}
+			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
 		case i >= len(t.rows):
-			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(24))}
+			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
 		}
 		r := &t.rows[i]
+		gap := gtx.Dp(r.gap)
 		gtx.Constraints = layout.Constraints{Max: image.Pt(col, gtx.Constraints.Max.Y)}
-		off := op.Offset(image.Pt(x0, 0)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(x0, gap)).Push(gtx.Ops)
 		var dims layout.Dimensions
 		switch {
 		case r.tail != nil:
@@ -372,6 +375,7 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gap)}
 	})
 	t.pickSelection(gtx)
+	t.newOutput(gtx, d, s, size)
 	if aide {
 		d.moreMenu(gtx, size)
 	}
@@ -526,6 +530,71 @@ func (t *Transcript) buildRows(d *cdraw) {
 	for _, w := range d.tail() {
 		t.rows = append(t.rows, trow{tail: w})
 	}
+	for i := range t.rows {
+		t.rows[i].gap = rowGap(t.rows, i)
+	}
+}
+
+// rowGap is the space above row i: 32 from the end of a turn to the
+// next prompt, 16 from a prompt to its turn, 12 to anything else.
+func rowGap(rows []trow, i int) unit.Dp {
+	if i == 0 {
+		return 0
+	}
+	r, prev := &rows[i], &rows[i-1]
+	prompt := func(r *trow) bool { return r.tail == nil && r.res == nil && r.b.kind == blockPrompt }
+	switch {
+	case prompt(r):
+		return gapTurn
+	case prompt(prev):
+		return gapPrompt
+	case r.tail == nil && r.res == nil && r.b.kind == blockTurn && prev.tail == nil && prev.res == nil:
+		return gapTurn
+	}
+	return gapInTurn
+}
+
+// newOutput is the "New output" pill once the reader scrolled up and the
+// chat added to it; a click goes back to the end and follows again.
+func (t *Transcript) newOutput(gtx layout.Context, d *cdraw, s *session.Snapshot, size image.Point) {
+	sig := strconv.Itoa(len(s.Content))
+	if n := len(s.Content); n > 0 {
+		sig += s.Content[n-1].UpdatedAt + strconv.Itoa(len(s.Content[n-1].Text))
+	}
+	sig += strconv.Itoa(len(s.PendingApprovals) + len(s.PendingUserInputs))
+	if !t.list.Position.BeforeEnd {
+		t.seen = sig
+		return
+	}
+	if t.seen == "" || t.seen == sig {
+		return
+	}
+	for t.pill.Clicked(gtx) {
+		t.list.Position.BeforeEnd = false
+		t.seen = sig
+		return
+	}
+	th := d.th
+	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Fg, "New output")
+	})
+	w, h := td.Size.X+2*gtx.Dp(theme.SpaceM)+gtx.Dp(18), gtx.Dp(hit)
+	p := image.Pt((size.X-w)/2, size.Y-gtx.Dp(theme.SpaceS)-h)
+	at(gtx, p, func(gtx layout.Context) layout.Dimensions {
+		return clickable(gtx, &t.pill, func(gtx layout.Context) layout.Dimensions {
+			fill := th.SurfaceElevated
+			if t.pill.Hovered() {
+				fill = theme.Mix(fill, th.Fg, 0.08)
+			}
+			rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(14), fill, th.BorderStrong)
+			icon(gtx, image.Pt(gtx.Dp(theme.SpaceM), (h-gtx.Dp(14))/2), "chevron-down", 14, th.Muted)
+			at(gtx, image.Pt(gtx.Dp(theme.SpaceM)+gtx.Dp(18), (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
+				call.Add(gtx.Ops)
+				return td
+			})
+			return layout.Dimensions{Size: image.Pt(w, h)}
+		})
+	})
 }
 
 func deref(s *string) string {

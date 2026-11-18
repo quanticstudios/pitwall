@@ -76,7 +76,7 @@ func (d *cdraw) tail() []layout.Widget {
 	if s.LastError != nil && *s.LastError != "" {
 		msg := *s.LastError
 		out = append(out, func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel("error"), d.th.UIFont, d.th.Sp(theme.Small), d.th.Readable(d.th.Red, d.th.Bg), msg)
+			return d.selectable(gtx, d.t.sel("error"), d.body(d.th.Readable(d.th.Red, d.th.Bg)), msg)
 		})
 	}
 	for _, a := range s.PendingApprovals {
@@ -94,7 +94,7 @@ func (d *cdraw) tail() []layout.Widget {
 	if p := s.PlanApproval; p != nil {
 		out = append(out, func(gtx layout.Context) layout.Dimensions {
 			return d.card(gtx, "check", "The plan is ready", func(gtx layout.Context) layout.Dimensions {
-				return d.selectable(gtx, d.t.sel("plan:"+p.ID), d.th.UIFont, d.th.Sp(theme.Body), d.th.Fg, strings.TrimSpace(deref(p.Detail)))
+				return d.selectable(gtx, d.t.sel("plan:"+p.ID), d.body(d.th.Fg), strings.TrimSpace(deref(p.Detail)))
 			})
 		})
 	}
@@ -105,20 +105,20 @@ func (d *cdraw) tail() []layout.Widget {
 func (d *cdraw) working(gtx layout.Context, start time.Time) layout.Dimensions {
 	th := d.th
 	d.t.live = true
-	hh := gtx.Dp(30) + 2
+	hh := gtx.Dp(rowH) + 2
 	w := gtx.Constraints.Max.X
 	rrect(gtx, image.Rect(0, 0, w, hh), gtx.Dp(theme.RadiusPopover), th.Surface, th.BorderSubtle)
-	x := gtx.Dp(30)
+	x := gtx.Dp(rowPad) + gtx.Dp(14) + gtx.Dp(theme.SpaceS)
 	at(gtx, image.Pt(x, (hh-gtx.Dp(11))/2), func(gtx layout.Context) layout.Dimensions {
 		return spinner(gtx, gtx.Dp(11), th.Surface, th.Blue, d.sec)
 	})
-	x += gtx.Dp(19)
+	x += gtx.Dp(11) + gtx.Dp(theme.SpaceS)
 	title := "Working"
 	if !start.IsZero() {
 		title = logTitle(d.t.now.Sub(start), 0, true)
 	}
 	c, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, title)
+		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, title)
 	})
 	at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
 	return layout.Dimensions{Size: image.Pt(w, hh)}
@@ -131,22 +131,22 @@ func (d *cdraw) card(gtx layout.Context, ic, title string, body layout.Widget) l
 	w := gtx.Constraints.Max.X
 	yellow := th.Readable(th.Yellow, th.Surface)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-gtx.Dp(24)), gtx.Constraints.Max.Y)}
+	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*gtx.Dp(cardPadX)), gtx.Constraints.Max.Y)}
 	call, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return vstack(gtx, gtx.Dp(10),
+		return vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions {
 				return hrow(gtx, gtx.Dp(8),
 					func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, ic, gtx.Dp(14), yellow) },
 					func(gtx layout.Context) layout.Dimensions {
-						return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), yellow, title)
+						return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), yellow, title)
 					})
 			},
 			body,
 		)
 	})
-	h := dims.Size.Y + gtx.Dp(10) + gtx.Dp(12)
+	h := dims.Size.Y + 2*gtx.Dp(cardPadY)
 	rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(10), th.Surface, theme.Mix(th.Surface, th.Yellow, 0.3))
-	at(gtx, image.Pt(gtx.Dp(12), gtx.Dp(10)), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return dims })
+	at(gtx, image.Pt(gtx.Dp(cardPadX), gtx.Dp(cardPadY)), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return dims })
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
@@ -166,7 +166,7 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 	}
 	return d.card(gtx, "shield", d.requestTitle(a), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return vstack(gtx, gtx.Dp(10),
+		return vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions {
 				if what == "" {
 					return layout.Dimensions{}
@@ -177,10 +177,10 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 				if why == "" {
 					return layout.Dimensions{}
 				}
-				return d.selectable(gtx, d.t.sel("why:"+a.ID), th.UIFont, th.Sp(theme.Small), th.Muted, why)
+				return d.selectable(gtx, d.t.sel("why:"+a.ID), d.small(th.Muted), why)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				return hrow(gtx, gtx.Dp(6),
+				return hrow(gtx, gtx.Dp(theme.SpaceS),
 					func(gtx layout.Context) layout.Dimensions { return d.keyButton(gtx, &bs[0], true, "Allow", "1", true) },
 					func(gtx layout.Context) layout.Dimensions {
 						return d.keyButton(gtx, &bs[1], false, "Allow for session", "2", true)
@@ -196,11 +196,11 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 func (d *cdraw) monoBox(gtx layout.Context, key, s string) layout.Dimensions {
 	th := d.th
 	w := gtx.Constraints.Max.X
-	px, py := gtx.Dp(10), gtx.Dp(8)
+	px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px), gtx.Constraints.Max.Y)}
 	call, td := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return d.selectable(gtx, d.t.sel(key), th.MonoFont, th.Sp(theme.Small), th.Fg, s)
+		return d.selectable(gtx, d.t.sel(key), d.mono(), s)
 	})
 	h := td.Size.Y + 2*py
 	paint.FillShape(gtx.Ops, th.Bg, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
@@ -222,7 +222,7 @@ func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dime
 				break
 			}
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), medium(th.UIFont), th.Sp(theme.Body), th.Fg, q.Prompt)
+				return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), th.Fg, 1.45}, q.Prompt)
 			})
 			opts := func(gtx layout.Context) layout.Dimensions {
 				var rows []layout.Widget
@@ -248,14 +248,14 @@ func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dime
 						return d.otherField(gtx, &a.other[qi])
 					})
 				})
-				return vstack(gtx, gtx.Dp(4), rows...)
+				return vstack(gtx, gtx.Dp(theme.SpaceXS), rows...)
 			}
 			ws = append(ws, opts)
 		}
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
 			return d.keyButton(gtx, &a.submit, true, "Answer", "", ready)
 		})
-		return vstack(gtx, gtx.Dp(10), ws...)
+		return vstack(gtx, gtx.Dp(theme.SpaceS), ws...)
 	})
 }
 
@@ -264,17 +264,19 @@ func (d *cdraw) option(gtx layout.Context, c *widget.Clickable, on bool, k strin
 	th := d.th
 	w := gtx.Constraints.Max.X
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		px, py := gtx.Dp(10), gtx.Dp(8)
+		px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
 		g := gtx
 		g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px-gtx.Dp(32)), gtx.Constraints.Max.Y)}
 		call, bd := measure(g, body)
-		h := max(bd.Size.Y, gtx.Dp(18)) + 2*py
+		h := max(bd.Size.Y, gtx.Dp(18), gtx.Dp(hit)-2*py) + 2*py
 		fill, ring := th.Surface, th.BorderStrong
 		switch {
 		case on:
 			fill, ring = th.SelectedBg, theme.Mix(th.SelectedBg, th.Primary, 0.45)
+		case c.Pressed():
+			fill = th.Pressed
 		case c.Hovered():
-			fill = theme.Mix(th.Surface, th.Fg, 0.03)
+			fill = th.Hover
 		}
 		rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover), fill, ring)
 		at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { return d.keycap(gtx, k, false) })
@@ -298,21 +300,21 @@ func (d *cdraw) otherField(gtx layout.Context, e *widget.Editor) layout.Dimensio
 // was for and when.
 func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions {
 	th := d.th
-	w, h := gtx.Constraints.Max.X, gtx.Dp(38)
+	w, h := gtx.Constraints.Max.X, gtx.Dp(40)
 	rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(10), th.Bg, th.BorderStrong)
-	x := gtx.Dp(12)
+	x := gtx.Dp(cardPadX)
 	icon(gtx, image.Pt(x, (h-gtx.Dp(14))/2), "check", 14, th.Muted)
-	x += gtx.Dp(22)
+	x += gtx.Dp(14) + gtx.Dp(theme.SpaceS)
 	tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, th.UIFont, th.Sp(theme.Caption), th.TextQuiet, r.when.Local().Format("15:04"))
+		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, r.when.Local().Format("15:04"))
 	})
-	rx := w - gtx.Dp(12) - td.Size.X
+	rx := w - gtx.Dp(cardPadX) - td.Size.X
 	at(gtx, image.Pt(rx, (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
 	lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, r.line)
 	})
 	at(gtx, image.Pt(x, (h-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
-	x += ld.Size.X + gtx.Dp(10)
+	x += ld.Size.X + gtx.Dp(theme.SpaceS)
 	if room := rx - gtx.Dp(12) - x; room > 0 && r.what != "" {
 		g := gtx
 		g.Constraints.Max.X = room
@@ -332,7 +334,7 @@ func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions 
 // holds Open in aide.
 func (d *cdraw) moreMenu(gtx layout.Context, size image.Point) {
 	th := d.th
-	bs := gtx.Dp(26)
+	bs := gtx.Dp(hit)
 	p := image.Pt(size.X-gtx.Dp(12)-bs, gtx.Dp(10))
 	at(gtx, p, func(gtx layout.Context) layout.Dimensions {
 		return clickable(gtx, &d.t.more, func(gtx layout.Context) layout.Dimensions {
@@ -350,7 +352,7 @@ func (d *cdraw) moreMenu(gtx layout.Context, size image.Point) {
 	if !d.t.menu {
 		return
 	}
-	mw, ih := gtx.Dp(168), gtx.Dp(28)
+	mw, ih := gtx.Dp(168), gtx.Dp(hit)
 	r := image.Rect(p.X+bs-mw, p.Y+bs+gtx.Dp(4), p.X+bs, p.Y+bs+gtx.Dp(4)+ih+gtx.Dp(8))
 	kit.Surface(gtx, r, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
 	at(gtx, r.Min.Add(image.Pt(gtx.Dp(4), gtx.Dp(4))), func(gtx layout.Context) layout.Dimensions {
@@ -360,7 +362,7 @@ func (d *cdraw) moreMenu(gtx layout.Context, size image.Point) {
 				paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceElevated, th.Fg, 0.06), clip.UniformRRect(image.Rect(0, 0, iw, ih), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 			}
 			c, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Fg, "Open in aide")
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.Fg, "Open in aide")
 			})
 			at(gtx, image.Pt(gtx.Dp(8), (ih-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
 			return layout.Dimensions{Size: image.Pt(iw, ih)}

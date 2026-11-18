@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"gioui.org/font"
 	"gioui.org/layout"
@@ -23,46 +22,29 @@ import (
 
 // cdraw draws one frame of a Transcript.
 type cdraw struct {
-	t          *Transcript
-	th         *theme.Theme
-	s          *session.Snapshot
-	sec        float64 // seconds since the transcript opened, for spinners
-	col, prose int     // the column's width, and reply prose's
+	t           *Transcript
+	th          *theme.Theme
+	s           *session.Snapshot
+	sec         float64 // seconds since the transcript opened, for spinners
+	col, proseW int     // the column's width, and reply prose's
 }
 
-// avgChar is the UI font's character width as CSS's ch unit has it, the
-// width of "0", measured once per theme and scale.
-type avgChar struct {
-	th *theme.Theme
-	px float32
-	w  int
-}
-
-const sample = "0000000000"
-
+// avgChar is the width per character that puts reply prose at about 96
+// characters: 680 dp at 14 sp, scaling with the UI size.
 func (d *cdraw) avgChar(gtx layout.Context) int {
-	a := &d.t.avg
-	if a.th != d.th || a.px != gtx.Metric.PxPerSp {
-		m := op.Record(gtx.Ops)
-		g := gtx
-		g.Constraints = layout.Constraints{Max: image.Pt(1<<20, 1<<20)}
-		dims := widget.Label{MaxLines: 1}.Layout(g, d.th.Shaper, d.th.UIFont, d.th.Sp(theme.Body), sample, op.CallOp{})
-		m.Stop()
-		*a = avgChar{th: d.th, px: gtx.Metric.PxPerSp, w: dims.Size.X / utf8.RuneCountInString(sample)}
-	}
-	return a.w
+	return gtx.Sp(d.th.Sp(theme.Large)) * 680 / (14 * proseChars)
 }
 
 // --- small pieces ---
 
 func (d *cdraw) selColor() color.NRGBA { return theme.Mix(d.th.Bg, d.th.Primary, 0.42) }
 
-// selectable draws txt selectable, wrapped to the width.
-func (d *cdraw) selectable(gtx layout.Context, sl *widget.Selectable, f font.Font, size unit.Sp, c color.NRGBA, txt string) layout.Dimensions {
+// selectable draws txt selectable in st, wrapped to the width.
+func (d *cdraw) selectable(gtx layout.Context, sl *widget.Selectable, st tstyle, txt string) layout.Dimensions {
 	sl.SetText(txt)
-	sl.LineHeightScale = 1.45
+	sl.LineHeightScale = st.lh
 	gtx.Constraints.Min = image.Point{}
-	return sl.Layout(gtx, d.th.Shaper, f, size, material(gtx, c), material(gtx, d.selColor()))
+	return sl.Layout(gtx, d.th.Shaper, st.f, st.size, material(gtx, st.c), material(gtx, d.selColor()))
 }
 
 // lbl draws one line of txt, cut with an ellipsis.
@@ -114,9 +96,10 @@ func icon(gtx layout.Context, p image.Point, name string, size unit.Dp, c color.
 	at(gtx, p, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, name, gtx.Dp(size), c) })
 }
 
-// ghost is a quiet button: an icon, a label, hovered fill; a copy button
+// ghost is a quiet button at least 28 dp each way: an icon, a label, the
+// Hover fill under the pointer and Pressed while held. A copy button
 // shows a green check and Copied for a moment after its click.
-func (d *cdraw) ghost(gtx layout.Context, c *widget.Clickable, ic, txt string, copied bool, h unit.Dp) layout.Dimensions {
+func (d *cdraw) ghost(gtx layout.Context, c *widget.Clickable, ic, txt string, copied bool) layout.Dimensions {
 	th := d.th
 	col := th.Muted
 	if copied {
@@ -126,24 +109,27 @@ func (d *cdraw) ghost(gtx layout.Context, c *widget.Clickable, ic, txt string, c
 		}
 	}
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		hh, pad, isz := gtx.Dp(h), gtx.Dp(6), gtx.Dp(12)
+		hh, pad, isz := gtx.Dp(hit), gtx.Dp(theme.SpaceS), gtx.Sp(th.Sp(theme.Small))
 		call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 			if txt == "" {
 				return layout.Dimensions{}
 			}
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), col, txt)
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), col, txt)
 		})
 		w := pad*2 + td.Size.X
 		if ic != "" {
 			w += isz
 			if txt != "" {
-				w += gtx.Dp(5)
+				w += gtx.Dp(6)
 			}
 		}
 		if txt == "" {
 			w = hh
 		}
-		if c.Hovered() {
+		switch {
+		case c.Pressed():
+			paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(image.Rect(0, 0, w, hh), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		case c.Hovered():
 			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(0, 0, w, hh), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
 		x := pad
@@ -152,7 +138,7 @@ func (d *cdraw) ghost(gtx layout.Context, c *widget.Clickable, ic, txt string, c
 		}
 		if ic != "" {
 			at(gtx, image.Pt(x, (hh-isz)/2), func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, ic, isz, col) })
-			x += isz + gtx.Dp(5)
+			x += isz + gtx.Dp(6)
 		}
 		o := op.Offset(image.Pt(x, (hh-td.Size.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -169,7 +155,7 @@ func (d *cdraw) keycap(gtx layout.Context, k string, onPrimary bool) layout.Dime
 		fill, ring, fg = theme.Mix(th.Primary, th.Bg, 0.3), theme.Mix(th.Primary, th.Bg, 0.42), th.Fg
 	}
 	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, medium(th.MonoFont), th.Sp(theme.Caption), fg, k)
+		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), fg, k)
 	})
 	w, h := max(td.Size.X+gtx.Dp(10), gtx.Dp(18)), gtx.Dp(18)
 	rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(5), fill, ring)
@@ -179,7 +165,7 @@ func (d *cdraw) keycap(gtx layout.Context, k string, onPrimary bool) layout.Dime
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// keyButton is a card's button with its key on a keycap.
+// keyButton is a card's 28 dp button with its key on a keycap.
 func (d *cdraw) keyButton(gtx layout.Context, c *widget.Clickable, primary bool, txt, k string, on bool) layout.Dimensions {
 	th := d.th
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
@@ -194,9 +180,9 @@ func (d *cdraw) keyButton(gtx layout.Context, c *widget.Clickable, primary bool,
 		} else if c.Hovered() {
 			fill = theme.Mix(fill, th.Fg, 0.08)
 		}
-		h, pad := gtx.Dp(26), gtx.Dp(9)
+		h, pad := gtx.Dp(hit), gtx.Dp(theme.SpaceM)
 		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), fg, txt)
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), fg, txt)
 		})
 		var kc op.CallOp
 		var kd layout.Dimensions
@@ -205,14 +191,14 @@ func (d *cdraw) keyButton(gtx layout.Context, c *widget.Clickable, primary bool,
 		}
 		w := pad*2 + ld.Size.X
 		if k != "" {
-			w += gtx.Dp(7) + kd.Size.X
+			w += gtx.Dp(theme.SpaceS) + kd.Size.X
 		}
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		o := op.Offset(image.Pt(pad, (h-ld.Size.Y)/2)).Push(gtx.Ops)
 		lc.Add(gtx.Ops)
 		o.Pop()
 		if k != "" {
-			o := op.Offset(image.Pt(pad+ld.Size.X+gtx.Dp(7), (h-kd.Size.Y)/2)).Push(gtx.Ops)
+			o := op.Offset(image.Pt(pad+ld.Size.X+gtx.Dp(theme.SpaceS), (h-kd.Size.Y)/2)).Push(gtx.Ops)
 			kc.Add(gtx.Ops)
 			o.Pop()
 		}
@@ -256,7 +242,7 @@ func (d *cdraw) block(gtx layout.Context, b block) layout.Dimensions {
 		return d.prompt(gtx, &d.s.Content[b.lo])
 	case blockSystem:
 		it := &d.s.Content[b.lo]
-		return d.selectable(gtx, d.t.sel(it.ID), d.th.UIFont, d.th.Sp(theme.Small), d.th.Muted, it.Text)
+		return d.selectable(gtx, d.t.sel(it.ID), d.small(d.th.Muted), it.Text)
 	}
 	return d.turn(gtx, b)
 }
@@ -266,11 +252,11 @@ func (d *cdraw) block(gtx layout.Context, b block) layout.Dimensions {
 func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	th := d.th
 	maxW := d.col * 84 / 100
-	px, py := gtx.Dp(12), gtx.Dp(9)
+	px, py := gtx.Dp(14), gtx.Dp(10)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, maxW-2*px), gtx.Constraints.Max.Y)}
 	call, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return vstack(gtx, gtx.Dp(8),
+		return vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.attachments(gtx, it) },
 		)
@@ -286,49 +272,53 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(d.col, bh)}
 }
 
-// promptText is a prompt's selectable text, its [Image #N] tokens drawn
-// as chips over the words.
+// promptText is a prompt's selectable text. Each [Image #N] token draws
+// as a chip: the text widens the token to make room for the chip's icon
+// and padding, and a copy gives back the token as typed.
 func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensions {
 	txt := mdview.Detab(strings.TrimRight(it.Text, "\n "))
 	if txt == "" {
 		return layout.Dimensions{}
 	}
+	st := d.promptStyle()
+	lead, trail := d.chipPad(gtx, st)
+	ct := chipText(txt, lead, trail)
 	sl := d.t.sel(it.ID)
-	dims := d.selectable(gtx, sl, d.th.UIFont, d.th.Sp(theme.Body), d.th.Fg, txt)
-	for _, ref := range imageRefs(txt) {
-		a, b := utf8.RuneCountInString(txt[:ref.start]), utf8.RuneCountInString(txt[:ref.end])
-		for _, rg := range sl.Regions(a, b, nil) {
-			d.imageChip(gtx, rg.Bounds, ref.n)
+	d.copyAs(gtx, sl, ct)
+	dims := d.selectable(gtx, sl, st, ct.text)
+	var rg []widget.Region
+	for _, c := range ct.chips {
+		rg = sl.Regions(c.label[0], c.label[1], rg[:0])
+		if len(rg) == 0 {
+			continue
 		}
+		d.imageChip(gtx, rg[0], c, st)
 	}
 	return dims
 }
 
-// imageChip draws an image token's chip over r: the image icon and
-// "Image #N" on the blue chip colors.
-func (d *cdraw) imageChip(gtx layout.Context, r image.Rectangle, n int) {
+// imageChip draws an image token's chip around its label's region r: the
+// blue chip colors, a 1 em image icon in the room the padding left, and
+// the label redrawn in blue on the line's baseline.
+func (d *cdraw) imageChip(gtx layout.Context, r widget.Region, c chip, st tstyle) {
 	th := d.th
 	bg, fg := th.Chip(th.Blue, th.SurfaceSecondary)
-	h := min(gtx.Dp(19), r.Dy())
-	cy := (r.Min.Y + r.Max.Y) / 2
-	box := image.Rect(r.Min.X-gtx.Dp(2), cy-h/2, r.Max.X+gtx.Dp(2), cy-h/2+h)
+	em := gtx.Sp(st.size)
+	base := r.Bounds.Max.Y - r.Baseline
+	lead := gtx.Dp(6) + em + gtx.Dp(4)
+	box := image.Rect(r.Bounds.Min.X-lead, base-em*78/100-gtx.Dp(2), r.Bounds.Max.X+gtx.Dp(6), base+em*22/100+gtx.Dp(2))
 	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
-	defer clip.Rect(box).Push(gtx.Ops).Pop()
-	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), fg, "Image #"+strconv.Itoa(n))
+	xh := em / 2
+	at(gtx, image.Pt(box.Min.X+gtx.Dp(6), base-xh/2-em/2), func(gtx layout.Context) layout.Dimensions {
+		return sidebar.Icon(gtx, "image", em, fg)
 	})
-	isz, gap := gtx.Dp(12), gtx.Dp(4)
-	w := isz + gap + td.Size.X
-	x := box.Min.X + (box.Dx()-w)/2
-	if w > box.Dx() { // no room for the icon
-		x, isz, gap = box.Min.X+(box.Dx()-td.Size.X)/2, 0, 0
-	}
-	if isz > 0 {
-		at(gtx, image.Pt(x, cy-isz/2), func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, "image", isz, fg) })
-	}
-	o := op.Offset(image.Pt(x+isz+gap, cy-td.Size.Y/2)).Push(gtx.Ops)
-	call.Add(gtx.Ops)
-	o.Pop()
+	call, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+		return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, st.f, st.size, c.name, material(gtx, fg))
+	})
+	at(gtx, image.Pt(r.Bounds.Min.X, base-(ld.Size.Y-ld.Baseline)), func(gtx layout.Context) layout.Dimensions {
+		call.Add(gtx.Ops)
+		return ld
+	})
 }
 
 // attachments are a prompt's images as thumbnails, numbered as the
@@ -399,14 +389,14 @@ func (d *cdraw) fileChip(gtx layout.Context, ic, name string) layout.Dimensions 
 	th := d.th
 	gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(260))
 	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Max.X -= gtx.Dp(26)
-		return d.lbl(gtx, th.UIFont, th.Sp(theme.Caption), theme.Mix(th.Muted, th.Fg, 0.6), name)
+		gtx.Constraints.Max.X -= gtx.Dp(30)
+		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), theme.Mix(th.Fg, th.Bg, 0.2), name)
 	})
-	h := gtx.Dp(24)
-	w := gtx.Dp(26) + td.Size.X + gtx.Dp(8)
+	h := gtx.Dp(hit)
+	w := gtx.Dp(30) + td.Size.X + gtx.Dp(10)
 	paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-	icon(gtx, image.Pt(gtx.Dp(8), (h-gtx.Dp(12))/2), ic, 12, th.Muted)
-	o := op.Offset(image.Pt(gtx.Dp(26), (h-td.Size.Y)/2)).Push(gtx.Ops)
+	icon(gtx, image.Pt(gtx.Dp(10), (h-gtx.Dp(14))/2), ic, 14, th.Muted)
+	o := op.Offset(image.Pt(gtx.Dp(30), (h-td.Size.Y)/2)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	o.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
@@ -427,5 +417,5 @@ func (d *cdraw) turn(gtx layout.Context, b block) layout.Dimensions {
 	if b.reply >= 0 {
 		rep = func(gtx layout.Context) layout.Dimensions { return d.reply(gtx, b.reply, running, start, end) }
 	}
-	return vstack(gtx, gtx.Dp(12), log, rep)
+	return vstack(gtx, gtx.Dp(gapInTurn), log, rep)
 }

@@ -30,8 +30,9 @@ type block struct {
 	turn   string // the items' turn id, "" for none
 	// reply is the index of the turn's last assistant text after its last
 	// tool call, drawn under the work log; -1 for none.
-	reply int
-	tools int // tool calls in the turn
+	reply  int
+	tools  int  // tool calls in the turn
+	failed bool // one of them failed
 }
 
 // blocks groups a transcript: each prompt is a bubble, the items after
@@ -70,6 +71,7 @@ func blocks(content []session.Item, out []block) []block {
 			case session.KindToolCall:
 				b.tools++
 				b.reply = -1
+				b.failed = b.failed || toolOpen(content[i].Tool)
 			case session.KindAssistantText:
 				b.reply = i
 			}
@@ -79,8 +81,9 @@ func blocks(content []session.Item, out []block) []block {
 }
 
 // logOpen is whether a turn's work log starts open: the running turn
-// shows its work, a finished one folds to its header.
-func logOpen(running bool) bool { return running }
+// shows its work, and so does one with a failed call; a finished one
+// folds to its header.
+func logOpen(running, failed bool) bool { return running || failed }
 
 // toolOpen is whether a tool row starts open: only a failed call does.
 func toolOpen(c *session.ToolCall) bool { return c != nil && c.Status == "failed" }
@@ -173,6 +176,7 @@ type toolSummary struct {
 	result    string // right-aligned, "" for none
 	add, del  int    // an edit's line counts, shown instead of result
 	passed    bool   // a command that exited 0: result starts with passed
+	path      bool   // arg is a file path, cut in the middle when long
 	kind      string // bash, read, search, edit, other: what its body shows
 }
 
@@ -191,7 +195,7 @@ func summarize(c *session.ToolCall, lines []diffLine, start, now time.Time) tool
 	case "Read", "read", "read_file", "NotebookRead":
 		s.verb, s.icon, s.kind = "Read", "file", "read"
 		if file != "" {
-			s.arg = file
+			s.arg, s.path = file, true
 		}
 		if n := countLines(c.Output); n > 0 && c.Status == "completed" {
 			s.result = plural(n, "line")
@@ -217,7 +221,7 @@ func summarize(c *session.ToolCall, lines []diffLine, start, now time.Time) tool
 			s.verb = "Write"
 		}
 		if file != "" {
-			s.arg = file
+			s.arg, s.path = file, true
 		}
 		for _, l := range lines {
 			switch l.kind {
@@ -568,4 +572,17 @@ func tokens(n int64) string {
 		return strconv.FormatInt(n, 10) + " tokens"
 	}
 	return strconv.FormatFloat(float64(n)/1000, 'f', 1, 64) + "K tokens"
+}
+
+// middleCut shortens a path to about room pixels, for characters about
+// charW wide, by cutting its middle: the start and the file name stay.
+func middleCut(s string, room, charW int) string {
+	r := []rune(s)
+	fit := room / max(charW, 1)
+	if len(r) <= fit || fit < 5 {
+		return s
+	}
+	keep := fit - 1
+	tail := keep * 3 / 5
+	return string(r[:keep-tail]) + "…" + string(r[len(r)-tail:])
 }
