@@ -83,6 +83,7 @@ conventional:
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
 | Ctrl+Shift+H                            | Move the keyboard into the sidebar, or back to the pane   |
 | Ctrl+Shift+L                            | Show or hide the agent panel                              |
+| Alt+T                                   | On a chat tab: flip between the chat and Claude Code's TUI |
 | Ctrl+Shift+R                            | Review the tab's changes: comment, then send to its agent |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
@@ -129,6 +130,7 @@ aide:
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
 | Ctrl+Shift+B                      | Move the keyboard into the sidebar, or back to the pane |
 | Ctrl+Shift+L                      | Show or hide the agent panel                   |
+| Alt+T                             | On a chat tab: flip between the chat and Claude Code's TUI |
 | Ctrl+Shift+R                      | Review the tab's changes and comment on them   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |

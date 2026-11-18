@@ -212,6 +212,9 @@ type Chat struct {
 	Turns        int       `json:"turns"`
 	Seq          int64     `json:"seq"` // the seq of the chat's latest delta
 	UpdatedAt    time.Time `json:"updatedAt"`
+	// Terminal is the pane of the chat's tab running claude --resume while
+	// the tab shows Claude's own TUI (proto.ChatTerminal), "" in the chat.
+	Terminal string `json:"terminal,omitempty"`
 }
 
 // Lane is a fleet worker's lane and what pitwall did about it: at most

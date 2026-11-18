@@ -69,6 +69,9 @@ session_preview = true                  # hover a host-list session to see its t
 settle_after_days = 3                   # settle a tab this many days idle; 0 never
 settle_on_merge = true                  # settle a tab once its pull request merges
 
+[chat]
+claude = "chat"                         # or "terminal": what starting Claude Code opens; Alt+T flips a chat to the TUI
+
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag
 archive_on_merge = false                # archive a merged worktree tab without a click

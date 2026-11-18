@@ -220,7 +220,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 82
+const Level = 83
+
+// ChatTerminalLevel added ChatTerminal and model.Chat.Terminal.
+const ChatTerminalLevel = 83
 
 // StartHistoryLevel retains start identities across a daemon handoff.
 const StartHistoryLevel = 81
@@ -443,6 +446,8 @@ func Since(msg any) int {
 		return InboxLevel
 	case Image, ImageResult:
 		return ImageLevel
+	case ChatTerminal:
+		return ChatTerminalLevel
 	case ChatUnarchive:
 		return ChatUnarchiveLevel
 	case ChatRename, ChatPin:
@@ -1276,6 +1281,7 @@ var Messages = []any{
 	SetOrigin{},
 	RemoteWorkers{}, Reparent{},
 	HostCheck{}, HostCheckResult{},
+	ChatTerminal{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -1315,6 +1321,15 @@ type ChatSend struct {
 // ChatInterrupt stops the running turn and holds the queue until the next
 // ChatSend.
 type ChatInterrupt struct{ Chat string }
+
+// ChatTerminal flips a Claude chat's tab between the chat and Claude's own
+// TUI on the same conversation: On interrupts a running turn, closes the
+// driver and runs claude --resume in a pane of the tab; off quits that
+// claude and resumes the driver. One process holds the session at a time.
+type ChatTerminal struct {
+	Chat string
+	On   bool
+}
 
 // ChatApprove answers a pending approval: first answer wins.
 type ChatApprove struct {

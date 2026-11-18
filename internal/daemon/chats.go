@@ -94,6 +94,10 @@ type chat struct {
 	resuming bool
 	sent     *session.Message
 	recap    string
+	// term is the pane running Claude Code's TUI on the session while the
+	// tab shows it (proto.ChatTerminal), "" in the chat; the driver stays
+	// closed meanwhile.
+	term string
 	// quoted goes after the next message once the chat switched provider
 	// (chatSwitch). shortcut: kept in memory, as recap is, so a restart
 	// before that message drops it; persist it in the config if that bites.
@@ -189,6 +193,9 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 			}
 			return "", "", c.drv.Interrupt(ctx)
 		}
+	case proto.ChatTerminal:
+		id = m.Chat
+		run = func(c *chat) (string, string, error) { return "", "", d.chatTerminal(ctx, c, m.On) }
 	case proto.ChatApprove:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) { return "", "", d.chatApprove(ctx, c, m) }
@@ -1201,6 +1208,9 @@ func (d *Daemon) chatStart(c *chat) error {
 	if c.drv != nil {
 		return nil
 	}
+	if c.term != "" {
+		return chatError{"busy", "the chat is in the terminal view, which holds its session; flip back to the chat first"}
+	}
 	if c.prov == nil {
 		return chatError{"unsupported", fmt.Sprintf("pitwall cannot run %s chats", c.cfg.Provider)}
 	}
@@ -1558,6 +1568,7 @@ func (d *Daemon) chatChanged(c *chat) {
 		State: c.snap.SessionState, Pending: len(c.snap.PendingApprovals) + len(c.snap.PendingUserInputs),
 		Queued: len(c.cfg.Queue), Turns: len(c.snap.Turns), Seq: c.seq,
 		UpdatedAt: c.sum.UpdatedAt, Title: c.sum.Title, RecentPrompt: c.cfg.RecentPrompt, Pinned: c.cfg.Pinned,
+		Terminal: c.term,
 	}
 	same := s
 	same.Seq = c.sum.Seq

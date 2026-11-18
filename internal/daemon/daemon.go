@@ -678,7 +678,7 @@ func (d *Daemon) shutdown() {
 		return
 	}
 	d.closing = true
-	s := withoutPopups(d.saveSnapshot())
+	s := withoutChatTerminals(withoutPopups(d.saveSnapshot()))
 	sources := d.historySources(s)
 	panes := slices.Collect(maps.Values(d.panes))
 	d.mu.Unlock()
@@ -2553,6 +2553,9 @@ func (d *Daemon) exited(id string, p Pane) {
 		log.Printf("pane %s: shell after failed resume: %q", id, err)
 	}
 	var closing []Pane
+	if d.chatOfTerminal(id) != nil {
+		sp.Held = false // the chat comes back instead (removeTab)
+	}
 	if code != 0 && sp.TmuxHoldFailed {
 		sp.Held = true
 	}
