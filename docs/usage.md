@@ -189,7 +189,9 @@ finished turn) in a pane you are not looking at, that pane gets a ring in the
 state's color and its sidebar row gets an accent bar. Not looking
 means another tab, another pane of the same tab, or the window in the
 background. The mark stays until you focus that pane. pitwall also sends a desktop notification
-for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
+for it, except a finished turn in a tab you opened: that shows as a notice at
+the bottom right of the window, which goes to the tab on click. A worker's
+finished turn still sends a desktop notification. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
