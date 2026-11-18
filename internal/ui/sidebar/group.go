@@ -173,7 +173,7 @@ func groupSummary(v *view, tabs []model.Workspace) []stateCount {
 		switch {
 		case a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput || a.State == model.StatePlanReady):
 			add(0, a.State)
-		case model.Pulses(a):
+		case a != nil && (a.State == model.StateWorking || a.State == model.StateConnecting):
 			add(1, model.StateWorking)
 		case v.unseen[ws.ID] != nil:
 			add(2, v.unseen[ws.ID].State)
