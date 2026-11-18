@@ -64,15 +64,41 @@ func (u *ui) applyDone(st *model.State) {
 	notes := u.doneNotes
 	u.doneNotes = nil
 	u.focusMu.Unlock()
-	for _, n := range notes {
-		u.doneTabs.add(n.act, n.title)
+	current := st
+	if len(notes) > 0 && u.b != nil {
+		// A notifier can enqueue after this frame captured st. Read after
+		// draining so a fresh wait is never pruned against that older frame.
+		latest := u.b.State()
+		current = &latest
 	}
 	u.doneTabs.items = slices.DeleteFunc(u.doneTabs.items, func(it *doneItem) bool {
-		return model.WaitsOnUser(it.act) && !stillWaiting(st, it.act)
+		a, keep := noticeActivity(current, it.act)
+		it.act = a
+		return !keep
 	})
+	// Answered requests must not consume a slot and evict a live card.
+	for _, n := range notes {
+		if a, keep := noticeActivity(current, n.act); keep {
+			u.doneTabs.add(a, n.title)
+		}
+	}
 	if ws := u.doneView(st); u.winFocused && ws != "" {
 		u.doneTabs.drop(ws)
 	}
+}
+
+// noticeActivity keeps a finished turn, or the latest detail of a pane
+// still waiting in the notice's state. Same-state updates do not notify
+// again, but their request text must stay current.
+func noticeActivity(st *model.State, a model.Activity) (model.Activity, bool) {
+	if !model.WaitsOnUser(a) {
+		return a, true
+	}
+	i := slices.IndexFunc(st.Activities, func(c model.Activity) bool { return c.PaneID == a.PaneID })
+	if i < 0 || st.Activities[i].State != a.State {
+		return a, false
+	}
+	return st.Activities[i], true
 }
 
 // doneView is the tab whose panes are visible, following markSeen's
@@ -171,11 +197,4 @@ func (u *ui) drawDone(gtx gl.Context) {
 		o.Pop()
 		chip.Pop()
 	}
-}
-
-// stillWaiting reports whether a's pane still waits in a's state: an
-// answered question or approval takes its notice with it.
-func stillWaiting(st *model.State, a model.Activity) bool {
-	i := slices.IndexFunc(st.Activities, func(c model.Activity) bool { return c.PaneID == a.PaneID })
-	return i >= 0 && st.Activities[i].State == a.State
 }

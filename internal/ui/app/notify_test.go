@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"reflect"
 	"runtime"
@@ -408,5 +409,58 @@ func TestNotifierWaitingTabNotice(t *testing.T) {
 			}
 		}
 		n.close()
+	}
+}
+
+// Focus can change while a batch is being delivered. Each tab must use
+// the current focus when deciding whether its card also needs the desktop.
+func TestNotifierWaitingBatchFocusChange(t *testing.T) {
+	for _, focused := range []bool{true, false} {
+		t.Run(fmt.Sprint(focused), func(t *testing.T) {
+			b := approvingBackend{NewFakeBackend()}
+			b.mu.Lock()
+			first := notifyActivity(model.StateWorking, time.Now())
+			first.WorkspaceID = "w1"
+			second := first
+			second.PaneID, second.WorkspaceID = "other-pane", "w2"
+			second.State = model.StatePendingApproval
+			second.Unseen = true
+			// Only the first activity is in the baseline. Both waits arrive
+			// together when approvingBackend.Changed transitions it.
+			b.st.Activities = []model.Activity{first, second}
+			sess := b.st.Workspaces[0].SessionID
+			b.mu.Unlock()
+			initial := b.State()
+			initial.Activities = initial.Activities[:1]
+			ctx, cancel := context.WithCancel(context.Background())
+			delivered := make(chan notification, 4)
+			finished := make(chan doneNote, 4)
+			n := &notifier{focused: focused, active: "other", session: sess, rules: config.DefaultNotifySettings(), done: make(chan struct{}), cancel: cancel}
+			n.rules.Sound = "configured.oga"
+			n.finished = func(a model.Activity, title string) {
+				finished <- doneNote{a, title}
+				if a.WorkspaceID == "w1" {
+					next := !focused
+					n.setView(&next, "", "")
+				}
+			}
+			go n.run(ctx, b, initial, func() {}, func(_ context.Context, nt notification) { delivered <- nt })
+			for range 2 {
+				select {
+				case <-finished:
+				case <-time.After(2 * time.Second):
+					n.close()
+					t.Fatal("missing waiting notice")
+				}
+			}
+			n.close()
+			if len(delivered) != 2 {
+				t.Fatalf("got %d deliveries, want one sound per notice", len(delivered))
+			}
+			firstDelivery, secondDelivery := <-delivered, <-delivered
+			if firstDelivery.soundOnly != focused || secondDelivery.soundOnly == focused || firstDelivery.sound != n.rules.Sound || secondDelivery.sound != n.rules.Sound {
+				t.Fatalf("focused=%v: first=%+v second=%+v", focused, firstDelivery, secondDelivery)
+			}
+		})
 	}
 }

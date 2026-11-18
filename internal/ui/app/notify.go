@@ -172,7 +172,8 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 		deliveries = append(deliveries, resumedAt(resumed, st.Activities)...)
 		for _, a := range deliveries {
 			n.mu.Lock()
-			viewing := n.focused && n.active == a.WorkspaceID
+			focused := n.focused
+			viewing := focused && n.active == a.WorkspaceID
 			rules := n.rules
 			finished := n.finished
 			n.mu.Unlock()
