@@ -66,8 +66,8 @@ func row(gtx layout.Context, gap, h int, ws ...layout.Widget) layout.Dimensions 
 // heading is a popover's section title.
 func heading(th *theme.Theme, s string) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
-		return layout.Inset{Left: 8, Right: 8, Top: 6, Bottom: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, s)
+		return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Top: theme.SpaceS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, s)
 		})
 	}
 }
@@ -79,8 +79,10 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 		w := gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}
 		switch {
-		case b.Hovered():
+		case b.Pressed():
 			paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		case b.Hovered():
+			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		case on:
 			paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
@@ -88,7 +90,7 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 		g := gtx
 		g.Constraints.Max.X = w - gtx.Dp(36)
 		row(g, 0, h, func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, th.UIFont, th.Sp(theme.Body)*12.5/13, th.Fg, name)
+			return text(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, name)
 		})
 		o.Pop()
 		if on {
@@ -103,17 +105,19 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 
 // segment is one effort in the popover's row of efforts.
 func segment(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name string, on bool) layout.Dimensions {
-	return layout.Inset{Right: 2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Right: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(26)
+			h := gtx.Dp(28)
 			w := gtx.Constraints.Max.X
 			rect := image.Rectangle{Max: image.Pt(w, h)}
 			fill, fg := th.SurfaceSecondary, th.Fg
 			switch {
 			case on:
 				fill, fg = th.SelectedBg, th.Readable(th.Primary, th.SelectedBg)
-			case b.Hovered():
+			case b.Pressed():
 				fill = th.Pressed
+			case b.Hovered():
+				fill = th.Hover
 			}
 			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 			m := op.Record(gtx.Ops)
@@ -128,8 +132,11 @@ func segment(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 }
 
 // tipDelay is how long the pointer rests on a control before its tooltip
-// shows.
-const tipDelay = 500 * time.Millisecond
+// shows; within tipNear of another tooltip it shows at once.
+const (
+	tipDelay = 500 * time.Millisecond
+	tipNear  = 300 * time.Millisecond
+)
 
 // tip shows label above b, size big at the origin, once the pointer has
 // rested on it for tipDelay.
@@ -144,17 +151,21 @@ func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable,
 	at, ok := c.hover[b]
 	if !ok {
 		at = gtx.Now
+		if !c.tipSeen.IsZero() && gtx.Now.Sub(c.tipSeen) < tipNear {
+			at = gtx.Now.Add(-tipDelay)
+		}
 		c.hover[b] = at
 	}
 	if gtx.Now.Sub(at) < tipDelay {
 		gtx.Execute(op.InvalidateCmd{At: at.Add(tipDelay)})
 		return
 	}
+	c.tipSeen = gtx.Now
 	m := op.Record(gtx.Ops)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(320), gtx.Dp(40))}
 	rec := op.Record(gtx.Ops)
-	d := layout.Inset{Left: 8, Right: 8, Top: 5, Bottom: 5}.Layout(g, func(gtx layout.Context) layout.Dimensions {
+	d := layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Top: theme.SpaceXS + theme.Space2XS, Bottom: theme.SpaceXS + theme.Space2XS}.Layout(g, func(gtx layout.Context) layout.Dimensions {
 		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, label)
 	})
 	body := rec.Stop()

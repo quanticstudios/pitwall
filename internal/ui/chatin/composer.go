@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -24,6 +25,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -41,10 +43,12 @@ type Composer struct {
 	sendBtn, modeBtn, modelBtn widget.Clickable
 	rm                         map[int]*widget.Clickable // per image, its remove x
 	items                      map[string]*widget.Clickable
-	menu                       bool // the model popover is open
-	scrim, pop                 int  // the popover's click-outside and own tags
-	modelX                     int  // the model control's left edge in the card
+	menu                       bool       // the model popover is open
+	popT                       anim.Value // its fade and scale in, 0 to 1
+	scrim, pop                 int        // the popover's click-outside and own tags
+	modelX                     int        // the model control's left edge in the card
 	hover                      map[*widget.Clickable]time.Time
+	tipSeen                    time.Time // the last frame a tooltip showed
 
 	reading int            // clipboard or dropped images on their way
 	reads   chan imageRead // their results, read on the UI goroutine
@@ -220,6 +224,16 @@ func (c *Composer) RemoveImage(n int) {
 	c.draft.Images = slices.DeleteFunc(c.draft.Images, func(im Image) bool { return im.N == n })
 }
 
+// setMenu opens or closes the model popover: 150 ms in, 100 ms out.
+func (c *Composer) setMenu(now time.Time, open bool) {
+	c.menu = open
+	if open {
+		c.popT.Set(now, 1, anim.Dialog)
+	} else {
+		c.popT.Set(now, 0, anim.Fade)
+	}
+}
+
 // submit sends the draft, or queues it behind the running turn.
 func (c *Composer) submit(env Env, now time.Time) {
 	text := c.ed.Text()
@@ -327,7 +341,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		switch e.Name {
 		case key.NameEscape:
 			if c.menu {
-				c.menu = false
+				c.setMenu(gtx.Now, false)
 			} else if env.Snap.Busy() {
 				c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 			}
@@ -375,7 +389,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
 	if c.modelBtn.Clicked(gtx) {
-		c.menu = !c.menu
+		c.setMenu(gtx.Now, !c.menu)
 	}
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &c.scrim, Kinds: pointer.Press})
@@ -383,7 +397,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			break
 		}
 		if _, ok := ev.(pointer.Event); ok {
-			c.menu = false
+			c.setMenu(gtx.Now, false)
 		}
 	}
 	if c.menu {
@@ -391,14 +405,14 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			if c.click("model:" + m).Clicked(gtx) {
 				c.model = held{m, deref(env.Snap.Model), gtx.Now.Add(holdFor)}
 				c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Model: m})
-				c.menu = false
+				c.setMenu(gtx.Now, false)
 			}
 		}
 		for _, e := range remote.Efforts {
 			if c.click("effort:" + e).Clicked(gtx) {
 				c.effort = held{e, deref(env.Snap.Effort), gtx.Now.Add(holdFor)}
 				c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Effort: e})
-				c.menu = false
+				c.setMenu(gtx.Now, false)
 			}
 		}
 	}
@@ -411,7 +425,8 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	if !c.inited {
 		c.inited = true
 		c.ed.Submit = true
-		c.ed.LineHeight, c.ed.LineHeightScale = th.Sp(theme.Body)*1.5, 1
+		c.ed.LineHeight, c.ed.LineHeightScale = th.Sp(theme.Large)*1.5, 1
+		c.popT.Set(gtx.Now, 0, 0)
 	}
 	if env.Focus && !gtx.Focused(&c.ed) && !c.menu {
 		gtx.Execute(key.FocusCmd{Tag: &c.ed})
@@ -424,12 +439,13 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	m := op.Record(gtx.Ops)
 	card := c.card(cg, th, env)
 	call := m.Stop()
-	h := card.Size.Y + gtx.Dp(10)
+	top := gtx.Dp(theme.SpaceM)
+	h := top + card.Size.Y + gtx.Dp(theme.SpaceL)
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: image.Pt(full, h)}.Op())
-	off := op.Offset(image.Pt((full-w)/2, 0)).Push(gtx.Ops)
+	off := op.Offset(image.Pt((full-w)/2, top)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
-	if c.menu {
-		c.popover(gtx, th, env)
+	if t := c.popT.Get(gtx); c.menu || t > 0 {
+		c.popover(gtx, th, env, t)
 	}
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(full, h)}
@@ -457,7 +473,7 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: theme.SpaceXS + theme.Space2XS, Left: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: theme.SpaceS, Left: theme.SpaceL}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Readable(th.Red, th.Bg), c.note)
 				})
 			}),
@@ -478,7 +494,7 @@ func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 	var kids []layout.FlexChild
 	chip := func(im *Image) layout.FlexChild {
 		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Right: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Right: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return c.chip(gtx, th, im)
 			})
 		})
@@ -486,7 +502,7 @@ func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 	for i := range c.draft.Images {
 		kids = append(kids, chip(&c.draft.Images[i]))
 	}
-	return layout.Inset{Top: 10, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: 10, Left: theme.SpaceL, Right: theme.SpaceL}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{}.Layout(gtx, kids...)
 	})
 }
@@ -508,7 +524,7 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 	// The number, bottom left.
 	nm := op.Record(gtx.Ops)
 	nd := layout.Inset{Left: 4, Right: 4, Top: 3, Bottom: 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption)*10.5/11, th.Fg, "#"+itoa(im.N))
+		return text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Fg, "#"+itoa(im.N))
 	})
 	ncall := nm.Stop()
 	at := op.Offset(image.Pt(gtx.Dp(4), size.Y-gtx.Dp(4)-nd.Size.Y)).Push(gtx.Ops)
@@ -521,22 +537,27 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 		b = new(widget.Clickable)
 		c.rm[im.N] = b
 	}
-	xs := gtx.Dp(18)
-	at = op.Offset(image.Pt(size.X-gtx.Dp(3)-xs, gtx.Dp(3))).Push(gtx.Ops)
+	// An 18dp x, 3 in from the corner, in a 28dp hit target.
+	xs, hit := gtx.Dp(18), gtx.Dp(28)
+	in := (hit - xs) / 2
+	at = op.Offset(image.Pt(size.X-gtx.Dp(3)-xs-in, gtx.Dp(3)-in)).Push(gtx.Ops)
 	xg := gtx
-	xg.Constraints = layout.Exact(image.Pt(xs, xs))
+	xg.Constraints = layout.Exact(image.Pt(hit, hit))
 	b.Layout(xg, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Remove image #" + itoa(im.N)).Add(gtx.Ops)
 		fill := badge
-		if b.Hovered() {
-			fill = th.SurfaceElevated
+		switch {
+		case b.Pressed():
+			fill = th.Pressed
+		case b.Hovered():
+			fill = th.Hover
 		}
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: image.Pt(xs, xs)}, gtx.Dp(5)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(in, in, in+xs, in+xs), gtx.Dp(5)).Op(gtx.Ops))
 		is := gtx.Dp(12)
-		o := op.Offset(image.Pt((xs-is)/2, (xs-is)/2)).Push(gtx.Ops)
+		o := op.Offset(image.Pt((hit-is)/2, (hit-is)/2)).Push(gtx.Ops)
 		sidebar.Icon(gtx, "x", is, th.Fg)
 		o.Pop()
-		return layout.Dimensions{Size: image.Pt(xs, xs)}
+		return layout.Dimensions{Size: image.Pt(hit, hit)}
 	})
 	at.Pop()
 	return layout.Dimensions{Size: size}
@@ -545,11 +566,11 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 // field is the editor: one line at rest, growing to ten, then scrolling;
 // the placeholder while empty, and each image token drawn as a chip.
 func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
-	return layout.Inset{Top: 10, Bottom: 6, Left: 14, Right: 14}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: theme.SpaceM, Bottom: theme.SpaceXS, Left: theme.SpaceL, Right: theme.SpaceL}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		line := gtx.Sp(c.ed.LineHeight)
-		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, max(line, gtx.Dp(28)))
+		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, line)
 		gtx.Constraints.Max.Y = 10 * line
-		size := th.Sp(theme.Body)
+		size := th.Sp(theme.Large)
 		if c.ed.Len() == 0 {
 			lg := gtx
 			lg.Constraints.Min = image.Point{}
@@ -561,10 +582,12 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 	})
 }
 
-// tokens covers each image token in the editor with a small blue chip.
+// tokens covers each image token in the editor with a small blue chip
+// whose label, at the text's size, sits on the line's baseline.
 func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 	txt := c.ed.Text()
 	bg, fg := th.Chip(th.Blue, th.Surface)
+	size := th.Sp(theme.Large)
 	var regions []widget.Region
 	for _, im := range c.draft.Images {
 		s, _ := TokenSpan(txt, im.N)
@@ -574,27 +597,33 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 		e := s + len([]rune(Token(im.N)))
 		regions = c.ed.Regions(s, e, regions[:0])
 		for i, rg := range regions {
-			r := rg.Bounds.Inset(-gtx.Dp(1))
-			r.Min.Y += gtx.Dp(1)
-			r.Max.Y -= gtx.Dp(1)
+			lm := op.Record(gtx.Ops)
+			ld := text(gtx, th, th.UIFont, size, fg, "Image #"+itoa(im.N))
+			label := lm.Stop()
+			base := rg.Bounds.Max.Y - rg.Baseline // the line's baseline
+			ly := base - (ld.Size.Y - ld.Baseline)
+			em, gap, padX, padY := gtx.Sp(size), gtx.Dp(theme.SpaceXS), gtx.Dp(6), gtx.Dp(2)
+			w := ld.Size.X + 2*padX
+			withIcon := w+em+gap <= rg.Bounds.Dx()+2*padX
+			if withIcon {
+				w += em + gap
+			}
+			x := rg.Bounds.Min.X + (rg.Bounds.Dx()-w)/2
+			r := image.Rect(x, ly-padY, x+w, ly+ld.Size.Y+padY)
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(5)).Op(gtx.Ops))
 			if i > 0 {
 				continue
 			}
-			lm := op.Record(gtx.Ops)
-			ld := text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), fg, "Image #"+itoa(im.N))
-			label := lm.Stop()
-			ws := []layout.Widget{func(gtx layout.Context) layout.Dimensions { label.Add(gtx.Ops); return ld }}
-			if icon, gap := gtx.Dp(12), gtx.Dp(4); ld.Size.X+icon+gap <= r.Dx()-gtx.Dp(6) {
-				ws = append([]layout.Widget{func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, "image", icon, fg) }}, ws...)
+			lx := x + padX
+			if withIcon {
+				// why: its center on the x-height's middle, about a quarter em above the baseline.
+				o := op.Offset(image.Pt(lx, base-em/4-em/2)).Push(gtx.Ops)
+				sidebar.Icon(gtx, "image", em, fg)
+				o.Pop()
+				lx += em + gap
 			}
-			lg := gtx
-			lg.Constraints = layout.Constraints{Max: r.Size()}
-			rm := op.Record(gtx.Ops)
-			d := row(lg, gtx.Dp(4), r.Dy(), ws...)
-			call := rm.Stop()
-			o := op.Offset(r.Min.Add(image.Pt((r.Dx()-d.Size.X)/2, 0))).Push(gtx.Ops)
-			call.Add(gtx.Ops)
+			o := op.Offset(image.Pt(lx, ly)).Push(gtx.Ops)
+			label.Add(gtx.Ops)
 			o.Pop()
 		}
 	}
@@ -621,13 +650,13 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		label += " · " + eff
 	}
 	used, total, metered := Meter(env.Snap.Usage)
-	return layout.Inset{Top: 4, Bottom: 6, Left: 8, Right: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(36))
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, false)
 				c.tip(gtx, th, &c.modeBtn, d.Size, "Permission mode · Shift+Tab")
-				c.modelX = gtx.Dp(8) + d.Size.X + gtx.Dp(theme.SpaceXS)
+				c.modelX = gtx.Dp(theme.SpaceS) + d.Size.X + gtx.Dp(theme.SpaceXS)
 				return d
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
@@ -662,12 +691,12 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 
 func pickFg(th *theme.Theme) color.NRGBA { return theme.Mix(th.Fg, th.Muted, 0.3) }
 
-// pick is a 26dp ghost control: an icon, a label, a chevron.
+// pick is a 28dp ghost control: an icon, a label, a chevron.
 func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, label string, col color.NRGBA, chevron bool) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
 	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
-		h := gtx.Dp(26)
+		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
 		m := op.Record(gtx.Ops)
 		var ws []layout.Widget
 		if icon != "" {
@@ -682,14 +711,19 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 			})
 		}
 		g := gtx
-		g.Constraints.Max.X -= 2 * gtx.Dp(7)
-		d := row(g, gtx.Dp(5), h, ws...)
+		g.Constraints.Max.X -= 2 * pad
+		d := row(g, gtx.Dp(6), h, ws...)
 		call := m.Stop()
-		size := image.Pt(d.Size.X+2*gtx.Dp(7), h)
-		if b.Hovered() || b == &c.modelBtn && c.menu {
-			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		size := image.Pt(d.Size.X+2*pad, h)
+		fill := theme.Transparent
+		switch {
+		case b.Pressed():
+			fill = th.Pressed
+		case b.Hovered() || b == &c.modelBtn && c.menu:
+			fill = th.Hover
 		}
-		o := op.Offset(image.Pt(gtx.Dp(7), 0)).Push(gtx.Ops)
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
 		return layout.Dimensions{Size: size}
@@ -703,8 +737,8 @@ func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimens
 	if MeterWarn(used, total) {
 		col = th.Yellow
 	}
-	return layout.Inset{Left: 6, Right: 6}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return row(gtx, gtx.Dp(6), gtx.Dp(26),
+	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return row(gtx, gtx.Dp(theme.SpaceS), gtx.Dp(28),
 			func(gtx layout.Context) layout.Dimensions {
 				sz := image.Pt(gtx.Dp(46), gtx.Dp(4))
 				r := gtx.Dp(2)
@@ -716,7 +750,20 @@ func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimens
 				return layout.Dimensions{Size: sz}
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				return text(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, Tokens(used)+" / "+Tokens(total))
+				// shortcut: the shaper has no tabular figures, so the numbers sit
+				// right-aligned in a slot as wide as a wide reading.
+				f, sz := medium(th.UIFont), th.Sp(theme.Small)
+				m := op.Record(gtx.Ops)
+				slot := text(gtx, th, f, sz, th.Muted, "888K / 888K").Size.X
+				m.Stop()
+				m = op.Record(gtx.Ops)
+				d := text(gtx, th, f, sz, th.Muted, Tokens(used)+" / "+Tokens(total))
+				call := m.Stop()
+				w := max(slot, d.Size.X)
+				o := op.Offset(image.Pt(w-d.Size.X, 0)).Push(gtx.Ops)
+				call.Add(gtx.Ops)
+				o.Pop()
+				return layout.Dimensions{Size: image.Pt(w, d.Size.Y), Baseline: d.Baseline}
 			})
 	})
 }
@@ -739,7 +786,10 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, busy, ready bool) l
 		default:
 			semantic.LabelOp("Send").Add(gtx.Ops)
 		}
-		if c.sendBtn.Hovered() && (busy || ready) {
+		switch {
+		case c.sendBtn.Pressed() && (busy || ready):
+			fill = theme.Mix(fill, th.Bg, 0.2)
+		case c.sendBtn.Hovered() && (busy || ready):
 			fill = theme.Mix(fill, th.Fg, 0.12)
 		}
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(7)).Op(gtx.Ops))
@@ -760,16 +810,18 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, busy, ready bool) l
 // popover is the model picker over the transcript, above the model
 // control: the models, then the efforts in a row. A press outside closes
 // it. Its origin is the card's top left.
-func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env) {
+func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float32) {
 	m := op.Record(gtx.Ops)
-	big := 1 << 15
-	area := clip.Rect{Min: image.Pt(-big, -big), Max: image.Pt(big, big)}.Push(gtx.Ops)
-	event.Op(gtx.Ops, &c.scrim)
-	area.Pop()
+	if c.menu {
+		big := 1 << 15
+		area := clip.Rect{Min: image.Pt(-big, -big), Max: image.Pt(big, big)}.Push(gtx.Ops)
+		event.Op(gtx.Ops, &c.scrim)
+		area.Pop()
+	}
 	now := gtx.Now
 	curModel := ModelName(c.model.show(deref(env.Snap.Model), now))
 	curEffort := c.effort.show(deref(env.Snap.Effort), now)
-	pw := gtx.Dp(260)
+	pw := gtx.Dp(288)
 	pg := gtx
 	pg.Constraints = layout.Constraints{Min: image.Pt(pw, 0), Max: image.Pt(pw, gtx.Constraints.Max.Y)}
 	rec := op.Record(gtx.Ops)
@@ -797,15 +849,21 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env) {
 	})
 	body := rec.Stop()
 	// Above the card, from the model control's left edge.
-	p := image.Pt(c.modelX, -d.Size.Y-gtx.Dp(6))
+	p := image.Pt(c.modelX, -d.Size.Y-gtx.Dp(theme.SpaceS))
 	o := op.Offset(p).Push(gtx.Ops)
 	rect := image.Rectangle{Max: d.Size}
+	// Fade and scale from 0.97 out of its bottom left corner, by the trigger.
+	fade := paint.PushOpacity(gtx.Ops, t)
+	sc := 0.97 + 0.03*t
+	grow := op.Affine(f32.AffineId().Scale(f32.Pt(0, float32(d.Size.Y)), f32.Pt(sc, sc))).Push(gtx.Ops)
 	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
 	// why: the popover swallows presses so they don't reach the scrim.
 	cl := clip.Rect(rect).Push(gtx.Ops)
 	event.Op(gtx.Ops, &c.pop)
 	cl.Pop()
 	body.Add(gtx.Ops)
+	grow.Pop()
+	fade.Pop()
 	o.Pop()
 	op.Defer(gtx.Ops, m.Stop())
 }
