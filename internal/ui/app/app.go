@@ -134,14 +134,12 @@ func Run(b Backend) error {
 	go config.WatchOmarchy(stop, reload) // follows an Omarchy theme switch
 	u.watchTheme = l.s.ThemeName
 	u.report = func(probs []string) { reportProblems(probs, &reported) }
-	u.notifications = newNotifier(b, w.Invalidate, desktopSender(), func(a model.Activity) {
+	u.notifications = newNotifier(b, u.cfg.Notifications, w.Invalidate, desktopSender(), func(a model.Activity) {
 		u.queueJump(a)
 		w.Invalidate()
 		w.Perform(system.ActionRaise)
-	})
-	u.notifications.setRules(u.cfg.Notifications)
-	u.notifications.setInbox(func(a model.Activity, title string) {
-		u.queueInbox(a, title)
+	}, func(a model.Activity, title string) {
+		u.queueDone(a, title)
 		w.Invalidate()
 	})
 	defer u.notifications.close()
@@ -313,11 +311,11 @@ type ui struct {
 
 	// focusReq is the latest attach request, kept until its session is in
 	// the state.
-	focusMu    sync.Mutex
-	focusReq   *proto.FocusSession
-	jumpReq    *model.Activity // a clicked notification's, see queueJump
-	inboxNotes []inboxNote     // finished tabs from the notifier, see queueInbox
-	inbox      inbox           // finished orchestrator tabs, see drawInbox
+	focusMu   sync.Mutex
+	focusReq  *proto.FocusSession
+	jumpReq   *model.Activity // a clicked notification's, see queueJump
+	doneNotes []doneNote      // finished tabs from the notifier, see queueDone
+	doneTabs  doneList        // finished orchestrator tabs, see drawDone
 
 	drags     []*gesture.Drag
 	drag      *layout.Node // layout being dragged, drawn instead of the state's
@@ -889,9 +887,9 @@ func (u *ui) layout(gtx gl.Context) {
 		u.nav.noLastPrompt = false
 		u.showNotice(pgtx, "No prompt pane is open", image.Rectangle{Max: pgtx.Constraints.Max})
 	}
-	u.applyInbox()
+	u.applyDone(&st)
 	u.drawNotice(pgtx)
-	u.drawInbox(pgtx)
+	u.drawDone(pgtx)
 	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
 	off.Pop()
 	pc.Pop()
@@ -982,7 +980,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	u.layoutLink(gtx, &st, link)
 	if u.notifications != nil {
-		u.notifications.setView(nil, u.nav.workspace, u.nav.session)
+		u.notifications.setView(nil, u.doneView(&st), u.nav.session)
 	}
 }
 

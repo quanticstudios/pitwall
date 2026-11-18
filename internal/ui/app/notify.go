@@ -15,11 +15,12 @@ import (
 )
 
 type notification struct {
-	activity model.Activity
-	title    string
-	sound    string       // [notifications] sound to play, "" for none
-	answer   bool         // Allow and Deny answer it
-	act      func(string) // runs a clicked action (see notifySendArgs); nil for none
+	activity  model.Activity
+	title     string
+	sound     string       // [notifications] sound to play, "" for none
+	soundOnly bool         // an in-window notice already supplies the visible notification
+	answer    bool         // Allow and Deny answer it
+	act       func(string) // runs a clicked action (see notifySendArgs); nil for none
 }
 
 // notificationCommand shows n, with its actions when actions is set
@@ -54,7 +55,7 @@ func desktopSender() func(context.Context, notification) {
 				log.Printf("sound %q: %q", n.sound, err)
 			}
 		}
-		if disabled {
+		if n.soundOnly || disabled {
 			return
 		}
 		if actions == nil {
@@ -81,34 +82,27 @@ func desktopSender() func(context.Context, notification) {
 }
 
 type notifier struct {
-	mu      sync.Mutex
-	focused bool
-	active  string
-	session string                       // the window's session
-	rules   config.NotifySettings        // [notifications]
-	jump    func(model.Activity)         // shows a's pane and raises the window; nil for none
-	inbox   func(model.Activity, string) // lists a finished orchestrator tab; nil for none
-	wake    chan struct{}
-	cancel  context.CancelFunc
-	done    chan struct{}
+	mu       sync.Mutex
+	focused  bool
+	active   string
+	session  string                       // the window's session
+	rules    config.NotifySettings        // [notifications]
+	jump     func(model.Activity)         // shows a's pane and raises the window; nil for none
+	finished func(model.Activity, string) // shows a finished orchestrator tab in the window; nil for none
+	wake     chan struct{}
+	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
-func newNotifier(b Backend, invalidate func(), send func(context.Context, notification), jump func(model.Activity)) *notifier {
+func newNotifier(b Backend, rules config.NotifySettings, invalidate func(), send func(context.Context, notification), jump func(model.Activity), finished func(model.Activity, string)) *notifier {
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &notifier{wake: make(chan struct{}, 1), cancel: cancel, done: make(chan struct{}), jump: jump, rules: config.DefaultNotifySettings()}
+	n := &notifier{wake: make(chan struct{}, 1), cancel: cancel, done: make(chan struct{}), jump: jump, finished: finished, rules: rules}
 	st := b.State()
 	go n.run(ctx, b, st, invalidate, send)
 	return n
 }
 
 func (n *notifier) close() { n.cancel(); <-n.done }
-
-// setInbox sets where finished orchestrator tabs go instead of the desktop.
-func (n *notifier) setInbox(f func(model.Activity, string)) {
-	n.mu.Lock()
-	n.inbox = f
-	n.mu.Unlock()
-}
 
 // setView records the window's focus, or else the tab and session it
 // shows.
@@ -180,18 +174,22 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			n.mu.Lock()
 			viewing := n.focused && n.active == a.WorkspaceID
 			rules := n.rules
-			inbox := n.inbox
+			finished := n.finished
 			n.mu.Unlock()
 			ws := findWorkspace(&st, a.WorkspaceID)
 			show, sound := notifyRule(rules, a, now)
 			if show && !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
 				h.Sent(a.WorkspaceID, time.Now())
-				// A finished tab the user opened goes to the in-app inbox, not the desktop.
-				if inbox != nil && model.Orchestrator(*ws) && model.InboxDone(a) {
-					inbox(a, hostPrefix(b, ws.SessionID)+notificationTitle(&st, *ws))
+				title := notificationTitleOn(b, &st, *ws)
+				// A finished tab the user opened shows in the window, not on the desktop.
+				if finished != nil && model.Orchestrator(*ws) && model.TurnDone(a) {
+					finished(a, title)
+					if sound {
+						send(ctx, notification{sound: rules.Sound, soundOnly: true})
+					}
 					continue
 				}
-				nt := notification{activity: a, title: hostPrefix(b, ws.SessionID) + notificationTitle(&st, *ws), answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
+				nt := notification{activity: a, title: title, answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
 				if sound {
 					nt.sound = rules.Sound
 				}
@@ -204,6 +202,17 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			timer.Reset(time.Until(due))
 		}
 	}
+}
+
+// notificationTitleOn names the tab's machine, including when its session
+// is shared with this machine and SessionHost therefore returns "".
+func notificationTitleOn(b Backend, st *model.State, w model.Workspace) string {
+	if h, ok := b.(Hoster); ok {
+		if host := h.HostOf(w.ID); host != "" {
+			return host + " · " + notificationTitle(st, w)
+		}
+	}
+	return hostPrefix(b, w.SessionID) + notificationTitle(st, w)
 }
 
 // resumedAt is each activity in as that the daemon resumed after a usage
