@@ -29,7 +29,7 @@ func TestChatTask(t *testing.T) {
 		}
 		return t
 	}
-	c, ok := chatTask(with([]string{"/usr/bin/claude", "--model", "opus", "--effort", "high", "--permission-mode", "plan", "Fix the login"}, nil))
+	c, ok := chatTask(with([]string{"/usr/bin/claude.exe", "--model", "opus", "--effort", "high", "--permission-mode", "plan", "Fix the login"}, nil))
 	want := proto.ChatNew{SessionID: "s1", GroupID: "g1", Dir: "/src/acme-api", Worktree: "fix-login", Base: "main",
 		Provider: model.ProviderClaude, Model: "opus", Effort: "high", Mode: "plan", Prompt: "Fix the login"}
 	if !ok || !reflect.DeepEqual(c, want) {

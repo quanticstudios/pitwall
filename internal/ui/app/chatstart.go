@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -19,7 +20,7 @@ func (u *ui) chatClaude() bool {
 // it has to run as a TUI: another agent, a preset's variables or guard,
 // an account profile, or flags a chat does not take.
 func chatTask(t model.Task) (proto.ChatNew, bool) {
-	if len(t.Cmd) < 2 || filepath.Base(t.Cmd[0]) != "claude" || len(t.Env) > 0 || t.Profile != "" {
+	if len(t.Cmd) < 2 || strings.TrimSuffix(filepath.Base(t.Cmd[0]), ".exe") != "claude" || len(t.Env) > 0 || t.Profile != "" {
 		return proto.ChatNew{}, false
 	}
 	mdl, effort, rest := config.SplitArgs("claude", t.Cmd[1:len(t.Cmd)-1])
