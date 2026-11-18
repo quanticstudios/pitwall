@@ -4,7 +4,9 @@ import (
 	"image"
 	"image/color"
 	"strings"
+	"time"
 
+	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -18,6 +20,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -30,8 +33,39 @@ const chatHeadHeight = theme.Space2XL + theme.SpaceM
 // bar in the terminal view.
 type chatHead struct {
 	term, panel, more, back, aide widget.Clickable
-	menu                          bool // the more menu is open
-	backdrop                      int  // the click outside the menu that closes it
+	menu                          bool      // the more menu is open
+	menuAt                        time.Time // when it last opened or closed, for its fade
+	backdrop                      int       // the click outside the menu that closes it
+
+	tipOf    *widget.Clickable // the control hovered for a tooltip
+	tipSince time.Time         // since when
+	tipShown time.Time         // the last frame a tooltip showed, so a neighbor's shows at once
+}
+
+// Tooltip timing: the first waits tipDelay, a neighbor hovered within
+// tipChain of the last one shows at once.
+const (
+	tipDelay = 500 * time.Millisecond
+	tipChain = 300 * time.Millisecond
+)
+
+// Menu fade: in from the trigger's edge, out quicker.
+const (
+	menuIn  = 150 * time.Millisecond
+	menuOut = 100 * time.Millisecond
+)
+
+// tipReady reports whether a tooltip hovered since since shows at now,
+// the last one having shown at shown.
+func tipReady(now, since, shown time.Time) bool {
+	return now.Sub(since) >= tipDelay || now.Sub(shown) <= tipChain
+}
+
+// setMenu opens or closes the more menu at now.
+func (h *chatHead) setMenu(on bool, now time.Time) {
+	if h.menu != on {
+		h.menu, h.menuAt = on, now
+	}
 }
 
 // chatBusy reports whether chat state c has a turn running or waiting on
@@ -53,7 +87,7 @@ func (u *ui) toggleChatTerminal(st *model.State, ws *model.Workspace) {
 		u.modal.then = msg
 		return
 	}
-	u.chatHead.menu = false
+	u.chatHead.setMenu(false, time.Now())
 	u.send(msg)
 }
 
@@ -97,10 +131,10 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 		u.nav.panelOpen = !u.nav.panelOpen
 	}
 	for h.more.Clicked(gtx) {
-		h.menu = !h.menu
+		h.setMenu(!h.menu, gtx.Now)
 	}
 	for h.aide.Clicked(gtx) {
-		h.menu = false
+		h.setMenu(false, gtx.Now)
 		openAide(findAide())
 	}
 	aide := curHost() == "" && findAide() != nil
@@ -134,26 +168,26 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 			return u.tipped(gtx, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
 				return ghostIconButton(gtx, th, &h.term, "terminal", "Terminal")
 			})
-		}), gl.Rigid(gl.Spacer{Width: theme.SpaceXS}.Layout))
+		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
 	kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		return u.tipped(gtx, &h.panel, withKey("Agent panel", u.keyOf("toggle_panel")), func(gtx gl.Context) gl.Dimensions {
-			return kit.IconButton(gtx, th, &h.panel, kit.Ghost, kit.Small, func(gtx gl.Context, col color.NRGBA, size int) {
+			return kit.IconButton(gtx, th, &h.panel, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "panel-right", size, col)
 			})
 		})
 	}))
 	if aide {
-		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceXS}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return kit.IconButton(gtx, th, &h.more, kit.Ghost, kit.Small, func(gtx gl.Context, col color.NRGBA, size int) {
+		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return kit.IconButton(gtx, th, &h.more, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "ellipsis", size, col)
 			})
 		}))
 	} else {
-		h.menu = false
+		h.setMenu(false, gtx.Now)
 	}
 	height := u.strip(gtx, th.Bg, kids)
-	if h.menu {
+	if aide && (h.menu || !anim.Reduced() && gtx.Now.Sub(h.menuAt) < menuOut) {
 		u.chatMenu(gtx, height)
 	}
 	return height
@@ -187,7 +221,7 @@ func (u *ui) layoutTerminalBar(gtx gl.Context, st *model.State, ws *model.Worksp
 		}),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, &h.back, withKey("Back to chat", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
-				return kit.Button(gtx, th, &h.back, kit.Secondary, kit.Small, "Back to chat")
+				return kit.Button(gtx, th, &h.back, kit.Secondary, kit.Medium, "Back to chat")
 			})
 		}),
 	})
@@ -220,7 +254,7 @@ func (u *ui) strip(gtx gl.Context, fill color.NRGBA, kids []gl.FlexChild) int {
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, hgt-gtx.Dp(1)), Max: size}.Op())
 	g := gtx
 	g.Constraints = gl.Exact(size)
-	gl.Inset{Left: theme.SpaceM, Right: theme.SpaceM}.Layout(g, func(gtx gl.Context) gl.Dimensions {
+	gl.Inset{Left: theme.SpaceL, Right: theme.SpaceL}.Layout(g, func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Alignment: gl.Middle}.Layout(gtx, kids...)
 	})
 	return hgt
@@ -251,9 +285,9 @@ func ghostIconButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon,
 		case c.Hovered():
 			fg, fill = th.Fg, th.Hover
 		}
-		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), fg, text)
-		pad, gap, is := gtx.Dp(theme.SpaceS), gtx.Dp(6), gtx.Dp(14)
-		size := image.Pt(pad+is+gap+sz.X+pad, gtx.Dp(24))
+		call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), fg, text)
+		pad, gap, is := gtx.Dp(10), gtx.Dp(6), gtx.Dp(14)
+		size := image.Pt(pad+is+gap+sz.X+pad, gtx.Dp(28))
 		r := gtx.Dp(theme.RadiusControl)
 		if fill.A > 0 {
 			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}, r).Op(gtx.Ops))
@@ -270,12 +304,25 @@ func ghostIconButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon,
 	})
 }
 
-// tipped draws w and, while c is hovered, tip under it over everything.
+// tipped draws w and, while c is hovered, tip under it over everything:
+// after tipDelay, or at once when another tooltip showed within tipChain.
 func (u *ui) tipped(gtx gl.Context, c *widget.Clickable, tip string, w gl.Widget) gl.Dimensions {
 	d := w(gtx)
+	h := &u.chatHead
 	if !c.Hovered() || tip == "" {
+		if h.tipOf == c {
+			h.tipOf = nil
+		}
 		return d
 	}
+	if h.tipOf != c {
+		h.tipOf, h.tipSince = c, gtx.Now
+	}
+	if !tipReady(gtx.Now, h.tipSince, h.tipShown) {
+		gtx.Execute(op.InvalidateCmd{At: h.tipSince.Add(tipDelay)})
+		return d
+	}
+	h.tipShown = gtx.Now
 	th := u.th
 	call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, tip)
 	pad := image.Pt(gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceXS+1))
@@ -304,19 +351,30 @@ func (u *ui) chatMenu(gtx gl.Context, top int) {
 		if _, ok := gtx.Event(pointer.Filter{Target: &h.backdrop, Kinds: pointer.Press}); !ok {
 			break
 		}
-		h.menu = false
+		h.setMenu(false, gtx.Now)
 	}
-	call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "Open in aide")
+	call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, "Open in aide")
 	pad := gtx.Dp(theme.SpaceXS)
 	row := image.Pt(max(sz.X+2*gtx.Dp(theme.SpaceM), gtx.Dp(160)), gtx.Dp(28))
 	box := row.Add(image.Pt(2*pad, 2*pad))
-	right, btn := gtx.Constraints.Max.X-gtx.Dp(theme.SpaceM), gtx.Dp(24)
+	right, btn := gtx.Constraints.Max.X-gtx.Dp(theme.SpaceL), gtx.Dp(28)
 	anchor := image.Rect(right-btn, (top-btn)/2, right, (top+btn)/2)
 	at := kit.Place(anchor, box, image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, 1<<20)}, kit.BelowEnd, gtx.Dp(theme.SpaceXS), gtx.Dp(theme.SpaceS))
+	t := anim.At(gtx, h.menuAt, menuIn)
+	if !h.menu {
+		t = 1 - anim.At(gtx, h.menuAt, menuOut)
+	}
 	m := op.Record(gtx.Ops)
-	bd := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-	event.Op(gtx.Ops, &h.backdrop)
-	bd.Pop()
+	if h.menu {
+		bd := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+		event.Op(gtx.Ops, &h.backdrop)
+		bd.Pop()
+	}
+	// Fade and scale from 97% at the trigger's edge, the menu's top right.
+	fade := paint.PushOpacity(gtx.Ops, t)
+	sc := 0.97 + 0.03*t
+	edge := f32.Pt(float32(at.X+box.X), float32(at.Y))
+	grow := op.Affine(f32.AffineId().Scale(edge, f32.Pt(sc, sc))).Push(gtx.Ops)
 	o := op.Offset(at).Push(gtx.Ops)
 	kit.Surface(gtx, image.Rectangle{Max: box}, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderSubtle, th.SurfaceElevated)
 	o2 := op.Offset(image.Pt(pad, pad)).Push(gtx.Ops)
@@ -334,5 +392,7 @@ func (u *ui) chatMenu(gtx gl.Context, top int) {
 	})
 	o2.Pop()
 	o.Pop()
+	grow.Pop()
+	fade.Pop()
 	op.Defer(gtx.Ops, m.Stop())
 }

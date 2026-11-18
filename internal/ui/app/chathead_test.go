@@ -130,3 +130,14 @@ func TestChatSeen(t *testing.T) {
 		t.Fatalf("sent %v, want SeePane for the chat", b.Sent())
 	}
 }
+
+// TestTipReady: the first tooltip waits, a neighbor's right after shows at once.
+func TestTipReady(t *testing.T) {
+	t0 := time.Now()
+	if tipReady(t0.Add(400*time.Millisecond), t0, time.Time{}) || !tipReady(t0.Add(500*time.Millisecond), t0, time.Time{}) {
+		t.Fatal("first tooltip not after 500ms")
+	}
+	if !tipReady(t0.Add(time.Millisecond), t0, t0.Add(-200*time.Millisecond)) || tipReady(t0.Add(time.Millisecond), t0, t0.Add(-time.Second)) {
+		t.Fatal("neighbor within 300ms not at once")
+	}
+}
