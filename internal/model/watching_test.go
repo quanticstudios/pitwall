@@ -33,3 +33,19 @@ func TestWatchingSummary(t *testing.T) {
 		})
 	}
 }
+
+func TestBackgroundWorkerStillCountsAsWorking(t *testing.T) {
+	st := State{
+		Workspaces: []Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}},
+		Activities: []Activity{
+			{WorkspaceID: "o", Provider: ProviderClaude, State: StateCompleted, Unseen: true},
+			{WorkspaceID: "w", Provider: ProviderClaude, State: StateWorking, Background: true},
+		},
+	}
+	if !st.Watching()["o"] {
+		t.Error("background worker stopped its parent watching")
+	}
+	if sum := st.Summary("s"); sum.Working != 1 || sum.NeedsYou != 0 || sum.Unseen != 0 {
+		t.Fatalf("background worker changed session counts: %+v", sum)
+	}
+}

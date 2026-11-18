@@ -26,6 +26,7 @@ takes `--dry-run`.
 
 - The notices at the bottom right of the window are two-line cards: a dot in the state's color, the tab, and what happened, such as "Approval needed · Bash: git push". A tab that waits on you, a worker's too, now gets one for a question, an approval, a plan or an error, and loses it once answered. While the window is in the background those also send a desktop notification. Set `sound` under `[notifications]` for a sound; there is none by default.
 - Chats carry the provider's slash commands, with the ones that need Claude Code's terminal marked, and Claude chats update the context meter after each response instead of only at the end of a turn. ACP agents can now change mode, model and effort when they advertise how, report mode changes, and ask questions that the chat answers, such as claude-agent-acp's AskUserQuestion.
+- A Claude tab whose turn ended with a shell still running in the background, such as a dev server, now reads Background instead of Working, and its row stops shimmering. It goes back to Working when the agent picks up again.
 - `pitwall host status` says a host's pitwall is too old for the check when its help text runs past the 8 KiB output limit, instead of only that the output was too long.
 
 ## v0.2.16
