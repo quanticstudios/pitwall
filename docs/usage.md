@@ -191,7 +191,10 @@ means another tab, another pane of the same tab, or the window in the
 background. The mark stays until you focus that pane. pitwall also sends a desktop notification
 for it, except a finished turn in a tab you opened: that shows as a notice at
 the bottom right of the window, which goes to the tab on click. A worker's
-finished turn still sends a desktop notification. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
+finished turn still sends a desktop notification. A question, an approval, a
+plan or an error from any tab shows a notice too, with a desktop notification
+as well while the window is in the background; answering it removes the
+notice. `sound` under `[notifications]` plays with each one. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 

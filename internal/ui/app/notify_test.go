@@ -352,3 +352,61 @@ func TestResumedAt(t *testing.T) {
 		t.Fatalf("notified twice: %+v", got)
 	}
 }
+
+// approvingBackend's first pane goes from working to waiting for approval.
+type approvingBackend struct{ *FakeBackend }
+
+func (b approvingBackend) Changed() <-chan struct{} {
+	b.mu.Lock()
+	if b.st.Activities[0].State == model.StateWorking {
+		b.st.Activities[0].State = model.StatePendingApproval
+		b.st.Activities[0].Unseen = true
+		b.st.Activities[0].UpdatedAt = time.Now()
+		b.bump()
+	}
+	b.mu.Unlock()
+	return b.FakeBackend.Changed()
+}
+
+// A tab waiting on the user, a worker's too, shows a notice in the window.
+// With the window in the background it also goes to the desktop.
+func TestNotifierWaitingTabNotice(t *testing.T) {
+	for _, focused := range []bool{true, false} {
+		b := approvingBackend{NewFakeBackend()}
+		b.mu.Lock()
+		b.st.Activities = []model.Activity{notifyActivity(model.StateWorking, time.Now())}
+		b.st.Activities[0].WorkspaceID = "w1"
+		for i := range b.st.Workspaces {
+			if b.st.Workspaces[i].ID == "w1" {
+				b.st.Workspaces[i].Parent = "parent" // a worker
+			}
+		}
+		sess := b.st.Workspaces[0].SessionID
+		b.mu.Unlock()
+		delivered := make(chan notification, 4)
+		finished := make(chan doneNote, 4)
+		ctx, cancel := context.WithCancel(context.Background())
+		n := &notifier{focused: focused, active: "other", session: sess, rules: config.DefaultNotifySettings(), done: make(chan struct{}), cancel: cancel,
+			finished: func(a model.Activity, title string) { finished <- doneNote{a, title} }}
+		go n.run(ctx, b, b.State(), func() {}, func(_ context.Context, nt notification) { delivered <- nt })
+		select {
+		case note := <-finished:
+			if note.act.State != model.StatePendingApproval {
+				t.Fatalf("focused=%v: notice = %+v", focused, note)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("focused=%v: missing in-window notice", focused)
+		}
+		select {
+		case nt := <-delivered:
+			if focused {
+				t.Fatalf("focused window also sent a desktop notification: %+v", nt)
+			}
+		case <-time.After(300 * time.Millisecond):
+			if !focused {
+				t.Fatal("background window sent no desktop notification")
+			}
+		}
+		n.close()
+	}
+}

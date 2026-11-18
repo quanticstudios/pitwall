@@ -26,3 +26,20 @@ func TestTurnDoneStates(t *testing.T) {
 		}
 	}
 }
+
+func TestWaitsOnUserAndNoticeBody(t *testing.T) {
+	for _, s := range []AgentState{StateAwaitingInput, StatePendingApproval, StatePlanReady, StateError} {
+		if !WaitsOnUser(Activity{State: s}) {
+			t.Errorf("%v waits on the user", s)
+		}
+	}
+	if WaitsOnUser(Activity{State: StateCompleted}) || WaitsOnUser(Activity{State: StateWorking}) {
+		t.Error("done and working do not wait on the user")
+	}
+	if got := NoticeBody(Activity{State: StatePendingApproval, Detail: "Bash: rm -rf build\nmore"}); got != "Approval needed · Bash: rm -rf build" {
+		t.Errorf("body = %q", got)
+	}
+	if got := NoticeBody(Activity{State: StateCompleted}); got != "Done" {
+		t.Errorf("body = %q", got)
+	}
+}

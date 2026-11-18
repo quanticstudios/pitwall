@@ -181,13 +181,18 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			if show && !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
 				h.Sent(a.WorkspaceID, time.Now())
 				title := notificationTitleOn(b, &st, *ws)
-				// A finished tab the user opened shows in the window, not on the desktop.
-				if finished != nil && model.Orchestrator(*ws) && model.TurnDone(a) {
+				// A finished tab the user opened, and any tab waiting on the user,
+				// shows a notice in the window.
+				if finished != nil && (model.Orchestrator(*ws) && model.TurnDone(a) || model.WaitsOnUser(a)) {
 					finished(a, title)
-					if sound {
-						send(ctx, notification{sound: rules.Sound, soundOnly: true})
+					// A waiting tab still goes to the desktop while the window is in
+					// the background, where its notice cannot be seen.
+					if !model.WaitsOnUser(a) || focused {
+						if sound {
+							send(ctx, notification{sound: rules.Sound, soundOnly: true})
+						}
+						continue
 					}
-					continue
 				}
 				nt := notification{activity: a, title: title, answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
 				if sound {

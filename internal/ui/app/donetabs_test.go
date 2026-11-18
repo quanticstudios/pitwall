@@ -225,3 +225,23 @@ func TestDoneShortContentKeepsOlderNotes(t *testing.T) {
 		t.Fatalf("click areas = %d, retained notes = %d", clicks, len(u.doneTabs.items))
 	}
 }
+
+// An answered approval takes its notice with it; a finished turn's stays.
+func TestDoneDropsAnsweredWaitingNotice(t *testing.T) {
+	var u ui
+	wait := model.Activity{PaneID: "p1", WorkspaceID: "a", State: model.StatePendingApproval}
+	done := model.Activity{PaneID: "p2", WorkspaceID: "b", State: model.StateCompleted}
+	u.queueDone(wait, "a")
+	u.queueDone(done, "b")
+	st := &model.State{Activities: []model.Activity{wait, done}}
+	u.applyDone(st)
+	if len(u.doneTabs.items) != 2 {
+		t.Fatalf("both notices should show: %+v", u.doneTabs.items)
+	}
+	st.Activities[0].State = model.StateWorking
+	st.Activities[1].State = model.StateWorking
+	u.applyDone(st)
+	if len(u.doneTabs.items) != 1 || u.doneTabs.items[0].ws != "b" {
+		t.Fatalf("want only the finished turn's notice: %+v", u.doneTabs.items)
+	}
+}
