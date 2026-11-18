@@ -98,3 +98,19 @@ func TestParseStatus(t *testing.T) {
 		}
 	}
 }
+
+// An older pitwall's help runs past the output limit; host status still
+// says the host is too old instead of only that the output was too long.
+func TestStatusOutputKeepsLongUsage(t *testing.T) {
+	var b statusOutput
+	b.Write([]byte("usage:\n" + strings.Repeat("  pitwall something\n", 1000)))
+	if got := b.String(); !strings.HasPrefix(got, "usage:") {
+		t.Fatalf("long usage lost its marker: %q", got)
+	}
+	var noise statusOutput
+	noise.Write([]byte("motd\n"))
+	noise.Write([]byte("usage:\n" + strings.Repeat("x", statusOutputLimit)))
+	if got := noise.String(); strings.HasPrefix(got, "usage:") {
+		t.Fatalf("usage after other output kept as safe: %q", got)
+	}
+}

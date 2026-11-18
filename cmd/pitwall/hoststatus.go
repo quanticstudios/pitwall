@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -35,10 +36,15 @@ const statusOutputLimit = 8 * 1024
 type statusOutput struct {
 	data      []byte
 	truncated bool
+	written   bool
+	usage     bool // the output began with an older pitwall's usage text
 }
 
 func (b *statusOutput) Write(p []byte) (int, error) {
 	n := len(p)
+	if !b.written && n > 0 {
+		b.written, b.usage = true, bytes.HasPrefix(p, []byte("usage:"))
+	}
 	b.truncated = b.truncated || len(b.data)+n > statusOutputLimit
 	if n >= statusOutputLimit {
 		b.data = append(b.data[:0], p[n-statusOutputLimit:]...)
@@ -52,6 +58,10 @@ func (b *statusOutput) Write(p []byte) (int, error) {
 }
 
 func (b *statusOutput) String() string {
+	if b.truncated && b.usage {
+		// why: an older pitwall's help runs past the limit; its first word is safe to keep.
+		return "usage: (help text over 8 KiB omitted)"
+	}
 	if b.truncated {
 		// A retained tail may start inside a secret and lack the marker
 		// Redact needs, such as API_TOKEN= or BEGIN PRIVATE KEY.
