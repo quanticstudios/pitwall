@@ -71,6 +71,7 @@ type Env struct {
 }
 
 type imageRead struct {
+	n    int // the image's number in the draft
 	data []byte
 	err  error
 }
@@ -151,36 +152,59 @@ func (c *Composer) AddImage(b []byte) {
 		c.note = "A message takes 8 images at most"
 		return
 	}
-	data, mime, err := Fit(b)
+	c.ed.Insert(c.draft.Add(Image{}) + " ")
+	c.fill(c.draft.last, b, nil)
+}
+
+// fill gives pending image n its picture, or takes it and its token out
+// with a note saying why. An image whose token went meanwhile is dropped.
+func (c *Composer) fill(n int, b []byte, err error) {
+	i := slices.IndexFunc(c.draft.Images, func(im Image) bool { return im.N == n })
+	if i < 0 {
+		return
+	}
+	var data []byte
+	var mime string
 	var thumb *image.NRGBA
+	if err == nil {
+		data, mime, err = Fit(b)
+	}
 	if err == nil {
 		thumb, err = Thumb(data, 96, 128)
 	}
 	if err != nil {
+		c.RemoveImage(n)
 		c.note = "Can't attach the image: " + err.Error()
 		return
 	}
 	c.note = ""
-	tok := c.draft.Add(Image{Data: data, Mime: mime, Thumb: paint.NewImageOp(thumb)})
-	c.ed.Insert(tok + " ")
+	c.draft.Images[i] = Image{N: n, Data: data, Mime: mime, Thumb: paint.NewImageOp(thumb)}
 }
 
-// Reading starts reading an image for the draft off the UI goroutine;
-// AddImage takes it in on a later frame.
+// waiting reports whether an image in the draft is still on its way.
+func (c *Composer) waiting() bool {
+	return slices.ContainsFunc(c.draft.Images, func(im Image) bool { return im.Data == nil })
+}
+
+// Reading puts a token for an image at the caret now and reads the
+// image off the UI goroutine; a later frame fills it in.
 func (c *Composer) Reading(env Env, read func(context.Context) ([]byte, error)) {
 	if c.reads == nil {
 		c.reads = make(chan imageRead, maxImages)
 	}
-	if c.reading >= maxImages {
+	if len(c.draft.Images) >= maxImages || c.reading >= maxImages {
+		c.note = "A message takes 8 images at most"
 		return
 	}
+	c.ed.Insert(c.draft.Add(Image{}) + " ")
+	n := c.draft.last
 	c.reading++
 	inval := env.Invalidate
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		b, err := read(ctx)
-		c.reads <- imageRead{b, err}
+		c.reads <- imageRead{n, b, err}
 		if inval != nil {
 			inval()
 		}
@@ -203,7 +227,7 @@ func (c *Composer) submit(env Env, now time.Time) {
 	if strings.TrimSpace(text) == "" && len(imgs) == 0 {
 		return
 	}
-	if c.reading > 0 {
+	if c.waiting() {
 		c.note = "Wait for the image to attach"
 		return
 	}
@@ -253,11 +277,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		select {
 		case r := <-c.reads:
 			c.reading--
-			if r.err != nil {
-				c.note = "Can't attach the image: " + r.err.Error()
-			} else {
-				c.AddImage(r.data)
-			}
+			c.fill(r.n, r.data, r.err)
 			continue
 		default:
 		}
@@ -329,6 +349,9 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.submit(env, gtx.Now)
 		case widget.ChangeEvent:
 			c.draft.Sync(ed.Text())
+			if !c.waiting() {
+				c.note = ""
+			}
 		}
 	}
 	for n, b := range c.rm {
@@ -444,9 +467,9 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 }
 
 // chips are the draft's images, 48 by 64, each with its number and a
-// remove x, and a blank chip per image on its way.
+// remove x; an image on its way is blank.
 func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions {
-	if len(c.draft.Images) == 0 && c.reading == 0 {
+	if len(c.draft.Images) == 0 {
 		return layout.Dimensions{}
 	}
 	if c.rm == nil {
@@ -463,9 +486,6 @@ func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 	for i := range c.draft.Images {
 		kids = append(kids, chip(&c.draft.Images[i]))
 	}
-	for range c.reading {
-		kids = append(kids, chip(nil))
-	}
 	return layout.Inset{Top: 10, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{}.Layout(gtx, kids...)
 	})
@@ -476,14 +496,13 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 	r := gtx.Dp(8)
 	rect := image.Rectangle{Max: size}
 	paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(rect, r).Op(gtx.Ops))
-	if im == nil {
-		return layout.Dimensions{Size: size}
+	if im.Data != nil {
+		cl := clip.UniformRRect(rect, r).Push(gtx.Ops)
+		ig := gtx
+		ig.Constraints = layout.Exact(size)
+		widget.Image{Src: im.Thumb, Fit: widget.Cover, Scale: 1}.Layout(ig)
+		cl.Pop()
 	}
-	cl := clip.UniformRRect(rect, r).Push(gtx.Ops)
-	ig := gtx
-	ig.Constraints = layout.Exact(size)
-	widget.Image{Src: im.Thumb, Fit: widget.Cover, Scale: 1}.Layout(ig)
-	cl.Pop()
 	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(rect, r).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	badge := withAlpha(th.Bg, 0xd9)
 	// The number, bottom left.
@@ -562,14 +581,20 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 			if i > 0 {
 				continue
 			}
+			lm := op.Record(gtx.Ops)
+			ld := text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), fg, "Image #"+itoa(im.N))
+			label := lm.Stop()
+			ws := []layout.Widget{func(gtx layout.Context) layout.Dimensions { label.Add(gtx.Ops); return ld }}
+			if icon, gap := gtx.Dp(12), gtx.Dp(4); ld.Size.X+icon+gap <= r.Dx()-gtx.Dp(6) {
+				ws = append([]layout.Widget{func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, "image", icon, fg) }}, ws...)
+			}
 			lg := gtx
 			lg.Constraints = layout.Constraints{Max: r.Size()}
-			o := op.Offset(r.Min.Add(image.Pt(gtx.Dp(5), 0))).Push(gtx.Ops)
-			row(lg, gtx.Dp(4), r.Dy(),
-				func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, "image", gtx.Dp(12), fg) },
-				func(gtx layout.Context) layout.Dimensions {
-					return text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption)*11.5/11, fg, "Image #"+itoa(im.N))
-				})
+			rm := op.Record(gtx.Ops)
+			d := row(lg, gtx.Dp(4), r.Dy(), ws...)
+			call := rm.Stop()
+			o := op.Offset(r.Min.Add(image.Pt((r.Dx()-d.Size.X)/2, 0))).Push(gtx.Ops)
+			call.Add(gtx.Ops)
 			o.Pop()
 		}
 	}

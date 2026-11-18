@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The desktop chat tab has a composer under the transcript. Enter sends and Shift+Enter adds a line. While Claude works, what you type queues, and Esc or the Stop button stops the turn. Pasted or dropped images show as chips and `[Image #N]` tokens. The control row holds the permission mode (Shift+Tab cycles it), a model and effort picker, and a context meter that turns yellow at 75%. Each chat keeps its draft while you switch tabs.
 - `pitwall host status` says a host's pitwall is too old for the check when its help text runs past the 8 KiB output limit, instead of only that the output was too long.
 
 ## v0.2.16

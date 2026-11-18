@@ -77,6 +77,19 @@ func TestChatTab(t *testing.T) {
 	if listed != dir {
 		t.Fatalf("panel lists %q, want the chat's folder %q", listed, dir)
 	}
+	// The composer's draft survives a switch to another tab and back.
+	cmp := u.composers["c1"]
+	if cmp == nil {
+		t.Fatal("the chat tab drew no composer")
+	}
+	cmp.SetText("half a thought")
+	u.nav.workspace = "w1"
+	frame()
+	u.nav.workspace = "wc"
+	frame()
+	if u.composers["c1"] != cmp || cmp.Text() != "half a thought" {
+		t.Fatalf("the draft is %q after a tab switch", u.composers["c1"].Text())
+	}
 	st := b.State()
 	if p := sidebar.AgentOf(&st, st.Workspaces[len(st.Workspaces)-1]); p != model.ProviderClaude {
 		t.Fatalf("sidebar mark %q", p)

@@ -1,0 +1,349 @@
+package chatin
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"image"
+	"image/png"
+	"io"
+	"math/rand/v2"
+	"net/http"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"gioui.org/io/input"
+	"gioui.org/io/key"
+	"gioui.org/io/transfer"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
+
+	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
+)
+
+func pngOf(w, h int) []byte {
+	im := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for i := range im.Pix {
+		im.Pix[i] = 0x80
+	}
+	var b bytes.Buffer
+	png.Encode(&b, im)
+	return b.Bytes()
+}
+
+// Image tokens: numbers go up within a draft and survive removals, a
+// deleted token drops its image, the images go in token order, and a
+// cleared draft starts at #1 again.
+func TestDraftTokens(t *testing.T) {
+	var d Draft
+	t1, t2, t3 := d.Add(Image{Mime: "image/png"}), d.Add(Image{Mime: "image/png"}), d.Add(Image{Mime: "image/png"})
+	if t1 != "[Image #1]" || t2 != "[Image #2]" || t3 != "[Image #3]" {
+		t.Fatalf("tokens %q %q %q", t1, t2, t3)
+	}
+	text := "see " + t3 + " then " + t1 + " and " + t2 + " ok"
+	if got := numbers(d.Ordered(text)); !slices.Equal(got, []int{3, 1, 2}) {
+		t.Fatalf("order %v, want 3 1 2", got)
+	}
+	text = strings.Replace(text, t1, "", 1) // the user deleted the token
+	d.Sync(text)
+	if got := numbers(d.Images); !slices.Equal(got, []int{2, 3}) {
+		t.Fatalf("after deleting #1's token: %v", got)
+	}
+	if tok := d.Add(Image{}); tok != "[Image #4]" {
+		t.Fatalf("next token %q, want #4: numbers stay stable", tok)
+	}
+	if s, e := TokenSpan("ab [Image #2] cd", 2); s != 3 || e != 14 {
+		t.Fatalf("span %d %d, want 3 14 with the space", s, e)
+	}
+	if s, _ := TokenSpan("ab", 2); s != -1 {
+		t.Fatal("span of a missing token")
+	}
+	if got := d.TokenBefore("é [Image #2]x", 12); got != 2 {
+		t.Fatalf("token before caret 12: %d", got)
+	}
+	if got := d.TokenBefore("é [Image #2]x", 13); got != -1 {
+		t.Fatalf("token before caret 13: %d", got)
+	}
+	d.Clear()
+	if tok := d.Add(Image{}); tok != "[Image #1]" {
+		t.Fatalf("a cleared draft starts at %q", tok)
+	}
+	a := Attachments([]Image{{N: 2, Mime: "image/jpeg", Data: []byte("hi")}})
+	if len(a) != 1 || a[0].ID != "image-2" || a[0].Kind != "image" || a[0].Name != "image-2.jpeg" || a[0].Data != base64.StdEncoding.EncodeToString([]byte("hi")) {
+		t.Fatalf("attachment %+v", a)
+	}
+}
+
+func numbers(ims []Image) []int {
+	var n []int
+	for _, im := range ims {
+		n = append(n, im.N)
+	}
+	return n
+}
+
+// Shift+Tab's cycle: Default, Accept edits, Plan, and back; any other
+// mode goes to Default. Plan shows from the interaction mode too.
+func TestModes(t *testing.T) {
+	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeDefault, "bypassPermissions": ModeDefault, "": ModeDefault} {
+		if got := NextMode(from); got != want {
+			t.Errorf("NextMode(%q) = %q, want %q", from, got, want)
+		}
+	}
+	if m := ModeOf(&session.Snapshot{PermissionMode: "default", InteractionMode: "plan"}); m != ModePlan {
+		t.Errorf("plan interaction shows %q", m)
+	}
+	if m := ModeOf(&session.Snapshot{}); m != ModeDefault {
+		t.Errorf("no mode shows %q", m)
+	}
+}
+
+// The meter: hidden without both numbers, yellow from 75%, and its
+// numbers rounded to K and M.
+func TestMeter(t *testing.T) {
+	n := func(v int64) *int64 { return &v }
+	if _, _, ok := Meter(&session.Usage{ContextTokens: n(5)}); ok {
+		t.Error("a meter without the window size")
+	}
+	if _, _, ok := Meter(nil); ok {
+		t.Error("a meter without usage")
+	}
+	if u, m, ok := Meter(&session.Usage{ContextTokens: n(62_000), MaxTokens: n(200_000)}); !ok || u != 62_000 || m != 200_000 {
+		t.Errorf("meter %d %d %v", u, m, ok)
+	}
+	if MeterWarn(149_999, 200_000) || !MeterWarn(150_000, 200_000) || !MeterWarn(210_000, 200_000) {
+		t.Error("the warning is not at 75%")
+	}
+	for v, want := range map[int64]string{950: "950", 62_400: "62K", 200_000: "200K", 1_000_000: "1M", 1_500_000: "1.5M"} {
+		if got := Tokens(v); got != want {
+			t.Errorf("Tokens(%d) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+// The placeholder follows the chat, and the slash hook fires only while
+// the caret is in a leading /word.
+func TestPlaceholderAndSlash(t *testing.T) {
+	if p := Placeholder(&session.Snapshot{SessionState: session.StateReady}); p != "Reply to Claude" {
+		t.Errorf("idle: %q", p)
+	}
+	if p := Placeholder(&session.Snapshot{SessionState: session.StateRunning}); p != "Type to queue a follow-up" {
+		t.Errorf("running: %q", p)
+	}
+	if p := Placeholder(&session.Snapshot{SessionState: session.StateWaiting, PendingApprovals: []session.Approval{{ID: "a"}}}); p != "Answer above, or type to queue" {
+		t.Errorf("pending: %q", p)
+	}
+	if w, ok := Slash("/co", 3); !ok || w != "/co" {
+		t.Errorf("slash %q %v", w, ok)
+	}
+	if _, ok := Slash("/compact now", 9); ok {
+		t.Error("slash past the first word")
+	}
+	if _, ok := Slash("hi /x", 5); ok {
+		t.Error("slash not at the start")
+	}
+}
+
+// Fit leaves an accepted picture as it is and re-encodes one the daemon
+// would refuse as JPEG.
+func TestFit(t *testing.T) {
+	p := pngOf(4, 2)
+	if b, mime, err := Fit(p); err != nil || mime != "image/png" || !bytes.Equal(b, p) {
+		t.Fatalf("png: %s %v", mime, err)
+	}
+	var gif bytes.Buffer
+	gif.WriteString("GIF89a")
+	if _, _, err := Fit(gif.Bytes()); err == nil {
+		t.Fatal("a broken GIF fit")
+	}
+	big := image.NewNRGBA(image.Rect(0, 0, 3000, 1000))
+	rng := rand.New(rand.NewPCG(1, 2))
+	for i := range big.Pix {
+		big.Pix[i] = uint8(rng.Uint32()) // noise, so the PNG is big
+	}
+	var b bytes.Buffer
+	png.Encode(&b, big)
+	if b.Len() <= maxSend {
+		t.Fatalf("the noise PNG is only %d bytes", b.Len())
+	}
+	out, mime, err := Fit(b.Bytes())
+	if err != nil || mime != "image/jpeg" || http.DetectContentType(out) != "image/jpeg" || len(out) > maxSend {
+		t.Fatalf("big png: %s %d %v", mime, len(out), err)
+	}
+	cfg, _, _ := image.DecodeConfig(bytes.NewReader(out))
+	if cfg.Width != fitSide || cfg.Height != fitSide/3 {
+		t.Fatalf("fit to %dx%d", cfg.Width, cfg.Height)
+	}
+	if th, err := Thumb(p, 96, 128); err != nil || th.Bounds().Dx() != 96 || th.Bounds().Dy() != 48 {
+		t.Fatalf("thumb %v %v", th.Bounds(), err)
+	}
+}
+
+// harness draws a composer through a router, so keys and pastes reach it.
+type harness struct {
+	t    *testing.T
+	c    Composer
+	r    input.Router
+	ops  op.Ops
+	snap session.Snapshot
+	clip []byte        // the clipboard's image
+	gate chan struct{} // when set, a clipboard read waits for it
+	now  time.Time
+}
+
+func newHarness(t *testing.T) *harness {
+	h := &harness{t: t, snap: session.Snapshot{SessionID: "c1", SessionState: session.StateReady}, now: time.Now()}
+	h.frame()
+	h.frame()
+	if !h.r.Source().Focused(&h.c.ed) {
+		t.Fatal("the composer did not take focus")
+	}
+	return h
+}
+
+func (h *harness) env() Env {
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true,
+		ReadImage: func(context.Context) ([]byte, error) {
+			if h.gate != nil {
+				<-h.gate
+			}
+			return h.clip, nil
+		}}
+}
+
+func (h *harness) frame() []any {
+	h.ops.Reset()
+	h.now = h.now.Add(10 * time.Millisecond)
+	gtx := layout.Context{Ops: &h.ops, Source: h.r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Exact(image.Pt(1000, 800)), Now: h.now}
+	gtx.Constraints.Min.Y = 0
+	h.c.Layout(gtx, theme.Dark(), h.env())
+	h.r.Frame(&h.ops)
+	return h.c.Messages()
+}
+
+func (h *harness) press(k key.Name, mods key.Modifiers) []any {
+	h.r.Queue(key.Event{Name: k, Modifiers: mods, State: key.Press})
+	return h.frame()
+}
+
+func (h *harness) typ(s string) {
+	h.c.ed.Insert(s) // as typing does at the caret
+	h.frame()
+}
+
+// paste is Ctrl+V with text on the clipboard, "" for none.
+func (h *harness) paste(text string) {
+	h.press("V", key.ModShortcut)
+	h.r.Queue(transfer.DataEvent{Type: "application/text", Open: func() io.ReadCloser { return io.NopCloser(strings.NewReader(text)) }})
+	h.frame()
+}
+
+// waitImage draws frames until the clipboard's image is in.
+func (h *harness) waitImage() {
+	for range 200 {
+		if h.c.reading == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+		h.frame()
+	}
+	h.t.Fatal("the image never came")
+}
+
+// Enter sends and Shift+Enter adds a line; a pasted image goes in as a
+// token and a chip and rides along; while a turn runs Enter queues,
+// Escape stops and Shift+Tab cycles the mode.
+func TestComposerKeys(t *testing.T) {
+	h := newHarness(t)
+	if m := h.press(key.NameReturn, 0); len(m) != 0 {
+		t.Fatalf("an empty box sent %v", m)
+	}
+	h.typ("one")
+	if m := h.press(key.NameReturn, key.ModShift); len(m) != 0 || h.c.Text() != "one\n" {
+		t.Fatalf("Shift+Enter: sent %v, text %q", m, h.c.Text())
+	}
+	h.typ("two ")
+	h.clip = pngOf(8, 6)
+	h.paste("")
+	h.waitImage()
+	if h.c.Text() != "one\ntwo [Image #1] " || len(h.c.Images()) != 1 {
+		t.Fatalf("after the image paste: %q, %d images", h.c.Text(), len(h.c.Images()))
+	}
+	h.paste("three")
+	m := h.press(key.NameReturn, 0)
+	if len(m) != 1 {
+		t.Fatalf("Enter sent %v", m)
+	}
+	s, ok := m[0].(proto.ChatSend)
+	if !ok || s.Chat != "c1" || s.Text != "one\ntwo [Image #1] three" || s.How != "" || len(s.Attachments) != 1 || s.Attachments[0].MimeType != "image/png" {
+		t.Fatalf("send %+v", m[0])
+	}
+	if h.c.Text() != "" || len(h.c.Images()) != 0 {
+		t.Fatalf("the box kept %q", h.c.Text())
+	}
+
+	// A refused send comes back into the empty box.
+	h.c.Failed("busy", h.now)
+	if h.c.Text() != "one\ntwo [Image #1] three" || len(h.c.Images()) != 1 || h.c.note != "busy" {
+		t.Fatalf("the refused send is not back: %q", h.c.Text())
+	}
+	// Backspace after the token takes it and its image.
+	h.c.SetText("look [Image #1]")
+	h.frame()
+	h.press(key.NameDeleteBackward, 0)
+	if h.c.Text() != "look " || len(h.c.Images()) != 0 {
+		t.Fatalf("Backspace left %q and %d images", h.c.Text(), len(h.c.Images()))
+	}
+	// The chip's x takes its token.
+	h.paste("")
+	h.waitImage()
+	h.c.RemoveImage(2)
+	if h.c.Text() != "look " || len(h.c.Images()) != 0 {
+		t.Fatalf("removing the chip left %q", h.c.Text())
+	}
+
+	// The token goes in where Ctrl+V was pressed, even when typing goes
+	// on while the image is read; Enter waits for the image.
+	h.c.SetText("a ")
+	h.gate = make(chan struct{})
+	h.paste("")
+	h.typ("b")
+	if m := h.press(key.NameReturn, 0); len(m) != 0 || h.c.note == "" {
+		t.Fatalf("Enter with an image on its way sent %v", m)
+	}
+	close(h.gate)
+	h.gate = nil
+	h.waitImage()
+	if h.c.Text() != "a [Image #3] b" || len(h.c.Images()) != 1 || h.c.Images()[0].Data == nil {
+		t.Fatalf("after a slow read: %q", h.c.Text())
+	}
+	h.c.SetText("")
+
+	h.snap.SessionState = session.StateRunning
+	h.typ("later")
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).How != "queue" {
+		t.Fatalf("Enter while running sent %+v", m)
+	}
+	if m := h.press(key.NameEscape, 0); len(m) != 1 || m[0] != (proto.ChatInterrupt{Chat: "c1"}) {
+		t.Fatalf("Escape sent %+v", m)
+	}
+	var modes []string
+	for range 3 {
+		for _, m := range h.press(key.NameTab, key.ModShift) {
+			modes = append(modes, m.(proto.ChatSet).Mode)
+		}
+	}
+	if !slices.Equal(modes, []string{ModeAccept, ModePlan, ModeDefault}) {
+		t.Fatalf("Shift+Tab sent %v", modes)
+	}
+	h.snap.SessionState = session.StateReady
+	if m := h.press(key.NameEscape, 0); len(m) != 0 {
+		t.Fatalf("Escape while idle sent %v", m)
+	}
+}
