@@ -225,3 +225,90 @@ func TestDoneShortContentKeepsOlderNotes(t *testing.T) {
 		t.Fatalf("click areas = %d, retained notes = %d", clicks, len(u.doneTabs.items))
 	}
 }
+
+// An answered approval takes its notice with it; a finished turn's stays.
+func TestDoneDropsAnsweredWaitingNotice(t *testing.T) {
+	var u ui
+	wait := model.Activity{PaneID: "p1", WorkspaceID: "a", State: model.StatePendingApproval}
+	done := model.Activity{PaneID: "p2", WorkspaceID: "b", State: model.StateCompleted}
+	u.queueDone(wait, "a")
+	u.queueDone(done, "b")
+	st := &model.State{Activities: []model.Activity{wait, done}}
+	u.applyDone(st)
+	if len(u.doneTabs.items) != 2 {
+		t.Fatalf("both notices should show: %+v", u.doneTabs.items)
+	}
+	st.Activities[0].State = model.StateWorking
+	st.Activities[1].State = model.StateWorking
+	u.applyDone(st)
+	if len(u.doneTabs.items) != 1 || u.doneTabs.items[0].ws != "b" {
+		t.Fatalf("want only the finished turn's notice: %+v", u.doneTabs.items)
+	}
+}
+
+// A notification can arrive after the frame captured its state. Pruning
+// must use a snapshot taken after draining the notification queue.
+func TestDoneKeepsNoticeNewerThanFrame(t *testing.T) {
+	b := NewFakeBackend()
+	b.mu.Lock()
+	b.st.Activities = []model.Activity{{PaneID: "p", WorkspaceID: "a", State: model.StateWorking}}
+	b.mu.Unlock()
+	frame := b.State()
+	wait := model.Activity{PaneID: "p", WorkspaceID: "a", State: model.StatePendingApproval, UpdatedAt: time.Now()}
+	b.mu.Lock()
+	b.st.Activities[0] = wait
+	b.mu.Unlock()
+	u := &ui{b: b}
+	u.queueDone(wait, "a")
+	u.applyDone(&frame)
+	if len(u.doneTabs.items) != 1 {
+		t.Fatal("new approval notice was discarded against the frame's old state")
+	}
+}
+
+// The daemon can update a question or approval without changing its state;
+// notification coalescing does not deliver another card for that update.
+func TestDoneRefreshesWaitingDetail(t *testing.T) {
+	var u ui
+	wait := model.Activity{PaneID: "p", WorkspaceID: "a", State: model.StatePendingApproval, Detail: "Bash: first", UpdatedAt: time.Now()}
+	u.queueDone(wait, "a")
+	st := model.State{Activities: []model.Activity{wait}}
+	u.applyDone(&st)
+	st.Activities[0].Detail = "Bash: second"
+	st.Activities[0].UpdatedAt = wait.UpdatedAt.Add(time.Second)
+	u.applyDone(&st)
+	if len(u.doneTabs.items) != 1 || u.doneTabs.items[0].act.Detail != st.Activities[0].Detail || !u.doneTabs.items[0].act.UpdatedAt.Equal(st.Activities[0].UpdatedAt) {
+		t.Fatalf("notice still describes the previous request: %+v", u.doneTabs.items)
+	}
+}
+
+func TestDoneAnsweredNotesDoNotEvictWaitingCards(t *testing.T) {
+	for _, queued := range []bool{true, false} {
+		t.Run(map[bool]string{true: "queued", false: "retained"}[queued], func(t *testing.T) {
+			var u ui
+			st := model.State{}
+			for _, ws := range []string{"a", "b", "c", "d"} {
+				a := model.Activity{PaneID: ws, WorkspaceID: ws, State: model.StatePendingApproval}
+				u.queueDone(a, ws)
+				st.Activities = append(st.Activities, a)
+			}
+			u.applyDone(&st)
+			if queued {
+				// An answered request must not consume a card slot at all.
+				for _, ws := range []string{"e", "f", "g", "h"} {
+					u.queueDone(model.Activity{PaneID: ws, WorkspaceID: ws, State: model.StatePendingApproval}, ws)
+				}
+			} else {
+				// Remove the answered middle card before adding a live request.
+				st.Activities[1].State = model.StateWorking
+				a := model.Activity{PaneID: "e", WorkspaceID: "e", State: model.StatePendingApproval}
+				st.Activities = append(st.Activities, a)
+				u.queueDone(a, "e")
+			}
+			u.applyDone(&st)
+			if len(u.doneTabs.items) != doneMax || u.doneTabs.items[0].ws != "a" {
+				t.Fatalf("answered notices evicted a live card: %+v", u.doneTabs.items)
+			}
+		})
+	}
+}

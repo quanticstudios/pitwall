@@ -25,6 +25,8 @@ takes `--dry-run`.
 ## Unreleased
 
 - Claude Code starts as a desktop chat from the New task dialog, its presets and the welcome card, on the same folder or worktree. Alt+T (Super+Alt+T on mac) flips a chat tab to Claude Code's own TUI on the same conversation, for `/config`, `/login` and plugin menus, and back; a running turn asks first. "Claude Code (terminal)" in the New task dialog, `[chat] claude = "terminal"` and `pitwall new -- claude` still run the TUI. A chat tab has a header with the branch, a Terminal button, the agent panel and Open in aide.
+- The notices at the bottom right of the window are two-line cards: a dot in the state's color, the tab, and what happened, such as "Approval needed · Bash: git push". A tab that waits on you, a worker's too, now gets one for a question, an approval, a plan or an error, and loses it once answered. While the window is in the background those also send a desktop notification. Set `sound` under `[notifications]` for a sound; there is none by default.
+- A Claude tab whose turn ended with a shell still running in the background, such as a dev server, now reads Background instead of Working, and its row stops shimmering. It goes back to Working when the agent picks up again.
 - `pitwall host status` says a host's pitwall is too old for the check when its help text runs past the 8 KiB output limit, instead of only that the output was too long.
 
 ## v0.2.16

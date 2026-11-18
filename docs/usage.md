@@ -142,6 +142,7 @@ Each sidebar row shows a tab's state:
 | State    | Meaning                                                                    |
 | -------- | -------------------------------------------------------------------------- |
 | Working  | The agent is in a turn                                                     |
+| Background | The agent ended its turn with a shell or subagent still running in the background; it picks up when that work ends |
 | Input    | The agent asked you a question                                             |
 | Approval | The agent wants permission to run a tool                                   |
 | Plan     | The agent finished a plan and waits for approval                           |
@@ -191,7 +192,10 @@ means another tab, another pane of the same tab, or the window in the
 background. The mark stays until you focus that pane. pitwall also sends a desktop notification
 for it, except a finished turn in a tab you opened: that shows as a notice at
 the bottom right of the window, which goes to the tab on click. A worker's
-finished turn still sends a desktop notification. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
+finished turn still sends a desktop notification. A question, an approval, a
+plan or an error from any tab shows a notice too, with a desktop notification
+as well while the window is in the background; answering it removes the
+notice. `sound` under `[notifications]` plays with each one. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
@@ -281,8 +285,8 @@ Working alone does not mean busy. If a hooked Claude Code or Codex turn
 shows its input box without a form or busy indicator for that whole interval,
 pitwall marks it Done even if its Stop hook never arrives. A Claude Code
 Stop hook that reports a running shell command from Bash or the Monitor
-tool, an MCP monitor or task, a subagent or a workflow keeps Working, with the turn's last
-reply on the card, until the main session resumes work, reports completion,
+tool, an MCP monitor or task, a subagent or a workflow keeps Working, labeled
+Background and without the shimmer, with the turn's last reply on the card, until the main session resumes work, reports completion,
 or a later SubagentStop lists none of those still running. Claude Code's own
 background work, such as auto-mode scans, dreams, memory imports, teammates
 and cloud sessions, and task types pitwall does not know never keep Working. Work hooks restart the interval; idle reminders and slash commands do not. Set the minutes with
