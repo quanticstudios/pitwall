@@ -361,12 +361,12 @@ type ui struct {
 	linkBackdrop                 int
 	relaunchTried, quit, offline bool
 
-	panel      sidePanel                   // the agent panel on the right while nav.panelOpen
-	transcript panel.Transcript            // the chat tab on screen
-	chatHead   chatHead                    // the chat tab's header, or its terminal view's bar
-	composers  map[string]*chatin.Composer // per chat, its send box and draft
-	usage      usageWatch                  // token use for the tabs' hover cards
-	invalidate func()                      // the window's Invalidate; nil in tests
+	panel       sidePanel                    // the agent panel on the right while nav.panelOpen
+	transcripts map[string]*panel.Transcript // the chat tabs', by chat id, see chatTranscript
+	chatHead    chatHead                     // the chat tab's header, or its terminal view's bar
+	composers   map[string]*chatin.Composer  // per chat, its send box and draft
+	usage       usageWatch                   // token use for the tabs' hover cards
+	invalidate  func()                       // the window's Invalidate; nil in tests
 
 	browser  commandBrowser
 	paneMenu paneMenu

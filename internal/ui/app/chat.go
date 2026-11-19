@@ -12,6 +12,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
+	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -33,10 +34,6 @@ type ChatResulter interface {
 // while it shows it.
 const ChatPoll = 150 * time.Millisecond
 
-// composerWidth is the composer's column.
-// shortcut: the standard [chat] width; read the setting once it lands.
-const composerWidth unit.Dp = 960
-
 // layoutChat draws the chat tab ws: the chat's transcript with the
 // composer under it, and sends the approvals answered on it and the
 // composer's messages.
@@ -55,24 +52,29 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	s, ok := ch.Chat(ws.Chat)
 	if ok {
 		aide := curHost() == "" && findAide() != nil
+		t := u.chatTranscript(st, ws.Chat)
+		t.Width, t.Copy = unit.Dp(u.cfg.Chat.Width), putClipboard
 		cmp := u.composer(st, ws.Chat)
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(ws.Chat) {
 				cmp.Result(r, gtx.Now)
 			}
 		}
-		env := u.chatEnv(st, ws.Chat, &s)
+		env := u.chatEnv(st, ws.Chat, &s, t)
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
-			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return u.transcript.Layout(gtx, u.th, &s, aide) }),
+			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, aide) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		for _, m := range cmp.Messages() {
 			u.send(m)
 		}
-		for _, a := range u.transcript.Answers() {
+		for _, a := range t.Answers() {
 			u.send(proto.ChatApprove{Chat: ws.Chat, Request: a.Request, Decision: a.Decision})
 		}
-		if u.transcript.OpenAide() {
+		for _, a := range t.Inputs() {
+			u.send(proto.ChatAnswer{Chat: ws.Chat, Request: a.Request, Answers: a.Answers})
+		}
+		if t.OpenAide() {
 			openAide(findAide())
 		}
 	} else {
@@ -85,14 +87,18 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	}
 }
 
-// chatEnv is what chat id's composer needs this frame.
-func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot) chatin.Env {
-	env := chatin.Env{Chat: id, Snap: s, Width: composerWidth,
+// chatEnv is what chat id's composer needs this frame; t is the chat's
+// transcript, which answers its pending request by the keys typed into
+// an empty composer.
+func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.Transcript) chatin.Env {
+	width := unit.Dp(u.cfg.Chat.Width) // the transcript's column, so their edges line up
+	if width == 0 {                    // full: the whole tab, less its sides
+		width = 1 << 16
+	}
+	env := chatin.Env{Chat: id, Snap: s, Width: width,
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate}
-	if k, ok := any(&u.transcript).(interface{ Key(string) bool }); ok {
-		env.Key = k.Key // the transcript answers its pending request by key
-	}
+	env.Key = t.Key
 	return env
 }
 
@@ -119,6 +125,25 @@ func (u *ui) composer(st *model.State, id string) *chatin.Composer {
 // without a change that pushes a new State.
 func chatLive(state string) bool {
 	return state == session.StateConnecting || state == session.StateRunning || state == session.StateWaiting
+}
+
+// chatTranscript is chat id's transcript, kept while the chat is in st,
+// so a tab switch keeps its folds, scroll, picks and answered lines.
+func (u *ui) chatTranscript(st *model.State, id string) *panel.Transcript {
+	if u.transcripts == nil {
+		u.transcripts = map[string]*panel.Transcript{}
+	}
+	for c := range u.transcripts {
+		if c != id && findChat(st, c) == nil {
+			delete(u.transcripts, c)
+		}
+	}
+	t := u.transcripts[id]
+	if t == nil {
+		t = new(panel.Transcript)
+		u.transcripts[id] = t
+	}
+	return t
 }
 
 func findChat(st *model.State, id string) *model.Chat {

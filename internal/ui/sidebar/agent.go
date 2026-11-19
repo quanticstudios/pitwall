@@ -203,7 +203,7 @@ func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dim
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
 		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare,
-		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "map": icMap, "list-plus": "M11 12H3M16 6H3M16 18H3M18 9v6M21 12h-6", "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
+		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "ask": icAsk, "map": icMap, "list-plus": "M11 12H3M16 6H3M16 18H3M18 9v6M21 12h-6", "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}
@@ -213,6 +213,11 @@ func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dim
 // RelTime is how long ago t was, as the sidebar's rows say it ("just
 // now", "5m ago").
 func RelTime(now, t time.Time) string { return relTime(now, t) }
+
+// Lucide's message-circle-question, for the chat's question cards.
+const (
+	icAsk = "M7.9 20A9 9 0 1 0 4 16.1L2 22ZM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"
+)
 
 // Lucide's chevron-left, arrow-up, wifi-off and clipboard, for the phone app.
 const (

@@ -71,6 +71,7 @@ settle_on_merge = true                  # settle a tab once its pull request mer
 
 [chat]
 claude = "chat"                         # or "terminal": what starting Claude Code opens; Alt+T flips a chat to the TUI
+width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
 
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag
@@ -179,6 +180,12 @@ An agent stuck in Working keeps the machine awake without a time limit,
 even if its row says quiet. A failed turn that sends no hook can cause
 this. The grace period starts only after no agent is Working. Turn Keep
 awake off to release the lock.
+
+`[chat] width` sets how wide a chat tab's transcript grows: `comfortable`
+is 736 dp, `standard` (the default) is 960 dp, enough for a 120-column diff at
+the 12 px mono size, and `full` uses the whole tab. Code, diffs and tool
+output use the whole column; reply prose stops near 96 characters so lines
+stay readable. It applies when the config reloads.
 
 `[terminal] hint_patterns` adds patterns to hints mode, as Go regular
 expressions (RE2 syntax). A pattern with a group labels the text of its first

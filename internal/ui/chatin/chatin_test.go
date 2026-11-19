@@ -324,8 +324,7 @@ func TestComposerKeys(t *testing.T) {
 	if m := h.press(key.NameReturn, 0); len(m) != 0 || h.c.note == "" {
 		t.Fatalf("Enter with an image on its way sent %v", m)
 	}
-	close(h.gate)
-	h.gate = nil
+	close(h.gate) // a closed gate never blocks; setting it to nil would race the reader
 	h.waitImage()
 	if h.c.Text() != "a [Image #3] b" || len(h.c.Images()) != 1 || h.c.Images()[0].Data == nil {
 		t.Fatalf("after a slow read: %q", h.c.Text())

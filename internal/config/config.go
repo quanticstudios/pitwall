@@ -38,7 +38,7 @@ type Config struct {
 	Worktrees Worktrees   `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
 	Sidebar   Sidebar     `toml:"sidebar" doc:"The sidebar's tree or inbox, and when the inbox settles a tab."`
-	Chat      Chat        `toml:"chat" doc:"Managed chats: whether starting Claude Code opens a desktop chat or its TUI."`
+	Chat      Chat        `toml:"chat" doc:"Chats: whether starting Claude Code opens a desktop chat or its TUI, and how wide a chat tab's transcript column grows."`
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
