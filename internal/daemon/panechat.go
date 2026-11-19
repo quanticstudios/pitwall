@@ -55,6 +55,19 @@ type paneChat struct {
 	conf   *string       // the effort in Claude Code's user settings, read once
 	ctx    int64         // tokens in context at the last assistant message, 0 before one
 	model  string        // that message's model
+	moded  bool          // the chat showed a mode: a change after it gets a divider
+	// agents are the subagents' own transcripts, by their tool call's id,
+	// and how far each was read.
+	agents  map[string]*agentFile
+	scanned time.Time // when subagents last looked for transcripts it lacked
+}
+
+// agentFile is a subagent's transcript and how far it was read; done once
+// its subagent ended and the file was read to its end.
+type agentFile struct {
+	path string
+	off  int64
+	done bool
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -191,9 +204,12 @@ func waits(s model.AgentState) bool {
 // read the transcript; one not written yet reads as empty. Callers hold
 // pc.mu.
 func (pc *paneChat) catchUp(l paneLive) (rerr error) {
+	// The subagents first: their last calls end before the line that ends
+	// them reaches the session's transcript.
+	pc.subagents()
 	f, err := os.Open(pc.path)
 	if err == nil {
-		err = pc.readOn(f)
+		err = pc.readOn(f, l.tui.model)
 		f.Close()
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -222,7 +238,12 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	}
 	if mode != "" && mode != pc.snap.PermissionMode {
 		pc.reduce([]session.Event{{Type: session.EventSettings, Mode: mode}})
+		if pc.moded {
+			pc.reduce([]session.Event{{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem,
+				Phase: session.PhaseSetting, Text: session.SettingText("", "", mode)}})
+		}
 	}
+	pc.moded = pc.moded || mode != ""
 	pc.settings(l)
 	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
 		pc.queued = nil // the agent stopped without taking them: an interrupt dropped them back in its box
@@ -249,8 +270,9 @@ const (
 )
 
 // readOn reduces what f, the transcript, gained since pc.off, or reads
-// its tail again (see tailBytes). Callers hold pc.mu.
-func (pc *paneChat) readOn(f *os.File) error {
+// its tail again (see tailBytes); tui is the model the TUI shows, for the
+// context window. Callers hold pc.mu.
+func (pc *paneChat) readOn(f *os.File, tui string) error {
 	fi, err := f.Stat()
 	if err != nil {
 		return err
@@ -265,21 +287,21 @@ func (pc *paneChat) readOn(f *os.File) error {
 		pc.tr, pc.snap = claude.NewTranscript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
-		pc.start, pc.off, pc.pages = start, start, nil
+		pc.start, pc.off, pc.pages, pc.agents = start, start, nil, nil
 		defer func() { pc.recent = nil }() // no reader holds what this replays: each gets a snapshot
 	}
 	b := make([]byte, end-pc.off)
 	n, err := f.ReadAt(b, pc.off)
-	pc.off += int64(pc.lines(b[:n]))
+	pc.off += int64(pc.lines(b[:n], tui))
 	if err == io.EOF {
 		err = nil
 	}
 	return err
 }
 
-// lines reduces b's whole lines and reports the bytes they take. Callers
-// hold pc.mu.
-func (pc *paneChat) lines(b []byte) int {
+// lines reduces b's whole lines and reports the bytes they take; tui is
+// the model the TUI shows, for the context window. Callers hold pc.mu.
+func (pc *paneChat) lines(b []byte, tui string) int {
 	end := bytes.LastIndexByte(b, '\n')
 	if end < 0 {
 		return 0
@@ -289,6 +311,13 @@ func (pc *paneChat) lines(b []byte) int {
 			pc.ctx, pc.model = t, m
 		}
 		es := pc.tr.Line(line)
+		for i := range es {
+			// A turn's usage report says the context as the meter reads it.
+			if es[i].Type == session.EventUsage && pc.ctx > 0 {
+				ctx, w := pc.ctx, contextWindow(pc.model, tui)
+				es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
+			}
+		}
 		if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
 			pc.queued = nil
 		}
@@ -386,7 +415,7 @@ func (pc *paneChat) reduceRange(f io.ReaderAt, from, to int64) (session.Snapshot
 		return session.Snapshot{}, err
 	}
 	p := &paneChat{id: pc.id, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: pc.id, Provider: model.ProviderClaude}}
-	p.lines(b)
+	p.lines(b, "")
 	p.reduce(p.tr.End(session.TurnCompleted))
 	return p.snap, nil
 }
@@ -417,6 +446,71 @@ func (pc *paneChat) item(id string) (session.Item, error) {
 		}
 	}
 	return session.Item{}, chatError{"not-found", "item " + id + " is gone from the chat"}
+}
+
+// fileLines are the whole lines file path gained since *off, which moves
+// past them: a subagent's transcript, read whole.
+func (pc *paneChat) fileLines(path string, off *int64) [][]byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	var b []byte
+	if _, err = f.Seek(*off, io.SeekStart); err == nil {
+		b, err = io.ReadAll(f)
+	}
+	f.Close()
+	if err != nil {
+		log.Printf("pane chat %s: transcript: %q", pc.id, err)
+	}
+	end := bytes.LastIndexByte(b, '\n')
+	if end < 0 {
+		return nil
+	}
+	*off += int64(end + 1)
+	return bytes.Split(b[:end], []byte("\n"))
+}
+
+// subagents reads what the subagents' transcripts gained: Claude Code
+// writes each to subagents/agent-<id>.jsonl beside the session's, and
+// names its tool call in agent-<id>.meta.json. A subagent that ended is
+// read to its end once, so a chat opened after it still shows its calls.
+func (pc *paneChat) subagents() {
+	calls := pc.tr.Subagents()
+	if len(calls) == 0 {
+		return
+	}
+	if pc.agents == nil {
+		pc.agents = map[string]*agentFile{}
+	}
+	missing := false
+	for c := range calls {
+		missing = missing || pc.agents[c] == nil
+	}
+	// shortcut: a subagent with no file of its own (an older Claude Code
+	// kept its lines in the session's) rescans the folder at most every 2s.
+	if missing && time.Since(pc.scanned) > 2*time.Second {
+		pc.scanned = time.Now()
+		metas, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(pc.path, ".jsonl"), "subagents", "agent-*.meta.json"))
+		for _, m := range metas {
+			var meta struct {
+				ToolUseID string `json:"toolUseId"`
+			}
+			if b, err := os.ReadFile(m); err == nil && json.Unmarshal(b, &meta) == nil && meta.ToolUseID != "" && pc.agents[meta.ToolUseID] == nil {
+				pc.agents[meta.ToolUseID] = &agentFile{path: strings.TrimSuffix(m, ".meta.json") + ".jsonl"}
+			}
+		}
+	}
+	for call, running := range calls {
+		a := pc.agents[call]
+		if a == nil || a.done {
+			continue
+		}
+		for _, line := range pc.fileLines(a.path, &a.off) {
+			pc.reduce(pc.tr.Subagent(call, line))
+		}
+		a.done = !running
+	}
 }
 
 // settings puts the model and effort the TUI shows in the snapshot as

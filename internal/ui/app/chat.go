@@ -113,6 +113,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.
 			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, false) }),
+			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.TodoStrip(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		for _, m := range cmp.Messages() {

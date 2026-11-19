@@ -212,7 +212,7 @@ func TestChatFlow(t *testing.T) {
 	for _, it := range snap.Content {
 		texts = append(texts, string(it.Kind)+": "+it.Text)
 	}
-	if want := []string{"user-prompt: Fix the build\nplease", "assistant-text: On it.", "user-prompt: and the tests"}; !slices.Equal(texts, want) || snap.Model == nil || *snap.Model != "m2" {
+	if want := []string{"user-prompt: Fix the build\nplease", "assistant-text: On it.", "user-prompt: and the tests", "system: Switched to m2"}; !slices.Equal(texts, want) || snap.Model == nil || *snap.Model != "m2" {
 		t.Fatalf("transcript %q, model %v", texts, snap.Model)
 	}
 	part := chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: id, After: full.Seq - 2})

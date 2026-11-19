@@ -256,8 +256,7 @@ func (d *cdraw) block(gtx layout.Context, b block) layout.Dimensions {
 	case blockPrompt:
 		return d.prompt(gtx, &d.s.Content[b.lo])
 	case blockSystem:
-		it := &d.s.Content[b.lo]
-		return d.selectable(gtx, d.t.sel(it.ID), d.small(d.th.Muted), it.Text)
+		return d.sysItem(gtx, &d.s.Content[b.lo], false)
 	}
 	return layout.Dimensions{} // a turn draws as its rows, see buildRows
 }
@@ -266,6 +265,9 @@ func (d *cdraw) block(gtx layout.Context, b block) layout.Dimensions {
 // text.
 func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	th := d.th
+	if slashCommand(it.Text) && len(it.Attachments) == 0 {
+		return d.commandChip(gtx, strings.TrimSpace(it.Text), true)
+	}
 	maxW := d.col * 84 / 100
 	px, py := gtx.Dp(14), gtx.Dp(10)
 	g := gtx
@@ -274,6 +276,7 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 		return vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.attachments(gtx, it) },
+			func(gtx layout.Context) layout.Dimensions { return d.pastes(gtx, it) },
 		)
 	})
 	bw, bh := dims.Size.X+2*px, dims.Size.Y+2*py
@@ -291,7 +294,8 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 // as a chip: the text widens the token to make room for the chip's icon
 // and padding, and a copy gives back the token as typed.
 func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensions {
-	txt := mdview.Detab(strings.TrimRight(it.Text, "\n "))
+	shown, _ := promptParts(it.Text)
+	txt := mdview.Detab(shown)
 	if txt == "" {
 		return layout.Dimensions{}
 	}

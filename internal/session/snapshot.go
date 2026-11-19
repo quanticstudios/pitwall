@@ -159,10 +159,12 @@ type ToolCall struct {
 	Progress  string          `json:"progress,omitempty"`  // a one-line status while the call runs
 	StartedAt string          `json:"startedAt,omitempty"` // set by tool.end
 	Status    string          `json:"status"`              // running, completed, failed
-	Tasks     []Task          `json:"tasks,omitzero"`      // task-list calls only
+	Tasks     []Task          `json:"tasks,omitzero"`      // task-list calls only: the whole list after the call
 	// SubagentTools names the calls a Task's subagent made, in order.
 	SubagentTools []string `json:"subagentTools,omitzero"`
-	ToolName      string   `json:"toolName"`
+	// SubagentCalls are those calls, without their output; pitwall's.
+	SubagentCalls []ToolCall `json:"subagentCalls,omitzero"`
+	ToolName      string     `json:"toolName"`
 
 	// Images are the pictures the call's result returned, such as a Read of
 	// a PNG or a screenshot.
@@ -181,6 +183,10 @@ type ToolFile struct {
 type Task struct {
 	Status  string `json:"status"` // pending, in_progress, completed
 	Subject string `json:"subject"`
+	// ActiveForm is what an in-progress task shows: "Running tests" for
+	// "Run tests"; pitwall's.
+	ActiveForm string `json:"activeForm,omitempty"`
+	ID         string `json:"id,omitempty"` // TaskCreate's number, which TaskUpdate names
 }
 
 // TurnSummary is aide's ManagedSessionTurnSummary. CheckpointID is
@@ -234,12 +240,14 @@ type Question struct {
 	ID      string         `json:"id"`
 	Options []PromptOption `json:"options"`
 	Prompt  string         `json:"prompt"`
+	Multi   bool           `json:"multiSelect,omitempty"` // several options may be picked; pitwall's
 }
 
 type PromptOption struct {
 	Description string `json:"description,omitempty"`
 	ID          string `json:"id"`
 	Label       string `json:"label"`
+	Preview     string `json:"preview,omitempty"` // a mockup or snippet to show beside the options; pitwall's
 }
 
 // Command is a slash command the provider offers, without its slash.
