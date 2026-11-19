@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"gioui.org/layout"
@@ -50,12 +49,14 @@ func (d *cdraw) diff(it *session.Item) []diffLine {
 	return c.lines
 }
 
-// workLog is a turn's calls under one header, "Worked for 48s · 4 tools",
-// that a click folds or opens.
-func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, running bool) layout.Dimensions {
+// logHead is a work log's header, "Worked for 48s · 4 tools", that a
+// click folds or opens: the box's top, and its bottom too when nothing
+// is under it. Each of the log's rows is a list row of its own, so a
+// running turn of 2,000 calls lays out only the rows in view.
+func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) layout.Dimensions {
 	th := d.th
-	id := "log:" + d.s.Content[b.lo].ID
-	open := d.t.toggled(gtx, id, logOpen(running, b.failed))
+	id := logID(d.s, b)
+	start, end, _ := turnTimes(d.s, b, b.hi == len(d.s.Content))
 	w := gtx.Constraints.Max.X
 	hh := gtx.Dp(rowH)
 	took := end.Sub(start)
@@ -66,34 +67,13 @@ func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, runni
 	if start.IsZero() {
 		took = 0
 	}
-	var rows []layout.Widget
-	if open {
-		for i := b.lo; i < b.hi; i++ {
-			if i == b.reply {
-				continue
-			}
-			it := &d.s.Content[i]
-			rows = append(rows, func(gtx layout.Context) layout.Dimensions { return d.logRow(gtx, it) })
-		}
+	h := 1 + hh
+	if last {
+		h++
 	}
-	call, dims := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		y := hh
-		for _, r := range rows {
-			paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(w, y+1)}.Op())
-			y++
-			g := gtx
-			g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
-			rd := at(g, image.Pt(0, y), r)
-			y += rd.Size.Y
-		}
-		return layout.Dimensions{Size: image.Pt(w, y)}
-	})
-	h := dims.Size.Y + 2
-	rad := gtx.Dp(theme.RadiusPopover)
-	outer := image.Rect(0, 0, w, h)
-	rrect(gtx, outer, rad, th.Bg, th.BorderSubtle)
-	inner := clip.UniformRRect(outer.Inset(1), rad-1).Push(gtx.Ops)
+	defer d.logFrame(gtx, w, h, true, last)()
 	o := op.Offset(image.Pt(0, 1)).Push(gtx.Ops)
+	defer o.Pop()
 	paint.FillShape(gtx.Ops, th.Surface, clip.Rect{Max: image.Pt(w, hh)}.Op())
 	c := d.t.click(id)
 	clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
@@ -104,12 +84,12 @@ func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, runni
 			chev = "chevron-down"
 		}
 		icon(gtx, image.Pt(x, (hh-gtx.Dp(12))/2), chev, 12, th.Muted)
-		x += gtx.Dp(12) + gtx.Dp(8)
+		x += gtx.Dp(12) + gtx.Dp(theme.SpaceS)
 		if running {
 			at(gtx, image.Pt(x, (hh-gtx.Dp(11))/2), func(gtx layout.Context) layout.Dimensions {
 				return spinner(gtx, gtx.Dp(11), th.Surface, th.Blue, d.sec)
 			})
-			x += gtx.Dp(11) + gtx.Dp(8)
+			x += gtx.Dp(11) + gtx.Dp(theme.SpaceS)
 		}
 		tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, logTitle(took, b.tools, running))
@@ -123,11 +103,47 @@ func (d *cdraw) workLog(gtx layout.Context, b block, start, end time.Time, runni
 		}
 		return layout.Dimensions{Size: image.Pt(w, hh)}
 	})
-	call.Add(gtx.Ops)
-	o.Pop()
-	inner.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
+
+// logItem is item i of an open work log: a line over it, and the box's
+// bottom when it is the last.
+func (d *cdraw) logItem(gtx layout.Context, i int, last bool) layout.Dimensions {
+	w := gtx.Constraints.Max.X
+	g := gtx
+	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
+	call, rd := measure(g, func(gtx layout.Context) layout.Dimensions { return d.logRow(gtx, &d.s.Content[i]) })
+	h := 1 + rd.Size.Y
+	if last {
+		h++
+	}
+	defer d.logFrame(gtx, w, h, false, last)()
+	paint.FillShape(gtx.Ops, d.th.BorderSubtle, clip.Rect{Max: image.Pt(w, 1)}.Op())
+	at(gtx, image.Pt(0, 1), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return rd })
+	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// logFrame draws one row's slice of the work log's box, w by h: the
+// rounded top when top, the rounded bottom when bottom, the sides
+// between. It clips what follows to the inside of the box until the
+// returned func runs.
+func (d *cdraw) logFrame(gtx layout.Context, w, h int, top, bottom bool) func() {
+	rad := gtx.Dp(theme.RadiusPopover)
+	r := image.Rect(0, 0, w, h)
+	if !top {
+		r.Min.Y -= 2*rad + 2
+	}
+	if !bottom {
+		r.Max.Y += 2*rad + 2
+	}
+	seg := clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops)
+	rrect(gtx, r, rad, d.th.Bg, d.th.BorderSubtle)
+	inner := clip.UniformRRect(r.Inset(1), rad-1).Push(gtx.Ops)
+	return func() { inner.Pop(); seg.Pop() }
+}
+
+// logID is the fold id of b's work log.
+func logID(s *session.Snapshot, b block) string { return "log:" + s.Content[b.lo].ID }
 
 // logRow is one item of a work log.
 func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
@@ -143,7 +159,7 @@ func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
 		})
 	case session.KindCommandOutput, session.KindFileChangeOutput:
 		return d.foldRow(gtx, it.ID, "terminal", "Output", "", func(gtx layout.Context) layout.Dimensions {
-			return d.outBox(gtx, it.ID, "", plainOutput(it.Text))
+			return d.outBox(gtx, it.ID, "", plainOutput(it.Text), false)
 		})
 	}
 	// Assistant text between calls, and pitwall's own lines.
@@ -170,7 +186,7 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 	c := it.Tool
 	lines := d.diff(it)
 	sum := summarize(c, lines, parseTime(it.CreatedAt), d.t.now)
-	out := plainOutput(c.Output)
+	out := toolOutput(c)
 	body := d.toolBody(it, sum, lines, out)
 	open := body != nil && d.t.toggled(gtx, it.ID, toolOpen(c))
 	running, failed := c.Status == "running", c.Status == "failed"
@@ -192,7 +208,7 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 			}
 			icon(gtx, image.Pt(x+gtx.Dp(1), (hh-gtx.Dp(12))/2), chev, 12, th.Muted)
 		}
-		x += gtx.Dp(14) + gtx.Dp(8)
+		x += gtx.Dp(14) + gtx.Dp(theme.SpaceS)
 		isz := gtx.Dp(14)
 		switch {
 		case running:
@@ -204,7 +220,7 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 		default:
 			icon(gtx, image.Pt(x, (hh-isz)/2), sum.icon, 14, th.Muted)
 		}
-		x += isz + gtx.Dp(8)
+		x += isz + gtx.Dp(theme.SpaceS)
 		vc, vd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, sum.verb)
 		})
@@ -281,11 +297,10 @@ func (d *cdraw) toolBody(it *session.Item, sum toolSummary, lines []diffLine, ou
 		if cmd == "" {
 			cmd = sum.arg
 		}
-		return func(gtx layout.Context) layout.Dimensions { return d.outBox(gtx, it.ID, cmd, out) }
+		live := c.Status == "running"
+		return func(gtx layout.Context) layout.Dimensions { return d.outBox(gtx, it.ID, cmd, out, live) }
 	case out != "":
-		return func(gtx layout.Context) layout.Dimensions { return d.outBox(gtx, it.ID, "", out) }
-	case c.Status == "running" && c.Progress != "":
-		return func(gtx layout.Context) layout.Dimensions { return d.outBox(gtx, it.ID, "", c.Progress) }
+		return func(gtx layout.Context) layout.Dimensions { return d.outBox(gtx, it.ID, "", out, false) }
 	}
 	return nil
 }
@@ -333,8 +348,9 @@ func (d *cdraw) foldRow(gtx layout.Context, id, ic, verb, arg string, body layou
 }
 
 // outBox is a command and its output in mono on a panel, the last lines
-// first with Show all under it, and a copy button.
-func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string) layout.Dimensions {
+// first with Show all under it, and a copy button. A live call with
+// nothing printed yet shows just its command, not "(no output)".
+func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string, live bool) layout.Dimensions {
 	th := d.th
 	all := d.t.open["all:"+id]
 	shown, hidden := out, 0
@@ -346,7 +362,7 @@ func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string) layout.Dimension
 	if cmd != "" {
 		txt = "$ " + cmd + "\n" + shown
 	}
-	if strings.TrimSpace(out) == "" {
+	if strings.TrimSpace(out) == "" && !live {
 		txt = strings.TrimSpace(strings.TrimPrefix(txt, "\n") + "\n(no output)")
 	}
 	w := gtx.Constraints.Max.X
@@ -381,10 +397,10 @@ func (d *cdraw) outBox(gtx layout.Context, id, cmd, out string) layout.Dimension
 	for sk.Clicked(gtx) {
 		d.t.open["all:"+id] = !all
 	}
-	md := at(gtx, image.Pt(0, h+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
+	md := at(gtx, image.Pt(0, h+gtx.Dp(gapShowAll)), func(gtx layout.Context) layout.Dimensions {
 		return d.ghost(gtx, sk, "chevron-down", more, false)
 	})
-	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(4)+md.Size.Y)}
+	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(gapShowAll)+md.Size.Y)}
 }
 
 // diffBox is an edit's hunk: old and new line numbers when the diff gives
@@ -513,10 +529,10 @@ func (d *cdraw) diffBox(gtx layout.Context, id, path string, lines []diffLine) l
 	for sk.Clicked(gtx) {
 		d.t.open["all:"+id] = !all
 	}
-	md := at(gtx, image.Pt(0, h+gtx.Dp(4)), func(gtx layout.Context) layout.Dimensions {
+	md := at(gtx, image.Pt(0, h+gtx.Dp(gapShowAll)), func(gtx layout.Context) layout.Dimensions {
 		return d.ghost(gtx, sk, "chevron-down", more, false)
 	})
-	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(4)+md.Size.Y)}
+	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(gapShowAll)+md.Size.Y)}
 }
 
 // rowFill is a clickable row's Hover fill under the pointer, Pressed while

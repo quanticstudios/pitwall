@@ -338,6 +338,15 @@ func countLines(s string) int {
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)`)
 
+// toolOutput is what a call's opened row shows: its output, or its
+// progress while it runs and has printed nothing yet.
+func toolOutput(c *session.ToolCall) string {
+	if out := plainOutput(c.Output); out != "" || c.Status != "running" {
+		return out
+	}
+	return plainOutput(c.Progress)
+}
+
 // plainOutput is a tool's output without terminal escapes or trailing
 // blank lines.
 func plainOutput(s string) string {
@@ -528,6 +537,23 @@ func turnTimes(s *session.Snapshot, b block, last bool) (start, end time.Time, r
 		end = parseTime(s.Content[b.hi-1].UpdatedAt)
 	}
 	return start, end, running
+}
+
+// runningTurns tells, as turnTimes does, whether a block's turn runs,
+// from one pass over the turns instead of one per block.
+func runningTurns(s *session.Snapshot) func(b block, last bool) bool {
+	known := make(map[string]bool, len(s.Turns))
+	for i := range s.Turns {
+		if _, ok := known[s.Turns[i].ID]; !ok {
+			known[s.Turns[i].ID] = s.Turns[i].State == session.TurnRunning
+		}
+	}
+	return func(b block, last bool) bool {
+		if r, ok := known[b.turn]; ok && b.turn != "" {
+			return r
+		}
+		return last && s.SessionState == session.StateRunning
+	}
 }
 
 func parseTime(s string) time.Time {

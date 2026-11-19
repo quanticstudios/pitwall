@@ -10,23 +10,24 @@ import (
 )
 
 // The chat window's spacing, on the 4 dp grid of the type and spacing
-// spec.
+// spec, built from the theme's steps.
 const (
-	gapTurn    = theme.SpaceXL + theme.SpaceS // the end of a turn to the next prompt
-	gapPrompt  = theme.SpaceL                 // a prompt to its work log
-	gapInTurn  = theme.SpaceM                 // the work log to the reply, the reply to a card
-	gapFoot    = theme.SpaceS                 // a reply to its footer
-	gapPara    = 10                           // between a reply's paragraphs
-	gapItem    = theme.SpaceXS                // between list items
-	gapHeadTop = 20                           // above a heading
-	gapHeadEnd = 6                            // below a heading
-	gapCode    = theme.SpaceM                 // around a code block
-	rowPad     = theme.SpaceM                 // a tool row's sides
-	hit        = 28                           // the smallest control, both ways
-	rowH       = 30                           // a tool row and a header bar
+	gapTurn    = theme.Space2XL                 // the end of a turn to the next prompt
+	gapPrompt  = theme.SpaceL                   // a prompt to its work log
+	gapInTurn  = theme.SpaceM                   // the work log to the reply, the reply to a card
+	gapFoot    = theme.SpaceS                   // a reply to its footer
+	gapPara    = theme.SpaceS + theme.Space2XS  // between a reply's paragraphs
+	gapItem    = theme.SpaceXS                  // between list items
+	gapHeadTop = theme.SpaceL + theme.SpaceXS   // above a heading
+	gapHeadEnd = theme.SpaceXS + theme.Space2XS // below a heading
+	gapCode    = theme.SpaceM                   // around a code block
+	gapShowAll = theme.SpaceXS                  // a box to its Show all
+	rowPad     = theme.SpaceM                   // a tool row's sides
+	hit        = theme.SpaceXL + theme.SpaceXS  // the smallest control, both ways
+	rowH       = hit + theme.Space2XS           // a tool row and a header bar
 	cardPadX   = theme.SpaceL
 	cardPadY   = theme.SpaceM
-	listIndent = 20
+	listIndent = theme.SpaceL + theme.SpaceXS // a list item's indent
 )
 
 // tstyle is how a run of text draws: font, size, color, line height.

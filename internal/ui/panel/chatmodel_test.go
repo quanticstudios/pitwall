@@ -190,3 +190,20 @@ func TestLogTitle(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// TestToolOutput: a running call with no output shows its progress; a
+// finished one shows only its output.
+func TestToolOutput(t *testing.T) {
+	c := &session.ToolCall{Status: "running", Progress: "Compiling 3/8"}
+	if got := toolOutput(c); got != "Compiling 3/8" {
+		t.Fatalf("running: %q", got)
+	}
+	c.Output = "ok"
+	if got := toolOutput(c); got != "ok" {
+		t.Fatalf("with output: %q", got)
+	}
+	c.Status, c.Output = "completed", ""
+	if got := toolOutput(c); got != "" {
+		t.Fatalf("finished: %q", got)
+	}
+}

@@ -135,7 +135,7 @@ func (d *cdraw) card(gtx layout.Context, ic, title string, body layout.Widget) l
 	call, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
 		return vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions {
-				return hrow(gtx, gtx.Dp(8),
+				return hrow(gtx, gtx.Dp(theme.SpaceS),
 					func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, ic, gtx.Dp(14), yellow) },
 					func(gtx layout.Context) layout.Dimensions {
 						return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), yellow, title)

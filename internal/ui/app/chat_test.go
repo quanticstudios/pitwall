@@ -82,3 +82,19 @@ func TestChatTab(t *testing.T) {
 		t.Fatalf("sidebar mark %q", p)
 	}
 }
+
+// TestChatTranscripts: each chat keeps its own transcript across tab
+// switches, and a chat that is gone loses it.
+func TestChatTranscripts(t *testing.T) {
+	var u ui
+	st := &model.State{Chats: []model.Chat{{ID: "a"}, {ID: "b"}}}
+	a, b := u.chatTranscript(st, "a"), u.chatTranscript(st, "b")
+	if a == b || u.chatTranscript(st, "a") != a {
+		t.Fatal("chats share a transcript, or a tab switch made a new one")
+	}
+	st.Chats = st.Chats[:1]
+	u.chatTranscript(st, "a")
+	if _, ok := u.transcripts["b"]; ok || len(u.transcripts) != 1 {
+		t.Fatalf("a closed chat keeps its transcript: %d", len(u.transcripts))
+	}
+}

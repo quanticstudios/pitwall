@@ -28,7 +28,8 @@ import (
 // work log that folds to a line, replies as markdown with copy buttons,
 // and approvals and questions as cards where the chat stopped, answered
 // by their buttons or the number keys. Only the rows in view are laid
-// out, so a 2,000-item chat costs a frame what a short one does.
+// out, so a 2,000-item chat costs a frame what a short one does. One
+// Transcript holds one chat's folds, scroll and picks: keep one per chat.
 type Transcript struct {
 	// Width is the column's widest, [chat] width; 0 uses the whole area.
 	Width unit.Dp
@@ -36,7 +37,6 @@ type Transcript struct {
 	// writes it directly.
 	Copy func(gtx layout.Context, text string)
 
-	chat   string // the chat drawn; another one starts afresh
 	list   layout.List
 	blocks []block
 	rows   []trow
@@ -63,6 +63,7 @@ type Transcript struct {
 	done    []resolved                      // requests answered here, as one line each
 	keyReq  string                          // the approval the number keys answer
 	keyAsk  string                          // else the question they pick in
+	typeIn  *widget.Editor                  // an Other field a key picked, to focus in the next Layout
 	askQs   map[string][]session.Question   // pending questions by request
 	what    map[string]string               // pending approvals' commands, for their line
 	items   int                             // len(Content) this frame
@@ -111,14 +112,29 @@ type ask struct {
 	submit widget.Clickable
 }
 
-// trow is one row of the list: a block, an answered request's line, or
-// what follows the items.
+// trow is one row of the list: a prompt or system line, a piece of a
+// turn, an answered request's line, or what follows the items.
 type trow struct {
-	b    block
-	res  *resolved
-	tail layout.Widget
-	gap  unit.Dp // space above it
+	b       block
+	seg     rowSeg
+	i       int  // segItem: the item
+	last    bool // segHead, segItem: the work log's box ends here
+	open    bool // segHead: the log is open
+	running bool // segHead, segReply: the turn runs
+	res     *resolved
+	tail    layout.Widget
+	gap     unit.Dp // space above it
 }
+
+// rowSeg is which piece of its block a row draws.
+type rowSeg uint8
+
+const (
+	segBlock rowSeg = iota // a prompt or a system line
+	segHead                // a turn's work log header
+	segItem                // an item in an open work log
+	segReply               // a turn's reply
+)
 
 // Answers returns the approvals answered since the last call, once each.
 func (t *Transcript) Answers() []Answer {
@@ -161,7 +177,11 @@ func (t *Transcript) Key(name string) bool {
 		t.sendAsk(t.keyAsk)
 	default:
 		a := t.asks[t.keyAsk]
-		a.pick[t.askQuestion(a)] = act.option
+		q := t.askQuestion(a)
+		a.pick[q] = act.option
+		if act.option == len(a.opts[q])-1 { // Other: type the answer
+			t.typeIn = &a.other[q]
+		}
 	}
 	return true
 }
@@ -177,11 +197,12 @@ func (t *Transcript) askQuestion(a *ask) int {
 	return len(a.pick) - 1
 }
 
-func (t *Transcript) reset(chat string) {
-	*t = Transcript{Width: t.Width, Copy: t.Copy, chat: chat,
-		open: map[string]bool{}, clicks: map[string]*widget.Clickable{}, sels: map[string]*widget.Selectable{},
-		docs: map[string]*reply{}, copied: map[string]time.Time{},
-		answer: map[string]*[3]widget.Clickable{}, sent: map[string]bool{}, asks: map[string]*ask{}}
+// init makes a new Transcript's maps. It sets fields one by one, so the
+// thumbnails' lock, which a decode may hold, is never overwritten.
+func (t *Transcript) init() {
+	t.open, t.clicks, t.sels = map[string]bool{}, map[string]*widget.Clickable{}, map[string]*widget.Selectable{}
+	t.docs, t.copied = map[string]*reply{}, map[string]time.Time{}
+	t.answer, t.sent, t.asks = map[string]*[3]widget.Clickable{}, map[string]bool{}, map[string]*ask{}
 	t.list.Axis = layout.Vertical
 }
 
@@ -208,7 +229,8 @@ func (t *Transcript) sel(id string) *widget.Selectable {
 // whether it is open.
 func (t *Transcript) toggled(gtx layout.Context, id string, def bool) bool {
 	open := isOpen(t.open, id, def)
-	for t.click(id).Clicked(gtx) {
+	c := t.clicks[id]
+	for c != nil && c.Clicked(gtx) {
 		open = !open
 		t.open[id] = open
 	}
@@ -294,8 +316,8 @@ func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 // Layout draws s filling gtx's constraints, with Open in aide in a quiet
 // menu when aide is set.
 func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
-	if t.open == nil || t.chat != s.SessionID {
-		t.reset(s.SessionID)
+	if t.open == nil {
+		t.init()
 	}
 	if t.epoch.IsZero() {
 		t.epoch = gtx.Now
@@ -328,6 +350,10 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 	gioevent.Op(gtx.Ops, &t.focus)
 	bg.Pop()
 	t.keys(gtx)
+	if t.typeIn != nil {
+		gtx.Execute(key.FocusCmd{Tag: t.typeIn})
+		t.typeIn = nil
+	}
 
 	d := &cdraw{t: t, th: th, s: s, sec: gtx.Now.Sub(t.epoch).Seconds()}
 	side := gtx.Dp(theme.SpaceXL)
@@ -338,7 +364,7 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 	d.col, d.proseW = col, proseCap(col, d.avgChar(gtx))
 	x0 := (size.X - col) / 2
 	t.blocks = blocks(s.Content, t.blocks)
-	t.buildRows(d)
+	t.buildRows(gtx, d)
 
 	// It follows the newest row once it overflows, from the end the first
 	// time it does; a short one stays at the top.
@@ -364,6 +390,22 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 			dims = r.tail(gtx)
 		case r.res != nil:
 			dims = d.resolvedLine(gtx, r.res)
+		case r.seg == segHead:
+			if !r.open {
+				t.laid += r.b.hi - r.b.lo
+				if r.b.reply >= 0 {
+					t.laid--
+				}
+			}
+			dims = d.logHead(gtx, r.b, r.open, r.running, r.last)
+		case r.seg == segItem:
+			t.laid++
+			dims = d.logItem(gtx, r.i, r.last)
+		case r.seg == segReply:
+			t.laid++
+			start, end, _ := turnTimes(s, r.b, r.b.hi == len(s.Content))
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			dims = d.reply(gtx, r.b.reply, r.running, start, end)
 		default:
 			t.laid += r.b.hi - r.b.lo
 			dims = d.block(gtx, r.b)
@@ -514,15 +556,39 @@ func (t *Transcript) pickSelection(gtx layout.Context) {
 }
 
 // buildRows lays the blocks, the answered requests' lines and the tail
-// out as the list's rows.
-func (t *Transcript) buildRows(d *cdraw) {
+// out as the list's rows: a turn as its work log's header, each item of
+// the open log, and its reply. It takes the clicks on the logs' headers,
+// so a fold changes the rows in the frame it is clicked.
+func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	t.rows = t.rows[:0]
+	running := runningTurns(d.s)
 	k := 0
 	for _, b := range t.blocks {
 		for ; k < len(t.done) && t.done[k].at <= b.lo; k++ {
 			t.rows = append(t.rows, trow{res: &t.done[k]})
 		}
-		t.rows = append(t.rows, trow{b: b})
+		if b.kind != blockTurn {
+			t.rows = append(t.rows, trow{b: b})
+			continue
+		}
+		run := running(b, b.hi == len(d.s.Content))
+		logged := b.hi - b.lo
+		if b.reply >= 0 {
+			logged--
+		}
+		if logged > 0 || run {
+			open := t.toggled(gtx, logID(d.s, b), logOpen(run, b.failed))
+			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
+			for i := b.lo; open && i < b.hi; i++ {
+				if i != b.reply {
+					t.rows[len(t.rows)-1].last = false
+					t.rows = append(t.rows, trow{b: b, seg: segItem, i: i, last: true})
+				}
+			}
+		}
+		if b.reply >= 0 {
+			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
+		}
 	}
 	for ; k < len(t.done); k++ {
 		t.rows = append(t.rows, trow{res: &t.done[k]})
@@ -536,14 +602,20 @@ func (t *Transcript) buildRows(d *cdraw) {
 }
 
 // rowGap is the space above row i: 32 from the end of a turn to the
-// next prompt, 16 from a prompt to its turn, 12 to anything else.
+// next prompt, 16 from a prompt to its turn, none inside a work log, 12
+// to anything else.
 func rowGap(rows []trow, i int) unit.Dp {
 	if i == 0 {
 		return 0
 	}
 	r, prev := &rows[i], &rows[i-1]
 	prompt := func(r *trow) bool { return r.tail == nil && r.res == nil && r.b.kind == blockPrompt }
+	sameTurn := r.tail == nil && r.res == nil && prev.tail == nil && prev.res == nil && r.b.kind == blockTurn && prev.b.kind == blockTurn && r.b.lo == prev.b.lo
 	switch {
+	case sameTurn && r.seg == segItem:
+		return 0
+	case sameTurn:
+		return gapInTurn
 	case prompt(r):
 		return gapTurn
 	case prompt(prev):

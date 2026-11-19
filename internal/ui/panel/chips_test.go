@@ -93,6 +93,13 @@ func TestRowGap(t *testing.T) {
 			t.Errorf("row %d gap %v, want %v", i, got, want)
 		}
 	}
+	turn := block{kind: blockTurn, lo: 1}
+	rows = []trow{{b: block{kind: blockPrompt}}, {b: turn, seg: segHead}, {b: turn, seg: segItem}, {b: turn, seg: segItem}, {b: turn, seg: segReply}, {b: block{kind: blockPrompt, lo: 9}}}
+	for i, want := range []unit.Dp{0, gapPrompt, 0, 0, gapInTurn, gapTurn} {
+		if got := rowGap(rows, i); got != want {
+			t.Errorf("work log row %d gap %v, want %v", i, got, want)
+		}
+	}
 }
 
 func TestMiddleCut(t *testing.T) {

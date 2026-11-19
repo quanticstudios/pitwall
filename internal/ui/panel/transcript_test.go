@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/io/input"
 	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -171,6 +172,24 @@ func TestTranscriptQuestion(t *testing.T) {
 		t.Fatal("answered twice")
 	}
 
+	// A number key that picks Other puts the keys in its field.
+	s.PendingUserInputs[0].ID = "q2"
+	var r input.Router
+	frame := func() {
+		ops.Reset()
+		tr.Layout(layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 800)), Now: now}, th, s, false)
+		r.Frame(&ops)
+	}
+	frame()
+	if !tr.Key("3") || tr.asks["q2"].pick[0] != 2 {
+		t.Fatal("3 did not pick Other")
+	}
+	frame()
+	frame()
+	if !r.Source().Focused(&tr.asks["q2"].other[0]) {
+		t.Fatal("picking Other by key did not focus its field")
+	}
+
 	typed := &ask{pick: []int{2}, other: make([]widget.Editor, 1)}
 	typed.other[0].SetText("  only the big ones ")
 	if ans, ok := typed.answers(s.PendingUserInputs[0].Questions); !ok || ans["size"][0] != "only the big ones" {
@@ -179,5 +198,51 @@ func TestTranscriptQuestion(t *testing.T) {
 	typed.other[0].SetText("")
 	if _, ok := typed.answers(s.PendingUserInputs[0].Questions); ok {
 		t.Fatal("an empty typed answer sends")
+	}
+}
+
+// longTurn is a prompt and one running turn of n calls.
+func longTurn(n int) *session.Snapshot {
+	turn := "t1"
+	s := &session.Snapshot{SessionID: "0123456789abcdef", Running: true, Turns: []session.TurnSummary{{ID: turn, State: session.TurnRunning}}}
+	s.Content = append(s.Content, session.Item{ID: "p", Kind: session.KindUserPrompt, Text: "fix the build"})
+	for i := range n {
+		s.Content = append(s.Content, session.Item{ID: fmt.Sprint("c", i), Kind: session.KindToolCall, TurnID: &turn,
+			Tool: &session.ToolCall{ToolName: "Bash", Command: fmt.Sprint("go test ./... # ", i), Status: "completed", Output: "ok\nok"}})
+	}
+	return s
+}
+
+// TestTranscriptTurn: a running turn's open work log is a list row per
+// call, so only the calls in view are laid out, and a click on its
+// header folds it to one row.
+func TestTranscriptTurn(t *testing.T) {
+	th := theme.Dark()
+	s := longTurn(2000)
+	var tr Transcript
+	var ops op.Ops
+	now := time.Now()
+	transcriptFrame(&tr, th, s, &ops, now)
+	transcriptFrame(&tr, th, s, &ops, now)
+	if len(tr.rows) != 2002 || tr.laid == 0 || tr.laid > 60 {
+		t.Fatalf("%d rows, laid out %d of 2,000 calls", len(tr.rows), tr.laid)
+	}
+	tr.clicks[logID(s, tr.rows[1].b)].Click()
+	transcriptFrame(&tr, th, s, &ops, now)
+	if len(tr.rows) != 2 || tr.rows[1].seg != segHead || !tr.rows[1].last {
+		t.Fatalf("folded log: %d rows", len(tr.rows))
+	}
+}
+
+// BenchmarkTranscriptTurn is one frame of a running turn of 2,000 calls,
+// its work log open.
+func BenchmarkTranscriptTurn(b *testing.B) {
+	th := theme.Dark()
+	s := longTurn(2000)
+	var tr Transcript
+	var ops op.Ops
+	now := time.Now()
+	for i := 0; b.Loop(); i++ {
+		transcriptFrame(&tr, th, s, &ops, now.Add(time.Duration(i)*time.Millisecond))
 	}
 }

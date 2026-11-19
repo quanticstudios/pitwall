@@ -259,7 +259,7 @@ func (d *cdraw) block(gtx layout.Context, b block) layout.Dimensions {
 		it := &d.s.Content[b.lo]
 		return d.selectable(gtx, d.t.sel(it.ID), d.small(d.th.Muted), it.Text)
 	}
-	return d.turn(gtx, b)
+	return layout.Dimensions{} // a turn draws as its rows, see buildRows
 }
 
 // prompt is a user prompt's bubble on the right, its images under the
@@ -358,7 +358,7 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 		}
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.fileChip(gtx, "file", name) })
 	}
-	return hrow(gtx, gtx.Dp(8), ws...)
+	return hrow(gtx, gtx.Dp(theme.SpaceS), ws...)
 }
 
 // thumbnail is image attachment a, 96 dp tall, with its number.
@@ -415,22 +415,4 @@ func (d *cdraw) fileChip(gtx layout.Context, ic, name string) layout.Dimensions 
 	call.Add(gtx.Ops)
 	o.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
-}
-
-// turn is a turn's work log, then its reply.
-func (d *cdraw) turn(gtx layout.Context, b block) layout.Dimensions {
-	start, end, running := turnTimes(d.s, b, b.hi == len(d.s.Content))
-	logged := b.hi - b.lo
-	if b.reply >= 0 {
-		logged--
-	}
-	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	var log, rep layout.Widget
-	if logged > 0 || running {
-		log = func(gtx layout.Context) layout.Dimensions { return d.workLog(gtx, b, start, end, running) }
-	}
-	if b.reply >= 0 {
-		rep = func(gtx layout.Context) layout.Dimensions { return d.reply(gtx, b.reply, running, start, end) }
-	}
-	return vstack(gtx, gtx.Dp(gapInTurn), log, rep)
 }
