@@ -88,12 +88,19 @@ func (d *cdraw) toolThumb(gtx layout.Context, k string, a session.Attachment) la
 	})
 }
 
+// Zoomed reports whether a picture shows large over the transcript: it
+// holds the keys until it closes, so the composer must not take them.
+func (t *Transcript) Zoomed() bool { return t.tool.zoom.key != "" }
+
 // zoomLayer draws the zoomed picture over the transcript, as large as
 // fits at its own pixels at most; a click or Esc closes it.
 func (t *Transcript) zoomLayer(gtx layout.Context, d *cdraw, size image.Point) {
 	z := &t.tool.zoom
 	if z.key == "" {
 		return
+	}
+	if !gtx.Focused(&t.focus) { // the keys stay here while it shows, so Esc closes it, not the chat's turn
+		gtx.Execute(key.FocusCmd{Tag: &t.focus})
 	}
 	for {
 		ev, ok := gtx.Event(key.Filter{Focus: &t.focus, Name: key.NameEscape})
@@ -208,7 +215,7 @@ func (d *cdraw) linkList(gtx layout.Context, id string, rows []linkRow, noun str
 			return clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
 				box := image.Rect(0, 0, rw, rh)
 				if ck.Hovered() {
-					paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(box, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 				}
 				x := gtx.Dp(8)
 				icon(gtx, image.Pt(x, (rh-gtx.Dp(12))/2), r.icon, 12, th.Muted)

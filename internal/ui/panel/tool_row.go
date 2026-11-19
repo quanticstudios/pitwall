@@ -274,7 +274,7 @@ func (d *cdraw) linkChip(gtx layout.Context, ck *widget.Clickable, txt string, p
 	th := d.th
 	return clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
 		h, px := gtx.Dp(22), gtx.Dp(6)
-		sz := th.Sp(theme.Small)
+		sz := th.Sp(theme.Body)
 		room := max(0, gtx.Constraints.Max.X-2*px)
 		if path {
 			txt = middleCut(txt, room, gtx.Sp(sz)*55/100)
@@ -284,7 +284,7 @@ func (d *cdraw) linkChip(gtx layout.Context, ck *widget.Clickable, txt string, p
 			dir, file = txt[:i+1], txt[i+1:]
 		}
 		hot := ck.Hovered()
-		fg, dim := theme.Mix(th.Fg, th.Bg, 0.12), th.Muted
+		fg, dim := theme.Mix(th.Fg, th.Bg, 0.2), th.Muted
 		if hot {
 			fg, dim = th.Fg, theme.Mix(th.Muted, th.Fg, 0.4)
 		}
@@ -305,7 +305,7 @@ func (d *cdraw) linkChip(gtx layout.Context, ck *widget.Clickable, txt string, p
 			fill = theme.Mix(th.Bg, th.Fg, 0.10)
 		}
 		r := image.Rect(0, 0, w, h)
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(r, gtx.Dp(5)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(r, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		at(gtx, image.Pt(px, (h-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
 		defer clip.Rect(r).Push(gtx.Ops).Pop()
 		pointer.CursorPointer.Add(gtx.Ops)
@@ -393,14 +393,14 @@ func (d *cdraw) shellChip(gtx layout.Context, state string) layout.Dimensions {
 // chip is a small pill: a lead mark, then a label.
 func (d *cdraw) chip(gtx layout.Context, bg, fg color.NRGBA, label string, lead layout.Widget) layout.Dimensions {
 	th := d.th
-	h, px := gtx.Dp(20), gtx.Dp(7)
+	h, px := gtx.Dp(20), gtx.Dp(theme.SpaceS)
 	lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return hrow(gtx, gtx.Dp(5), lead, func(gtx layout.Context) layout.Dimensions {
+		return hrow(gtx, gtx.Dp(theme.SpaceXS), lead, func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), fg, label)
 		})
 	})
 	w := ld.Size.X + 2*px
-	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(0, 0, w, h), h/2).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 	at(gtx, image.Pt(px, (h-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
 	return layout.Dimensions{Size: image.Pt(w, h), Baseline: (h-ld.Size.Y)/2 + ld.Baseline}
 }

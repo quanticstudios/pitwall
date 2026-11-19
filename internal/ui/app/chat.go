@@ -70,7 +70,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
-		env.Focus = env.Focus && focus
+		env.Focus = env.Focus && focus && !t.Zoomed()
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, aide) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
