@@ -27,8 +27,9 @@ func (d *cdraw) agent() string {
 	return "The agent"
 }
 
-// requestWhat is what an approval asks to run or touch, in one line.
-func requestWhat(a session.Approval) string {
+// requestWhat is what an approval asks to run or touch, in one line, a
+// file under dir relative to it.
+func requestWhat(a session.Approval, dir string) string {
 	r := a.Request
 	if r == nil {
 		return firstLine(deref(a.Detail))
@@ -37,7 +38,7 @@ func requestWhat(a session.Approval) string {
 	case r.Command != "":
 		return strings.TrimSpace(r.Command)
 	case r.FilePath != "":
-		return r.FilePath
+		return relPath(dir, r.FilePath)
 	}
 	if arg := flow.ToolArg(session.ToolCall{ToolName: r.ToolName, Input: r.Input}); arg != "" {
 		return r.ToolName + " " + arg
@@ -50,7 +51,7 @@ func requestWhat(a session.Approval) string {
 // as Claude's "Bash: git push" or a provider's "Edit needs approval".
 func approvalWhy(a session.Approval) string {
 	why := strings.TrimSpace(deref(a.Detail))
-	if why == requestWhat(a) || strings.HasSuffix(why, " needs approval") ||
+	if why == requestWhat(a, "") || strings.HasSuffix(why, " needs approval") ||
 		a.Request != nil && a.Request.ToolName != "" && strings.HasPrefix(why, a.Request.ToolName+": ") {
 		return ""
 	}
@@ -171,7 +172,7 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 		bs = new([3]widget.Clickable)
 		d.t.answer[a.ID] = bs
 	}
-	what, why := requestWhat(a), approvalWhy(a)
+	what, why := requestWhat(a, d.t.Dir), approvalWhy(a)
 	return d.card(gtx, "shield", d.requestTitle(a), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return vstack(gtx, gtx.Dp(theme.SpaceS),

@@ -53,7 +53,7 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	if ok {
 		aide := curHost() == "" && findAide() != nil
 		t := u.chatTranscript(st, ws.Chat)
-		t.Width, t.Copy = unit.Dp(u.cfg.Chat.Width), putClipboard
+		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, ws.Path
 		cmp := u.composer(st, ws.Chat)
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(ws.Chat) {

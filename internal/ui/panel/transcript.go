@@ -33,6 +33,9 @@ import (
 type Transcript struct {
 	// Width is the column's widest, [chat] width; 0 uses the whole area.
 	Width unit.Dp
+	// Dir is the chat's folder: tool rows and requests show the paths
+	// under it relative to it.
+	Dir string
 	// Copy puts text on the clipboard: the window's clipboard path. Nil
 	// writes it directly.
 	Copy func(gtx layout.Context, text string)
@@ -437,7 +440,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	}
 	for _, a := range s.PendingApprovals {
 		pending[a.ID] = true
-		t.what[a.ID] = requestWhat(a)
+		t.what[a.ID] = requestWhat(a, t.Dir)
 		if !t.sent[a.ID] {
 			t.keyReq = a.ID
 		}

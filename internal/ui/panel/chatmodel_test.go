@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -205,5 +206,23 @@ func TestToolOutput(t *testing.T) {
 	c.Status, c.Output = "completed", ""
 	if got := toolOutput(c); got != "" {
 		t.Fatalf("finished: %q", got)
+	}
+}
+
+// TestRelPath: a path under the chat's folder reads relative to it, and
+// anything else stays as it came.
+func TestRelPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "acme-api") // absolute on every OS
+	for _, c := range [][3]string{
+		{dir, filepath.Join(dir, "main.go"), "main.go"},
+		{dir, filepath.Join(dir, "internal", "x.go"), filepath.Join("internal", "x.go")},
+		{dir, dir, dir},
+		{dir, filepath.Join(dir+"-old", "main.go"), filepath.Join(dir+"-old", "main.go")},
+		{dir, "main.go", "main.go"},
+		{"", filepath.Join(dir, "main.go"), filepath.Join(dir, "main.go")},
+	} {
+		if got := relPath(c[0], c[1]); got != c[2] {
+			t.Errorf("relPath(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
 	}
 }
