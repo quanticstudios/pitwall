@@ -398,3 +398,26 @@ func TestLocalCommands(t *testing.T) {
 		t.Errorf("prompts %q, %d turns: want the skill alone, one turn", prompts, len(snap.Turns))
 	}
 }
+
+// TestLocalCommandIdle: a built-in Claude Code runs without a turn, and
+// writes no turn_duration for, opens none, even marked as the human's and
+// with nothing after it: the chat stays idle.
+func TestLocalCommandIdle(t *testing.T) {
+	for _, cmd := range []string{"/model</command-name>\n<command-message>model</command-message>\n<command-args>claude-opus-5-5</command-args>",
+		"/effort</command-name>\n<command-message>effort</command-message>\n<command-args>high</command-args>",
+		"/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"} {
+		for _, origin := range []string{"", `"origin":{"kind":"human"},`} {
+			tr := NewTranscript()
+			line, _ := json.Marshal("<command-name>" + cmd)
+			snap := apply(t, base(), tr.Line([]byte(`{"type":"user","uuid":"c1",`+origin+`"timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":`+string(line)+`}}`)))
+			if tr.Running() || len(snap.Turns) != 0 || snap.SessionState == session.StateRunning {
+				t.Errorf("%.8s with origin %q: running %v, %d turns, state %s: want idle", cmd, origin, tr.Running(), len(snap.Turns), snap.SessionState)
+			}
+			for _, it := range snap.Content {
+				if it.Kind == session.KindUserPrompt {
+					t.Errorf("%.8s: a prompt %q", cmd, it.Text)
+				}
+			}
+		}
+	}
+}
