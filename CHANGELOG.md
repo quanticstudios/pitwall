@@ -22,6 +22,13 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Old and huge Claude Code chats open at once instead of hanging on "Reading the chat…". A pane chat reads its transcript from the end, back to the last compaction or the last 200 chat lines within 4 MB, and loads older history in pages as you scroll up, keeping your place. A 300 MB transcript showed after 5 minutes at best, and never when its snapshot passed the 64 MB frame limit; now it shows in 13 ms.
+- Every chat read stays small: long tool output, inputs and replies come as their head and tail with a line counting what is left out, and the whole item loads when you open it. Images come as references and load when shown.
+- A chat that does not load says why, with Try again and Open terminal view, instead of waiting forever. The daemon and the window log a dropped oversized message with its size.
+- Scrolling through a long chat keeps memory flat: the window drops parsed text far off screen.
+
 ## v0.2.18
 
 - A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.
