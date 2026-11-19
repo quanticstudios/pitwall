@@ -194,14 +194,14 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
 // "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
 // and for the phone app "chevron-left", "chevrons-up-down", "settings",
-// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", and "skillshare", its mark in its own colors) in a size box, for
+// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", "panel-right", "ellipsis", and "skillshare", its mark in its own colors) in a size box, for
 // lists outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
 		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
-		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare, "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
+		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare, "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

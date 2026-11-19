@@ -180,6 +180,7 @@ var presets = map[string]struct {
 
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "focus_sidebar": {"Ctrl+Shift+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
+			"chat_terminal":    {"Alt+T"},
 			"view_diff":        {"Ctrl+Shift+R"},
 			"command_palette":  {"Ctrl+Shift+P"},
 			"tab_search":       {"Ctrl+Shift+K"},
@@ -211,6 +212,7 @@ var presets = map[string]struct {
 
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "focus_sidebar": {"Ctrl+Shift+H"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
+			"chat_terminal":    {"Alt+T"},
 			"view_diff":        {"Ctrl+Shift+R"},
 			"command_palette":  {"Ctrl+Shift+P"},
 			"tab_search":       {"Ctrl+Shift+K"},
@@ -244,8 +246,9 @@ var presets = map[string]struct {
 			"scrollback_browser": {"Super+Shift+J"},
 
 			"toggle_sidebar": {"Super+B"}, "focus_sidebar": {"Super+Shift+B"}, "toggle_panel": {"Super+L"}, "open_settings": {"Super+,"},
-			"view_diff":    {"Super+Shift+R"},
-			"allow_prompt": {"Super+Shift+Y"}, "deny_prompt": {"Super+Shift+N"},
+			"chat_terminal": {"Super+Alt+T"},
+			"view_diff":     {"Super+Shift+R"},
+			"allow_prompt":  {"Super+Shift+Y"}, "deny_prompt": {"Super+Shift+N"},
 			"command_palette":  {"Super+Shift+P"},
 			"tab_search":       {"Super+K"},
 			"insert_path":      {"Super+Shift+I"},
