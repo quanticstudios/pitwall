@@ -9,6 +9,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // Ctrl+Backspace and Ctrl+Delete delete a word, as Alt+Backspace does,
@@ -127,5 +128,25 @@ func TestComposerTokenWraps(t *testing.T) {
 		if rg = h.c.ed.Regions(s, s+len([]rune(Token(1))), rg[:0]); len(rg) != 1 {
 			t.Fatalf("prefix %d: the token spans %d lines", n, len(rg))
 		}
+	}
+}
+
+// While Claude works Enter queues and Ctrl+Enter sends now; idle, Ctrl+Enter
+// sends as Enter does.
+func TestComposerSendNow(t *testing.T) {
+	h := newHarness(t)
+	h.typ("idle")
+	if m := h.press(key.NameReturn, key.ModShortcut); len(m) != 1 || m[0].(proto.ChatSend).How != "" {
+		t.Fatalf("idle Ctrl+Enter sent %v", m)
+	}
+	h.snap.SessionState = "running"
+	h.snap.Turns = []session.TurnSummary{{ID: "t1", State: session.TurnRunning}}
+	h.typ("later")
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).How != "queue" {
+		t.Fatalf("busy Enter sent %v", m)
+	}
+	h.typ("now")
+	if m := h.press(key.NameReturn, key.ModShortcut); len(m) != 1 || m[0].(proto.ChatSend).How != "now" || m[0].(proto.ChatSend).Text != "now" {
+		t.Fatalf("busy Ctrl+Enter sent %v", m)
 	}
 }

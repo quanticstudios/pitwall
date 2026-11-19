@@ -36,7 +36,8 @@ import (
 
 // Composer is a desktop chat's send box: a card under the transcript with
 // the draft, its pasted images, and a row with the permission mode, the
-// model and effort, the context meter and Send or Stop. Enter sends,
+// model and effort, the context meter and Send or Stop. Enter sends, or
+// queues while Claude works, Ctrl+Enter sends into the running turn,
 // Shift+Enter adds a line, Shift+Tab cycles the mode, Escape stops the
 // turn. Keep one per chat and its draft survives tab switches.
 type Composer struct {
@@ -348,8 +349,9 @@ func (c *Composer) setMenu(now time.Time, open bool) {
 	}
 }
 
-// submit sends the draft, or queues it behind the running turn.
-func (c *Composer) submit(env Env, now time.Time) {
+// submit sends the draft, or queues it behind the running turn; now sends
+// it into the running turn instead, as Ctrl+Enter does.
+func (c *Composer) submit(env Env, at time.Time, now bool) {
 	text := c.Text()
 	imgs := c.draft.Ordered(text)
 	if strings.TrimSpace(text) == "" && len(imgs) == 0 {
@@ -362,9 +364,12 @@ func (c *Composer) submit(env Env, now time.Time) {
 	m := proto.ChatSend{Chat: env.Chat, Text: text, Attachments: Attachments(imgs)}
 	if env.Snap.Busy() || Pending(env.Snap) {
 		m.How = "queue"
+		if now {
+			m.How = "now"
+		}
 	}
 	c.out = append(c.out, m)
-	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: now}
+	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: at}
 	c.note = ""
 	c.ed.SetText("")
 	c.draft.Clear()
@@ -436,6 +441,8 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		fs := []event.Filter{
 			key.Filter{Focus: ed, Name: key.NameEscape},
 			key.Filter{Focus: ed, Name: key.NameTab, Required: key.ModShift},
+			key.Filter{Focus: ed, Name: key.NameReturn, Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: key.NameEnter, Required: key.ModShortcut},
 		}
 		// A token right before the caret goes whole on Backspace, and on a
 		// word delete with only spaces after it.
@@ -472,6 +479,8 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			}
 		case key.NameTab:
 			c.cycleMode(env, gtx.Now)
+		case key.NameReturn, key.NameEnter:
+			c.submit(env, gtx.Now, true)
 		case key.NameDeleteBackward:
 			if e.Modifiers != 0 {
 				tok = word
@@ -492,7 +501,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			if empty && env.Key != nil && env.Key(string(key.NameReturn)) {
 				break
 			}
-			c.submit(env, gtx.Now)
+			c.submit(env, gtx.Now, false)
 		case widget.ChangeEvent:
 			c.draft.Sync(c.Text())
 			if !c.waiting() && c.Text() != c.noteAt {
@@ -516,7 +525,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		case ButtonStop:
 			c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 		case ButtonSend, ButtonQueue:
-			c.submit(env, gtx.Now)
+			c.submit(env, gtx.Now, false)
 		}
 		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
@@ -913,7 +922,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				b := ButtonOf(env.Snap, c.hasDraft())
 				d := c.send(gtx, th, b)
-				tip := map[Button]string{ButtonSendOff: "Send (Enter)", ButtonSend: "Send (Enter)", ButtonStop: "Stop (Esc)", ButtonQueue: "Queue: sends when Claude finishes (Enter)"}[b]
+				tip := map[Button]string{ButtonSendOff: "Send (Enter)", ButtonSend: "Send (Enter)", ButtonStop: "Stop (Esc)", ButtonQueue: "Queue: sends when Claude finishes (Enter). Send now: Ctrl+Enter"}[b]
 				c.tip(gtx, th, &c.sendBtn, d.Size, tip, true)
 				return d
 			}),

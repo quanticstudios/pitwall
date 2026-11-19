@@ -313,7 +313,7 @@ var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 
 // paneSend types m into pc's pane: pasted text and image paths, with
 // Enter, mid-turn too, where Claude Code queues it and so does the chat
-// until the next prompt line.
+// until the next prompt line; one sent "now" shows no queued row.
 func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
 	sm, err := provide(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
@@ -338,6 +338,9 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		return "", err
 	}
 	if !busy(l.act.State) {
+		return "", nil
+	}
+	if m.How == "now" { // Claude Code takes it into the running turn itself
 		return "", nil
 	}
 	pc.mu.Lock()
