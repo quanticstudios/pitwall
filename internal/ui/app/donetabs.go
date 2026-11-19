@@ -3,6 +3,8 @@ package app
 import (
 	"image"
 	"slices"
+	"strings"
+	"unicode/utf8"
 
 	gl "gioui.org/layout"
 	"gioui.org/op"
@@ -121,10 +123,21 @@ func (u *ui) doneView(st *model.State) string {
 // herdr's toasts: a dot in the state's color, the tab on the first line, what
 // happened on a muted second one. A click on a card jumps to its tab; the ×
 // drops it.
-// noticeBody is a notice's one line: its reply's bold, italic and code in
-// their own fonts, the markers gone.
+// noticeBody is a notice's one line, "label · detail": the detail's bold,
+// italic and code in their own fonts, its markers, a heading's # too,
+// gone.
 func noticeBody(gtx gl.Context, th *theme.Theme, s string) (op.CallOp, image.Point) {
-	txt, styles := mdview.Inline(th, th.UIFont, s)
+	label, detail, ok := strings.Cut(s, " · ")
+	txt, styles := mdview.Inline(th, th.UIFont, detail)
+	if ok {
+		n := utf8.RuneCountInString(label + " · ")
+		for i := range styles {
+			styles[i].Start, styles[i].End = styles[i].Start+n, styles[i].End+n
+		}
+		txt = label + " · " + txt
+	} else {
+		txt, styles = mdview.Inline(th, th.UIFont, s)
+	}
 	m := op.Record(gtx.Ops)
 	mat := op.Record(gtx.Ops)
 	paint.ColorOp{Color: th.Muted}.Add(gtx.Ops)
