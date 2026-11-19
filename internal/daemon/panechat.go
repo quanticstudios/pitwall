@@ -43,6 +43,7 @@ type paneChat struct {
 	// queued are the messages the chat typed mid-turn, which Claude Code
 	// holds until the turn ends; the next prompt line takes them.
 	queued []session.QueuedInput
+	footer bool // the TUI's footer gave the mode at least once
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -50,6 +51,7 @@ type paneLive struct {
 	p    Pane
 	path string
 	cwd  string
+	mode string         // the permission mode its hooks reported (Pane.AgentMode)
 	act  model.Activity // zero State when the pane has none
 }
 
@@ -69,7 +71,7 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		return nil, paneLive{}, false
 	}
 	p := d.st.Panes[i]
-	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd}
+	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode}
 	if ai := d.activityIndex(id); ai >= 0 {
 		l.act = d.st.Activities[ai]
 	}
@@ -188,7 +190,15 @@ func (pc *paneChat) catchUp(l paneLive) {
 	if pc.tr.Running() && a.State != "" && !busy(a.State) && a.UpdatedAt.After(pc.turnStart()) {
 		pc.reduce(pc.tr.End(session.TurnCompleted))
 	}
-	if mode := agent.ClaudeMode(l.p.Snapshot()); mode != "" && mode != pc.snap.PermissionMode {
+	// The footer says the mode the TUI runs in now; the hooks' mode stands
+	// in only until it does, as AgentMode keeps bypass across Shift+Tab.
+	mode := agent.ClaudeMode(l.p.Snapshot())
+	if mode != "" {
+		pc.footer = true
+	} else if !pc.footer {
+		mode = l.mode
+	}
+	if mode != "" && mode != pc.snap.PermissionMode {
 		pc.reduce([]session.Event{{Type: session.EventSettings, Mode: mode}})
 	}
 	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
@@ -376,7 +386,9 @@ func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
 }
 
 // paneSet sets the model or effort through Claude Code's own pickers, for
-// this session only, and moves the mode on with Shift+Tab.
+// this session only. A mode request presses Shift+Tab once, whatever mode
+// it names: the TUI moves to the next of its own modes, bypass included
+// when the session opted in, and the footer reports where it went.
 func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
 	if m.Provider != "" && m.Provider != model.ProviderClaude {
 		return chatError{"unsupported", "this chat is Claude Code in a pane; it cannot switch provider"}

@@ -57,6 +57,7 @@ func TestPaneChat(t *testing.T) {
 	}
 	d.mu.Lock()
 	d.st.Panes[0].Transcript = path
+	d.st.Panes[0].AgentMode = "bypassPermissions" // cdang's: the prompt on screen hides the footer
 	at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
 	d.mu.Unlock()
 
@@ -69,6 +70,10 @@ func TestPaneChat(t *testing.T) {
 	if len(snap.PendingApprovals) != 1 || snap.PendingApprovals[0].ID != strconv.FormatInt(at, 10) ||
 		snap.PendingApprovals[0].Request == nil || snap.PendingApprovals[0].Request.ToolName != "Bash" {
 		t.Fatalf("approvals %+v: want the Bash call's, under the activity's time", snap.PendingApprovals)
+	}
+
+	if snap.PermissionMode != "bypassPermissions" {
+		t.Errorf("mode %q: want the hooks' bypassPermissions until the footer shows", snap.PermissionMode)
 	}
 
 	// Allow presses 1, Deny Esc, on the pane's prompt.
@@ -131,6 +136,14 @@ func TestPaneChat(t *testing.T) {
 	d.chatRequest(context.Background(), proto.ChatInterrupt{Chat: "a"})
 	if got := f.pane(0).got()[before:]; got != "" {
 		t.Errorf("idle interrupt typed %q", got)
+	}
+
+	// Shift+Tab in the chat is one Shift+Tab in the TUI, whatever mode the
+	// chat guessed comes next: the TUI's own cycle decides.
+	before = len(f.pane(0).got())
+	d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "default"})
+	if got := gotAfter(t, f.pane(0), before, 3); got != "\x1b[Z" {
+		t.Errorf("mode press typed %q, want Shift+Tab", got)
 	}
 
 	// Claude exits: its hooks' process leaves, the provider goes, and so
