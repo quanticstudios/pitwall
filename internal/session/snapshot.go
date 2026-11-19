@@ -48,6 +48,7 @@ type Snapshot struct {
 	Usage             *Usage         `json:"usage,omitempty"`
 	UsageReports      []UsageReport  `json:"usageReports,omitempty"`
 	UsageSummary      *UsageSummary  `json:"usageSummary,omitempty"`
+	Commands          []Command      `json:"commands,omitempty"` // the provider's slash commands, pitwall's
 
 	// Extra holds the keys of aide's snapshot that pitwall has no field for.
 	Extra map[string]json.RawMessage `json:"-"`
@@ -231,6 +232,29 @@ type PromptOption struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
 }
+
+// Command is a slash command the provider offers, without its slash.
+// Source is built-in, project, user or plugin when the provider says, else
+// "". Terminal marks a command that needs the provider's own TUI.
+type Command struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Hint        string `json:"hint,omitempty"` // what to type after the name
+	Source      string `json:"source,omitempty"`
+	Terminal    bool   `json:"terminal,omitempty"`
+}
+
+// terminalCommands open an interactive menu, editor or login flow in
+// Claude Code's TUI. A chat has no TUI to show them in, so the chat window
+// sends the user to the tab's terminal instead.
+var terminalCommands = []string{
+	"agents", "config", "doctor", "exit", "export", "hooks", "ide", "install-github-app",
+	"login", "logout", "mcp", "memory", "permissions", "plugin", "privacy-settings",
+	"resume", "rewind", "status", "statusline", "terminal-setup", "theme", "vim",
+}
+
+// TerminalCommand reports whether the slash command name needs the TUI.
+func TerminalCommand(name string) bool { return slices.Contains(terminalCommands, name) }
 
 // QueuedInput is aide's ManagedSessionQueuedInput.
 type QueuedInput struct {

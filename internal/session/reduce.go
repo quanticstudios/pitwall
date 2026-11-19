@@ -197,6 +197,21 @@ func next(s Snapshot, e Event) (Snapshot, bool) {
 			sum := summarize(n.UsageReports)
 			n.UsageSummary = &sum
 		}
+	case EventCommands:
+		n.Commands = nil
+		if len(e.Commands) > 0 {
+			n.Commands = e.Commands
+		}
+	case EventSettings:
+		if e.Model != "" {
+			n.Model = ptr(e.Model)
+		}
+		if e.Mode != "" {
+			n.PermissionMode, n.InteractionMode = e.Mode, "build"
+			if e.Mode == "plan" {
+				n.InteractionMode = "plan"
+			}
+		}
 	case EventContent:
 		var turnID *string
 		if active >= 0 {
@@ -325,6 +340,7 @@ func diff(s, n Snapshot) ([]Delta, bool) {
 		x.Content, x.Turns, x.PendingApprovals, x.PendingUserInputs, x.PlanApproval = nil, nil, nil, nil, nil
 		x.SessionState, x.Running, x.Detail, x.LastCompletedAt = "", false, nil, nil
 		x.Usage, x.UsageReports, x.UsageSummary, x.LastError, x.LastErrorAt = nil, nil, nil, nil, nil
+		x.Commands, x.Model, x.PermissionMode, x.InteractionMode = nil, nil, "", ""
 		return x
 	}
 	if !reflect.DeepEqual(rest(s), rest(n)) {
@@ -389,6 +405,28 @@ func diff(s, n Snapshot) ([]Delta, bool) {
 	}
 	if !eq(s.LastError, n.LastError) || !eq(s.LastErrorAt, n.LastErrorAt) {
 		ds = append(ds, Delta{Type: DeltaError, LastError: n.LastError, LastErrorAt: n.LastErrorAt})
+	}
+	// The settings the chat loop also patches on Set, and the commands.
+	patch, drop := map[string]any{}, []string(nil)
+	if !reflect.DeepEqual(s.Commands, n.Commands) {
+		if len(n.Commands) == 0 {
+			drop = append(drop, "commands")
+		} else {
+			patch["commands"] = n.Commands
+		}
+	}
+	if !eq(s.Model, n.Model) {
+		patch["model"] = n.Model
+	}
+	if s.PermissionMode != n.PermissionMode || s.InteractionMode != n.InteractionMode {
+		patch["permissionMode"], patch["interactionMode"] = n.PermissionMode, n.InteractionMode
+	}
+	if len(patch) > 0 || len(drop) > 0 {
+		b, err := json.Marshal(patch)
+		if err != nil {
+			return nil, false
+		}
+		ds = append(ds, Delta{Type: DeltaSessionPatch, Set: b, Unset: drop})
 	}
 	return ds, true
 }
