@@ -84,6 +84,12 @@ Each change is marked `pitwall` in a comment:
   every run with the OpenType `tnum` feature, so durations, counts and
   table columns keep their width. pitwall's theme turns it on.
 
+- `text/gotext.go`, `shaperImpl.spaces` (new): spaces inside a run of a
+  fallback face shape in the query's first face. go-text keeps a space in
+  the run before it, and Noto Color Emoji's space is 1.25 em, so a space
+  after an emoji left a gap. `internal/ui/theme`'s `TestSpaceAfterEmoji`
+  checks it.
+
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would
 leave its present semaphore signalled, so the patch does not touch it.

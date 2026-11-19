@@ -381,10 +381,10 @@ func (s *shaperImpl) shapeText(ppem fixed.Int26_6, lc system.Locale, txt []rune,
 // split is the segmenter's runs of input, also split where styles start
 // and end, each style's runs in its font and size. pitwall.
 func (s *shaperImpl) split(input shaping.Input, base giofont.Font, styles []Style) []shaping.Input {
-	if len(styles) == 0 {
-		return s.segmenter.Split(input, s)
-	}
 	var out []shaping.Input
+	if len(styles) == 0 {
+		return s.spaces(out, s.segmenter.Split(input, s))
+	}
 	part := func(a, b int, f giofont.Font, scale float32) {
 		if a >= b {
 			return
@@ -395,7 +395,7 @@ func (s *shaperImpl) split(input shaping.Input, base giofont.Font, styles []Styl
 			in.Size = floatToFixed(fixedToFloat(input.Size) * scale)
 		}
 		s.setQuery(f)
-		out = append(out, s.segmenter.Split(in, s)...)
+		out = s.spaces(out, s.segmenter.Split(in, s))
 	}
 	at := input.RunStart
 	for _, st := range styles {
@@ -406,6 +406,35 @@ func (s *shaperImpl) split(input shaping.Input, base giofont.Font, styles []Styl
 	}
 	part(at, input.RunEnd, base, 0)
 	s.setQuery(base)
+	return out
+}
+
+// spaces appends runs to out, the spaces in a run of a fallback face cut
+// into runs of their own in the query's first face. The segmenter keeps a
+// space in the run before it, and a color emoji font's space is 1.25 em
+// wide, so a space after an emoji left a gap. pitwall.
+func (s *shaperImpl) spaces(out, runs []shaping.Input) []shaping.Input {
+	main := s.ResolveFace(' ')
+	for _, r := range runs {
+		if r.Face == nil || main == nil || r.Face == main {
+			out = append(out, r)
+			continue
+		}
+		at := r.RunStart
+		for i := r.RunStart; i <= r.RunEnd; i++ {
+			sp := i < r.RunEnd && r.Text[i] == ' '
+			if i < r.RunEnd && (i == at || sp == (r.Text[at] == ' ')) {
+				continue
+			}
+			c := r
+			c.RunStart, c.RunEnd = at, i
+			if r.Text[at] == ' ' {
+				c.Face = main
+			}
+			out = append(out, c)
+			at = i
+		}
+	}
 	return out
 }
 

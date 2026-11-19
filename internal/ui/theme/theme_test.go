@@ -70,3 +70,24 @@ func TestUIFontFallsBackForMissingGlyphs(t *testing.T) {
 		}
 	}
 }
+
+// A space after an emoji is the UI font's space, not the emoji font's,
+// which is 1.25 em wide.
+func TestSpaceAfterEmoji(t *testing.T) {
+	if _, err := os.Stat(emojiFile); err != nil {
+		t.Skip("no emoji font")
+	}
+	th := Dark()
+	adv := func(s string) []fixed.Int26_6 {
+		th.Shaper.LayoutString(text.Parameters{Font: th.UIFont, PxPerEm: fixed.I(14), MaxWidth: 1000}, s)
+		var out []fixed.Int26_6
+		for g, ok := th.Shaper.NextGlyph(); ok; g, ok = th.Shaper.NextGlyph() {
+			out = append(out, g.Advance)
+		}
+		return out
+	}
+	plain, emoji := adv("a b"), adv("🚀 b")
+	if len(plain) != 3 || len(emoji) != 3 || emoji[1] != plain[1] {
+		t.Errorf("space after an emoji %v, after a letter %v", emoji, plain)
+	}
+}
