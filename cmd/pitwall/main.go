@@ -580,7 +580,7 @@ func stopIncompatibleDaemon(path string) error {
 	if err := terminate(pid); err != nil {
 		return fmt.Errorf("stop old daemon: %w; stop the old daemon with kill %d, then retry", err, pid)
 	}
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(stopWait); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		ok, err := tryLock(lock)
 		if err != nil {
 			return fmt.Errorf("wait for old daemon lock: %w; stop the old daemon with kill %d, then retry", err, pid)
@@ -589,8 +589,13 @@ func stopIncompatibleDaemon(path string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("old daemon %d did not release its lock within 5s; stop the old daemon with kill %d, then retry", pid, pid)
+	return fmt.Errorf("old daemon %d did not release its lock within %s; stop the old daemon with kill %d, then retry", pid, stopWait, pid)
 }
+
+// stopWait is how long a stopped old daemon gets to release its lock, and
+// handshakeWait how long a daemon gets to answer the window's Hello. Vars so
+// tests wait out shorter ones.
+var stopWait, handshakeWait = 5 * time.Second, 2 * time.Second
 
 // startDaemon launches a detached daemon. If another daemon wins the lock,
 // the dial loop connects to that daemon.

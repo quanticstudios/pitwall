@@ -107,14 +107,17 @@ exec sleep 60
 	if err := os.WriteFile(filepath.Join(dir, "bin", "ssh"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	defer func(d time.Duration) { statusTimeout = d }(statusTimeout)
+	statusTimeout = 2 * time.Second
 	var out bytes.Buffer
 	start := time.Now()
 	code := runDoctor(&out)
 	elapsed := time.Since(start)
-	if elapsed > statusTimeout+5*time.Second || elapsed < statusTimeout {
+	// Two hosts checked one after the other would take two timeouts.
+	if elapsed >= 2*statusTimeout || elapsed < statusTimeout {
 		t.Fatalf("doctor took %s, want one %s timeout", elapsed, statusTimeout)
 	}
-	for _, want := range []string{"FAIL host box:", "FAIL host box2:", "ok   host ready:", "timed out after 15s", "https://login.example.com/a/1"} {
+	for _, want := range []string{"FAIL host box:", "FAIL host box2:", "ok   host ready:", "timed out after 2s", "https://login.example.com/a/1"} {
 		if code != 1 || !strings.Contains(out.String(), want) {
 			t.Errorf("doctor exit %d missing %q: %s", code, want, &out)
 		}
