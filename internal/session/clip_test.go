@@ -8,9 +8,9 @@ import (
 )
 
 // TestClip: a long output keeps its head and tail at line ends with a
-// count between, a long input string is cut inside its JSON, images lose
-// their data, short and empty items pass untouched, and a cut never
-// splits a rune.
+// count between, a long input string is cut inside its JSON, images and a
+// result's images lose their data, a subagent's calls are cut too, short
+// and empty items pass untouched, and a cut never splits a rune.
 func TestClip(t *testing.T) {
 	var lines []string
 	for i := range 5000 {
@@ -18,7 +18,8 @@ func TestClip(t *testing.T) {
 	}
 	out := strings.Join(lines, "\n")
 	in, _ := json.Marshal(map[string]any{"file_path": "a.go", "content": out})
-	it := Item{ID: "t", Kind: KindToolCall, Tool: &ToolCall{Output: out, Input: in},
+	it := Item{ID: "t", Kind: KindToolCall, Tool: &ToolCall{Output: out, Input: in,
+		Images: []Attachment{{ID: "png", Kind: "image", Data: strings.Repeat("B", 1<<20)}}, SubagentCalls: []ToolCall{{ToolName: "Write", Input: in}}},
 		Attachments: []Attachment{{ID: "i", Kind: "image", Data: strings.Repeat("A", 1<<20)}}}
 	c := Clip(it, 1024)
 	if !c.Cut || len(c.Tool.Output) > 1100 || !strings.HasPrefix(c.Tool.Output, lines[0]+"\n") || !strings.HasSuffix(c.Tool.Output, "\n"+lines[4999]) {
@@ -30,6 +31,9 @@ func TestClip(t *testing.T) {
 	var got map[string]string
 	if err := json.Unmarshal(c.Tool.Input, &got); err != nil || got["file_path"] != "a.go" || len(got["content"]) > 1100 {
 		t.Fatalf("input %v: %.200s", err, c.Tool.Input)
+	}
+	if c.Tool.Images[0].Data != "" || len(c.Tool.SubagentCalls[0].Input) > 1200 || it.Tool.Images[0].Data == "" || len(it.Tool.SubagentCalls[0].Input) < 1<<16 {
+		t.Fatalf("result image %d bytes, subagent call input %d bytes", len(c.Tool.Images[0].Data), len(c.Tool.SubagentCalls[0].Input))
 	}
 	if c.Attachments[0].Data != "" || it.Attachments[0].Data == "" || it.Tool.Output != out {
 		t.Fatal("Clip kept the image data, or changed the item it was given")
