@@ -45,6 +45,9 @@ type Transcript struct {
 	// Full, when set, reads an item that came cut (session.Item.Cut)
 	// whole, once it is laid out.
 	Full func(item string)
+	// Open opens a link clicked in a reply: a URL, or a file URL for a
+	// path under Dir. Nil leaves links inert.
+	Open func(link string)
 
 	list   layout.List
 	blocks []block

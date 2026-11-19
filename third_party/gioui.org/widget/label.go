@@ -4,6 +4,7 @@ package widget
 
 import (
 	"image"
+	"image/color"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -36,6 +37,15 @@ type Label struct {
 	// LineHeightScale applies a scaling factor to the LineHeight. If zero, a
 	// sensible default will be used.
 	LineHeightScale float32
+	// pitwall: Styles give rune ranges their own font and size, see
+	// text.Parameters.
+	Styles []text.Style
+}
+
+// TextColor paints runes [Start, End) of a text in Color. pitwall.
+type TextColor struct {
+	Start, End int
+	Color      color.NRGBA
 }
 
 // Layout the label with the given shaper, font, size, text, and material.
@@ -68,6 +78,7 @@ func (l Label) LayoutDetailed(gtx layout.Context, lt *text.Shaper, font font.Fon
 		Locale:          gtx.Locale,
 		LineHeight:      lineHeight,
 		LineHeightScale: l.LineHeightScale,
+		Styles:          l.Styles,
 	}, txt)
 	m := op.Record(gtx.Ops)
 	viewport := image.Rectangle{Max: cs.Max}
@@ -126,6 +137,26 @@ type textIterator struct {
 	first bool
 	// baseline tracks the location of the first line of text's baseline.
 	baseline int
+
+	// pitwall: colors are rune ranges painted in their own material, mats
+	// those materials; runes counts the runes before the glyph painted
+	// next, and lineMat is the index of the line's material, -1 for
+	// material.
+	colors  []TextColor
+	mats    []op.CallOp
+	runes   int
+	lineMat int
+}
+
+// colorAt is the index in it.colors of the range rune r is in, -1 for
+// none. pitwall.
+func (it *textIterator) colorAt(r int) int {
+	for i, c := range it.colors {
+		if r >= c.Start && r < c.End {
+			return i
+		}
+	}
+	return -1
 }
 
 // processGlyph checks whether the glyph is visible within the iterator's configured
@@ -203,24 +234,44 @@ func fixedToFloat(i fixed.Int26_6) float32 {
 // to the heap.
 func (it *textIterator) paintGlyph(gtx layout.Context, shaper *text.Shaper, glyph text.Glyph, line []text.Glyph) ([]text.Glyph, bool) {
 	visibleOrBefore := it.processGlyph(glyph, true)
+	mat := -1
+	if len(it.colors) > 0 {
+		mat = it.colorAt(it.runes)
+		if glyph.Flags&text.FlagClusterBreak != 0 {
+			it.runes += int(glyph.Runes)
+		}
+	}
 	if it.visible {
+		if len(line) > 0 && mat != it.lineMat {
+			line = it.paintLine(gtx, shaper, line)
+		}
 		if len(line) == 0 {
 			it.lineOff = f32.Point{X: fixedToFloat(glyph.X), Y: float32(glyph.Y)}.Sub(layout.FPt(it.viewport.Min))
+			it.lineMat = mat
 		}
 		line = append(line, glyph)
 	}
 	if glyph.Flags&text.FlagLineBreak != 0 || cap(line)-len(line) == 0 || !visibleOrBefore {
-		t := op.Affine(f32.AffineId().Offset(it.lineOff)).Push(gtx.Ops)
-		path := shaper.Shape(line)
-		outline := clip.Outline{Path: path}.Op().Push(gtx.Ops)
-		it.material.Add(gtx.Ops)
-		paint.PaintOp{}.Add(gtx.Ops)
-		outline.Pop()
-		if call := shaper.Bitmaps(line); call != (op.CallOp{}) {
-			call.Add(gtx.Ops)
-		}
-		t.Pop()
-		line = line[:0]
+		line = it.paintLine(gtx, shaper, line)
 	}
 	return line, visibleOrBefore
+}
+
+// paintLine paints the glyphs buffered in line and empties it.
+func (it *textIterator) paintLine(gtx layout.Context, shaper *text.Shaper, line []text.Glyph) []text.Glyph {
+	t := op.Affine(f32.AffineId().Offset(it.lineOff)).Push(gtx.Ops)
+	path := shaper.Shape(line)
+	outline := clip.Outline{Path: path}.Op().Push(gtx.Ops)
+	if it.lineMat >= 0 && it.lineMat < len(it.mats) {
+		it.mats[it.lineMat].Add(gtx.Ops)
+	} else {
+		it.material.Add(gtx.Ops)
+	}
+	paint.PaintOp{}.Add(gtx.Ops)
+	outline.Pop()
+	if call := shaper.Bitmaps(line); call != (op.CallOp{}) {
+		call.Add(gtx.Ops)
+	}
+	t.Pop()
+	return line[:0]
 }

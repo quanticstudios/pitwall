@@ -67,6 +67,10 @@ type Selectable struct {
 	// LineHeightScale applies a scaling factor to the LineHeight. If zero, a
 	// sensible default will be used.
 	LineHeightScale float32
+	// pitwall: Styles give rune ranges their own font and size, see
+	// text.Parameters; Colors paint rune ranges in their own color.
+	Styles []text.Style
+	Colors []TextColor
 	// PaintSelectionWhenUnfocused controls whether the selection is highlighted
 	// even when the selectable does not have focus.
 	PaintSelectionWhenUnfocused bool
@@ -192,6 +196,7 @@ func (l *Selectable) Layout(gtx layout.Context, lt *text.Shaper, font font.Font,
 	l.text.MaxLines = l.MaxLines
 	l.text.Truncator = l.Truncator
 	l.text.WrapPolicy = l.WrapPolicy
+	l.text.Styles, l.text.Colors = l.Styles, l.Colors
 	l.text.Layout(gtx, lt, font, size)
 	dims := l.text.Dimensions()
 	defer clip.Rect(image.Rectangle{Max: dims.Size}).Push(gtx.Ops).Pop()

@@ -168,11 +168,15 @@ func (i *InteractiveText) Update(gtx layout.Context) (*InteractiveSpan, Event, b
 
 // SpanStyle describes the appearance of a span of styled text.
 type SpanStyle struct {
-	Font           font.Font
-	Size           unit.Sp
-	Color          color.NRGBA
-	Content        string
-	Interactive    bool
+	Font        font.Font
+	Size        unit.Sp
+	Color       color.NRGBA
+	Content     string
+	Interactive bool
+	// pitwall: Background, Radius and PadY are styledtext's.
+	Background     color.NRGBA
+	Radius         unit.Dp
+	PadY           unit.Dp
 	metadata       map[string]interface{}
 	interactiveIdx int
 }
@@ -255,6 +259,10 @@ func (t TextStyle) Layout(gtx layout.Context) layout.Dimensions {
 			Size:    st.Size,
 			Color:   st.Color,
 			Content: st.Content,
+
+			Background: st.Background,
+			Radius:     st.Radius,
+			PadY:       st.PadY,
 		}
 	}
 	t.State.resize(numInteractive)
