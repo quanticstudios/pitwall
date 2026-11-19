@@ -331,7 +331,7 @@ func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start,
 			},
 			func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Left: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return d.footMeta(gtx, turnOf(d.s, it), when)
+					return d.footMeta(gtx, it, when)
 				})
 			},
 		)

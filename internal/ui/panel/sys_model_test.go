@@ -140,9 +140,12 @@ func TestSettingAndLimit(t *testing.T) {
 
 func TestTurnOf(t *testing.T) {
 	t1 := "t1"
-	s := &session.Snapshot{Content: []session.Item{{ID: "p", TurnID: &t1}, {ID: "a"}, {ID: "b"}}}
+	s := &session.Snapshot{Content: []session.Item{{ID: "p", TurnID: &t1}, {ID: "a", Kind: session.KindAssistantText}, {ID: "b", Kind: session.KindAssistantText}}}
 	if turnOf(s, &s.Content[2]) != "t1" || turnOf(s, &s.Content[0]) != "t1" {
 		t.Error("turnOf")
+	}
+	if lastReply(s, &s.Content[1]) || !lastReply(s, &s.Content[2]) {
+		t.Error("lastReply")
 	}
 	if turnOf(&session.Snapshot{Content: []session.Item{{ID: "x"}}}, &session.Item{}) != "" {
 		t.Error("an item not in the chat has a turn")

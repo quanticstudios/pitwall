@@ -689,16 +689,18 @@ func (d *cdraw) agentCalls(gtx layout.Context, it *session.Item, open bool) layo
 func (d *cdraw) agentResult(gtx layout.Context, id, out string, open bool) layout.Dimensions {
 	th := d.th
 	w := gtx.Constraints.Max.X
-	short, cut := summaryCut(out, 3, 280)
+	key := "result:" + id
+	full := session.Item{ID: key, Text: out}
+	r := d.t.reply(&full)
+	short, cut := summaryCut(r.plain, 3, 280) // the words, not the markdown
+	cut = cut || r.plain != strings.TrimSpace(out) && strings.Count(out, "\n") > 2
 	px := gtx.Dp(rowPad)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px), gtx.Constraints.Max.Y)}
-	key := "result:" + id
 	c, bd := measure(g, func(gtx layout.Context) layout.Dimensions {
 		var ws []layout.Widget
 		if open {
-			full := session.Item{ID: key, Text: out}
-			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, key, d.t.reply(&full)) })
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, key, r) })
 		} else {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
 				return d.selectable(gtx, d.t.sel(key), d.small(theme.Mix(th.Muted, th.Fg, 0.4)), short)
@@ -803,9 +805,13 @@ func (d *cdraw) interrupted(gtx layout.Context) layout.Dimensions {
 
 // footMeta is a finished turn's footer after its time: the tokens and
 // the cost, hover for each model's.
-func (d *cdraw) footMeta(gtx layout.Context, turn, when string) layout.Dimensions {
+func (d *cdraw) footMeta(gtx layout.Context, it *session.Item, when string) layout.Dimensions {
 	th := d.th
-	u := turnUsage(d.s, turn)
+	turn, last := turnOf(d.s, it), lastReply(d.s, it)
+	var u usage
+	if last { // a turn's usage shows once, under its last reply
+		u = turnUsage(d.s, turn)
+	}
 	txt := when
 	if u.in+u.out > 0 {
 		txt = joinDot(txt, count(u.in)+" in · "+count(u.out)+" out")

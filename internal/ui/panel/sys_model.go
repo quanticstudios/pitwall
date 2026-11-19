@@ -310,3 +310,23 @@ func turnOf(s *session.Snapshot, it *session.Item) string {
 	}
 	return ""
 }
+
+// lastReply is whether it is the last reply of its turn: no reply comes
+// after it before another turn or prompt.
+func lastReply(s *session.Snapshot, it *session.Item) bool {
+	turn := turnOf(s, it)
+	i := len(s.Content) - 1
+	for i >= 0 && &s.Content[i] != it {
+		i--
+	}
+	for j := i + 1; j > 0 && j < len(s.Content); j++ {
+		c := &s.Content[j]
+		switch {
+		case c.Kind == session.KindUserPrompt, c.TurnID != nil && *c.TurnID != turn:
+			return true
+		case c.Kind == session.KindAssistantText:
+			return false
+		}
+	}
+	return true
+}
