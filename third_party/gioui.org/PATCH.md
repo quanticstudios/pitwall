@@ -65,6 +65,12 @@ Each change is marked `pitwall` in a comment:
   listener releases its grant when its read on another thread ends; a
   payload the listener does not take has its grant released at once. The
   phone app's `PhotoPick.java` sets the listener.
+- `widget/editor.go`, `Editor.processKey` filters and `Editor.command`:
+  Ctrl+Backspace and Ctrl+Delete (Alt on macOS) delete a word, and Alt with
+  either does too. Upstream handled them after the `ModShortcut` block,
+  which returns first wherever `ModShortcut` and `ModShortcutAlt` are both
+  Ctrl, so off macOS they did nothing. The composer's test
+  `TestComposerWordKeys` covers it.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would
