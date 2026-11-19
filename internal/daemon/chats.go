@@ -149,6 +149,9 @@ func chatResult(id, turn, note string, err error) proto.ChatResult {
 // chatRequest handles a Chat* message and returns the reply for its client
 // alone; false for any other message.
 func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
+	if r, ok := d.paneChatRequest(ctx, m); ok {
+		return r, true
+	}
 	var id string
 	var run func(*chat) (turn, note string, err error)
 	switch m := m.(type) {

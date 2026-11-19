@@ -83,7 +83,7 @@ conventional:
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
 | Ctrl+Shift+H                            | Move the keyboard into the sidebar, or back to the pane   |
 | Ctrl+Shift+L                            | Show or hide the agent panel                              |
-| Alt+T                                   | On a chat tab: flip between the chat and Claude Code's TUI |
+| Alt+T                                   | On a chat tab or a pane running Claude Code: flip between the chat and the TUI |
 | Ctrl+Shift+R                            | Review the tab's changes: comment, then send to its agent |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
@@ -115,9 +115,9 @@ reach the shell. Give `tab_prefix` or `pane_prefix` a chord in config.toml
 or the settings page to use them; their keys are the ones in the aide table.
 The command palette runs their actions either way.
 
-In a chat tab's terminal view, Alt+T (aide and conventional) flips back to
-the chat, so Claude Code's own Alt+T toggle never reaches its TUI. Rebind
-`chat_terminal` to keep it.
+In a chat tab's terminal view, and in any pane running Claude Code, Alt+T
+(aide and conventional) flips to the chat and back, so Claude Code's own
+Alt+T toggle never reaches its TUI. Rebind `chat_terminal` to keep it.
 
 aide:
 
@@ -134,7 +134,7 @@ aide:
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
 | Ctrl+Shift+B                      | Move the keyboard into the sidebar, or back to the pane |
 | Ctrl+Shift+L                      | Show or hide the agent panel                   |
-| Alt+T                             | On a chat tab: flip between the chat and Claude Code's TUI |
+| Alt+T                             | On a chat tab or a pane running Claude Code: flip between the chat and the TUI |
 | Ctrl+Shift+R                      | Review the tab's changes and comment on them   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |

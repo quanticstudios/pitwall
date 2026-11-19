@@ -63,3 +63,19 @@ func TestClaudeSettingsWrapped(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeMode(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"────────\n❯ \n────────\n  ⏵⏵ accept edits on (shift+tab to cycle)", "acceptEdits"},
+		{"────────\n❯ \n────────\n  ⏸ plan mode on (shift+tab to cycle)", "plan"},
+		{"────────\n❯ \n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)", "bypassPermissions"},
+		{"⏺ plan mode on is a phrase\n────────\n❯ \n────────\n  ? for shortcuts", "default"},
+		{"⏺ Working…", ""},
+	} {
+		e := vt.New(100, 10, nil)
+		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))
+		if got := ClaudeMode(e.Snapshot()); got != tc.want {
+			t.Errorf("%q: %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}

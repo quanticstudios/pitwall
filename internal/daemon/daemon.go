@@ -283,6 +283,8 @@ type Daemon struct {
 	radar         radar                  // see radar.go
 	queue         taskQueue              // see task.go
 	phoneSettings map[string]phoneSettings
+	// paneChats are the pane chats a window read, by pane id (panechat.go).
+	paneChats map[string]*paneChat
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
