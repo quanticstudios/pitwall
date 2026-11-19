@@ -74,13 +74,21 @@ Either side can send a control request; the receiver answers with one
 < {"type":"control_response","response":{"subtype":"success","request_id":"req_1","response":{"commands":[...],"models":[...],"account":{"email":"user@example.com","subscriptionType":"Claude Max","apiProvider":"firstParty"},"current_permission_mode":"default","session_state":"idle",...}}}
 ```
 
+`slash_commands` in `system/init` is names without the slash, such as
+`["review","doctor","compact",…]`; `terminal_slash_commands` is the subset
+that needs the TUI (`["doctor","color","focus","reload-plugins"]` in the
+captures). `skills` repeats names from `slash_commands`. Only the
+`initialize` response's `commands` carry a `description`, an
+`argumentHint` and `builtin`.
+
 `initialize` is optional. Every scenario except `basic` and `hooks` skipped
 it and worked. It is the only way to register SDK-style hook callbacks
 (see Hooks).
 
 The CLI prints nothing until the first user message arrives. Then each
 turn emits `system/init` again (with `session_id`, `model`,
-`permissionMode`, `tools`, `mcp_servers`, `capabilities`), then
+`permissionMode`, `tools`, `mcp_servers`, `capabilities`,
+`slash_commands`, `terminal_slash_commands`, `skills` and `agents`), then
 `assistant` and `user` (tool result) messages and one `result`. The first
 turn of a process also carries a `rate_limit_event`. `basic.stdout.jsonl`:
 

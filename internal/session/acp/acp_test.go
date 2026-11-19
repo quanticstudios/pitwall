@@ -107,7 +107,13 @@ type harness struct {
 
 func start(t *testing.T, steps []step, from session.Origin, extra ...string) (*harness, error) {
 	t.Helper()
+	return startWith(t, steps, session.Config{}, from, extra...)
+}
+
+func startWith(t *testing.T, steps []step, cfg session.Config, from session.Origin, extra ...string) (*harness, error) {
+	t.Helper()
 	dir := t.TempDir()
+	cfg.Cwd = dir
 	stepsBytes := bytes.ReplaceAll(raw(steps), []byte(`"CWD"`), raw(dir))
 	path := filepath.Join(dir, "script.json")
 	if err := os.WriteFile(path, stepsBytes, 0600); err != nil {
@@ -120,7 +126,7 @@ func start(t *testing.T, steps []step, from session.Origin, extra ...string) (*h
 	h := &harness{events: make(chan session.Event, 128)}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	h.d, err = (Provider{Command: exe, Args: []string{"--scripted-acp"}, Env: append([]string{"PITWALL_TEST_ACP_SCRIPT=" + path}, extra...)}).Start(ctx, session.Config{Cwd: dir}, from, func(e session.Event) { h.events <- e })
+	h.d, err = (Provider{Command: exe, Args: []string{"--scripted-acp"}, Env: append([]string{"PITWALL_TEST_ACP_SCRIPT=" + path}, extra...)}).Start(ctx, cfg, from, func(e session.Event) { h.events <- e })
 	if err == nil {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -215,6 +221,9 @@ func TestScriptedSession(t *testing.T) {
 			tool = i.Tool
 		}
 	}
+	if !reflect.DeepEqual(snap.Commands, []session.Command{{Name: "review", Description: "Review the diff", Hint: "[target]"}}) {
+		t.Fatalf("commands: %+v", snap.Commands)
+	}
 	if !reflect.DeepEqual(texts, []string{"I will read it.", "Done."}) || tool == nil || tool.Status != "completed" || tool.Output != "file text" || string(tool.Input) != `{"path":"/test/file"}` || len(snap.PendingApprovals) != 0 {
 		t.Fatalf("snapshot: %+v; tool: %+v", snap, tool)
 	}
@@ -304,7 +313,8 @@ func TestNonResumableAndUnsupported(t *testing.T) {
 	if err = h.d.Interrupt(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err = h.d.Answer(context.Background(), "x", nil); !errors.Is(err, session.ErrUnsupported) {
+	var pe *session.ProviderError
+	if err = h.d.Answer(context.Background(), "x", nil); !errors.As(err, &pe) {
 		t.Fatal(err)
 	}
 	if err = h.d.Set(context.Background(), session.Settings{Mode: "auto"}); !errors.Is(err, session.ErrUnsupported) {
@@ -500,5 +510,150 @@ func TestInitializationDeadline(t *testing.T) {
 	_, err = (Provider{Command: exe, Args: []string{"--scripted-acp"}, Env: []string{"PITWALL_TEST_ACP_SCRIPT=" + path}}).Start(ctx, session.Config{Cwd: dir}, session.Origin{}, func(session.Event) {})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("initialization deadline: %v", err)
+	}
+}
+
+// snapshot reduces and applies events as the chat loop does.
+func snapshot(t *testing.T, events []session.Event) session.Snapshot {
+	t.Helper()
+	snap := session.Snapshot{SessionID: "c1"}
+	for _, e := range events {
+		for _, d := range session.Reduce(snap, e) {
+			d.Version, d.SessionID, d.Seq, d.Revision, d.UpdatedAt = session.DeltaVersion, snap.SessionID, snap.Revision+1, snap.Revision+1, e.CreatedAt
+			n, err := session.Apply(&snap, snap.Revision, d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snap = n
+		}
+	}
+	return snap
+}
+
+func modelOption(current string) map[string]any {
+	return map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": current,
+		"options": []map[string]string{{"value": "acme-small", "name": "Small"}, {"value": "acme-large", "name": "Large"}}}
+}
+
+// Commands, modes and the model option: what session/new advertises and
+// later updates reach the snapshot, and Set uses the methods the agent
+// advertised.
+func TestCommandsAndSettings(t *testing.T) {
+	update := func(u map[string]any) json.RawMessage {
+		return notification("session/update", map[string]any{"sessionId": "s1", "update": u})
+	}
+	steps := script(t)[:2]
+	steps[1].Send = []json.RawMessage{
+		update(map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": []any{
+			map[string]any{"name": "review", "description": "Review the diff", "input": map[string]string{"hint": "[target]"}},
+			map[string]any{"name": "init", "description": "Write AGENTS.md"},
+		}}),
+		result(2, map[string]any{"sessionId": "s1",
+			"modes":         map[string]any{"currentModeId": "default", "availableModes": []map[string]string{{"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan"}}},
+			"configOptions": []any{modelOption("acme-small")}}),
+	}
+	steps = append(steps,
+		step{Receive: rpc(3, "session/set_mode", map[string]string{"sessionId": "s1", "modeId": "plan"}),
+			Send: []json.RawMessage{result(3, map[string]any{}), update(map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": "plan"})}},
+		step{Receive: rpc(4, "session/set_config_option", map[string]string{"sessionId": "s1", "configId": "model", "value": "acme-large"}),
+			Send: []json.RawMessage{result(4, map[string]any{"configOptions": []any{modelOption("acme-large")}})}},
+	)
+	h, err := start(t, steps, session.Origin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := h.wait(t, session.EventSettings); e.Mode != "default" || e.Model != "acme-small" {
+		t.Fatalf("advertised settings: %+v", e)
+	}
+	if err = h.d.Set(context.Background(), session.Settings{Mode: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	if e := h.wait(t, session.EventSettings); e.Mode != "plan" {
+		t.Fatalf("mode update: %+v", e)
+	}
+	// Already current: nothing is sent.
+	if err = h.d.Set(context.Background(), session.Settings{Mode: "plan", Model: "acme-small"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = h.d.Set(context.Background(), session.Settings{Model: "acme-large"}); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, session.EventSettings)
+	if err = h.d.Set(context.Background(), session.Settings{Effort: "high"}); !errors.Is(err, session.ErrUnsupported) {
+		t.Fatalf("effort without a thought_level option: %v", err)
+	}
+	snap := snapshot(t, h.all)
+	want := []session.Command{{Name: "review", Description: "Review the diff", Hint: "[target]"}, {Name: "init", Description: "Write AGENTS.md"}}
+	if !reflect.DeepEqual(snap.Commands, want) || snap.PermissionMode != "plan" || snap.InteractionMode != "plan" || snap.Model == nil || *snap.Model != "acme-large" {
+		t.Fatalf("snapshot: commands %+v mode %q model %v", snap.Commands, snap.PermissionMode, snap.Model)
+	}
+}
+
+// A chat that saved settings starts with them where the agent takes them.
+// One it rejects or cannot change leaves a notice, and the chat still
+// starts with the agent's real model and mode.
+func TestStartSettings(t *testing.T) {
+	modeOption := map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "ask", "options": []any{}}
+	steps := script(t)[:2]
+	steps[1].Send = []json.RawMessage{result(2, map[string]any{"sessionId": "s1", "configOptions": []any{modeOption, modelOption("acme-small")}})}
+	steps = append(steps,
+		step{Receive: rpc(3, "session/set_config_option", map[string]string{"sessionId": "s1", "configId": "model", "value": "acme-gone"}),
+			Send: []json.RawMessage{raw(map[string]any{"jsonrpc": "2.0", "id": 3, "error": map[string]any{"code": -32602, "message": "Invalid value for config option model: acme-gone"}})}},
+		step{Receive: rpc(4, "session/set_config_option", map[string]string{"sessionId": "s1", "configId": "mode", "value": "code"}),
+			Send: []json.RawMessage{result(4, map[string]any{})}})
+	h, err := startWith(t, steps, session.Config{Model: "acme-gone", Effort: "high", Mode: "code"}, session.Origin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, session.EventState)
+	h.wait(t, session.EventSettings) // the real settings, after the notices
+	snap := snapshot(t, h.all)
+	var notices []string
+	for _, it := range snap.Content {
+		if it.Kind == session.KindSystem {
+			notices = append(notices, it.Text)
+		}
+	}
+	if snap.Model == nil || *snap.Model != "acme-small" || len(notices) != 2 ||
+		!strings.Contains(notices[0], "model acme-gone") || !strings.Contains(notices[0], "Invalid value") || !strings.Contains(notices[1], "effort high") {
+		t.Fatalf("model %v, notices %q", snap.Model, notices)
+	}
+}
+
+// claude-agent-acp's AskUserQuestion: a form elicitation becomes a
+// question with options, and the answer goes back as accepted content.
+func TestElicitation(t *testing.T) {
+	steps := script(t)[:3]
+	steps[2].Send = []json.RawMessage{rpc("ask-1", "elicitation/create", map[string]any{
+		"mode": "form", "sessionId": "s1", "toolCallId": "toolu_ask", "message": "Which database?",
+		"requestedSchema": json.RawMessage(`{"type":"object","properties":{"question_0":{"type":"string","title":"Database","oneOf":[{"const":"Postgres","title":"Postgres","description":"Relational"},{"const":"Redis","title":"Redis","description":"Key-value"}]},"question_0_custom":{"type":"string","title":"Other","description":"Type your own answer, or add a note to the option you chose above (optional)."},"question_1":{"type":"array","title":"Extras","description":"Which extras?","items":{"anyOf":[{"const":"cache","title":"Cache"},{"const":"queue","title":"Queue"}]}}}}`),
+	})}
+	steps = append(steps, step{Receive: result("ask-1", map[string]any{"action": "accept", "content": map[string]any{"question_0": "Postgres", "question_1": []string{"cache", "queue"}}}),
+		Send: []json.RawMessage{result(3, map[string]string{"stopReason": "end_turn"})}})
+	h, err := start(t, steps, session.Origin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.d.Send(context.Background(), session.Message{Text: "fix it"}); err != nil {
+		t.Fatal(err)
+	}
+	e := h.wait(t, session.EventInputRequested)
+	if e.Detail != "Which database?" || len(e.Questions) != 3 {
+		t.Fatalf("input: %+v", e)
+	}
+	q := e.Questions[0]
+	if q.ID != "question_0" || q.Prompt != "Which database?" || q.Header != "Database" ||
+		!reflect.DeepEqual(q.Options, []session.PromptOption{{ID: "Postgres", Label: "Postgres", Description: "Relational"}, {ID: "Redis", Label: "Redis", Description: "Key-value"}}) {
+		t.Fatalf("question: %+v", q)
+	}
+	if e.Questions[1].ID != "question_0_custom" || len(e.Questions[1].Options) != 0 || e.Questions[2].Prompt != "Which extras?" || len(e.Questions[2].Options) != 2 {
+		t.Fatalf("questions: %+v", e.Questions)
+	}
+	if err = h.d.Answer(context.Background(), e.RequestID, map[string][]string{"question_0": {"Postgres"}, "question_0_custom": {""}, "question_1": {"cache", "queue"}}); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, session.EventInputResolved)
+	if e := h.wait(t, session.EventTurnCompleted); e.State != session.TurnCompleted {
+		t.Fatal(e)
 	}
 }
