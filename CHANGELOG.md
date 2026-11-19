@@ -29,7 +29,7 @@ takes `--dry-run`.
   - A subagent (Task, Agent, Workflow) is a card with its description, type, state, time and tool count. Its calls fold inside it, and its result shows its first lines with Show all. A background subagent stays running until it reports, and parallel ones stack.
   - Thinking is a quiet "Thought for 12s" row that opens to muted italic text. When Claude hides the thinking, the row only says how long.
   - A slash command is a chip on your side, with its output as a quiet block under it. A `!` command is the same. `/model` and `/effort` become a divider, "Switched to Opus 5.5", and so do model, effort and mode changes from the composer or the TUI's footer.
-  - Pasted text is a "Pasted text · 20 lines" chip that opens. Reminders, caveats and other harness text stay hidden. A finished background task is a row, "Background task finished: …".
+  - Pasted text is a "Pasted text · 20 lines" chip that opens. Reminders, caveats and other harness text stay hidden.
   - A stopped turn ends on an Interrupted divider. A compaction is a "Conversation compacted" divider that opens to the summary.
   - API errors, retries and plan limits with their reset time are cards in red or yellow. A hook that blocks a step or gives feedback is a quiet row naming the hook and its verdict.
   - A finished reply's footer adds the turn's tokens in and out and its cost, with each model's breakdown on hover. TUI pane chats now count their tokens too.

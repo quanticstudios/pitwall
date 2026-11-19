@@ -63,11 +63,9 @@ func (d *cdraw) sysItem(gtx layout.Context, it *session.Item, inLog bool) layout
 	case session.PhaseCompact:
 		return pad(func(gtx layout.Context) layout.Dimensions { return d.compaction(gtx, it) })
 	case session.PhaseNotice:
-		ic := "circle-alert"
-		if strings.HasPrefix(txt, "Background task finished") {
-			ic = "check"
-		}
-		return pad(func(gtx layout.Context) layout.Dimensions { return d.quietRow(gtx, it.ID, ic, th.Muted, txt) })
+		return pad(func(gtx layout.Context) layout.Dimensions {
+			return d.quietRow(gtx, it.ID, "circle-alert", th.Muted, txt)
+		})
 	case session.PhaseHook:
 		return pad(func(gtx layout.Context) layout.Dimensions {
 			return d.quietRow(gtx, it.ID, "shield", th.Readable(th.Yellow, th.Bg), txt)

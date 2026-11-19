@@ -27,9 +27,8 @@ func tag(s, name string) (string, bool) {
 type note struct {
 	phase string // a session.Phase*, "" for nothing to show
 	text  string
-	// notified is a <task-notification>'s tool call, "" for none; task is
-	// its task id.
-	notified, task, status, summary, result string
+	// notified is a <task-notification>'s tool call, "" for none.
+	notified, status, summary, result string
 }
 
 var compactLead = "This session is being continued from a previous conversation"
@@ -68,7 +67,6 @@ func harness(text string) note {
 	if in, ok := tag(t, "task-notification"); ok {
 		n := note{}
 		n.notified, _ = tag(in, "tool-use-id")
-		n.task, _ = tag(in, "task-id")
 		n.status, _ = tag(in, "status")
 		n.summary, _ = tag(in, "summary")
 		n.result, _ = tag(in, "result")
@@ -106,26 +104,6 @@ func compactSummary(t string) string {
 		t = t[:i]
 	}
 	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(t), "Summary:"))
-}
-
-// taskLine is a background task's notification as a chat row: Background
-// task finished: what it ran.
-func taskLine(status, summary string) string {
-	verb := "finished"
-	switch status {
-	case "failed":
-		verb = "failed"
-	case "killed", "stopped", "cancelled":
-		verb = "stopped"
-	}
-	what := summary
-	// Claude Code says Background command "X" completed (exit code 0).
-	if _, q, ok := strings.Cut(summary, `"`); ok {
-		if w, _, ok := strings.Cut(q, `"`); ok {
-			what = w
-		}
-	}
-	return "Background task " + verb + ": " + what
 }
 
 // subagentTool reports whether a call runs a subagent: its card shows the

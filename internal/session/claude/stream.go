@@ -37,10 +37,7 @@ type stream struct {
 	// todoList is the task list TaskCreate and TaskUpdate keep, which
 	// lasts the session.
 	todoList []session.Task
-	// background are the tasks started in the background, by task id: the
-	// ones whose end a chat shows.
-	bgTasks map[string]bool
-	compact string // the compaction item whose summary comes next, "" for none
+	compact  string // the compaction item whose summary comes next, "" for none
 	// modelEchoes counts the set_model requests whose "Set model to"
 	// output is still to come; the chat loop already showed each.
 	modelEchoes int
@@ -68,7 +65,7 @@ type ask struct {
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
 		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{},
-		agentsBg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, bgTasks: map[string]bool{}, harnessed: map[string]bool{}}
+		agentsBg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, harnessed: map[string]bool{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -102,13 +99,10 @@ type line struct {
 	Patch  struct {
 		Status string `json:"status"`
 	} `json:"patch"`
-	// system/task_started, task_progress, task_notification: what the
-	// subagent cards and background rows read
-	TaskType        string     `json:"task_type"`
+	// system/task_progress, task_notification: what a subagent card reads
 	Description     string     `json:"description"`
 	Summary         string     `json:"summary"`
 	SummaryIsReport bool       `json:"summary_is_report"`
-	IsBackgrounded  bool       `json:"is_backgrounded"`
 	TaskUsage       *taskUsage `json:"usage"`
 	// system/hook_response
 	HookName string `json:"hook_name"`
@@ -288,11 +282,6 @@ func (s *stream) system(l line) []session.Event {
 			id = l.ToolUseID + ":denied"
 		}
 		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Text: text}}
-	case "task_started":
-		if l.IsBackgrounded && l.TaskType != "local_agent" {
-			s.bgTasks[l.TaskID] = true
-		}
-		return nil
 	case "task_progress":
 		t, ok := s.call(l.ToolUseID)
 		if !ok || !subagentTool(t.ToolName) || l.Description == "" || t.Progress == l.Description {
@@ -304,7 +293,7 @@ func (s *stream) system(l line) []session.Event {
 		// A background shell's call takes its state; a subagent's card
 		// ends; a task started in the background gets its row.
 		out := s.background(l.ToolUseID, l.Status)
-		return append(out, s.taskDone(l.TaskID, l.ToolUseID, l.Status, l.Summary, l.Summary, l.SummaryIsReport, l.UUID)...)
+		return append(out, s.taskDone(l.ToolUseID, l.Status, l.Summary, l.Summary, l.SummaryIsReport)...)
 	case "task_updated":
 		return s.background(s.tasks[l.TaskID], l.Patch.Status)
 	case "compact_boundary":
@@ -319,7 +308,7 @@ func (s *stream) system(l line) []session.Event {
 	case "api_retry":
 		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(l.UUID, "retry:"+strconv.Itoa(l.Attempt)), Kind: session.KindSystem,
 			Phase: session.PhaseWarning, Text: retryLine(l.ErrorStatus, errText(l.Error), l.RetryDelayMS, l.Attempt, l.MaxRetries)}}
-	case "status", "thinking_tokens", "hook_started", "hook_progress", "background_tasks_changed":
+	case "status", "task_started", "thinking_tokens", "hook_started", "hook_progress", "background_tasks_changed":
 		// status's permissionMode echoes a set_permission_mode, which the
 		// chat loop patched when it called Set.
 		return nil
@@ -497,10 +486,10 @@ func (s *stream) put(t session.ToolCall) []session.Event {
 	return []session.Event{{Type: session.EventContent, ItemID: t.CallID, Kind: session.KindToolCall, Tool: &t}}
 }
 
-// taskDone is a task's notification: a background subagent's card ends
-// with its report; a task started in the background gets a row saying it
-// ended; a foreground task's says nothing its call does not.
-func (s *stream) taskDone(task, callID, status, summary, result string, report bool, id string) []session.Event {
+// taskDone is a task's notification for a background subagent: its card
+// ends with its report. A shell's is background's: its own row says it
+// ended, and nothing else does.
+func (s *stream) taskDone(callID, status, summary, result string, report bool) []session.Event {
 	if t, ok := s.call(callID); ok && subagentTool(t.ToolName) {
 		delete(s.agentsBg, callID)
 		t.Status, t.Progress = "completed", ""
@@ -513,12 +502,7 @@ func (s *stream) taskDone(task, callID, status, summary, result string, report b
 		s.tools[callID], s.agents[callID] = t, t
 		return []session.Event{{Type: session.EventContent, ItemID: callID, Kind: session.KindToolCall, Tool: &t}}
 	}
-	if !s.bgTasks[task] {
-		return nil
-	}
-	delete(s.bgTasks, task)
-	return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(id, "task:"+task), Kind: session.KindSystem,
-		Phase: session.PhaseNotice, Text: taskLine(status, summary)}}
+	return nil
 }
 
 // taskList is the task list after a TodoWrite, TaskCreate or TaskUpdate

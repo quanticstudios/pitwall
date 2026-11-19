@@ -709,7 +709,7 @@ goes unreported.
 | `system/init` `slash_commands` | `session.commands` when the names differ from the last list: names only, since `system/init` has no descriptions or hints; `Terminal` from `terminal_slash_commands` and `session.TerminalCommand`. `skills` repeats names already in `slash_commands`, and `agents` are subagent types, not commands, so neither adds any |
 | `system/status` with `permissionMode` | the loop's `session.patch` for `permissionMode` |
 | `system/permission_denied` | a `system` item with the message (not expected with the stdio tool) |
-| `system/task_notification` | a background subagent's call ends with the report; a task started with `is_backgrounded` gets a `system` item, phase `notice`, "Background task finished: …" |
+| `system/task_notification` | a background subagent's call ends with the report; a background shell's call takes its state in `Tool.Background`, which its own row shows |
 | `system/task_progress` | a running subagent's `Tool.Progress` |
 | `system/compact_boundary` | a `system` item, phase `compact`, "Conversation compacted" |
 | `system/hook_response` that is not a success | a `system` item, phase `hook`: "PreToolUse:Bash hook blocked: <stderr>" |
@@ -719,7 +719,7 @@ goes unreported.
 A `system` item's `phase` says what it is, so the desktop chat draws each
 its own way; its text reads on its own for aide and the phone. The phases
 are `command` (a slash or ! command: a chip on the user's side), `output`
-(its output, ANSI kept), `notice`, `compact` ("Conversation compacted",
+(its output, ANSI kept), `notice` (a harness note such as an auto-mode hint), `compact` ("Conversation compacted",
 a blank line, the summary), `setting` (a model, effort or mode change: a
 divider), `warning` (an API retry), `error` (an API error that ended the
 turn) and `hook` (a hook's block or feedback). The chat loop adds a

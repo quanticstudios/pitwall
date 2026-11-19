@@ -105,7 +105,7 @@ func TestStreamHarness(t *testing.T) {
 	}
 	var thinking int
 	var tasks []session.Task
-	var agent *session.ToolCall
+	var agent, shell *session.ToolCall
 	var sys []string
 	compact := ""
 	for _, e := range got {
@@ -116,6 +116,8 @@ func TestStreamHarness(t *testing.T) {
 			tasks = e.Tool.Tasks
 		case e.Tool != nil && e.ItemID == "ag":
 			agent = e.Tool
+		case e.Tool != nil && e.ItemID == "bg":
+			shell = e.Tool
 		case e.Kind == session.KindSystem && e.ItemID == "cb":
 			compact += e.Text
 		case e.Kind == session.KindSystem:
@@ -135,10 +137,12 @@ func TestStreamHarness(t *testing.T) {
 	want := []string{
 		"hook: PreToolUse:Bash hook blocked: Blocked: forbidden commands are not allowed here",
 		"warning: API error 529: overloaded_error · retrying in 4s (attempt 2 of 10)",
-		"notice: Background task finished: Background sleep then print",
 	}
 	if !slices.Equal(sys, want) {
 		t.Errorf("system items %q, want %q", sys, want)
+	}
+	if shell == nil || shell.Background != "completed" {
+		t.Errorf("shell %+v: want its own row to say it ended", shell)
 	}
 	if compact != "Conversation compacted\n\n1. Did things." {
 		t.Errorf("compaction %q", compact)

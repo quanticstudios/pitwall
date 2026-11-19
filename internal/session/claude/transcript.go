@@ -28,7 +28,6 @@ type Transcript struct {
 	// turns the two into one divider; cmdID is its line's uuid.
 	cmd, cmdID string
 	compacted  bool              // a compaction since the last prompt: its /compact needs no chip
-	notifiedOf map[string]bool   // task id and state of each notification shown: Claude Code may queue one, then add it again
 	used       map[string]msgUse // the running turn's API messages' usage, by message id
 	usedOrder  []string
 }
@@ -283,19 +282,13 @@ func (t *Transcript) command(id, text string) session.Event {
 	return session.Event{Type: session.EventContent, ItemID: cmp.Or(id, "cmd:"+text), Kind: session.KindSystem, Phase: session.PhaseCommand, Text: text}
 }
 
-// notified is a <task-notification>: a background subagent's card ends,
-// another task gets its row. One that reaches an idle Claude starts a
-// turn of its own, which Claude Code runs without a prompt.
+// notified is a <task-notification>: a background shell's call takes its
+// state, a background subagent's card ends. One that reaches an idle
+// Claude starts a turn of its own, which Claude Code runs without a
+// prompt.
 func (t *Transcript) notified(l transcriptLine, n note, text string) []session.Event {
-	out := t.s.notice(text) // a background shell's call takes its state
-	if t.notifiedOf == nil {
-		t.notifiedOf = map[string]bool{}
-	}
-	if key := n.task + "/" + n.status; !t.notifiedOf[key] {
-		t.notifiedOf[key] = true
-		t.s.bgTasks[n.task] = true // only a background task notifies
-		out = append(out, t.s.taskDone(n.task, n.notified, n.status, n.summary, n.result, n.result != "", l.UUID)...)
-	}
+	out := t.s.notice(text)
+	out = append(out, t.s.taskDone(n.notified, n.status, n.summary, n.result, n.result != "")...)
 	if l.Origin != nil && l.Origin.Kind == "task-notification" {
 		out = append(t.End(session.TurnCompleted), out...)
 		clear(t.s.blocks)

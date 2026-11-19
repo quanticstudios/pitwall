@@ -187,7 +187,6 @@ func TestTranscriptCommands(t *testing.T) {
 func TestTranscriptTasks(t *testing.T) {
 	_, snap := readTranscript(t, "tui-tasks.jsonl")
 	want := []string{
-		"notice: Background task finished: Sleep then echo in background",
 		"setting: Effort set to high",
 	}
 	if got := systems(snap); !slices.Equal(got, want) {
@@ -260,15 +259,63 @@ func TestAPIError(t *testing.T) {
 	}
 }
 
-// TestNotifiedOnce: a notification Claude Code queued mid-turn and then
-// added as a line of its own shows one row.
-func TestNotifiedOnce(t *testing.T) {
+// TestShellAndSubagentEnd: a background shell and a background subagent
+// end in the same turn, each notification queued mid-turn and then added
+// again as a line of its own: the shell's row and the subagent's card each
+// say so, once, and nothing else shows.
+func TestShellAndSubagentEnd(t *testing.T) {
+	note := func(task, call, summary, result string) string {
+		n := `<task-notification>\n<task-id>` + task + `</task-id>\n<tool-use-id>` + call + `</tool-use-id>\n<status>completed</status>\n<summary>` + summary + `</summary>`
+		if result != "" {
+			n += `\n<result>` + result + `</result>`
+		}
+		return n + `\n</task-notification>`
+	}
+	shell, agent := note("b1", "sh", `Background command \"Sleep\" completed (exit code 0)`, ""), note("a1", "ag", `Agent \"Count\" finished`, "2 notes.txt")
 	tr := NewTranscript()
-	n := `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>x</tool-use-id>\n<status>completed</status>\n<summary>Background command \"Sleep\" completed (exit code 0)</summary>\n</task-notification>`
-	snap := apply(t, base(), tr.Line([]byte(`{"type":"attachment","uuid":"a1","timestamp":"2026-11-19T10:00:00Z","attachment":{"type":"queued_command","prompt":"`+n+`"}}`)))
-	snap = apply(t, snap, tr.Line([]byte(`{"type":"user","uuid":"u1","timestamp":"2026-11-19T10:00:01Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"`+n+`"}}`)))
-	if got := systems(snap); len(got) != 1 || got[0] != "notice: Background task finished: Sleep" {
-		t.Fatalf("rows %q: want one", got)
+	var es []session.Event
+	for _, l := range []string{
+		`{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"go"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"sh","name":"Bash","input":{"command":"sleep 3","run_in_background":true}}]}}`,
+		`{"type":"user","uuid":"u1","timestamp":"2026-11-19T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"sh","content":"Command running in background with ID: b1."}]},"toolUseResult":{"backgroundTaskId":"b1"}}`,
+		`{"type":"assistant","uuid":"a2","timestamp":"2026-11-19T10:00:03Z","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"ag","name":"Agent","input":{"description":"Count"}}]}}`,
+		`{"type":"user","uuid":"u2","timestamp":"2026-11-19T10:00:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"ag","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched"}}`,
+		`{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-19T10:00:05Z","content":"` + shell + `"}`,
+		`{"type":"attachment","uuid":"q1","timestamp":"2026-11-19T10:00:05Z","attachment":{"type":"queued_command","prompt":"` + shell + `"}}`,
+		`{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-19T10:00:06Z","content":"` + agent + `"}`,
+		`{"type":"attachment","uuid":"q2","timestamp":"2026-11-19T10:00:06Z","attachment":{"type":"queued_command","prompt":"` + agent + `"}}`,
+		`{"type":"user","uuid":"n1","timestamp":"2026-11-19T10:00:07Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"` + shell + `"}}`,
+		`{"type":"user","uuid":"n2","timestamp":"2026-11-19T10:00:08Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"` + agent + `"}}`,
+	} {
+		es = append(es, tr.Line([]byte(l))...)
+	}
+	ended := map[string]int{}
+	snap := base()
+	for _, e := range es {
+		switch {
+		case e.Kind == session.KindSystem:
+			t.Errorf("a row of its own: %q", e.Text)
+		case e.Tool != nil && e.ItemID == "sh" && e.Tool.Background == "completed":
+			ended["sh"]++
+		case e.Tool != nil && e.ItemID == "ag" && e.Tool.Status == "completed" && e.Tool.Output == "2 notes.txt":
+			ended["ag"]++
+		}
+	}
+	snap = apply(t, snap, es)
+	if ended["sh"] != 1 {
+		t.Errorf("the shell's row said it ended %d times, want once", ended["sh"])
+	}
+	if ended["ag"] == 0 {
+		t.Error("the subagent's card never ended")
+	}
+	var rows int
+	for _, it := range snap.Content {
+		if it.ID == "sh" || it.ID == "ag" {
+			rows++
+		}
+	}
+	if rows != 2 {
+		t.Errorf("%d rows for the shell and the subagent, want one each", rows)
 	}
 }
 
