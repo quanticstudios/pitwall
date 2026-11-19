@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -265,5 +266,31 @@ func TestPaneChatSettings(t *testing.T) {
 	none.settings(paneLive{conf: t.TempDir()})
 	if none.snap.Effort != nil {
 		t.Errorf("effort %q with no source: want unknown", *none.snap.Effort)
+	}
+}
+
+// A pane chat's context meter reads the last main-thread assistant line's
+// usage, input plus cache creation and reads, out of the model's window:
+// 1M when the TUI names the model's 1M version.
+func TestPaneChatContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T10:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":4000,"cache_read_input_tokens":36000,"output_tokens":90}}}
+{"type":"assistant","uuid":"s1","isSidechain":true,"timestamp":"2026-11-19T10:00:02Z","message":{"id":"m2","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":150000}}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 40002 || u.MaxTokens == nil || *u.MaxTokens != 200_000 {
+		t.Fatalf("usage %+v: want 40002 of 200K, the sidechain's skipped", u)
+	}
+	pc.catchUp(paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 5.5 1M"}})
+	if u := pc.snap.Usage; *u.MaxTokens != 1_000_000 {
+		t.Errorf("window %d with the TUI on Opus 5.5 1M: want 1M", *u.MaxTokens)
+	}
+	if w := contextWindow("claude-opus-5-5[1m]", ""); w != 1_000_000 {
+		t.Errorf("window of a [1m] id: %d", w)
 	}
 }

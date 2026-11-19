@@ -6,11 +6,13 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/gesture"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -47,6 +49,7 @@ type Composer struct {
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
 	modeBtn, modelBtn widget.Clickable
 	effortBtn         widget.Clickable
+	meterBtn          widget.Clickable          // the context meter, for its hover card
 	gone              map[string]bool           // queued messages removed here that the chat still lists
 	rm                map[int]*widget.Clickable // per image, its remove x
 	hov               map[int]*gesture.Hover    // per image, the pointer on its thumbnail
@@ -906,7 +909,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 				if !metered {
 					return layout.Dimensions{}
 				}
-				return meter(gtx, th, used, total)
+				return c.meter(gtx, th, used, total)
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -985,34 +988,37 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 	})
 }
 
-// meter is the context meter: a 46 by 4 bar, yellow from 75%, and the
-// numbers.
-func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimensions {
+// meter is the context meter: a ring that fills with the context used and
+// the percentage beside it, yellow from 75% and red near the auto-compact
+// point. Under the pointer it shows the tokens, the room left before
+// auto-compact and the window.
+func (c *Composer) meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimensions {
 	col := th.Muted
-	if MeterWarn(used, total) {
-		col = th.Yellow
+	switch Level(used, total) {
+	case MeterWarning:
+		col = th.Readable(th.Yellow, th.Surface)
+	case MeterDanger:
+		col = th.Readable(th.Red, th.Surface)
 	}
-	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return row(gtx, gtx.Dp(theme.SpaceS), gtx.Dp(28),
+	pct := Percent(used, total)
+	gtx.Constraints.Min = image.Point{}
+	d := c.meterBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		semantic.LabelOp("Context " + itoa(pct) + "% used").Add(gtx.Ops)
+		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
+		m := op.Record(gtx.Ops)
+		rd := row(gtx, gtx.Dp(6), h,
 			func(gtx layout.Context) layout.Dimensions {
-				sz := image.Pt(gtx.Dp(46), gtx.Dp(4))
-				r := gtx.Dp(2)
-				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: sz}, r).Op(gtx.Ops))
-				fill := int(int64(sz.X) * min(used, total) / total)
-				if fill > 0 {
-					paint.FillShape(gtx.Ops, col, clip.UniformRRect(image.Rect(0, 0, fill, sz.Y), r).Op(gtx.Ops))
-				}
-				return layout.Dimensions{Size: sz}
+				return ring(gtx, gtx.Dp(14), float32(min(used, total))/float32(total), th.BorderStrong, col)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				// shortcut: the shaper has no tabular figures, so the numbers sit
-				// right-aligned in a slot as wide as a wide reading.
+				// shortcut: the shaper has no tabular figures, so the percentage sits
+				// right-aligned in a slot as wide as 100%, and it doesn't jitter.
 				f, sz := medium(th.UIFont), th.Sp(theme.Small)
 				m := op.Record(gtx.Ops)
-				slot := text(gtx, th, f, sz, th.Muted, "888K / 888K").Size.X
+				slot := text(gtx, th, f, sz, col, "100%").Size.X
 				m.Stop()
 				m = op.Record(gtx.Ops)
-				d := text(gtx, th, f, sz, th.Muted, Tokens(used)+" / "+Tokens(total))
+				d := text(gtx, th, f, sz, col, itoa(pct)+"%")
 				call := m.Stop()
 				w := max(slot, d.Size.X)
 				o := op.Offset(image.Pt(w-d.Size.X, 0)).Push(gtx.Ops)
@@ -1020,7 +1026,53 @@ func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimens
 				o.Pop()
 				return layout.Dimensions{Size: image.Pt(w, d.Size.Y), Baseline: d.Baseline}
 			})
+		call := m.Stop()
+		size := image.Pt(rd.Size.X+2*pad, h)
+		ghostFill(gtx, th, &c.meterBtn, size)
+		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		return layout.Dimensions{Size: size}
 	})
+	c.hoverCard(gtx, th, &c.meterBtn, d.Size, true, func(gtx layout.Context) layout.Dimensions {
+		left := AutoCompactAt(total) - used
+		room := Tokens(left) + " left before auto-compact"
+		if left <= 0 {
+			room = "At the auto-compact point"
+		}
+		line := func(f font.Font, size unit.Sp, col color.NRGBA, s string) layout.FlexChild {
+			return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Bottom: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return text(gtx, th, f, size, col, s)
+				})
+			})
+		}
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			line(medium(th.UIFont), th.Sp(theme.Small), th.Muted, "Context"),
+			line(th.UIFont, th.Sp(theme.Body), th.Fg, Tokens(used)+" of "+Tokens(total)+" tokens, "+itoa(pct)+"%"),
+			line(th.UIFont, th.Sp(theme.Small), th.Muted, room),
+			line(th.UIFont, th.Sp(theme.Small), th.Muted, Tokens(total)+" window"),
+		)
+	})
+	return d
+}
+
+// ring is a size by size ring, track colored, with frac of it from the
+// top, clockwise, in col.
+func ring(gtx layout.Context, size int, frac float32, track, col color.NRGBA) layout.Dimensions {
+	w := float32(gtx.Dp(2))
+	in := gtx.Dp(1)
+	paint.FillShape(gtx.Ops, track, clip.Stroke{Path: clip.Ellipse(image.Rect(in, in, size-in, size-in)).Path(gtx.Ops), Width: w}.Op())
+	if frac = min(frac, 0.999); frac > 0 {
+		r := float32(size)/2 - float32(in)
+		ctr := f32.Pt(float32(size)/2, float32(size)/2)
+		var p clip.Path
+		p.Begin(gtx.Ops)
+		p.MoveTo(f32.Pt(ctr.X, ctr.Y-r))
+		p.ArcTo(ctr, ctr, 2*math.Pi*frac)
+		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p.End(), Width: w}.Op())
+	}
+	return layout.Dimensions{Size: image.Pt(size, size)}
 }
 
 // send is the 28dp main button for b: the arrow, dim while the box is

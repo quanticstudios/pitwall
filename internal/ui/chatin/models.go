@@ -134,19 +134,59 @@ func Meter(u *session.Usage) (used, total int64, ok bool) {
 	return *u.ContextTokens, *u.MaxTokens, true
 }
 
-// MeterWarn reports whether the meter turns yellow: at 75% full.
-func MeterWarn(used, total int64) bool { return total > 0 && used*4 >= total*3 }
+// MeterLevel is how the context meter looks: calm, a warning, or danger.
+type MeterLevel uint8
 
-// Tokens is n as the meter writes it: 950, 62K, 1M, 1.5M.
+const (
+	MeterOK MeterLevel = iota
+	MeterWarning
+	MeterDanger
+)
+
+// autoCompactPct is where Claude Code compacts the conversation, in
+// percent of the window.
+// shortcut: Claude Code reports no threshold; 92% is close to where 2.1.x compacts. Read the TUI's own reading if it drifts.
+const autoCompactPct = 92
+
+// AutoCompactAt is the tokens in context at which Claude Code compacts a
+// window of total.
+func AutoCompactAt(total int64) int64 { return total * autoCompactPct / 100 }
+
+// Percent is used out of total in whole percent, rounded down so 99.6%
+// never reads 100%, and kept to 0 through 100.
+func Percent(used, total int64) int {
+	if total <= 0 {
+		return 0
+	}
+	return int(max(0, min(100, used*100/total)))
+}
+
+// Level is the meter's look at used of total: a warning from 75%, danger
+// within 5 points of the auto-compact point.
+func Level(used, total int64) MeterLevel {
+	switch {
+	case total <= 0:
+		return MeterOK
+	case used*100 >= total*(autoCompactPct-5):
+		return MeterDanger
+	case used*4 >= total*3:
+		return MeterWarning
+	}
+	return MeterOK
+}
+
+// Tokens is n as the meter writes it: 950, 84.2k, 200k, 1M, 1.5M.
 func Tokens(n int64) string {
+	one := func(v float64, unit string) string {
+		return strings.TrimSuffix(strconv.FormatFloat(v, 'f', 1, 64), ".0") + unit
+	}
 	switch {
 	case n < 1000:
 		return strconv.FormatInt(n, 10)
-	case n < 999_500:
-		return strconv.FormatInt((n+500)/1000, 10) + "K"
+	case n < 999_950:
+		return one(float64(n)/1e3, "k")
 	}
-	m := strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64)
-	return strings.TrimSuffix(m, ".0") + "M"
+	return one(float64(n)/1e6, "M")
 }
 
 // Pending reports whether s waits on the user: an approval, a question or

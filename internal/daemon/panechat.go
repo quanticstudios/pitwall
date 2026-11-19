@@ -49,6 +49,8 @@ type paneChat struct {
 	footer bool          // the TUI's footer gave the mode at least once
 	tui    phoneSettings // the TUI's model and effort as last put in the snapshot
 	conf   *string       // the effort in Claude Code's user settings, read once
+	ctx    int64         // tokens in context at the last assistant message, 0 before one
+	model  string        // that message's model
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -176,6 +178,9 @@ func (pc *paneChat) catchUp(l paneLive) {
 		}
 		if end := bytes.LastIndexByte(b, '\n'); end >= 0 {
 			for _, line := range bytes.Split(b[:end], []byte("\n")) {
+				if t, m, ok := contextUsage(line); ok {
+					pc.ctx, pc.model = t, m
+				}
 				es := pc.tr.Line(line)
 				if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
 					pc.queued = nil
@@ -242,6 +247,48 @@ func (pc *paneChat) settings(l paneLive) {
 		b, _ := json.Marshal(set)
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: b}}, session.Stamp(time.Now()))
 	}
+	if pc.ctx == 0 {
+		return
+	}
+	w := contextWindow(pc.model, l.tui.model)
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != pc.ctx || u.MaxTokens == nil || *u.MaxTokens != w {
+		ctx := pc.ctx
+		pc.reduce([]session.Event{{Type: session.EventUsage, ContextTokens: &ctx, MaxTokens: &w}})
+	}
+}
+
+// contextUsage is the tokens in context at a main-thread assistant line of
+// a Claude transcript, input and cache creation and cache reads, and the
+// line's model; false for any other line.
+func contextUsage(line []byte) (int64, string, bool) {
+	var l struct {
+		Type        string `json:"type"`
+		IsSidechain bool   `json:"isSidechain"`
+		Message     struct {
+			Model string `json:"model"`
+			Usage *struct {
+				Input         int64 `json:"input_tokens"`
+				CacheCreation int64 `json:"cache_creation_input_tokens"`
+				CacheRead     int64 `json:"cache_read_input_tokens"`
+			} `json:"usage"`
+		} `json:"message"`
+	}
+	if !bytes.Contains(line, []byte(`"usage"`)) || json.Unmarshal(line, &l) != nil || l.Type != "assistant" || l.IsSidechain || l.Message.Usage == nil {
+		return 0, "", false
+	}
+	u := l.Message.Usage
+	t := u.Input + u.CacheCreation + u.CacheRead
+	return t, l.Message.Model, t > 0
+}
+
+// contextWindow is a Claude model's context window: 1M for a [1m] model id
+// or one the TUI names "… 1M", else 200K.
+// shortcut: 200K is Claude Code's window for every other model today; read the TUI's own total if a model's differs.
+func contextWindow(model, tui string) int64 {
+	if strings.HasSuffix(strings.ToLower(model), "[1m]") || strings.HasSuffix(tui, " 1M") {
+		return 1_000_000
+	}
+	return 200_000
 }
 
 // turnStart is when the running turn started, zero for none.
