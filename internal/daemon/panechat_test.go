@@ -191,6 +191,37 @@ func TestPaneChat(t *testing.T) {
 		t.Errorf("image send typed %q: want the text without its token, and the image's path", typed)
 	}
 
+	// A slash command Claude Code's menu offers matches for gets Esc before
+	// Enter, which closes the menu, so Enter sends it as typed, not the
+	// menu's first match. With no menu up, no Esc, which would stop a turn.
+	for _, c := range []struct {
+		text string
+		menu bool
+	}{{"/pwpro", true}, {"/pwprobe twice", false}} {
+		fp.mu.Lock()
+		fp.screen = []string{"────────", "❯ " + c.text, "────────"}
+		if c.menu {
+			fp.screen = append([]string{"  /pwprobe-two  Second probe skill. (user)"}, fp.screen...)
+		}
+		fp.modes.BracketedPaste = true
+		fp.mu.Unlock()
+		before = len(fp.got())
+		if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: c.text}); r.(proto.ChatResult).Code != "" {
+			t.Fatalf("send %q: %+v", c.text, r)
+		}
+		typed := gotAfter(t, fp, before, len(c.text))
+		for deadline := time.Now().Add(2 * time.Second); !strings.HasSuffix(typed, "\r") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			typed = fp.got()[before:]
+		}
+		esc := strings.HasSuffix(strings.TrimSuffix(typed, "\r"), "\x1b")
+		if !strings.Contains(typed, c.text) || !strings.HasSuffix(typed, "\r") || esc != c.menu {
+			t.Errorf("send %q typed %q: want the text, Esc %v, then Enter", c.text, typed, c.menu)
+		}
+	}
+	fp.mu.Lock()
+	fp.screen, fp.modes.BracketedPaste = nil, false
+	fp.mu.Unlock()
+
 	// Claude exits: its hooks' process leaves, the provider goes, and so
 	// does the pane chat.
 	d.mu.Lock()

@@ -84,3 +84,24 @@ func TestClaudeMode(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code 2.1.328's slash menu sits right over the input box; a sent
+// command's echo higher up, or a box with no menu, is none.
+func TestSlashMenu(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want bool
+	}{
+		{"❯ /pwprobe      Probe skill for a pitwall test. (user)\n  /pwprobe-two  Second probe skill. (user)\n────────\n❯ /pwpro\n────────", true},
+		{"  /pwprobe-two  Second probe skill. (user)\n❯ /pwprobe      Probe skill for a pitwall test. (user)\n────────\n❯ /pwpro\n────────", true},
+		{"❯ /pwprobe\n\n● PROBE-OK\n\n────────\n❯ \n────────", false},
+		{"❯ /pwprobe\n────────\n❯ \n────────", false},
+		{"────────\n❯ /pwpro\n────────", false},
+	} {
+		e := vt.New(100, 10, nil)
+		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))
+		if got := SlashMenu(e.Snapshot()); got != tc.want {
+			t.Errorf("%q: %v, want %v", tc.text, got, tc.want)
+		}
+	}
+}
