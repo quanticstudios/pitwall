@@ -6,6 +6,7 @@ import (
 	"math"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -21,6 +22,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/x/richtext"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -52,7 +54,8 @@ type Doc struct {
 	clicks  map[part]*widget.Clickable    // image links
 	graphs  map[*Graph]placed
 	wide    map[int]*Sideways
-	natural map[int][]int // a table's columns, unwrapped
+	tips    map[part]*hoverTip // missing images' tooltips
+	natural map[int][]int      // a table's columns, unwrapped
 	cellOps op.Ops
 	cellTxt richtext.InteractiveText
 }
@@ -69,8 +72,8 @@ type placed struct {
 	pl        Placed
 }
 
-// Pic is an image as a block shows it: Img at Size once loaded, else the
-// line Note in its place.
+// Pic is an image as a block shows it: Img at Size once loaded, else a
+// panel with its name in its place and Note, why, in its tooltip.
 type Pic struct {
 	Img  paint.ImageOp
 	Size image.Point
@@ -88,7 +91,7 @@ type Sideways struct {
 // Set makes b the blocks drawn, dropping the old ones' state.
 func (d *Doc) Set(b []Block) {
 	d.blocks = b
-	d.texts, d.styles, d.clicks, d.wide, d.natural, d.graphs = nil, nil, nil, nil, nil, nil
+	d.texts, d.styles, d.clicks, d.wide, d.natural, d.graphs, d.tips = nil, nil, nil, nil, nil, nil, nil
 }
 
 // Blocks are the blocks drawn.
@@ -573,7 +576,7 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 	sp := gtx.Dp(theme.SpaceS)
 	x, y, rowH := 0, 0, 0
 	for k, im := range b.Imgs {
-		pic := Pic{Note: "Image " + imgName(im) + " not shown"}
+		pic := Pic{Note: "Image not available"}
 		if d.Picture != nil {
 			pic = d.Picture(im, w)
 		}
@@ -598,14 +601,16 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 				t.Pop()
 			}
 		} else {
-			// A panel in the image's place: its icon and why it is not shown.
+			// A panel in the image's place: its icon and its name, and why it
+			// is not shown in a tooltip.
 			px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
 			is := gtx.Sp(th.Sp(theme.Body))
 			lg := gtx
 			lg.Constraints = gl.Constraints{Max: image.Pt(max(0, w-2*px-is-py), 1<<24)}
 			m := op.Record(gtx.Ops)
-			dl := widget.Label{}.Layout(lg, th.Shaper, th.UIFont, th.Sp(theme.Body), pic.Note, colorCall(gtx, th.TextQuiet))
+			dl := widget.Label{}.Layout(lg, th.Shaper, th.UIFont, th.Sp(theme.Body), imgName(im), colorCall(gtx, th.TextQuiet))
 			call := m.Stop()
+			tip := d.tip(part{i, k})
 			sz = image.Pt(dl.Size.X+2*px+is+py, dl.Size.Y+2*py)
 			draw = func(at image.Point) {
 				t := op.Offset(at).Push(gtx.Ops)
@@ -617,6 +622,7 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 				lt := op.Offset(image.Pt(px+is+py, py)).Push(gtx.Ops)
 				call.Add(gtx.Ops)
 				lt.Pop()
+				tip.layout(gtx, th, sz, pic.Note)
 				t.Pop()
 			}
 		}
@@ -850,4 +856,64 @@ func shape(gtx gl.Context, s Shape, r image.Rectangle, fill, ring color.NRGBA, w
 	}
 	paint.FillShape(gtx.Ops, fill, clip.Outline{Path: path}.Op())
 	paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: path, Width: width}.Op())
+}
+
+// tipDelay is how long the pointer rests on a missing image before its
+// tooltip shows, as the type spec sets for tooltips.
+const tipDelay = 500 * time.Millisecond
+
+// hoverTip is a tooltip's hover state: whether the pointer is on its
+// target, and since when.
+type hoverTip struct {
+	h     gesture.Hover
+	since time.Time
+}
+
+// tip is part p's tooltip state, made the first time.
+func (d *Doc) tip(p part) *hoverTip {
+	t := d.tips[p]
+	if t == nil {
+		if d.tips == nil {
+			d.tips = map[part]*hoverTip{}
+		}
+		t = &hoverTip{}
+		d.tips[p] = t
+	}
+	return t
+}
+
+// layout takes hover over a target sz at the origin and, once the
+// pointer has rested on it for tipDelay, draws text under it over
+// everything, as pitwall's tooltips look.
+func (t *hoverTip) layout(gtx gl.Context, th *theme.Theme, sz image.Point, text string) {
+	cl := clip.Rect{Max: sz}.Push(gtx.Ops)
+	on := t.h.Update(gtx.Source)
+	t.h.Add(gtx.Ops)
+	cl.Pop()
+	if !on || text == "" {
+		t.since = time.Time{}
+		return
+	}
+	if t.since.IsZero() {
+		t.since = gtx.Now
+	}
+	if gtx.Now.Sub(t.since) < tipDelay {
+		gtx.Execute(op.InvalidateCmd{At: t.since.Add(tipDelay)})
+		return
+	}
+	m := op.Record(gtx.Ops)
+	lg := gtx
+	lg.Constraints = gl.Constraints{Max: image.Pt(1<<20, 1<<20)}
+	lc := op.Record(gtx.Ops)
+	dl := widget.Label{MaxLines: 1}.Layout(lg, th.Shaper, th.UIFont, th.Sp(theme.Small), text, colorCall(gtx, th.Fg))
+	call := lc.Stop()
+	pad := image.Pt(gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceXS))
+	box := dl.Size.Add(pad.Mul(2))
+	o := op.Offset(image.Pt(0, sz.Y+gtx.Dp(theme.SpaceXS))).Push(gtx.Ops)
+	kit.Surface(gtx, image.Rectangle{Max: box}, gtx.Dp(theme.RadiusControl), kit.Floating, th.BorderStrong, th.SurfaceElevated)
+	lo := op.Offset(pad).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	lo.Pop()
+	o.Pop()
+	op.Defer(gtx.Ops, m.Stop())
 }
