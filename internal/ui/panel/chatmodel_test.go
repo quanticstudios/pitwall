@@ -81,6 +81,20 @@ func TestImageRefs(t *testing.T) {
 	}
 }
 
+// TestImageNo: a prompt's thumbnails take its tokens' numbers, so a draft
+// that lost image #1 shows #2 on both, and images past the tokens count on.
+func TestImageNo(t *testing.T) {
+	refs := imageRefs("What does this say? [Image #2] and [Image #5]")
+	for n, want := range map[int]int{1: 2, 2: 5, 3: 3} {
+		if got := imageNo(refs, n); got != want {
+			t.Errorf("image %d shows #%d, want #%d", n, got, want)
+		}
+	}
+	if got := imageNo(nil, 1); got != 1 {
+		t.Errorf("no tokens: #%d", got)
+	}
+}
+
 // TestProseCap: prose stops near 96 characters in a wide column, and at
 // the column in a narrow one.
 func TestProseCap(t *testing.T) {

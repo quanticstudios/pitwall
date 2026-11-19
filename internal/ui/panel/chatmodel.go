@@ -114,6 +114,16 @@ func imageRefs(s string) []imageRef {
 	return out
 }
 
+// imageNo is the number a prompt's n-th image shows: that of its n-th
+// [Image #N] token, since the composer sends images in token order and
+// keeps a removed image's number, else n.
+func imageNo(refs []imageRef, n int) int {
+	if n >= 1 && n <= len(refs) {
+		return refs[n-1].n
+	}
+	return n
+}
+
 // proseChars is about where reply prose stops, in characters.
 const proseChars = 96
 
