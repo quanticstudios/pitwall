@@ -40,6 +40,21 @@ func TestANSILines(t *testing.T) {
 	}
 }
 
+// TestANSIBounds: colour parameters past a byte cap at 255 instead of
+// wrapping.
+func TestANSIBounds(t *testing.T) {
+	l := ansiLines("\x1b[1;38;2;300;0;70000000000000000000mA\x1b[38;5;999mB\x1b[38;5;256mC")[0]
+	if len(l.spans) != 3 {
+		t.Fatalf("%+v", l.spans)
+	}
+	if c := l.spans[0].rgb; c.R != 255 || c.G != 0 || c.B != 255 || !l.spans[0].bold {
+		t.Errorf("truecolor %+v", l.spans[0])
+	}
+	if l.spans[1].fg != 255 || l.spans[2].fg != 255 {
+		t.Errorf("256 colors %+v %+v", l.spans[1], l.spans[2])
+	}
+}
+
 func TestGrepHits(t *testing.T) {
 	hits, n := grepHits("content", "a/x.go:3:foo\na/x.go-4-ctx\n--\na/y.go:9:foo")
 	if n != 2 || !reflect.DeepEqual(hits, []fileHit{{"a/x.go", 1}, {"a/y.go", 1}}) {

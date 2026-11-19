@@ -129,14 +129,10 @@ func (st sgr) apply(p string) sgr {
 		case n == 39:
 			st.fg = -1
 		case n == 38 && k+2 < len(ps) && ps[k+1] == "5":
-			c, _ := strconv.Atoi(ps[k+2])
-			st.fg = int16(min(max(c, 0), 255))
+			st.fg = int16(channel(ps[k+2]))
 			k += 2
 		case n == 38 && k+4 < len(ps) && ps[k+1] == "2":
-			r, _ := strconv.Atoi(ps[k+2])
-			g, _ := strconv.Atoi(ps[k+3])
-			b, _ := strconv.Atoi(ps[k+4])
-			st.fg, st.rgb = -2, color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 0xff}
+			st.fg, st.rgb = -2, color.NRGBA{R: channel(ps[k+2]), G: channel(ps[k+3]), B: channel(ps[k+4]), A: 0xff}
 			k += 4
 		case n == 48 && k+1 < len(ps): // a background color's parameters
 			if ps[k+1] == "5" {
@@ -147,6 +143,13 @@ func (st sgr) apply(p string) sgr {
 		}
 	}
 	return st
+}
+
+// channel is an SGR color parameter, 0-255: past 255 it is 255, and what
+// is not a number is 0.
+func channel(p string) uint8 {
+	n, _ := strconv.ParseUint(p, 10, 8) // a range error gives 255
+	return uint8(n)
 }
 
 // xterm256 is palette color n past the 16 the theme sets.
