@@ -203,3 +203,24 @@ func TestChatReadWindow(t *testing.T) {
 		t.Fatalf("unknown item: %v", err)
 	}
 }
+
+// TestPaneChatUnreadable: a transcript not written yet reads as an empty
+// chat; one the daemon cannot read answers the first read with why.
+func TestPaneChatUnreadable(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	d.mu.Lock()
+	d.st.Panes[0].Transcript = path
+	d.mu.Unlock()
+	if r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "a"}); r.(proto.ChatDeltas).Snapshot == nil {
+		t.Fatalf("no transcript yet: %+v", r)
+	}
+	os.WriteFile(path, []byte(turnLines(0, "ok")), 0o000)
+	d.mu.Lock()
+	delete(d.paneChats, "a") // a window that reads it first now
+	d.mu.Unlock()
+	r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "a"})
+	if res, ok := r.(proto.ChatResult); !ok || res.Code == "" || !strings.Contains(res.Message, "permission denied") {
+		t.Fatalf("unreadable transcript: %+v", r)
+	}
+}

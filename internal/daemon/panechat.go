@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"slices"
@@ -137,7 +139,9 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		}
 		pc.mu.Lock()
 		defer pc.mu.Unlock()
-		pc.catchUp(l)
+		if err := pc.catchUp(l); err != nil && pc.off == 0 {
+			return chatResult(id, "", "", fmt.Errorf("Pitwall could not read Claude's transcript: %w", err)), true
+		}
 		return pc.read(r.After), true
 	}
 	var note string
@@ -174,13 +178,18 @@ func waits(s model.AgentState) bool {
 }
 
 // catchUp reads what the transcript gained, then brings the turn, the open
-// request and the mode in line with the pane. Callers hold pc.mu.
-func (pc *paneChat) catchUp(l paneLive) {
-	if f, err := os.Open(pc.path); err == nil {
-		if err := pc.readOn(f); err != nil {
-			log.Printf("pane chat %s: transcript: %q", pc.id, err)
-		}
+// request and the mode in line with the pane. It reports why it could not
+// read the transcript; one not written yet reads as empty. Callers hold
+// pc.mu.
+func (pc *paneChat) catchUp(l paneLive) (rerr error) {
+	f, err := os.Open(pc.path)
+	if err == nil {
+		err = pc.readOn(f)
 		f.Close()
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Printf("pane chat %s: transcript: %q", pc.id, err)
+		rerr = err
 	}
 	a := l.act
 	switch {
@@ -212,6 +221,7 @@ func (pc *paneChat) catchUp(l paneLive) {
 		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	}
+	return rerr
 }
 
 // A pane chat reads its transcript from the end: tailBytes back, to the
