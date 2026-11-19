@@ -2,16 +2,19 @@ package app
 
 import (
 	"image"
+	"strconv"
 	"time"
 
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -28,6 +31,22 @@ type Chatter interface {
 // Chat* request on chat id, each once.
 type ChatResulter interface {
 	ChatResults(id string) []chatin.Result
+}
+
+// ChatLoader is optionally implemented by a Chatter: when the window
+// first asked for chat id's transcript, and why none came, "" while one
+// may; ChatRetry asks again.
+type ChatLoader interface {
+	ChatWait(id string) (since time.Time, why string)
+	ChatRetry(id string)
+}
+
+// ChatPager is optionally implemented by a Chatter: ChatOlder reads the
+// page of chat id's history before its oldest item and reports whether
+// there is one; ChatItem reads an item the transcript has cut, whole.
+type ChatPager interface {
+	ChatOlder(id string) bool
+	ChatItem(id, item string)
 }
 
 // ChatPoll is how often the window asks for a live chat's transcript
@@ -49,19 +68,24 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)
 	gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
-	u.chatBody(gtx, st, ch, ws.Chat, ws.Path, true)
+	u.chatBody(gtx, st, ch, ws.Chat, ws.Path, true, func() { u.toggleChatTerminal(st, ws) })
 }
 
 // chatBody draws chat id's transcript with the composer under it, and
 // sends the composer's messages and the requests answered on it. dir is
 // where the transcript's paths are; focus is whether the composer may
-// take the keys, as a pane chat in an unfocused split may not.
-func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir string, focus bool) {
+// take the keys, as a pane chat in an unfocused split may not; term
+// opens the chat's terminal view.
+func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir string, focus bool, term func()) {
 	s, ok := ch.Chat(id)
 	if ok {
 		aide := curHost() == "" && findAide() != nil
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
+		if p, ok := ch.(ChatPager); ok {
+			t.Older = func() bool { return p.ChatOlder(id) }
+			t.Full = func(item string) { p.ChatItem(id, item) }
+		}
 		cmp := u.composer(st, id)
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(id) {
@@ -87,9 +111,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			openAide(findAide())
 		}
 	} else {
-		gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Muted, "Reading the chat…")
-		})
+		u.chatLoading(gtx, ch, id, term)
 	}
 	if c := findChat(st, id); !ok || c != nil && chatLive(c.State) {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(ChatPoll)})
@@ -163,4 +185,45 @@ func findChat(st *model.State, id string) *model.Chat {
 		}
 	}
 	return paneChatOf(st, id)
+}
+
+// chatLoad is the buttons of a chat that did not load.
+type chatLoad struct{ retry, term widget.Clickable }
+
+// chatLoading is chat id while its transcript has not come: a line that
+// counts the seconds it waits, or why it did not come, with Try again and
+// Open terminal view, which term opens.
+func (u *ui) chatLoading(gtx gl.Context, ch Chatter, id string, term func()) {
+	var since time.Time
+	why := ""
+	l, ok := ch.(ChatLoader)
+	if ok {
+		since, why = l.ChatWait(id)
+	}
+	if u.load.retry.Clicked(gtx) && ok {
+		l.ChatRetry(id)
+	}
+	if u.load.term.Clicked(gtx) {
+		term()
+	}
+	gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		if why != "" {
+			return kit.Empty(gtx, u.th, nil, "The chat did not load. "+why, func(gtx gl.Context) gl.Dimensions {
+				return gl.Flex{}.Layout(gtx,
+					gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+						return kit.Button(gtx, u.th, &u.load.term, kit.Secondary, kit.Medium, "Open terminal view")
+					}),
+					gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout),
+					gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+						return kit.Button(gtx, u.th, &u.load.retry, kit.Primary, kit.Medium, "Try again")
+					}),
+				)
+			})
+		}
+		line := "Reading the chat…"
+		if w := gtx.Now.Sub(since); !since.IsZero() && w >= time.Second {
+			line += " " + strconv.Itoa(int(w.Seconds())) + " s"
+		}
+		return kit.Loading(gtx, u.th, line)
+	})
 }

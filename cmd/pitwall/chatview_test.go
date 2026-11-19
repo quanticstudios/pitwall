@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -62,5 +63,81 @@ func TestChatResults(t *testing.T) {
 	}
 	if b.ChatResults("c") != nil || len(b.chatReq) != 0 {
 		t.Fatalf("left %v and %v", b.chatOut, b.chatReq)
+	}
+}
+
+// TestChatCachePages: a snapshot with a cursor reads the page before it
+// once, the page goes before its items, a page asked of an older snapshot
+// is dropped, an item read whole stands in for its cut copy, a snapshot
+// with another cursor drops the pages, and a refused first read or one
+// with no reply says why and asks again on Try again.
+func TestChatCachePages(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	snap := func(ids ...string) []byte {
+		s := session.Snapshot{SessionID: "c", Content: []session.Item{}, Turns: []session.TurnSummary{{ID: "turn-" + ids[0]}}}
+		for _, id := range ids {
+			s.Content = append(s.Content, session.Item{ID: id, Cut: id == "b", Text: id + " cut"})
+		}
+		out, _ := json.Marshal(s)
+		return out
+	}
+	ids := func(s session.Snapshot) (out []string) {
+		for _, it := range s.Content {
+			out = append(out, it.ID+"="+it.Text)
+		}
+		return out
+	}
+	b.Chat("c")
+	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("c", "d"), Seq: 1, Older: 40})
+	if !b.ChatOlder("c") || !b.ChatOlder("c") {
+		t.Fatal("no older history")
+	}
+	reads := 0
+	for _, m := range b.out {
+		if r, ok := m.(proto.ChatRead); ok && r.Before == 40 {
+			reads++
+		}
+	}
+	if reads != 1 {
+		t.Fatalf("%d page reads, want 1: %+v", reads, b.out)
+	}
+	if b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("x"), Page: 99, Older: 1}) {
+		t.Fatal("took a page of another snapshot")
+	}
+	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("a", "b"), Page: 40, Older: 0})
+	s, _ := b.Chat("c")
+	if got := ids(s); !reflect.DeepEqual(got, []string{"a=a cut", "b=b cut", "c=c cut", "d=d cut"}) || len(s.Turns) != 2 || b.ChatOlder("c") {
+		t.Fatalf("after the page: %v, %d turns, more %v", got, len(s.Turns), b.chat.more)
+	}
+	whole, _ := json.Marshal(session.Item{ID: "b", Text: "b whole"})
+	b.ChatItem("c", "b")
+	b.ChatItem("c", "b")
+	b.chat.take(proto.ChatDeltas{Chat: "c", Item: whole})
+	if s, _ := b.Chat("c"); ids(s)[1] != "b=b whole" || len(b.chatReq["c"]) > 4 {
+		t.Fatalf("whole item: %v, %d reads out", ids(s), len(b.chatReq["c"]))
+	}
+	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("e"), Seq: 9, Older: 70})
+	if s, _ := b.Chat("c"); len(s.Content) != 1 || b.chat.more != 70 {
+		t.Fatalf("new cursor: %v, more %d", ids(s), b.chat.more)
+	}
+
+	b2 := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b2.link.Level = proto.Level
+	b2.Chat("x")
+	b2.chatAnswered(proto.ChatResult{Chat: "x", Code: "provider", Message: "transcript: permission denied"})
+	if _, why := b2.ChatWait("x"); why != "transcript: permission denied" || len(b2.ChatResults("x")) != 0 {
+		t.Fatalf("refused read: %q, results %v", why, b2.chatOut)
+	}
+	b2.ChatRetry("x")
+	b2.chat.at = time.Time{}
+	b2.Chat("x")
+	if !b2.chat.out {
+		t.Fatal("Try again sent no read")
+	}
+	b2.chat.at = time.Now().Add(-readWait)
+	b2.Chat("x")
+	if since, why := b2.ChatWait("x"); why == "" || since.IsZero() {
+		t.Fatalf("no reply in %v: %q", readWait, why)
 	}
 }

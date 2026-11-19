@@ -715,6 +715,12 @@ func chatOf(msg any) (string, bool) {
 // ChatSend or refuses any request. b.mu is held.
 func (b *backend) chatAnswered(m proto.ChatResult) {
 	req := b.chatReply(m.Chat)
+	if r, ok := req.(proto.ChatRead); ok && m.Code != "" && m.Code != "not-found" {
+		if m.Chat == b.chat.id {
+			b.chat.refused(r, m.Message)
+		}
+		return
+	}
 	_, send := req.(proto.ChatSend)
 	refused := m.Code != "" && m.Code != "not-found"
 	if !refused && !send {
