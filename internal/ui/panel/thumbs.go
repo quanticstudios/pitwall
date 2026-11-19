@@ -36,6 +36,11 @@ type thumbs struct {
 // get is a's thumbnail, started on first ask; done runs once it is
 // ready, from another goroutine.
 func (c *thumbs) get(key string, a *session.Attachment, done func()) *thumb {
+	return c.getSized(key, a, thumbHeight, done)
+}
+
+// getSized is get for an image decoded at most h pixels tall.
+func (c *thumbs) getSized(key string, a *session.Attachment, h int, done func()) *thumb {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.m == nil {
@@ -48,7 +53,7 @@ func (c *thumbs) get(key string, a *session.Attachment, done func()) *thumb {
 	c.m[key] = t
 	data := a.Data
 	go func() {
-		img, size := decodeThumb(data)
+		img, size := decodeThumb(data, h)
 		c.mu.Lock()
 		t.img, t.size, t.ready = img, size, true
 		c.mu.Unlock()
@@ -66,8 +71,9 @@ func (c *thumbs) snapshot(t *thumb) thumb {
 	return *t
 }
 
-// decodeThumb decodes base64 image data and scales it to thumbHeight.
-func decodeThumb(data string) (paint.ImageOp, image.Point) {
+// decodeThumb decodes base64 image data and scales it to at most height
+// pixels tall.
+func decodeThumb(data string, height int) (paint.ImageOp, image.Point) {
 	b, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return paint.ImageOp{}, image.Point{}
@@ -77,7 +83,7 @@ func decodeThumb(data string) (paint.ImageOp, image.Point) {
 		return paint.ImageOp{}, image.Point{}
 	}
 	sb := src.Bounds()
-	h := min(thumbHeight, sb.Dy())
+	h := min(height, sb.Dy())
 	w := max(1, sb.Dx()*h/sb.Dy())
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, sb, xdraw.Src, nil)
