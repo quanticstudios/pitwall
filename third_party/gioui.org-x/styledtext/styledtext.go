@@ -9,6 +9,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
@@ -21,6 +22,12 @@ type SpanStyle struct {
 	Size    unit.Sp
 	Color   color.NRGBA
 	Content string
+	// pitwall: Background, when not transparent, fills a rounded box
+	// behind the span on each line it takes: Radius its corners, PadY how
+	// far it reaches above the span's ascent and below its descent.
+	Background color.NRGBA
+	Radius     unit.Dp
+	PadY       unit.Dp
 
 	idx int
 }
@@ -35,8 +42,13 @@ type spanShape struct {
 
 // Layout renders the span using the provided text shaping.
 func (ss SpanStyle) Layout(gtx layout.Context, shape spanShape) layout.Dimensions {
-	paint.ColorOp{Color: ss.Color}.Add(gtx.Ops)
 	defer op.Offset(shape.offset).Push(gtx.Ops).Pop()
+	if ss.Background.A != 0 {
+		pad := gtx.Dp(ss.PadY)
+		box := image.Rect(0, -pad, shape.size.X, shape.size.Y+pad)
+		paint.FillShape(gtx.Ops, ss.Background, clip.UniformRRect(box, gtx.Dp(ss.Radius)).Op(gtx.Ops))
+	}
+	paint.ColorOp{Color: ss.Color}.Add(gtx.Ops)
 	shape.call.Add(gtx.Ops)
 	return layout.Dimensions{Size: shape.size}
 }

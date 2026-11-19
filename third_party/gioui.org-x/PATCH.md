@@ -14,3 +14,7 @@ The change is marked `pitwall` in a comment:
 - `styledtext/styledtext.go`, `Layout`: spans of one line share its
   baseline. Upstream drew each span from the line's top, so a span in a
   font with a smaller ascent, such as inline code, rode above the text.
+- `styledtext/styledtext.go`, `SpanStyle.Background` (new), with `Radius`
+  and `PadY`, and the same fields on `richtext.SpanStyle`: a rounded box
+  behind a span on each line it takes, so inline code in a table cell sits
+  on the same pill as in a chat paragraph.
