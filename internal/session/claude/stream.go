@@ -35,6 +35,10 @@ type stream struct {
 	// ones whose end a chat shows.
 	background map[string]bool
 	compact    string // the compaction item whose summary comes next, "" for none
+	// modelEchoes counts the set_model requests whose "Set model to"
+	// output is still to come; the chat loop already showed each.
+	modelEchoes int
+	harnessed   map[string]bool // user lines read as harness text, by uuid: a compaction replays them
 
 	contextModel  string
 	contextTokens *int64
@@ -58,7 +62,7 @@ type ask struct {
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
 		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{},
-		bg: map[string]session.ToolCall{}, background: map[string]bool{}}
+		bg: map[string]session.ToolCall{}, background: map[string]bool{}, harnessed: map[string]bool{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -604,6 +608,12 @@ func (s *stream) renumber(output string) {
 // only a local command's output, and the summary a compaction leaves.
 // The CLI's system lines say the rest.
 func (s *stream) harness(id, text string) []session.Event {
+	if id != "" {
+		if s.harnessed[id] {
+			return nil
+		}
+		s.harnessed[id] = true
+	}
 	n := harness(text)
 	switch {
 	case n.phase == session.PhaseCompact && s.compact != "":
@@ -613,6 +623,10 @@ func (s *stream) harness(id, text string) []session.Event {
 	case n.phase == session.PhaseOutput && n.text != "" && !compacted(n.text):
 		phase, text := n.phase, n.text
 		if t, ok := settingNote(text); ok {
+			if strings.HasPrefix(t, "Switched to ") && s.modelEchoes > 0 {
+				s.modelEchoes--
+				return nil
+			}
 			phase, text = session.PhaseSetting, t
 		}
 		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(id, "out:"+n.text), Kind: session.KindSystem, Phase: phase, Text: text}}

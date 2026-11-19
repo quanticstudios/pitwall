@@ -198,3 +198,22 @@ func TestHarnessMalformed(t *testing.T) {
 		t.Error("hookLine, retryLine or errText")
 	}
 }
+
+// TestStreamEchoes: the output of a set_model the driver sent says
+// nothing the chat loop did not, and a line a compaction replays shows
+// once.
+func TestStreamEchoes(t *testing.T) {
+	s := newStream("s")
+	s.modelEchoes = 1
+	line := `{"type":"user","uuid":"u1","message":{"content":"<local-command-stdout>Set model to claude-opus-5-5</local-command-stdout>"}}`
+	if got := s.line([]byte(line)); len(got) != 0 {
+		t.Fatalf("echo shown: %+v", got)
+	}
+	typed := `{"type":"user","uuid":"u2","message":{"content":"<local-command-stdout>Set model to claude-sonnet-5-5</local-command-stdout>"}}`
+	if got := s.line([]byte(typed)); len(got) != 1 || got[0].Text != "Switched to claude-sonnet-5-5" {
+		t.Fatalf("typed /model: %+v", got)
+	}
+	if got := s.line([]byte(typed)); len(got) != 0 {
+		t.Fatalf("replayed line shown again: %+v", got)
+	}
+}
