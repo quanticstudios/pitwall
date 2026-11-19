@@ -1011,8 +1011,7 @@ func (c *Composer) meter(gtx layout.Context, th *theme.Theme, used, total int64)
 				return ring(gtx, gtx.Dp(14), float32(min(used, total))/float32(total), th.BorderStrong, col)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				// shortcut: the shaper has no tabular figures, so the percentage sits
-				// right-aligned in a slot as wide as 100%, and it doesn't jitter.
+				// why: tabular figures keep each digit's width, but 8% to 80% adds one; a slot as wide as 100% keeps the ring still.
 				f, sz := medium(th.UIFont), th.Sp(theme.Small)
 				m := op.Record(gtx.Ops)
 				slot := text(gtx, th, f, sz, col, "100%").Size.X
