@@ -12,7 +12,8 @@ const ClipBytes = 16 << 10
 
 // Clip is it with each text longer than limit bytes cut to its head and
 // tail around a line saying how many lines it left out, the long strings
-// of a tool's input cut alike, and its images without their data. Cut
+// of a tool's input cut alike, and its images over limit without their
+// data. Cut
 // reports what it left out. A tool's output keeps more of its tail, which
 // the transcript shows first.
 func Clip(it Item, limit int) Item {
@@ -26,7 +27,7 @@ func Clip(it Item, limit int) Item {
 	if len(it.Attachments) > 0 {
 		as := make([]Attachment, len(it.Attachments))
 		for i, a := range it.Attachments {
-			if a.Data != "" {
+			if len(a.Data) > limit {
 				a.Data, cut = "", true
 			}
 			a.Text = clip(a.Text)

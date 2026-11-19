@@ -227,3 +227,31 @@ func TestPaneChatUnreadable(t *testing.T) {
 		t.Fatalf("unreadable transcript: %+v", r)
 	}
 }
+
+// TestPaneChatImage: a prompt's pasted image comes without its data in
+// the snapshot, and whole when the window asks for the item.
+func TestPaneChatImage(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	data := strings.Repeat("iVBORw0K", 4096)
+	line := `{"type":"user","uuid":"p1","timestamp":"2026-11-18T10:00:00Z","message":{"role":"user","content":[` +
+		`{"type":"text","text":"what is this [Image #1]"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + data + `"}}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Transcript = path
+	d.mu.Unlock()
+	r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "a"})
+	var s session.Snapshot
+	json.Unmarshal(r.(proto.ChatDeltas).Snapshot, &s)
+	if len(s.Content) == 0 || len(s.Content[0].Attachments) != 1 || s.Content[0].Attachments[0].Data != "" || !s.Content[0].Cut {
+		t.Fatalf("snapshot prompt: %+v", s.Content)
+	}
+	r, _ = d.chatRequest(context.Background(), proto.ChatRead{Chat: "a", Item: s.Content[0].ID})
+	var it session.Item
+	json.Unmarshal(r.(proto.ChatDeltas).Item, &it)
+	if len(it.Attachments) != 1 || it.Attachments[0].Data != data || it.Cut {
+		t.Fatalf("whole prompt: %d attachments, cut %v", len(it.Attachments), it.Cut)
+	}
+}
