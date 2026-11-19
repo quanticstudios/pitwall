@@ -73,10 +73,12 @@ type Transcript struct {
 	asks    map[string]*ask                 // per pending question request
 	done    []resolved                      // requests answered here, as one line each
 	keyReq  string                          // the approval the number keys answer
+	keyPlan bool                            // keyReq is a plan: 1 approves, 2 refines
 	keyAsk  string                          // else the question they pick in
 	typeIn  *widget.Editor                  // an Other field a key picked, to focus in the next Layout
 	askQs   map[string][]session.Question   // pending questions by request
 	what    map[string]string               // pending approvals' commands, for their line
+	plans   map[string]bool                 // pending approvals that are plans
 	items   int                             // len(Content) this frame
 	diffs   map[string]diffCache            // edits' lines by item id
 	tool    toolState                       // the tool rows' scroll, shells and images
@@ -106,6 +108,9 @@ type InputAnswer struct {
 // decisions are what the approval buttons answer, in their order.
 var decisions = [3]string{"allow", "allow-session", "deny"}
 
+// planLine is how an answered plan's line says the decision.
+var planLine = map[string]string{"allow": "Plan approved", "allow-session": "Plan approved", "deny": "Sent back to refine"}
+
 // decisionLine is how an answered approval's line says the decision.
 var decisionLine = map[string]string{"allow": "Allowed", "allow-session": "Allowed for this session", "deny": "Denied"}
 
@@ -113,13 +118,21 @@ var decisionLine = map[string]string{"allow": "Allowed", "allow-session": "Allow
 // last when it was answered.
 type resolved struct {
 	id, line, what string
-	at             int // len(Content) when answered
+	prose          bool // what is words, not a command
+	at             int  // len(Content) when answered
 	when           time.Time
 }
 
 // ask is a question card's state.
 type ask struct {
-	pick   []int // per question, the option picked; len(options) is the typed answer, -1 none
+	pick []int // per question, the option picked; len(options) is the typed answer, -1 none
+	// multi is, per multiSelect question, each option checked, nil for a
+	// single-select one; there pick is the option last toggled.
+	multi [][]bool
+	moved []bool // a multiSelect question Enter moved on from
+	// active is the question the number keys act on, the one the user last
+	// clicked into; -1 for the first unanswered one.
+	active int
 	other  []widget.Editor
 	opts   [][]widget.Clickable // per question, one per option and one for the typed row
 	submit widget.Clickable
@@ -147,6 +160,7 @@ const (
 	segHead                // a turn's work log header
 	segItem                // an item in an open work log
 	segReply               // a turn's reply
+	segTodo                // a turn's task list, its last task-list call i
 )
 
 // Answers returns the approvals answered since the last call, once each.
@@ -175,6 +189,13 @@ func (t *Transcript) OpenAide() bool {
 // whether the key did something. The window's composer calls it while
 // it is empty; the transcript takes the keys itself when it has focus.
 func (t *Transcript) Key(name string) bool {
+	if t.keyPlan {
+		if dec, ok := planKey(name); ok {
+			t.decide(t.keyReq, dec)
+			return true
+		}
+		return false
+	}
 	opts := 0
 	if a := t.asks[t.keyAsk]; a != nil && len(a.opts) > 0 {
 		opts = len(a.opts[t.askQuestion(a)]) - 1
@@ -187,11 +208,20 @@ func (t *Transcript) Key(name string) bool {
 	case act.decision != "":
 		t.decide(t.keyReq, act.decision)
 	case act.submit:
+		a := t.asks[t.keyAsk]
+		// Enter on a multiSelect question moves on to the next open one,
+		// and sends the answers once none is left.
+		if q := t.askQuestion(a); a.multiQ(q) != nil {
+			a.moved[q], a.active = true, -1
+			if next := a.current(); next != q && a.open(next) {
+				return true
+			}
+		}
 		t.sendAsk(t.keyAsk)
 	default:
 		a := t.asks[t.keyAsk]
 		q := t.askQuestion(a)
-		a.pick[q] = act.option
+		a.choose(q, act.option)
 		if act.option == len(a.opts[q])-1 { // Other: type the answer
 			t.typeIn = &a.other[q]
 		}
@@ -199,11 +229,49 @@ func (t *Transcript) Key(name string) bool {
 	return true
 }
 
+// choose picks option o of question q: a multiSelect question toggles
+// it and keeps the keys, the typed row aside; a single-select pick moves
+// the keys on to the next unanswered question.
+func (a *ask) choose(q, o int) {
+	a.pick[q], a.active = o, q
+	if m := a.multiQ(q); m != nil {
+		if o < len(m) {
+			m[o] = !m[o]
+		}
+		return
+	}
+	if o < len(a.opts[q])-1 {
+		a.active = -1
+	}
+}
+
+// multiQ is question q's checks, nil unless it is multiSelect.
+func (a *ask) multiQ(q int) []bool {
+	if q < len(a.multi) {
+		return a.multi[q]
+	}
+	return nil
+}
+
 // askQuestion is the question the number keys pick in: the first
-// without an answer, else the last.
-func (t *Transcript) askQuestion(a *ask) int {
-	for i, p := range a.pick {
-		if p < 0 {
+// without an answer, or a multiSelect one Enter has not moved on from;
+// else the last.
+func (t *Transcript) askQuestion(a *ask) int { return a.current() }
+
+// open is whether question i still waits on the user: no pick, or
+// multiSelect and not moved on from.
+func (a *ask) open(i int) bool {
+	return a.pick[i] < 0 || a.multiQ(i) != nil && !a.moved[i]
+}
+
+// current is the question the number keys act on: the one the user is in,
+// else the first without an answer, else the last.
+func (a *ask) current() int {
+	if a.active >= 0 && a.active < len(a.pick) {
+		return a.active
+	}
+	for i := range a.pick {
+		if a.open(i) {
 			return i
 		}
 	}
@@ -282,7 +350,11 @@ func (t *Transcript) decide(id, decision string) {
 	if t.keyReq == id {
 		t.keyReq = ""
 	}
-	t.done = append(t.done, resolved{id: id, line: decisionLine[decision], what: t.what[id], at: t.items, when: t.now})
+	line := decisionLine[decision]
+	if t.plans[id] {
+		line = planLine[decision]
+	}
+	t.done = append(t.done, resolved{id: id, line: line, what: t.what[id], prose: t.plans[id], at: t.items, when: t.now})
 }
 
 // sendAsk answers question request id with its card's picks, once each
@@ -303,7 +375,7 @@ func (t *Transcript) sendAsk(id string) {
 		picked = append(picked, v...)
 	}
 	slices.Sort(picked)
-	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), at: t.items, when: t.now})
+	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, at: t.items, when: t.now})
 }
 
 // answers are the card's picks by question id, false while a question
@@ -314,11 +386,28 @@ func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 		if i >= len(a.pick) {
 			return nil, false
 		}
+		other := strings.TrimSpace(a.other[i].Text())
+		if m := a.multiQ(i); m != nil {
+			var picked []string
+			for oi, on := range m {
+				if on && oi < len(q.Options) {
+					picked = append(picked, q.Options[oi].Label)
+				}
+			}
+			if other != "" {
+				picked = append(picked, other)
+			}
+			if len(picked) == 0 {
+				return nil, false
+			}
+			out[q.ID] = picked
+			continue
+		}
 		switch p := a.pick[i]; {
 		case p >= 0 && p < len(q.Options):
 			out[q.ID] = []string{q.Options[p].Label}
-		case p == len(q.Options) && strings.TrimSpace(a.other[i].Text()) != "":
-			out[q.ID] = []string{strings.TrimSpace(a.other[i].Text())}
+		case p == len(q.Options) && other != "":
+			out[q.ID] = []string{other}
 		default:
 			return nil, false
 		}
@@ -420,6 +509,9 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		case r.seg == segItem:
 			t.laid++
 			dims = d.logItem(gtx, r.i, r.last)
+		case r.seg == segTodo:
+			t.laid++
+			dims = d.todoCard(gtx, &s.Content[r.i])
 		case r.seg == segReply:
 			t.laid++
 			start, end, _ := turnTimes(s, r.b, r.b.hi == len(s.Content))
@@ -451,15 +543,18 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 // clicks on the cards' buttons.
 func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	pending := map[string]bool{}
-	t.keyReq, t.keyAsk, t.items = "", "", len(s.Content)
+	t.keyReq, t.keyAsk, t.keyPlan, t.items = "", "", false, len(s.Content)
 	if t.what == nil {
-		t.what = map[string]string{}
+		t.what, t.plans = map[string]string{}, map[string]bool{}
 	}
 	for _, a := range s.PendingApprovals {
 		pending[a.ID] = true
 		t.what[a.ID] = requestWhat(a, t.Dir)
+		if a.RequestType == session.RequestPlan {
+			t.plans[a.ID], t.what[a.ID] = true, firstLine(strings.TrimLeft(deref(a.Detail), "# "))
+		}
 		if !t.sent[a.ID] {
-			t.keyReq = a.ID
+			t.keyReq, t.keyPlan = a.ID, a.RequestType == session.RequestPlan
 		}
 	}
 	if t.askQs == nil {
@@ -473,9 +568,15 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 		}
 		a := t.asks[in.ID]
 		if a == nil {
-			a = &ask{}
+			a = &ask{moved: make([]bool, len(in.Questions)), active: -1}
 			for _, q := range in.Questions {
-				a.pick = append(a.pick, recommended(q))
+				var m []bool
+				pick := recommended(q)
+				if q.Multi {
+					m, pick = make([]bool, len(q.Options)), -1
+				}
+				a.pick = append(a.pick, pick)
+				a.multi = append(a.multi, m)
 				a.opts = append(a.opts, make([]widget.Clickable, len(q.Options)+1))
 			}
 			a.other = make([]widget.Editor, len(in.Questions))
@@ -499,7 +600,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 		for qi := range a.opts {
 			for oi := range a.opts[qi] {
 				if a.opts[qi][oi].Clicked(gtx) {
-					a.pick[qi] = oi
+					a.choose(qi, oi)
 					if oi == len(a.opts[qi])-1 {
 						gtx.Execute(key.FocusCmd{Tag: &a.other[qi]})
 					}
@@ -532,6 +633,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 		if !pending[id] {
 			delete(t.sent, id)
 			delete(t.what, id)
+			delete(t.plans, id)
 		}
 	}
 }
@@ -582,18 +684,26 @@ func (t *Transcript) pickSelection(gtx layout.Context) {
 func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	t.rows = t.rows[:0]
 	running := runningTurns(d.s)
+	stopped := interruptedTurns(d.s)
+	quiet := quietSettings(d.s.Content)
 	t.tool.shells.index(d.s.Content)
 	k := 0
-	for _, b := range t.blocks {
+	for bi, b := range t.blocks {
+		// A stopped turn ends on a quiet Interrupted line.
+		if bi > 0 && t.blocks[bi-1].turn != "" && t.blocks[bi-1].turn != b.turn && stopped[t.blocks[bi-1].turn] {
+			t.rows = append(t.rows, trow{tail: d.interrupted})
+		}
 		for ; k < len(t.done) && t.done[k].at <= b.lo; k++ {
 			t.rows = append(t.rows, trow{res: &t.done[k]})
 		}
 		if b.kind != blockTurn {
-			t.rows = append(t.rows, trow{b: b})
+			if !quiet[b.lo] {
+				t.rows = append(t.rows, trow{b: b})
+			}
 			continue
 		}
 		run := running(b, b.hi == len(d.s.Content))
-		logged := b.hi - b.lo
+		logged := b.hi - b.lo - b.todos
 		if b.reply >= 0 {
 			logged--
 		}
@@ -603,11 +713,14 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			open := t.toggled(gtx, logID(d.s, b), false)
 			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
 			for i := b.lo; open && i < b.hi; i++ {
-				if i != b.reply && !t.tool.shells.isAttached(i) {
+				if i != b.reply && !isTodo(d.s.Content[i].Tool) && !t.tool.shells.isAttached(i) && !quiet[i] {
 					t.rows[len(t.rows)-1].last = false
 					t.rows = append(t.rows, trow{b: b, seg: segItem, i: i, last: true})
 				}
 			}
+		}
+		if b.todo >= 0 {
+			t.rows = append(t.rows, trow{b: b, seg: segTodo, i: b.todo})
 		}
 		if b.reply >= 0 {
 			// A request answered before the reply came stays with the work
@@ -617,6 +730,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
 		}
+	}
+	if n := len(t.blocks); n > 0 && stopped[t.blocks[n-1].turn] {
+		t.rows = append(t.rows, trow{tail: d.interrupted})
 	}
 	for ; k < len(t.done); k++ {
 		t.rows = append(t.rows, trow{res: &t.done[k]})

@@ -1576,12 +1576,18 @@ func (c *chat) set(ctx context.Context, m proto.ChatSet) error {
 		}
 	}
 	patch := map[string]string{}
-	for _, f := range []struct {
+	changed := [3]string{} // the model, effort and mode that changed, for the dividers
+	for i, f := range []struct {
 		value string
 		cfg   *string
 		key   string
-	}{{m.Model, &c.cfg.Model, "model"}, {m.Effort, &c.cfg.Effort, "effort"}, {m.Mode, &c.cfg.Mode, "permissionMode"}} {
+		runs  string // what the session reports it runs, while cfg is unset
+	}{{m.Model, &c.cfg.Model, "model", value(c.snap.Model)}, {m.Effort, &c.cfg.Effort, "effort", value(c.snap.Effort)},
+		{m.Mode, &c.cfg.Mode, "permissionMode", c.snap.PermissionMode}} {
 		if f.value != "" {
+			if old := cmp.Or(*f.cfg, f.runs); old != "" && f.value != old { // a first pick is no switch
+				changed[i] = f.value
+			}
 			*f.cfg, patch[f.key] = f.value, f.value
 		}
 	}
@@ -1593,6 +1599,15 @@ func (c *chat) set(ctx context.Context, m proto.ChatSet) error {
 	}
 	set, _ := json.Marshal(patch)
 	c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
+	for i, v := range changed {
+		if v == "" {
+			continue
+		}
+		var ch [3]string
+		ch[i] = v
+		c.reduce(session.Event{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem,
+			Phase: session.PhaseSetting, Text: session.SettingText(ch[0], ch[1], ch[2])})
+	}
 	return nil
 }
 
@@ -1873,6 +1888,14 @@ func (d *Daemon) closeChats() {
 		wg.Go(c.close)
 	}
 	wg.Wait()
+}
+
+// value is *s, "" for nil.
+func value(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func optional(s string) *string {

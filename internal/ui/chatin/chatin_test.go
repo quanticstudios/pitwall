@@ -601,3 +601,17 @@ func TestBypassMode(t *testing.T) {
 		t.Fatalf("a chat started in bypass cycles %v", got)
 	}
 }
+
+// TestTranscriptKeysOneFrame: a digit and Enter that reach the empty box
+// in one frame, as when the window was idle, go to the transcript in the
+// order they were pressed.
+func TestTranscriptKeysOneFrame(t *testing.T) {
+	h := newHarness(t)
+	var got []string
+	h.key = func(name string) bool { got = append(got, name); return true }
+	h.r.Queue(key.EditEvent{Text: "3"}, key.Event{Name: key.NameReturn, State: key.Press})
+	h.frame()
+	if want := []string{"3", string(key.NameReturn)}; !slices.Equal(got, want) || h.c.Text() != "" {
+		t.Fatalf("keys %v, text %q: want 3 then Enter", got, h.c.Text())
+	}
+}

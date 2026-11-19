@@ -409,6 +409,9 @@ func (d *driver) Set(ctx context.Context, s session.Settings) error {
 		if err := d.request(ctx, r.req); err != nil {
 			return err
 		}
+		if r.value == s.Model {
+			d.s.modelEchoes++ // the chat loop says the switch itself
+		}
 	}
 	return nil
 }

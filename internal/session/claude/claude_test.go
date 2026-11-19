@@ -757,8 +757,8 @@ func TestSet(t *testing.T) {
 }
 
 // TestSubagentLines: a subagent's lines name their Task call in
-// parent_tool_use_id. Its calls go on that call; its text and calls stay
-// out of the transcript.
+// parent_tool_use_id. Its calls and their ends go on that call; its text
+// and calls stay out of the transcript.
 func TestSubagentLines(t *testing.T) {
 	s := newStream("s")
 	var got []session.Event
@@ -772,8 +772,8 @@ func TestSubagentLines(t *testing.T) {
 	} {
 		got = append(got, s.line([]byte(l))...)
 	}
-	if len(got) != 4 {
-		t.Fatalf("%d events, want the Task call's start, two subagent updates and its end: %+v", len(got), got)
+	if len(got) != 5 {
+		t.Fatalf("%d events, want the Task call's start, three subagent updates and its end: %+v", len(got), got)
 	}
 	for _, e := range got {
 		if e.ItemID != "task" {
@@ -783,8 +783,15 @@ func TestSubagentLines(t *testing.T) {
 	if tools := got[1].Tool.SubagentTools; !slices.Equal(tools, []string{"Read"}) {
 		t.Fatalf("first update %v; a later call must not change an emitted event", tools)
 	}
-	if end := got[3].Tool; end.Status != "completed" || !slices.Equal(end.SubagentTools, []string{"Read", "Grep"}) {
+	if c := got[2].Tool.SubagentCalls; len(c) != 1 || c[0].Status != "completed" {
+		t.Fatalf("Read's result did not end its call: %+v", c)
+	}
+	end := got[4].Tool
+	if end.Status != "completed" || !slices.Equal(end.SubagentTools, []string{"Read", "Grep"}) || end.Output != "Found it." {
 		t.Fatalf("end %+v", end)
+	}
+	if c := end.SubagentCalls; len(c) != 2 || c[0].Status != "completed" || c[1].Status != "running" || c[1].ToolName != "Grep" {
+		t.Fatalf("end's calls %+v", c)
 	}
 }
 
