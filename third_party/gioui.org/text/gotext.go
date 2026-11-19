@@ -416,7 +416,7 @@ func (s *shaperImpl) split(input shaping.Input, base giofont.Font, styles []Styl
 func (s *shaperImpl) spaces(out, runs []shaping.Input) []shaping.Input {
 	main := s.ResolveFace(' ')
 	for _, r := range runs {
-		if r.Face == nil || main == nil || r.Face == main {
+		if r.Face == nil || main == nil || r.Face == main || r.RunStart >= r.RunEnd {
 			out = append(out, r)
 			continue
 		}
