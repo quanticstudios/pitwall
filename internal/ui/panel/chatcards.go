@@ -86,10 +86,13 @@ func (d *cdraw) tail() []layout.Widget {
 		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.working(gtx, start) })
 	}
-	if s.LastError != nil && *s.LastError != "" {
-		msg := *s.LastError
+	if msg, stopped := endLine(s); msg != "" {
+		c := d.th.Readable(d.th.Red, d.th.Bg)
+		if stopped {
+			c = d.th.Muted
+		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel("error"), d.body(d.th.Readable(d.th.Red, d.th.Bg)), msg)
+			return d.selectable(gtx, d.t.sel("error"), d.body(c), msg)
 		})
 	}
 	for _, a := range s.PendingApprovals {
@@ -112,6 +115,19 @@ func (d *cdraw) tail() []layout.Widget {
 		})
 	}
 	return out
+}
+
+// endLine is the line under a chat whose last turn did not complete: its
+// error in red, or a muted Stopped when someone stopped the turn, which
+// the snapshot also files as an error.
+func endLine(s *session.Snapshot) (msg string, stopped bool) {
+	if s.LastError == nil || *s.LastError == "" {
+		return "", false
+	}
+	if n := len(s.Turns); n > 0 && s.Turns[n-1].State == session.TurnInterrupted && *s.LastError == "Turn "+session.TurnInterrupted {
+		return "Stopped", true
+	}
+	return *s.LastError, false
 }
 
 // working is the header of a turn that has nothing to show yet.

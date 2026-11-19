@@ -28,3 +28,20 @@ func TestApprovalWhy(t *testing.T) {
 		}
 	}
 }
+
+// TestEndLine: a turn someone stopped reads Stopped, quietly; a failed
+// turn keeps its error.
+func TestEndLine(t *testing.T) {
+	str := func(s string) *string { return &s }
+	stopped := &session.Snapshot{LastError: str("Turn interrupted"), Turns: []session.TurnSummary{{ID: "t1", State: session.TurnInterrupted}}}
+	if msg, quiet := endLine(stopped); msg != "Stopped" || !quiet {
+		t.Errorf("stopped turn: %q, quiet %v", msg, quiet)
+	}
+	failed := &session.Snapshot{LastError: str("API error: overloaded"), Turns: []session.TurnSummary{{ID: "t1", State: session.TurnFailed}}}
+	if msg, quiet := endLine(failed); msg != "API error: overloaded" || quiet {
+		t.Errorf("failed turn: %q, quiet %v", msg, quiet)
+	}
+	if msg, _ := endLine(&session.Snapshot{}); msg != "" {
+		t.Errorf("no error: %q", msg)
+	}
+}
