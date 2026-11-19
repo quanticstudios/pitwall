@@ -4,6 +4,7 @@ package text
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"iter"
 	"strings"
@@ -82,6 +83,37 @@ type Parameters struct {
 	// This is desirable for text editors (so that the whitespace can be selected), but is undesirable
 	// for ordinary display text.
 	DisableSpaceTrim bool
+
+	// pitwall: Styles give rune ranges of the text their own font and
+	// size, sorted by Start and not overlapping. Runes outside every range
+	// take Font and PxPerEm.
+	Styles []Style
+}
+
+// Style is a rune range of laid out text with its own font: runes
+// [Start, End) of the whole text, in Font at Scale times PxPerEm (0 is
+// 1). An italic Font whose face has no italic draws slanted. pitwall.
+type Style struct {
+	Start, End int
+	Font       giofont.Font
+	Scale      float32
+}
+
+// stylesIn are styles' ranges inside runes [lo, hi), moved to start at lo,
+// and a key that tells them apart in the layout cache.
+func stylesIn(styles []Style, lo, hi int) ([]Style, string) {
+	var out []Style
+	var key strings.Builder
+	for _, s := range styles {
+		a, b := max(s.Start, lo), min(s.End, hi)
+		if a >= b {
+			continue
+		}
+		s.Start, s.End = a-lo, b-lo
+		out = append(out, s)
+		fmt.Fprintf(&key, "%d,%d,%s,%d,%d,%g;", s.Start, s.End, s.Font.Typeface, s.Font.Style, s.Font.Weight, s.Scale)
+	}
+	return out, key.String()
 }
 
 type FontFace = giofont.FontFace
@@ -399,13 +431,14 @@ func (l *Shaper) countUnreadByString() int {
 func (l *Shaper) layoutText(params Parameters, str string, txt io.Reader) {
 	l.reset(params.Alignment)
 	truncating := params.MaxLines > 0
+	at := 0 // pitwall: the rune the paragraph starts at, for params.Styles
 	// IMPORTANT: Keep these two loop bodies in sync. If we try to unify them by making the
 	// iterator implementation dynamic, Go fails to inline the whole loop and we add tons of
 	// unnecessary allocs.
 	if txt == nil {
 		for paragraph, isLast := range l.iterateParagraphByString(str) {
 			params.forceTruncate = truncating && !isLast
-			lines := l.layoutParagraph(params, paragraph)
+			lines := l.layoutStyled(params, paragraph, &at)
 			l.txt.append(lines)
 			if truncating {
 				params.MaxLines -= len(lines.lines)
@@ -420,7 +453,7 @@ func (l *Shaper) layoutText(params Parameters, str string, txt io.Reader) {
 	} else {
 		for paragraph, isLast := range l.iterateParagraphByReader(txt) {
 			params.forceTruncate = truncating && !isLast
-			lines := l.layoutParagraph(params, paragraph)
+			lines := l.layoutStyled(params, paragraph, &at)
 			l.txt.append(lines)
 			if truncating {
 				params.MaxLines -= len(lines.lines)
@@ -435,8 +468,18 @@ func (l *Shaper) layoutText(params Parameters, str string, txt io.Reader) {
 	}
 }
 
+// layoutStyled is layoutParagraph with params.Styles cut to the
+// paragraph that starts at rune *at, which it moves past it. pitwall.
+func (l *Shaper) layoutStyled(params Parameters, paragraph string, at *int) document {
+	n := utf8.RuneCountInString(paragraph)
+	var key string
+	params.Styles, key = stylesIn(params.Styles, *at, *at+n)
+	*at += n
+	return l.layoutParagraph(params, paragraph, key)
+}
+
 // layoutParagraph shapes and wraps a paragraph using the provided parameters.
-func (l *Shaper) layoutParagraph(params Parameters, asStr string) document {
+func (l *Shaper) layoutParagraph(params Parameters, asStr, styles string) document {
 	// Alignment is not part of the cache key because changing it does not impact shaping.
 	lk := layoutKey{
 		ppem:            params.PxPerEm,
@@ -451,6 +494,7 @@ func (l *Shaper) layoutParagraph(params Parameters, asStr string) document {
 		str:             asStr,
 		lineHeight:      params.LineHeight,
 		lineHeightScale: params.LineHeightScale,
+		styles:          styles,
 	}
 	if l, ok := l.layoutCache.Get(lk); ok {
 		return l

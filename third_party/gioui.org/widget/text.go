@@ -64,6 +64,9 @@ type textView struct {
 	// DisableSpaceTrim configures whether trailing whitespace on a line will have its
 	// width zeroed. Set to true for editors, but false for non-editable text.
 	DisableSpaceTrim bool
+	// pitwall: Styles and Colors are Selectable's.
+	Styles []text.Style
+	Colors []TextColor
 	// Mask replaces the visual display of each rune in the contents with the given rune.
 	// Newline characters are not masked. When non-zero, the unmasked contents
 	// are accessed by Len, Text, and SetText.
@@ -295,6 +298,10 @@ func (e *textView) Layout(gtx layout.Context, lt *text.Shaper, font font.Font, s
 		e.params.LineHeightScale = e.LineHeightScale
 		e.invalidate()
 	}
+	if !slices.Equal(e.Styles, e.params.Styles) {
+		e.params.Styles = slices.Clone(e.Styles)
+		e.invalidate()
+	}
 	if e.DisableSpaceTrim != e.params.DisableSpaceTrim {
 		e.params.DisableSpaceTrim = e.DisableSpaceTrim
 		e.invalidate()
@@ -335,6 +342,12 @@ func (e *textView) PaintText(gtx layout.Context, material op.CallOp) {
 	it := textIterator{
 		viewport: viewport,
 		material: material,
+		colors:   e.Colors,
+	}
+	for _, c := range e.Colors {
+		cm := op.Record(gtx.Ops)
+		paint.ColorOp{Color: c.Color}.Add(gtx.Ops)
+		it.mats = append(it.mats, cm.Stop())
 	}
 
 	startGlyph := 0
@@ -343,6 +356,11 @@ func (e *textView) PaintText(gtx layout.Context, material op.CallOp) {
 			break
 		}
 		startGlyph += line.glyphs
+	}
+	for _, g := range e.index.glyphs[:startGlyph] {
+		if g.Flags&text.FlagClusterBreak != 0 {
+			it.runes += int(g.Runes)
+		}
 	}
 	var glyphs [32]text.Glyph
 	line := glyphs[:0]

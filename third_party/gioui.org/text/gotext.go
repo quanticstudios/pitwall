@@ -224,6 +224,12 @@ type shaperImpl struct {
 
 	// bitmapGlyphCache caches extracted bitmap glyph images.
 	bitmapGlyphCache bitmapCache
+
+	// pitwall: oblique maps a face's index to its slanted copy's, and
+	// slanted holds those copies' indexes, for an italic Style whose face
+	// has no italic.
+	oblique map[int]int
+	slanted map[int]bool
 }
 
 // debugLogger only logs messages if debug.Text is true.
@@ -304,7 +310,7 @@ func (s *shaperImpl) ResolveFace(r rune) *font.Face {
 
 // shapeText invokes the text shaper and returns the raw text data in the shaper's native
 // format. It does not wrap lines.
-func (s *shaperImpl) shapeText(ppem fixed.Int26_6, lc system.Locale, txt []rune) []shaping.Output {
+func (s *shaperImpl) shapeText(ppem fixed.Int26_6, lc system.Locale, txt []rune, base giofont.Font, styles []Style) []shaping.Output {
 	lcfg := langConfig{
 		Language:  language.NewLanguage(lc.Language),
 		Direction: mapDirection(lc.Direction),
@@ -317,7 +323,7 @@ func (s *shaperImpl) shapeText(ppem fixed.Int26_6, lc system.Locale, txt []rune)
 		// the empty string contains no runes.
 		input.Face = s.faces[0]
 	}
-	inputs := s.segmenter.Split(input, s)
+	inputs := s.split(input, base, styles)
 	// Shape all inputs.
 	if needed := len(inputs) - len(s.outScratchBuf); needed > 0 {
 		s.outScratchBuf = slices.Grow(s.outScratchBuf, needed)
@@ -369,6 +375,100 @@ func (s *shaperImpl) shapeText(ppem fixed.Int26_6, lc system.Locale, txt []rune)
 	return s.outScratchBuf
 }
 
+// split is the segmenter's runs of input, also split where styles start
+// and end, each style's runs in its font and size. pitwall.
+func (s *shaperImpl) split(input shaping.Input, base giofont.Font, styles []Style) []shaping.Input {
+	if len(styles) == 0 {
+		return s.segmenter.Split(input, s)
+	}
+	var out []shaping.Input
+	part := func(a, b int, f giofont.Font, scale float32) {
+		if a >= b {
+			return
+		}
+		in := input
+		in.RunStart, in.RunEnd = a, b
+		if scale > 0 {
+			in.Size = floatToFixed(fixedToFloat(input.Size) * scale)
+		}
+		s.setQuery(f)
+		out = append(out, s.segmenter.Split(in, s)...)
+	}
+	at := input.RunStart
+	for _, st := range styles {
+		a, b := max(st.Start, at), min(st.End, input.RunEnd)
+		part(at, a, base, 0)
+		part(a, b, st.Font, st.Scale)
+		at = max(at, b)
+	}
+	part(at, input.RunEnd, base, 0)
+	s.setQuery(base)
+	return out
+}
+
+// setQuery makes f the font the font map resolves faces for.
+func (s *shaperImpl) setQuery(f giofont.Font) {
+	families := s.defaultFaces
+	if f.Typeface != "" {
+		parsed, err := s.parser.parse(string(f.Typeface))
+		if err != nil {
+			s.logger.Printf("Unable to parse typeface %q: %v", f.Typeface, err)
+		} else {
+			families = parsed
+		}
+	}
+	s.fontMap.SetQuery(fontscan.Query{
+		Families: families,
+		Aspect:   opentype.FontToDescription(f).Aspect,
+	})
+}
+
+// slant moves the glyphs of each run that should be italic, but whose
+// face is not, to the face's slanted copy. pitwall.
+func (s *shaperImpl) slant(l *line, base giofont.Font, styles []Style) {
+	for ri := range l.runs {
+		r := &l.runs[ri]
+		f := base
+		for _, st := range styles {
+			if r.Runes.Offset >= st.Start && r.Runes.Offset < st.End {
+				f = st.Font
+			}
+		}
+		if f.Style != giofont.Italic {
+			continue
+		}
+		for gi := range r.Glyphs {
+			g := &r.Glyphs[gi]
+			ppem, idx, gid := splitGlyphID(g.id)
+			if idx >= len(s.faceMeta) || s.faceMeta[idx].Style == giofont.Italic || s.slanted[idx] {
+				continue
+			}
+			g.id = newGlyphID(ppem, s.obliqueOf(idx), gid)
+		}
+	}
+}
+
+// obliqueOf is the index of face idx's slanted copy, made the first time.
+func (s *shaperImpl) obliqueOf(idx int) int {
+	if o, ok := s.oblique[idx]; ok {
+		return o
+	}
+	if s.oblique == nil {
+		s.oblique, s.slanted = map[int]int{}, map[int]bool{}
+	}
+	o := len(s.faces)
+	md := s.faceMeta[idx]
+	md.Style = giofont.Italic
+	s.faces = append(s.faces, s.faces[idx])
+	s.faceMeta = append(s.faceMeta, md)
+	s.oblique[idx], s.slanted[o] = o, true
+	return o
+}
+
+// obliqueSkew is how far a slanted glyph leans: about 12 degrees, a
+// little less than browsers' synthetic oblique. pitwall.
+const obliqueSkew = 0.21
+
 func wrapPolicyToGoText(p WrapPolicy) shaping.LineBreakPolicy {
 	switch p {
 	case WrapGraphemes:
@@ -389,29 +489,17 @@ func (s *shaperImpl) shapeAndWrapText(params Parameters, txt []rune) (_ []shapin
 		BreakPolicy:                   wrapPolicyToGoText(params.WrapPolicy),
 		DisableTrailingWhitespaceTrim: params.DisableSpaceTrim,
 	}
-	families := s.defaultFaces
-	if params.Font.Typeface != "" {
-		parsed, err := s.parser.parse(string(params.Font.Typeface))
-		if err != nil {
-			s.logger.Printf("Unable to parse typeface %q: %v", params.Font.Typeface, err)
-		} else {
-			families = parsed
-		}
-	}
-	s.fontMap.SetQuery(fontscan.Query{
-		Families: families,
-		Aspect:   opentype.FontToDescription(params.Font).Aspect,
-	})
+	s.setQuery(params.Font)
 	if wc.TruncateAfterLines > 0 {
 		if len(params.Truncator) == 0 {
 			params.Truncator = "…"
 		}
 		// We only permit a single run as the truncator, regardless of whether more were generated.
 		// Just use the first one.
-		wc.Truncator = s.shapeText(params.PxPerEm, params.Locale, []rune(params.Truncator))[0]
+		wc.Truncator = s.shapeText(params.PxPerEm, params.Locale, []rune(params.Truncator), params.Font, nil)[0]
 	}
 	// Wrap outputs into lines.
-	return s.wrapper.WrapParagraph(wc, params.MaxWidth, txt, shaping.NewSliceIterator(s.shapeText(params.PxPerEm, params.Locale, txt)))
+	return s.wrapper.WrapParagraph(wc, params.MaxWidth, txt, shaping.NewSliceIterator(s.shapeText(params.PxPerEm, params.Locale, txt, params.Font, params.Styles)))
 }
 
 // replaceControlCharacters replaces problematic unicode
@@ -496,6 +584,7 @@ func (s *shaperImpl) LayoutRunes(params Parameters, txt []rune) document {
 	maxHeight := fixed.Int26_6(0)
 	for i := range ls {
 		otLine := toLine(s.faceToIndex, ls[i], params.Locale.Direction)
+		s.slant(&otLine, params.Font, params.Styles)
 		if otLine.lineHeight > maxHeight {
 			maxHeight = otLine.lineHeight
 		}
@@ -555,6 +644,10 @@ func (s *shaperImpl) Shape(pathOps *op.Ops, gs []Glyph) clip.PathSpec {
 			continue
 		}
 		scaleFactor := fixedToFloat(ppem) / float32(face.Upem())
+		skew := float32(0)
+		if s.slanted[faceIdx] {
+			skew = obliqueSkew
+		}
 		glyphData := face.GlyphData(gid)
 
 		var outline font.GlyphOutline
@@ -588,7 +681,7 @@ func (s *shaperImpl) Shape(pathOps *op.Ops, gs []Glyph) clip.PathSpec {
 			var args [3]f32.Point
 			for i := range nargs {
 				a := f32.Point{
-					X: fseg.Args[i].X * scaleFactor,
+					X: (fseg.Args[i].X + skew*fseg.Args[i].Y) * scaleFactor,
 					Y: -fseg.Args[i].Y * scaleFactor,
 				}
 				args[i] = a.Sub(lastArg)
