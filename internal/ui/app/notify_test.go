@@ -302,15 +302,13 @@ func TestNotifierRoutesFinishedTabsAtStartup(t *testing.T) {
 					}
 				}
 			} else {
+				// A worker's finished turn is its orchestrator's: neither the desktop nor the window hears of it.
 				select {
 				case nt := <-delivered:
-					if nt.soundOnly || nt.activity.WorkspaceID != "w1" {
-						t.Fatalf("desktop = %+v", nt)
-					}
+					t.Fatalf("worker reached the desktop: %+v", nt)
 				case <-finished:
 					t.Fatal("worker reached window notice list")
-				case <-time.After(2 * time.Second):
-					t.Fatal("missing desktop notification")
+				case <-time.After(500 * time.Millisecond):
 				}
 			}
 		})

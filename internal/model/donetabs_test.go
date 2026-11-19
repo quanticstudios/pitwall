@@ -27,6 +27,21 @@ func TestTurnDoneStates(t *testing.T) {
 	}
 }
 
+func TestForUserDropsWorkersFinishedTurns(t *testing.T) {
+	worker := Workspace{Parent: "tab-1"}
+	if ForUser(worker, Activity{State: StateCompleted}) || ForUser(worker, Activity{State: StatePROpen}) {
+		t.Error("a worker's finished turn is its orchestrator's, not the user's")
+	}
+	for _, s := range []AgentState{StatePendingApproval, StateAwaitingInput, StateError} {
+		if !ForUser(worker, Activity{State: s}) {
+			t.Errorf("a worker in %v waits on the user", s)
+		}
+	}
+	if !ForUser(Workspace{}, Activity{State: StateCompleted}) {
+		t.Error("a tab the user opened notifies when it finishes")
+	}
+}
+
 func TestWaitsOnUserAndNoticeBody(t *testing.T) {
 	for _, s := range []AgentState{StateAwaitingInput, StatePendingApproval, StatePlanReady, StateError} {
 		if !WaitsOnUser(Activity{State: s}) {

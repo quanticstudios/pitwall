@@ -11,6 +11,10 @@ func TurnDone(a Activity) bool {
 	return a.State == StateCompleted || a.State == StatePROpen
 }
 
+// ForUser reports whether a on tab w reaches the user at all: a worker's
+// finished turn goes to its orchestrator, which reads it, never to the desktop or phone.
+func ForUser(w Workspace, a Activity) bool { return Orchestrator(w) || !TurnDone(a) }
+
 // WaitsOnUser reports whether a waits for the user: a question, an
 // approval, a plan or an error. Any tab's, worker or not, shows a notice.
 func WaitsOnUser(a Activity) bool {
