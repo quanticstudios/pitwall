@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [lint, cmd, daemon-al, daemon-mz, rest, drill]
+        shard: [lint, cmd, daemon-al, daemon-mz, rest, ui, drill]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -92,12 +92,17 @@ jobs:
       - name: Test daemon M-Z
         if: matrix.shard == 'daemon-mz'
         run: go test -race -timeout 10m -run '^Test[M-Z]' ./internal/daemon
-      - name: Test the rest
-        if: matrix.shard == 'rest'
+      # why: on one runner the ui half and the rest took about three minutes
+      # together, compiling and testing on four cores.
+      - name: Test the window, the terminal and the vendored modules
+        if: matrix.shard == 'ui'
         run: |
-          go test -race -timeout 10m $(go list ./... | grep -v -e '/internal/daemon$' -e '/cmd/pitwall$')
+          go test -race -timeout 10m ./internal/ui/... ./internal/vt ./internal/e2e
           go test -race gioui.org/app
           go -C third_party/x-vt test -race -timeout 5m ./...
+      - name: Test the rest
+        if: matrix.shard == 'rest'
+        run: go test -race -timeout 10m $(go list ./... | grep -v -e '/internal/daemon$' -e '/cmd/pitwall$' -e '/internal/ui/' -e '/internal/vt$' -e '/internal/e2e$')
       # why: it builds pitwall releases, so it runs once, beside the others.
       - name: Release drill
         if: matrix.shard == 'drill'
