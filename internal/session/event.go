@@ -11,7 +11,8 @@ import (
 )
 
 // EventType values are aide's ManagedProviderRuntimeEvent types, plus
-// "limit" and "session.resume-id", which are pitwall's.
+// "limit", "session.resume-id", "session.commands" and
+// "session.settings", which are pitwall's.
 type EventType string
 
 const (
@@ -29,6 +30,8 @@ const (
 	EventUsage           EventType = "session.usage.updated" // token counts, Report
 	EventLimit           EventType = "limit"                 // Limit
 	EventResumeID        EventType = "session.resume-id"     // ResumeID, Version, Capabilities
+	EventCommands        EventType = "session.commands"      // Commands: the whole list, replacing the last
+	EventSettings        EventType = "session.settings"      // Model, Mode: what the provider now runs; "" unchanged
 )
 
 // Session states, aide's ManagedProviderRuntimeSessionState.
@@ -106,9 +109,10 @@ type Event struct {
 	ItemID string    `json:"itemId,omitempty"`
 	Kind   ItemKind  `json:"kind,omitempty"`
 	Phase  string    `json:"phase,omitempty"` // commentary, final_answer
-	Model  string    `json:"model,omitempty"`
-	Text   string    `json:"text,omitempty"` // text to append; "" with a Tool
-	Tool   *ToolCall `json:"tool,omitempty"` // invariant: the whole call so far, never a delta
+	Model  string    `json:"model,omitempty"` // content.delta, session.settings
+	Mode   string    `json:"mode,omitempty"`  // session.settings: the permission mode
+	Text   string    `json:"text,omitempty"`  // text to append; "" with a Tool
+	Tool   *ToolCall `json:"tool,omitempty"`  // invariant: the whole call so far, never a delta
 
 	Message string `json:"message,omitempty"`
 
@@ -124,6 +128,8 @@ type Event struct {
 	ResumeID     string   `json:"resumeId,omitempty"`
 	Version      string   `json:"version,omitempty"`      // the CLI's version
 	Capabilities []string `json:"capabilities,omitempty"` // the CLI's reported capabilities
+
+	Commands []Command `json:"commands,omitempty"`
 }
 
 type eventFields Event

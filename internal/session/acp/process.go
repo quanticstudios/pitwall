@@ -145,7 +145,7 @@ func (d *driver) Close(ctx context.Context) error {
 	if !d.closing {
 		d.closing = true
 		if !d.dead {
-			d.cancelPermissions()
+			d.cancelRequests()
 		}
 		d.stdin.Close()
 	}
