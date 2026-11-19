@@ -115,6 +115,10 @@ reach the shell. Give `tab_prefix` or `pane_prefix` a chord in config.toml
 or the settings page to use them; their keys are the ones in the aide table.
 The command palette runs their actions either way.
 
+In a chat tab's terminal view, Alt+T (aide and conventional) flips back to
+the chat, so Claude Code's own Alt+T toggle never reaches its TUI. Rebind
+`chat_terminal` to keep it.
+
 aide:
 
 | Keys                              | Action                                         |

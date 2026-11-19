@@ -688,7 +688,7 @@ func (d *Daemon) shutdown() {
 		return
 	}
 	d.closing = true
-	s := withoutChatTerminals(withoutPopups(d.saveSnapshot()))
+	s := d.storedState()
 	sources := d.historySources(s)
 	panes := slices.Collect(maps.Values(d.panes))
 	d.mu.Unlock()
@@ -2725,7 +2725,7 @@ func (d *Daemon) saveState(history bool) error {
 		return fmt.Errorf("daemon is closing")
 	}
 	d.savePending = false
-	s := withoutPopups(d.saveSnapshot())
+	s := d.storedState()
 	var sources map[string]historySource
 	if history {
 		sources = d.historySources(s)
@@ -2746,6 +2746,13 @@ func (d *Daemon) saveState(history bool) error {
 		return err
 	}
 	return nil
+}
+
+// storedState is the state the store keeps: saveSnapshot without popups
+// or chat tabs' terminal views, which a restart does not bring back. A
+// handoff takes saveSnapshot itself, since its panes live on.
+func (d *Daemon) storedState() model.State {
+	return withoutChatTerminals(withoutPopups(d.saveSnapshot()))
 }
 
 // saveSnapshot is snapshot with the start history and each live pane's

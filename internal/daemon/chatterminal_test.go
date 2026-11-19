@@ -1,11 +1,15 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -125,5 +129,48 @@ func TestTerminalCmd(t *testing.T) {
 	cmd := terminalCmd(c, "claude")
 	if len(cmd) != 5 || cmd[1] != "--session-id" || cmd[2] != c.cfg.Resume || c.cfg.Resume == "" || cmd[3] != "--model" {
 		t.Fatalf("cmd %q, resume %q", cmd, c.cfg.Resume)
+	}
+}
+
+// TestChatTerminalAfterHandoff: a chat tab that comes over in a handoff
+// with its terminal view keeps it, so the driver does not start beside
+// that claude; a save leaves the view out, so a restart does not start it.
+func TestChatTerminalAfterHandoff(t *testing.T) {
+	root := t.TempDir()
+	cfg, _ := json.Marshal(session.Config{Format: 1, ID: "c1", Provider: model.ProviderClaude, Workspace: "wc", Resume: "7f3c"})
+	if err := os.MkdirAll(filepath.Join(root, "c1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "c1", "config.json"), cfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{o: Options{Chats: root}, chats: map[string]*chat{}, st: model.State{
+		Workspaces: []model.Workspace{{ID: "wc", Chat: "c1", ActiveTab: "tt", Tabs: []model.Tab{{ID: "tt", Layout: &layout.Node{Pane: "tp"}}}}},
+		Panes:      []model.Pane{{ID: "tp", WorkspaceID: "wc"}, {ID: "p1", WorkspaceID: "w1"}},
+	}}
+	d.loadChats()
+	c := d.chats["c1"]
+	t.Cleanup(func() { close(c.quit) })
+	if c.term != "tp" || len(d.st.Chats) != 1 || d.st.Chats[0].Terminal != "tp" || d.chatOfTerminal("tp") != c {
+		t.Fatalf("term %q, chats %+v", c.term, d.st.Chats)
+	}
+	var err error
+	c.run(func() { err = d.chatStart(c) })
+	if r, ok := err.(chatError); !ok || r.code != "busy" {
+		t.Fatalf("driver start beside the terminal: %v", err)
+	}
+	s := d.storedState()
+	if w := s.Workspaces[0]; len(w.Tabs) != 0 || w.ActiveTab != "" || len(s.Panes) != 1 || s.Panes[0].ID != "p1" {
+		t.Fatalf("stored %+v, panes %+v", w, s.Panes)
+	}
+}
+
+// TestChatTerminalAfterRewind: until Claude names a rewound or forked
+// session, the terminal view would resume the old one, so it waits.
+func TestChatTerminalAfterRewind(t *testing.T) {
+	c := &chat{cfg: session.Config{Provider: model.ProviderClaude, Resume: "7f3c", From: &session.Origin{Resume: "7f3c", At: "u1", Fork: true}}}
+	err := (&Daemon{}).chatTerminal(context.Background(), c, true)
+	if r, ok := err.(chatError); !ok || r.code != "busy" || !strings.HasPrefix(r.msg, "Send a message first") || c.term != "" {
+		t.Fatalf("terminal after a rewind: %v", err)
 	}
 }

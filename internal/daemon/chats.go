@@ -24,6 +24,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -808,6 +809,10 @@ func (d *Daemon) loadChats() {
 		c.saved, _ = json.Marshal(cfg)
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
 			Title: w.Label, RecentPrompt: cfg.RecentPrompt, Pinned: cfg.Pinned, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
+		if len(w.Tabs) > 0 { // a handoff kept the terminal view's claude running
+			c.term = layout.Panes(w.Tabs[0].Layout)[0]
+			c.sum.Terminal = c.term
+		}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)
 		go c.loop(d)

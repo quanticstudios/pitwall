@@ -18,9 +18,9 @@ func (u *ui) chatClaude() bool {
 
 // chatTask is the ChatNew that starts task t as a Claude chat, false when
 // it has to run as a TUI: another agent, a preset's variables or guard,
-// an account profile, or flags a chat does not take.
+// an account profile, a fresh worktree, or flags a chat does not take.
 func chatTask(t model.Task) (proto.ChatNew, bool) {
-	if len(t.Cmd) < 2 || strings.TrimSuffix(filepath.Base(t.Cmd[0]), ".exe") != "claude" || len(t.Env) > 0 || t.Profile != "" {
+	if len(t.Cmd) < 2 || strings.TrimSuffix(filepath.Base(t.Cmd[0]), ".exe") != "claude" || len(t.Env) > 0 || t.Profile != "" || t.FreshWorktree {
 		return proto.ChatNew{}, false
 	}
 	mdl, effort, rest := config.SplitArgs("claude", t.Cmd[1:len(t.Cmd)-1])

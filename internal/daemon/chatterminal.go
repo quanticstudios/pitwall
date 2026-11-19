@@ -38,6 +38,11 @@ func (d *Daemon) chatTerminal(ctx context.Context, c *chat, on bool) error {
 	if c.cfg.Provider != model.ProviderClaude {
 		return chatError{"unsupported", "only a Claude chat has a terminal view"}
 	}
+	if c.cfg.From != nil {
+		// Claude names a fork's or rewind's session with its first turn;
+		// until then Resume is the old one.
+		return chatError{"busy", "Send a message first: the rewound or forked conversation has no session yet"}
+	}
 	if c.drv != nil && c.snap.Busy() {
 		// A claude that never answers the interrupt is closed all the same.
 		ictx, cancel := context.WithTimeout(ctx, chatClose)

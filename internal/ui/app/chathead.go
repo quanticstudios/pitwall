@@ -29,6 +29,16 @@ import (
 // chatHeadHeight is the chat header's and the terminal bar's height.
 const chatHeadHeight = theme.Space2XL + theme.SpaceM
 
+// The header's sizes, on the spacing scale.
+const (
+	headControl = theme.SpaceXL + theme.SpaceXS // a control's height, kit.Medium's
+	headPad     = theme.SpaceS + theme.Space2XS // a text button's side padding, kit.Medium's
+	headIcon    = theme.SpaceM + theme.Space2XS // a control's glyph, kit.IconButton's
+	headMark    = theme.SpaceL                  // the agent mark
+	headBranch  = theme.SpaceM                  // the branch glyph
+	menuWidth   = 10 * theme.SpaceL             // the more menu at its narrowest
+)
+
 // chatHead is the strip over a chat tab: its header in the chat view, its
 // bar in the terminal view.
 type chatHead struct {
@@ -147,7 +157,7 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 	}
 	th := u.th
 	kids := []gl.FlexChild{
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return sidebar.AgentMark(gtx, prov, gtx.Dp(16), th.Fg) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return sidebar.AgentMark(gtx, prov, gtx.Dp(headMark), th.Fg) }),
 		gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, title)
@@ -156,7 +166,9 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 	if ws.Branch != "" {
 		kids = append(kids,
 			gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout),
-			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return sidebar.Icon(gtx, "git-branch", gtx.Dp(12), th.Muted) }),
+			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+				return sidebar.Icon(gtx, "git-branch", gtx.Dp(headBranch), th.Muted)
+			}),
 			gl.Rigid(gl.Spacer{Width: theme.SpaceXS}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
@@ -209,7 +221,7 @@ func (u *ui) layoutTerminalBar(gtx gl.Context, st *model.State, ws *model.Worksp
 		}
 	}
 	return u.strip(gtx, th.Surface, []gl.FlexChild{
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return sidebar.Icon(gtx, "terminal", gtx.Dp(14), th.Muted) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return sidebar.Icon(gtx, "terminal", gtx.Dp(headIcon), th.Muted) }),
 		gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, tabTitle(*ws))
@@ -286,9 +298,12 @@ func ghostIconButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon,
 			fg, fill = th.Fg, th.Hover
 		}
 		call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), fg, text)
-		pad, gap, is := gtx.Dp(10), gtx.Dp(6), gtx.Dp(14)
-		size := image.Pt(pad+is+gap+sz.X+pad, gtx.Dp(28))
+		pad, gap, is := gtx.Dp(headPad), gtx.Dp(theme.SpaceS), gtx.Dp(headIcon)
+		size := image.Pt(pad+is+gap+sz.X+pad, gtx.Dp(headControl))
 		r := gtx.Dp(theme.RadiusControl)
+		if gtx.Focused(c) {
+			kit.FocusRing(gtx, th, image.Rectangle{Max: size}, r)
+		}
 		if fill.A > 0 {
 			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}, r).Op(gtx.Ops))
 		}
@@ -325,7 +340,7 @@ func (u *ui) tipped(gtx gl.Context, c *widget.Clickable, tip string, w gl.Widget
 	h.tipShown = gtx.Now
 	th := u.th
 	call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, tip)
-	pad := image.Pt(gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceXS+1))
+	pad := image.Pt(gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceXS))
 	box := sz.Add(pad.Mul(2))
 	at := image.Pt(d.Size.X-box.X, d.Size.Y+gtx.Dp(theme.SpaceXS))
 	if d.Size.X > box.X {
@@ -355,9 +370,9 @@ func (u *ui) chatMenu(gtx gl.Context, top int) {
 	}
 	call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, "Open in aide")
 	pad := gtx.Dp(theme.SpaceXS)
-	row := image.Pt(max(sz.X+2*gtx.Dp(theme.SpaceM), gtx.Dp(160)), gtx.Dp(28))
+	row := image.Pt(max(sz.X+2*gtx.Dp(theme.SpaceM), gtx.Dp(menuWidth)), gtx.Dp(headControl))
 	box := row.Add(image.Pt(2*pad, 2*pad))
-	right, btn := gtx.Constraints.Max.X-gtx.Dp(theme.SpaceL), gtx.Dp(28)
+	right, btn := gtx.Constraints.Max.X-gtx.Dp(theme.SpaceL), gtx.Dp(headControl)
 	anchor := image.Rect(right-btn, (top-btn)/2, right, (top+btn)/2)
 	at := kit.Place(anchor, box, image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, 1<<20)}, kit.BelowEnd, gtx.Dp(theme.SpaceXS), gtx.Dp(theme.SpaceS))
 	t := anim.At(gtx, h.menuAt, menuIn)
@@ -381,6 +396,9 @@ func (u *ui) chatMenu(gtx gl.Context, top int) {
 	g := gtx
 	g.Constraints = gl.Exact(row)
 	h.aide.Layout(g, func(gtx gl.Context) gl.Dimensions {
+		if gtx.Focused(&h.aide) {
+			kit.FocusRing(gtx, th, image.Rectangle{Max: row}, gtx.Dp(theme.RadiusControl))
+		}
 		if h.aide.Hovered() {
 			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}

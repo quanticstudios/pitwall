@@ -40,6 +40,7 @@ func TestChatTask(t *testing.T) {
 		"env":     with([]string{"claude", "Fix it"}, func(t *model.Task) { t.Env = []string{"PITWALL_GUARD=1"} }),
 		"profile": with([]string{"claude", "Fix it"}, func(t *model.Task) { t.Profile = "work" }),
 		"flag":    with([]string{"claude", "--add-dir", "/tmp", "Fix it"}, nil),
+		"fresh":   with([]string{"claude", "Fix it"}, func(t *model.Task) { t.FreshWorktree = true }),
 	} {
 		if _, ok := chatTask(task); ok {
 			t.Errorf("%s: started as a chat", name)
