@@ -192,7 +192,7 @@ func guiHandshake(nc net.Conn, cwd, session string) (*proto.Conn, proto.StateMsg
 		conn.Close()
 		return nil, proto.StateMsg{}, err
 	}
-	if err := nc.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+	if err := nc.SetDeadline(time.Now().Add(handshakeWait)); err != nil {
 		return fail(err)
 	}
 	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd, Session: session}); err != nil {

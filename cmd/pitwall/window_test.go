@@ -35,6 +35,8 @@ func setWindowSize(size string) {
 // is never restarted.
 func TestDialOrStartAsksBeforeRestart(t *testing.T) {
 	t.Setenv("PITWALL_SOCKET", "")
+	defer func(s, h time.Duration) { stopWait, handshakeWait = s, h }(stopWait, handshakeWait)
+	stopWait, handshakeWait = time.Second, time.Second
 	for _, mode := range []string{"raw", "error", "silent", "empty", "stuck"} {
 		t.Run(mode, func(t *testing.T) {
 			handoffs := stubHandOff(t, errors.New("the old daemon cannot hand off"))

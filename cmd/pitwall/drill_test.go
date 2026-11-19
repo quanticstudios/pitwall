@@ -40,11 +40,6 @@ import (
 // v0.0.1, an older release that a plain update would not install: it hands
 // over, a refusal keeps v0.0.2's daemon, and --restart forces it.
 func TestUpdateDrill(t *testing.T) {
-	if os.Getenv("PITWALL_TEST_GUARD") != "" {
-		// why: go build there gets an empty build cache under the temporary
-		// HOME; the drill keeps its own processes in temporary directories.
-		t.Skip("inside the guarded run")
-	}
 	bins := t.TempDir()
 	// Model a release without --version at the previous protocol level,
 	// than just relabeling this checkout. A refused downgrade's retry then
@@ -117,9 +112,6 @@ func TestReleaseHandoff(t *testing.T) {
 	base := os.Getenv("PITWALL_BASELINE")
 	if base == "" {
 		t.Skip("PITWALL_BASELINE names no release binary")
-	}
-	if os.Getenv("PITWALL_TEST_GUARD") != "" {
-		t.Skip("inside the guarded run")
 	}
 	bins := t.TempDir()
 	desktop := filepath.Join(bins, "pitwall")

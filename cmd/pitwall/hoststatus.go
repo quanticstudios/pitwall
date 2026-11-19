@@ -27,8 +27,9 @@ import (
 // daemon runs on the host, as free text.
 const daemonMark = "pitwall-daemon"
 
-// statusTimeout bounds one host's check, ssh's connect included.
-const statusTimeout = 15 * time.Second
+// statusTimeout bounds one host's check, ssh's connect included. A var so
+// tests wait out a shorter one.
+var statusTimeout = 15 * time.Second
 
 // Keep only the tail of each stream, even when a shell startup file is noisy.
 const statusOutputLimit = 8 * 1024
