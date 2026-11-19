@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -279,4 +281,78 @@ func BenchmarkTranscriptTurn(b *testing.B) {
 	for i := 0; b.Loop(); i++ {
 		transcriptFrame(&tr, th, s, &ops, now.Add(time.Duration(i)*time.Millisecond))
 	}
+}
+
+// TestTranscriptFollow: pinned at the end, a growing reply and new rows
+// keep the end in view; a wheel scroll up stops following and new output
+// leaves the reader where they are; a new prompt, or ToEnd as sending
+// does, goes back to the end and follows again.
+func TestTranscriptFollow(t *testing.T) {
+	th := theme.Dark()
+	s := longChat(200)
+	s.PendingApprovals = nil
+	var tr Transcript
+	var ops op.Ops
+	var r input.Router
+	now := time.Now()
+	frame := func() {
+		now = now.Add(time.Second / 60)
+		ops.Reset()
+		tr.Layout(layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 800)), Now: now}, th, s, false)
+		r.Frame(&ops)
+	}
+	atEnd := func(what string) {
+		t.Helper()
+		if tr.list.Position.BeforeEnd || tr.list.Position.First+tr.list.Position.Count != len(tr.rows)+2 {
+			t.Fatalf("%s: rows %d+%d of %d, before end %v", what, tr.list.Position.First, tr.list.Position.Count, len(tr.rows)+2, tr.list.Position.BeforeEnd)
+		}
+	}
+	add := func(it session.Item) { s.Content = append(s.Content, it) }
+	for range 3 {
+		frame()
+	}
+	atEnd("opened")
+
+	add(session.Item{ID: "reply", Kind: session.KindAssistantText, Text: "first words"})
+	frame()
+	for i := range 40 {
+		s.Content[len(s.Content)-1].Text += fmt.Sprintf("\n\nline %d of a reply that streams in", i)
+		frame()
+		atEnd(fmt.Sprint("growing reply, delta ", i))
+	}
+	add(session.Item{ID: "tool", Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: "go vet ./...", Status: "running"}})
+	frame()
+	atEnd("tool row")
+
+	r.Queue(pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(500, 400), Scroll: f32.Pt(0, -600)})
+	frame()
+	frame()
+	if !tr.list.Position.BeforeEnd {
+		t.Fatal("a scroll up left the transcript at its end")
+	}
+	first, off := tr.list.Position.First, tr.list.Position.Offset
+	s.Content[len(s.Content)-1].Tool.Output = "ok"
+	add(session.Item{ID: "more", Kind: session.KindAssistantText, Text: "more output\n\nand more"})
+	frame()
+	if tr.list.Position.First != first || tr.list.Position.Offset != off || !tr.list.Position.BeforeEnd {
+		t.Fatalf("new output moved a scrolled reader: row %d+%d, was %d+%d", tr.list.Position.First, tr.list.Position.Offset, first, off)
+	}
+
+	add(session.Item{ID: "p2", Kind: session.KindUserPrompt, Text: "next, please"})
+	frame()
+	frame()
+	atEnd("new prompt")
+
+	r.Queue(pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(500, 400), Scroll: f32.Pt(0, -600)})
+	frame()
+	frame()
+	if !tr.list.Position.BeforeEnd {
+		t.Fatal("a second scroll up left the transcript at its end")
+	}
+	tr.ToEnd()
+	frame()
+	atEnd("ToEnd")
+	s.Content[len(s.Content)-1].Text += "\n\ngrows after the send"
+	frame()
+	atEnd("growth after ToEnd")
 }
