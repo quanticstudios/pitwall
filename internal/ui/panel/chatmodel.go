@@ -50,7 +50,7 @@ func blocks(content []session.Item, out []block) []block {
 		case it.Kind == session.KindUserPrompt:
 			out = append(out, block{kind: blockPrompt, lo: i, hi: i + 1, turn: turn, reply: -1})
 			continue
-		case it.Kind == session.KindSystem && turn == "":
+		case it.Kind == session.KindSystem && (turn == "" || divider(it.Phase)):
 			out = append(out, block{kind: blockSystem, lo: i, hi: i + 1, reply: -1})
 			continue
 		}

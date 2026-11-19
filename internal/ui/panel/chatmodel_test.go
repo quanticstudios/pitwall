@@ -61,8 +61,14 @@ func TestBlocksTodo(t *testing.T) {
 		it.Tool = &session.ToolCall{CallID: id, ToolName: "TodoWrite", Status: "completed", Tasks: []session.Task{{Status: "completed"}, {Status: "pending"}}}
 		return it
 	}
-	c := []session.Item{turnItem("p", session.KindUserPrompt, "t1"), todo("w1", 0), turnItem("c", session.KindToolCall, "t1"), todo("w2", 1)}
-	b := blocks(c, nil)[1]
+	compact := turnItem("k", session.KindSystem, "t1")
+	compact.Phase = session.PhaseCompact
+	c := []session.Item{turnItem("p", session.KindUserPrompt, "t1"), todo("w1", 0), turnItem("c", session.KindToolCall, "t1"), todo("w2", 1), compact}
+	bs := blocks(c, nil)
+	if len(bs) != 3 || bs[2].kind != blockSystem {
+		t.Fatalf("blocks %+v: want the compaction outside the work log", bs)
+	}
+	b := bs[1]
 	if b.todo != 3 || b.todos != 2 || b.tools != 1 {
 		t.Fatalf("block %+v: want the second TodoWrite as its card, two left out of the log", b)
 	}
