@@ -61,6 +61,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 	if ok {
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
+		t.PRs, t.Open = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }
 		cmp := u.composer(st, id)
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(id) {
@@ -68,7 +69,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
-		env.Focus = env.Focus && focus
+		env.Focus = env.Focus && focus && !t.Zoomed()
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.
