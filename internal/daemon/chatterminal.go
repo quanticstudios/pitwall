@@ -82,7 +82,8 @@ func (d *Daemon) chatTerminal(ctx context.Context, c *chat, on bool) error {
 // terminalCmd is the argv that runs Claude Code's TUI on c's session:
 // --resume once a turn wrote the session, else --session-id, which
 // creates it under the same id, so the driver resumes it afterwards. It
-// keeps the chat's model and permission mode.
+// keeps the chat's model and permission mode, default included: left
+// out, the TUI takes its own default, which can be auto mode.
 func terminalCmd(c *chat, bin string) []string {
 	if c.cfg.Resume == "" {
 		c.cfg.Resume = newUUID()
@@ -94,10 +95,7 @@ func terminalCmd(c *chat, bin string) []string {
 	if c.cfg.Model != "" {
 		cmd = append(cmd, "--model", c.cfg.Model)
 	}
-	if c.cfg.Mode != "" && c.cfg.Mode != "default" {
-		cmd = append(cmd, "--permission-mode", c.cfg.Mode)
-	}
-	return cmd
+	return append(cmd, "--permission-mode", cmp.Or(c.cfg.Mode, "default"))
 }
 
 // leaveTerminal quits the terminal view's claude with two Ctrl+C, closes
