@@ -449,18 +449,13 @@ func apiError(text string, now time.Time) string {
 	return text
 }
 
-// Subagents are the subagent calls that run, in the turn or in the
-// background, by tool call id.
-func (t *Transcript) Subagents() []string {
-	var out []string
-	for _, m := range []map[string]session.ToolCall{t.s.tools, t.s.bg} {
-		for id, c := range m {
-			if subagentTool(c.ToolName) && c.Status == "running" && !slices.Contains(out, id) {
-				out = append(out, id)
-			}
-		}
+// Subagents are the session's subagent calls by tool call id, and
+// whether each still runs.
+func (t *Transcript) Subagents() map[string]bool {
+	out := map[string]bool{}
+	for id, c := range t.s.agents {
+		out[id] = c.Status == "running"
 	}
-	slices.Sort(out)
 	return out
 }
 

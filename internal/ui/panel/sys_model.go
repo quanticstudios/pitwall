@@ -334,4 +334,6 @@ func lastReply(s *session.Snapshot, it *session.Item) bool {
 // divider is whether a system item's phase draws as a divider across the
 // column, which stands outside a work log even mid-turn: a folded log
 // would hide it.
-func divider(phase string) bool { return phase == session.PhaseCompact || phase == session.PhaseSetting }
+func divider(phase string) bool {
+	return phase == session.PhaseCompact || phase == session.PhaseSetting
+}

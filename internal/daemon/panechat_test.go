@@ -163,8 +163,8 @@ func TestPaneChat(t *testing.T) {
 	}
 }
 
-// TestPaneChatSubagents: a running subagent's calls come from its own
-// transcript, which its meta file ties to the Agent call.
+// TestPaneChatSubagents: a subagent's calls come from its own transcript,
+// which its meta file ties to the Agent call, even once it has ended.
 func TestPaneChatSubagents(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.jsonl")
@@ -173,6 +173,8 @@ func TestPaneChatSubagents(t *testing.T) {
 		`{"type":"user","uuid":"p1","timestamp":"2026-11-19T20:40:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count lines"}}`,
 		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T20:40:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"ag","name":"Agent","input":{"description":"Count lines","subagent_type":"general-purpose"}}]}}`,
 		`{"type":"user","uuid":"u1","timestamp":"2026-11-19T20:40:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"ag","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"x1"}}`,
+		// It ended before the chat read its transcript, as on a replay.
+		`{"type":"user","uuid":"n1","timestamp":"2026-11-19T20:40:09Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>x1</task-id>\n<tool-use-id>ag</tool-use-id>\n<status>completed</status>\n<summary>Agent finished</summary>\n<result>2 notes.txt</result>\n</task-notification>"}}`,
 	} {
 		pc.reduce(pc.tr.Line([]byte(l)))
 	}

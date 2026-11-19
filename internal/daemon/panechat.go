@@ -49,13 +49,16 @@ type paneChat struct {
 	moded  bool // the chat showed a mode: a change after it gets a divider
 	// agents are the running subagents' own transcripts, by their tool
 	// call's id, and how far each was read.
-	agents map[string]*agentFile
+	agents  map[string]*agentFile
+	scanned time.Time // when subagents last looked for transcripts it lacked
 }
 
-// agentFile is a subagent's transcript and how far it was read.
+// agentFile is a subagent's transcript and how far it was read; done once
+// its subagent ended and the file was read to its end.
 type agentFile struct {
 	path string
 	off  int64
+	done bool
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -240,18 +243,26 @@ func (pc *paneChat) lines(path string, off *int64) [][]byte {
 	return bytes.Split(b[:end], []byte("\n"))
 }
 
-// subagents reads what the running subagents' transcripts gained: Claude
-// Code writes each to subagents/agent-<id>.jsonl beside the session's,
-// and names its tool call in agent-<id>.meta.json.
+// subagents reads what the subagents' transcripts gained: Claude Code
+// writes each to subagents/agent-<id>.jsonl beside the session's, and
+// names its tool call in agent-<id>.meta.json. A subagent that ended is
+// read to its end once, so a chat opened after it still shows its calls.
 func (pc *paneChat) subagents() {
-	running := pc.tr.Subagents()
-	if len(running) == 0 {
+	calls := pc.tr.Subagents()
+	if len(calls) == 0 {
 		return
 	}
 	if pc.agents == nil {
 		pc.agents = map[string]*agentFile{}
 	}
-	if slices.ContainsFunc(running, func(c string) bool { return pc.agents[c] == nil }) {
+	missing := false
+	for c := range calls {
+		missing = missing || pc.agents[c] == nil
+	}
+	// shortcut: a subagent with no file of its own (an older Claude Code
+	// kept its lines in the session's) rescans the folder at most every 2s.
+	if missing && time.Since(pc.scanned) > 2*time.Second {
+		pc.scanned = time.Now()
 		metas, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(pc.path, ".jsonl"), "subagents", "agent-*.meta.json"))
 		for _, m := range metas {
 			var meta struct {
@@ -262,12 +273,15 @@ func (pc *paneChat) subagents() {
 			}
 		}
 	}
-	for _, call := range running {
-		if a := pc.agents[call]; a != nil {
-			for _, line := range pc.lines(a.path, &a.off) {
-				pc.reduce(pc.tr.Subagent(call, line))
-			}
+	for call, running := range calls {
+		a := pc.agents[call]
+		if a == nil || a.done {
+			continue
 		}
+		for _, line := range pc.lines(a.path, &a.off) {
+			pc.reduce(pc.tr.Subagent(call, line))
+		}
+		a.done = !running
 	}
 }
 

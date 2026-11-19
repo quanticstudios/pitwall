@@ -28,6 +28,10 @@ type stream struct {
 	// bg are the subagents that run in the background, by tool_use id:
 	// they outlive the turn that started them.
 	bg map[string]session.ToolCall
+	// agents are every subagent call of the session, by tool_use id, so
+	// a pane chat that reads a subagent's own transcript late still finds
+	// its card.
+	agents map[string]session.ToolCall
 	// tasks is the task list TaskCreate and TaskUpdate keep, which lasts
 	// the session.
 	tasks []session.Task
@@ -62,7 +66,7 @@ type ask struct {
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
 		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{},
-		bg: map[string]session.ToolCall{}, background: map[string]bool{}, harnessed: map[string]bool{}}
+		bg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, background: map[string]bool{}, harnessed: map[string]bool{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -387,6 +391,9 @@ func (s *stream) assistant(l line) []session.Event {
 				t.Tasks = tasks
 			}
 			s.tools[b.ID] = t
+			if subagentTool(b.Name) {
+				s.agents[b.ID] = t
+			}
 			out = append(out, session.Event{Type: session.EventContent, ItemID: b.ID, Kind: session.KindToolCall, Model: m.Model, Tool: &t})
 			continue
 		case "text":
@@ -458,7 +465,10 @@ func (s *stream) call(id string) (session.ToolCall, bool) {
 	if t, ok := s.bg[id]; ok {
 		return t, true
 	}
-	t, ok := s.tools[id]
+	if t, ok := s.tools[id]; ok {
+		return t, true
+	}
+	t, ok := s.agents[id]
 	return t, ok
 }
 
@@ -468,6 +478,9 @@ func (s *stream) put(t session.ToolCall) []session.Event {
 		s.bg[t.CallID] = t
 	} else {
 		s.tools[t.CallID] = t
+	}
+	if subagentTool(t.ToolName) {
+		s.agents[t.CallID] = t
 	}
 	return []session.Event{{Type: session.EventContent, ItemID: t.CallID, Kind: session.KindToolCall, Tool: &t}}
 }
@@ -485,7 +498,7 @@ func (s *stream) taskDone(task, callID, status, summary, result string, report b
 		if report || result != "" {
 			t.Output = cmp.Or(result, summary)
 		}
-		s.tools[callID] = t
+		s.tools[callID], s.agents[callID] = t, t
 		return []session.Event{{Type: session.EventContent, ItemID: callID, Kind: session.KindToolCall, Tool: &t}}
 	}
 	if !s.background[task] {

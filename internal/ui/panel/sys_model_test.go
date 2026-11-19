@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/io/key"
+	"gioui.org/widget"
+
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -149,5 +152,30 @@ func TestTurnOf(t *testing.T) {
 	}
 	if turnOf(&session.Snapshot{Content: []session.Item{{ID: "x"}}}, &session.Item{}) != "" {
 		t.Error("an item not in the chat has a turn")
+	}
+}
+
+// TestMultiKeys: number keys toggle a multiSelect question's options until
+// Enter moves on; then they pick in the next question.
+func TestMultiKeys(t *testing.T) {
+	qs := []session.Question{
+		{ID: "f", Multi: true, Options: []session.PromptOption{{Label: "Apple"}, {Label: "Banana"}, {Label: "Cherry"}}},
+		{ID: "l", Options: []session.PromptOption{{Label: "Sidebar"}, {Label: "Top bar"}}},
+	}
+	tr := &Transcript{}
+	tr.init()
+	tr.askQs = map[string][]session.Question{"q": qs}
+	a := &ask{moved: make([]bool, 2), pick: []int{-1, -1}, multi: [][]bool{make([]bool, 3), nil},
+		opts: [][]widget.Clickable{make([]widget.Clickable, 4), make([]widget.Clickable, 3)}, other: make([]widget.Editor, 2)}
+	tr.asks["q"], tr.keyAsk = a, "q"
+	for _, k := range []string{"1", "3", string(key.NameReturn), "2"} {
+		tr.Key(k)
+	}
+	if !a.multi[0][0] || a.multi[0][1] || !a.multi[0][2] || a.pick[1] != 1 {
+		t.Fatalf("checks %v, pick %v: want Apple and Cherry, then Top bar", a.multi[0], a.pick)
+	}
+	ans, ok := a.answers(qs)
+	if !ok || len(ans["f"]) != 2 || ans["l"][0] != "Top bar" {
+		t.Fatalf("answers %v %v", ans, ok)
 	}
 }
