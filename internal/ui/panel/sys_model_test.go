@@ -137,3 +137,14 @@ func TestSettingAndLimit(t *testing.T) {
 		t.Error("planKey 3")
 	}
 }
+
+func TestTurnOf(t *testing.T) {
+	t1 := "t1"
+	s := &session.Snapshot{Content: []session.Item{{ID: "p", TurnID: &t1}, {ID: "a"}, {ID: "b"}}}
+	if turnOf(s, &s.Content[2]) != "t1" || turnOf(s, &s.Content[0]) != "t1" {
+		t.Error("turnOf")
+	}
+	if turnOf(&session.Snapshot{Content: []session.Item{{ID: "x"}}}, &session.Item{}) != "" {
+		t.Error("an item not in the chat has a turn")
+	}
+}

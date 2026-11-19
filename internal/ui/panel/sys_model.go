@@ -291,3 +291,22 @@ func lastTodo(content []session.Item, lo, hi int) int {
 	}
 	return -1
 }
+
+// turnOf is the turn an item belongs to: its own, or for one Claude wrote
+// outside a turn the chat knows (after a background subagent reported),
+// the turn of the nearest item before it.
+func turnOf(s *session.Snapshot, it *session.Item) string {
+	if t := deref(it.TurnID); t != "" {
+		return t
+	}
+	i := len(s.Content) - 1
+	for i >= 0 && &s.Content[i] != it {
+		i--
+	}
+	for i--; i >= 0; i-- {
+		if t := deref(s.Content[i].TurnID); t != "" {
+			return t
+		}
+	}
+	return ""
+}
