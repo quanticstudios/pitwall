@@ -99,6 +99,18 @@ func ModeName(m string) string {
 	return m
 }
 
+// EffortName is the effort chip's label for e: "High", or "Effort" while
+// it is unset or the default.
+func EffortName(e string) string {
+	switch e {
+	case "", "default":
+		return "Effort"
+	case "xhigh":
+		return "Extra high"
+	}
+	return strings.ToUpper(e[:1]) + e[1:]
+}
+
 // Meter is the context meter's reading from u: the tokens in context and
 // the window's size, ok false when either is unknown.
 func Meter(u *session.Usage) (used, total int64, ok bool) {

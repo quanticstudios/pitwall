@@ -148,34 +148,6 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 	})
 }
 
-// segment is one effort in the popover's row of efforts.
-func segment(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name string, on bool) layout.Dimensions {
-	return layout.Inset{Right: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(28)
-			w := gtx.Constraints.Max.X
-			rect := image.Rectangle{Max: image.Pt(w, h)}
-			fill, fg := th.SurfaceSecondary, th.Fg
-			switch {
-			case on:
-				fill, fg = th.SelectedBg, th.Readable(th.Primary, th.SelectedBg)
-			case b.Pressed():
-				fill = th.Pressed
-			case b.Hovered():
-				fill = th.Hover
-			}
-			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-			m := op.Record(gtx.Ops)
-			d := text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), fg, name)
-			call := m.Stop()
-			o := op.Offset(image.Pt((w-d.Size.X)/2, (h-d.Size.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			return layout.Dimensions{Size: rect.Max}
-		})
-	})
-}
-
 // tipDelay is how long the pointer rests on a control before its tooltip
 // shows; within tipNear of another tooltip it shows at once.
 const (

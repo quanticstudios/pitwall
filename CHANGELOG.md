@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.
 - Stop desktop and phone notifications when a worker tab finishes a turn, since the tab that started it reads the result. A worker that asks for approval, asks a question or fails still notifies.
 
 ## v0.2.17

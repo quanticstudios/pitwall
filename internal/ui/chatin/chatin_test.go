@@ -23,6 +23,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -494,3 +495,50 @@ func TestTranscriptKeys(t *testing.T) {
 		t.Fatalf("keys %v, text %q", got, h.c.Text())
 	}
 }
+
+// TestEffortChip: the effort chip reads "Effort" while unset, the chat's
+// effort once set, and a pick at once; a pick sends ChatSet, and the
+// model popover lists no efforts.
+func TestEffortChip(t *testing.T) {
+	for e, want := range map[string]string{"": "Effort", "default": "Effort", "high": "High", "xhigh": "Extra high", "max": "Max"} {
+		if got := EffortName(e); got != want {
+			t.Errorf("EffortName(%q) = %q, want %q", e, got, want)
+		}
+	}
+	h := newHarness(t)
+	h.snap.Provider = model.ProviderClaude
+	h.frame()
+	h.c.modelBtn.Click()
+	h.frame()
+	if !h.c.menu || h.c.which != &h.c.modelBtn {
+		t.Fatal("the model chip opened no model popover")
+	}
+	for k := range h.c.items {
+		if strings.HasPrefix(k, "effort:") {
+			t.Fatalf("the model popover lists %s", k)
+		}
+	}
+	h.c.effortBtn.Click()
+	h.frame()
+	if !h.c.menu || h.c.which != &h.c.effortBtn {
+		t.Fatal("the effort chip did not switch to its popover")
+	}
+	h.frame()
+	h.c.click("effort:max").Click()
+	m := h.frame()
+	if len(m) != 1 || !reflect.DeepEqual(m[0], proto.ChatSet{Chat: "c1", Effort: "max"}) {
+		t.Fatalf("an effort pick sent %+v", m)
+	}
+	if h.c.menu {
+		t.Fatal("the popover stayed open after a pick")
+	}
+	if got := EffortName(h.c.effort.show(deref(h.snap.Effort), h.now)); got != "Max" {
+		t.Fatalf("held label %q, want Max", got)
+	}
+	h.snap.Effort = ptr("high")
+	if got := EffortName(h.c.effort.show(deref(h.snap.Effort), h.now)); got != "High" {
+		t.Fatalf("label after the chat reports %q, want High", got)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
