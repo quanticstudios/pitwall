@@ -183,3 +183,17 @@ func TestPartialMessages(t *testing.T) {
 		t.Fatalf("items %q, want %q", got, want)
 	}
 }
+
+func TestHarnessMalformed(t *testing.T) {
+	for _, in := range []string{"", "<command-name>", "<task-notification>unclosed", "<local-command-caveat>x</local-command-caveat>", "<system-reminder>y</system-reminder>", "plain text"} {
+		if n := harness(in); n.phase != "" && n.phase != session.PhaseCommand || n.notified != "" {
+			t.Errorf("harness(%q) = %+v", in, n)
+		}
+	}
+	if n := harness("<command-name>/x</command-name>"); n.text != "/x" {
+		t.Errorf("no args: %q", n.text)
+	}
+	if hookLine("", nil, "") != "A hook failed" || retryLine(nil, "", 0, 0, 0) != "API error · retrying" || errText([]byte(`{"error":{"message":"m"}}`)) != "m" {
+		t.Error("hookLine, retryLine or errText")
+	}
+}
