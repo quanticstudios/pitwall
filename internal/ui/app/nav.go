@@ -68,6 +68,9 @@ type nav struct {
 	monitor bool
 	// monitorView asks the window to show or hide the monitor.
 	monitorView bool
+	// chatTerminal asks the window to flip the shown chat tab between the
+	// chat and Claude Code's TUI.
+	chatTerminal bool
 	// sidebarKeys asks the window to move the keyboard into the sidebar,
 	// or back to the pane (focus_sidebar).
 	sidebarKeys bool
@@ -726,6 +729,8 @@ func (n *nav) keyFilters(st *model.State) []key.Filter {
 			continue // the pane's
 		} else if a == "keep_peek" && n.peek == "" {
 			continue // the pane's while nothing is peeked at
+		} else if w := findWorkspace(st, n.workspace); a == "chat_terminal" && (w == nil || w.Chat == "") {
+			continue // the pane's outside a chat tab
 		}
 		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}
@@ -1106,6 +1111,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.skillshare = true
 	case "toggle_monitor":
 		n.monitorView = true
+	case "chat_terminal":
+		n.chatTerminal = true
 	case "allow_prompt", "deny_prompt":
 		return n.answer(st, act == "allow_prompt")
 	case "session_switcher":

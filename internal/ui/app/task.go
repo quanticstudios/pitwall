@@ -264,6 +264,9 @@ func (u *ui) openTask(st *model.State, group string) {
 			t.agents = append(t.agents, foundAgent{cmd: a.cmd, name: a.name})
 		}
 	}
+	if u.chatClaude() {
+		t.agents = withTerminalClaude(t.agents)
+	}
 	for _, p := range u.cfg.Presets {
 		vars := slices.Clone(p.Env)
 		if p.Guard {
@@ -543,9 +546,20 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 			return
 		}
 	}
-	for _, task := range tasks {
+	var agents []foundAgent // tasks' agents, in the same order
+	for i, a := range t.agents {
+		if t.picked[i] {
+			agents = append(agents, a)
+		}
+	}
+	for i, task := range tasks {
 		task.NextStart, task.Repeat = next, repeat
 		task.SessionID = u.nav.session
+		// shortcut: a queued or scheduled Claude task still runs the TUI; the daemon's task runner starts panes only.
+		if c, ok := chatTask(task); ok && !queue && !agents[i].terminal && u.chatClaude() && t.projects[t.project].host == "" {
+			u.send(c)
+			continue
+		}
 		nt := proto.NewTask{Task: task, Queue: queue, FromPane: u.nav.focused()}
 		if _, ok := u.b.(Hoster); ok && t.projects[t.project].host != "" {
 			// The folder is on that host, whatever the focused tab's is.

@@ -2,9 +2,11 @@ package config
 
 import "fmt"
 
-// Chat is [chat]: how a chat tab's transcript draws.
+// Chat is [chat]: how pitwall starts Claude Code, and how a chat tab's
+// transcript draws.
 type Chat struct {
-	Width string `toml:"width" enum:"comfortable,standard,full" doc:"The transcript's column: comfortable is 736 dp, standard 960 dp (fits a 120-column diff), full uses the whole tab. Reply prose stops near 96 characters either way"`
+	Claude string `toml:"claude" enum:"chat,terminal" doc:"chat starts Claude Code from the New task dialog, its presets and the welcome card as a desktop chat on the same folder or worktree, with its own TUI one key away (chat_terminal); terminal runs the TUI in a pane, as before. Claude (terminal) in the New task dialog and the CLI's pitwall new always run the TUI. Agents already running are not touched"`
+	Width  string `toml:"width" enum:"comfortable,standard,full" doc:"The transcript's column: comfortable is 736 dp, standard 960 dp (fits a 120-column diff), full uses the whole tab. Reply prose stops near 96 characters either way"`
 }
 
 // Chat column widths in dp.
@@ -15,20 +17,34 @@ const (
 
 // ChatSettings is [chat] resolved.
 type ChatSettings struct {
-	Width int // the column's widest, in dp; 0 is the whole tab
+	// Claude is true when starting Claude Code opens a chat, not the TUI.
+	Claude bool
+	Width  int // the column's widest, in dp; 0 is the whole tab
 }
 
-func defaultChat() Chat { return Chat{Width: "standard"} }
+func defaultChat() Chat { return Chat{Claude: "chat", Width: "standard"} }
 
 // resolveChat fills in [chat]'s values from c.
 func resolveChat(c Chat) (ChatSettings, []issue) {
+	var out ChatSettings
+	var issues []issue
+	switch c.Claude {
+	case "", "chat":
+		out.Claude = true
+	case "terminal":
+	default:
+		out.Claude = true
+		issues = append(issues, issue{"chat.claude", fmt.Sprintf("%q is not chat or terminal; using chat", c.Claude)})
+	}
 	switch c.Width {
 	case "", "standard":
-		return ChatSettings{Width: ChatStandard}, nil
+		out.Width = ChatStandard
 	case "comfortable":
-		return ChatSettings{Width: ChatComfortable}, nil
+		out.Width = ChatComfortable
 	case "full":
-		return ChatSettings{}, nil
+	default:
+		out.Width = ChatStandard
+		issues = append(issues, issue{"chat.width", fmt.Sprintf("%q is not comfortable, standard or full; using standard", c.Width)})
 	}
-	return ChatSettings{Width: ChatStandard}, []issue{{"chat.width", fmt.Sprintf("%q is not comfortable, standard or full; using standard", c.Width)}}
+	return out, issues
 }

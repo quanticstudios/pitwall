@@ -12,6 +12,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session/acp"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 )
 
 func TestConfiguredACPProviders(t *testing.T) {
@@ -66,8 +67,8 @@ command = "missing-agent"
 func TestConfiguredFakeProviders(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("PITWALL_FAKE_PROVIDERS", "")
-	if got := configuredProviders(); len(got) != 0 {
-		t.Fatalf("without the opt-in: %v", got)
+	if got := configuredProviders(); len(got) != 1 || got[model.ProviderClaude] != (claude.Provider{}) {
+		t.Fatalf("without the opt-in, want the real Claude driver alone: %v", got)
 	}
 	t.Setenv("PITWALL_FAKE_PROVIDERS", "1")
 	got := configuredProviders()

@@ -65,6 +65,7 @@ type foundAgent struct {
 	// preset marks an [[agents.preset]]: cmd with args, its tab getting vars.
 	preset     bool
 	args, vars []string
+	terminal   bool // Claude Code (terminal): the TUI where Claude Code opens a chat
 }
 
 // NoteFirstRun marks a first run, one with no daemon state, config or
@@ -136,6 +137,10 @@ func (u *ui) drawWelcome(gtx gl.Context, st *model.State) {
 	for i, a := range w.agents {
 		for w.start[i].Clicked(gtx) {
 			u.nav.expectSession(st)
+			if a.cmd == "claude" && u.chatClaude() {
+				u.send(welcomeChat(st, u.nav.session, u.nav.focused()))
+				continue
+			}
 			u.send(proto.NewSession{SessionID: u.nav.session, FromPane: u.nav.focused(), Cmd: []string{a.cmd}})
 		}
 	}

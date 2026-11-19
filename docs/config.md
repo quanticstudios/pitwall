@@ -70,6 +70,7 @@ settle_after_days = 3                   # settle a tab this many days idle; 0 ne
 settle_on_merge = true                  # settle a tab once its pull request merges
 
 [chat]
+claude = "chat"                         # or "terminal": what starting Claude Code opens; Alt+T flips a chat to the TUI
 width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
 
 [git]

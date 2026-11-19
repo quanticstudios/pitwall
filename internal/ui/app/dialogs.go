@@ -44,13 +44,14 @@ const (
 	modalTask
 	modalProfile
 	modalDiscard
-	modalUndoTurn   // putting back the files of the review view's turn
-	modalPinned     // closing a pinned tab, see pinned.go
-	modalRestart    // restarting a daemon older than the window, see restart.go
-	modalClose      // closing an agent mid-turn, see close.go
-	modalPaste      // a paste into another host's pane right after focus moved there, see shared.go
-	modalClipboard  // another host's OSC 52 write, see clipboard.go
-	modalSkillshare // the skillshare popup, see skillshare.go
+	modalUndoTurn     // putting back the files of the review view's turn
+	modalPinned       // closing a pinned tab, see pinned.go
+	modalRestart      // restarting a daemon older than the window, see restart.go
+	modalClose        // closing an agent mid-turn, see close.go
+	modalPaste        // a paste into another host's pane right after focus moved there, see shared.go
+	modalClipboard    // another host's OSC 52 write, see clipboard.go
+	modalSkillshare   // the skillshare popup, see skillshare.go
+	modalChatTerminal // stopping a chat's turn for its terminal view, see chathead.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -99,7 +100,7 @@ func (m *modal) close() { m.kind = modalNone }
 func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	m := &u.modal
 	ws := findWorkspace(st, m.ws)
-	if (m.kind == modalDelete || m.kind == modalMerge || m.kind == modalPinned || m.kind == modalClose) && ws == nil {
+	if (m.kind == modalDelete || m.kind == modalMerge || m.kind == modalPinned || m.kind == modalClose || m.kind == modalChatTerminal) && ws == nil {
 		m.close() // deleted elsewhere
 	}
 	if m.kind == modalNone {
@@ -237,6 +238,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = func(gtx gl.Context) gl.Dimensions { return u.pinnedBody(gtx, ws) }
 	case modalClose:
 		content = func(gtx gl.Context) gl.Dimensions { return u.closeBody(gtx, ws) }
+	case modalChatTerminal:
+		content = u.chatTerminalBody
 	case modalRestart:
 		content = u.restartBody
 	case modalPaste:
@@ -316,7 +319,7 @@ func (u *ui) confirmModal(st *model.State) {
 		m.close()
 	case modalPinned:
 		u.confirmPinned(st)
-	case modalClose, modalPaste:
+	case modalClose, modalPaste, modalChatTerminal:
 		u.send(m.then)
 		m.close()
 	case modalRestart:
