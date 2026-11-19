@@ -37,7 +37,10 @@ type transcriptLine struct {
 	Origin           *struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
-	Message struct {
+	// queue-operation: what Claude Code queued, such as a task notification
+	Operation string          `json:"operation"`
+	Content   json.RawMessage `json:"content"`
+	Message   struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -68,6 +71,12 @@ func (t *Transcript) Line(b []byte) []session.Event {
 			return nil
 		}
 		out = t.End(session.TurnCompleted) // Claude Code's mark at the end of each turn
+	case "queue-operation":
+		var text string
+		if l.Operation != "enqueue" || json.Unmarshal(l.Content, &text) != nil || !strings.Contains(text, "<task-notification>") {
+			return nil
+		}
+		out = t.s.notice(text) // a background shell ended
 	default:
 		return nil // summaries, snapshots, attachments, system notes: nothing a chat shows
 	}

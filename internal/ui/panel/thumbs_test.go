@@ -15,11 +15,11 @@ func TestDecodeThumb(t *testing.T) {
 	if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 400, 800))); err != nil {
 		t.Fatal(err)
 	}
-	_, size := decodeThumb(base64.StdEncoding.EncodeToString(b.Bytes()))
+	_, size := decodeThumb(base64.StdEncoding.EncodeToString(b.Bytes()), thumbHeight)
 	if size != image.Pt(96, thumbHeight) {
 		t.Fatalf("size %v", size)
 	}
-	if _, size := decodeThumb(base64.StdEncoding.EncodeToString([]byte("not an image"))); size != (image.Point{}) {
+	if _, size := decodeThumb(base64.StdEncoding.EncodeToString([]byte("not an image")), thumbHeight); size != (image.Point{}) {
 		t.Fatalf("garbage decoded to %v", size)
 	}
 }

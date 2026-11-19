@@ -163,6 +163,13 @@ type ToolCall struct {
 	// SubagentTools names the calls a Task's subagent made, in order.
 	SubagentTools []string `json:"subagentTools,omitzero"`
 	ToolName      string   `json:"toolName"`
+
+	// Images are the pictures the call's result returned, such as a Read of
+	// a PNG or a screenshot.
+	Images []Attachment `json:"images,omitzero"`
+	// Background is a shell the call left running: running, completed,
+	// failed or killed; "" for a call that ran in the foreground.
+	Background string `json:"background,omitempty"`
 }
 
 type ToolFile struct {
