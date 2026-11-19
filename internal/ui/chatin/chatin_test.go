@@ -111,8 +111,8 @@ func TestModes(t *testing.T) {
 	}
 }
 
-// The meter: hidden without both numbers, yellow from 75%, and its
-// numbers rounded to K and M.
+// The meter: hidden without both numbers, a warning from 75%, danger near
+// the auto-compact point, and its numbers to one decimal in k and M.
 func TestMeter(t *testing.T) {
 	n := func(v int64) *int64 { return &v }
 	if _, _, ok := Meter(&session.Usage{ContextTokens: n(5)}); ok {
@@ -124,10 +124,30 @@ func TestMeter(t *testing.T) {
 	if u, m, ok := Meter(&session.Usage{ContextTokens: n(62_000), MaxTokens: n(200_000)}); !ok || u != 62_000 || m != 200_000 {
 		t.Errorf("meter %d %d %v", u, m, ok)
 	}
-	if MeterWarn(149_999, 200_000) || !MeterWarn(150_000, 200_000) || !MeterWarn(210_000, 200_000) {
-		t.Error("the warning is not at 75%")
+	for _, c := range []struct {
+		used, total int64
+		pct         int
+		level       MeterLevel
+	}{
+		{0, 200_000, 0, MeterOK},
+		{40_000, 200_000, 20, MeterOK},
+		{149_999, 200_000, 74, MeterOK},
+		{150_000, 200_000, 75, MeterWarning},
+		{173_999, 200_000, 86, MeterWarning},
+		{174_000, 200_000, 87, MeterDanger},
+		{199_999, 200_000, 99, MeterDanger},
+		{210_000, 200_000, 100, MeterDanger},
+		{840_000, 1_000_000, 84, MeterWarning},
+		{5, 0, 0, MeterOK},
+	} {
+		if p, l := Percent(c.used, c.total), Level(c.used, c.total); p != c.pct || l != c.level {
+			t.Errorf("%d of %d: %d%% level %d, want %d%% level %d", c.used, c.total, p, l, c.pct, c.level)
+		}
 	}
-	for v, want := range map[int64]string{950: "950", 62_400: "62K", 200_000: "200K", 1_000_000: "1M", 1_500_000: "1.5M"} {
+	if at := AutoCompactAt(200_000); at != 184_000 {
+		t.Errorf("auto-compact at %d of 200k", at)
+	}
+	for v, want := range map[int64]string{950: "950", 62_400: "62.4k", 84_200: "84.2k", 200_000: "200k", 999_999: "1M", 1_000_000: "1M", 1_500_000: "1.5M"} {
 		if got := Tokens(v); got != want {
 			t.Errorf("Tokens(%d) = %q, want %q", v, got, want)
 		}

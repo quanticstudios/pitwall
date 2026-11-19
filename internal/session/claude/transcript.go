@@ -350,10 +350,40 @@ func promptText(l transcriptLine) (string, bool) {
 		text = strings.Join(parts, "\n")
 	}
 	t := strings.TrimSpace(text)
-	if t == "" || strings.HasPrefix(t, "<") && !human && !strings.HasPrefix(t, "<pasted_content") {
+	if strings.HasPrefix(t, "<") && !strings.HasPrefix(t, "<pasted_content") {
+		// Claude Code marks a skill's or custom command's line as the
+		// human's; a built-in's, such as /model, comes unmarked and draws as
+		// a command chip or a divider.
+		if !human {
+			return "", false
+		}
+		if cmd, ok := slashPrompt(t); ok {
+			return cmd, true
+		}
+	}
+	return text, t != ""
+}
+
+// slashPrompt is a skill's or custom command's line as the user typed it,
+// "/name args": Claude Code writes those with a <command-message> and runs
+// a turn for them.
+func slashPrompt(t string) (string, bool) {
+	tag := func(name string) string {
+		_, rest, ok := strings.Cut(t, "<"+name+">")
+		in, _, closed := strings.Cut(rest, "</"+name+">")
+		if !ok || !closed {
+			return ""
+		}
+		return strings.TrimSpace(in)
+	}
+	cmd := tag("command-name")
+	if !strings.HasPrefix(cmd, "/") || !strings.Contains(t, "<command-message>") {
 		return "", false
 	}
-	return text, true
+	if args := tag("command-args"); args != "" {
+		cmd += " " + args
+	}
+	return cmd, true
 }
 
 // userText is a user line's text when it holds no tool result: a string,
@@ -402,19 +432,18 @@ func (t *Transcript) use(l transcriptLine) {
 }
 
 // usage is the ending turn's usage, as the result line reports it in
-// stream-json: its tokens and cost by model, and the context the last
-// call sent. ok is false when the turn made no call.
+// stream-json: its tokens and cost by model. The pane chat adds the
+// context. ok is false when the turn made no call.
 func (t *Transcript) usage() (session.Event, bool) {
 	if len(t.usedOrder) == 0 {
 		return session.Event{}, false
 	}
 	by := map[string]flow.Tokens{}
-	var last msgUse
 	for _, id := range t.usedOrder {
 		m := t.used[id]
 		k := by[m.model]
 		k.Input, k.Output, k.CacheRead, k.CacheWrite = k.Input+m.t.Input, k.Output+m.t.Output, k.CacheRead+m.t.CacheRead, k.CacheWrite+m.t.CacheWrite
-		by[m.model], last = k, m
+		by[m.model] = k
 	}
 	clear(t.used)
 	t.usedOrder = t.usedOrder[:0]
@@ -439,11 +468,6 @@ func (t *Transcript) usage() (session.Event, bool) {
 	}
 	if priced {
 		r.EstimatedCostUSD = &total
-	}
-	ctx := last.t.Input + last.t.CacheRead + last.t.CacheWrite + last.t.Output
-	e.ContextTokens = &ctx
-	if w := flow.ContextWindow(last.model); w > 0 {
-		e.MaxTokens = &w
 	}
 	e.Report = r
 	return e, true

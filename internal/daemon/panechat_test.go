@@ -2,16 +2,19 @@ package daemon
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
-	"github.com/quanticstudios/pitwall/internal/session/claude"
 )
 
 // paneRead reads pane chat id after seq after and applies it to snap.
@@ -139,13 +142,86 @@ func TestPaneChat(t *testing.T) {
 		t.Errorf("idle interrupt typed %q", got)
 	}
 
-	// Shift+Tab in the chat is one Shift+Tab in the TUI, whatever mode the
-	// chat guessed comes next: the TUI's own cycle decides.
+	// With no footer to read, a mode pick is one Shift+Tab.
 	before = len(f.pane(0).got())
 	d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "default"})
 	if got := gotAfter(t, f.pane(0), before, 3); got != "\x1b[Z" {
 		t.Errorf("mode press typed %q, want Shift+Tab", got)
 	}
+	// With one, it presses Shift+Tab until the footer reads the mode
+	// picked, in the TUI's own cycle.
+	cycle := []string{"", "  ⏵⏵ accept edits on (shift+tab to cycle)", "  ⏸ plan mode on (shift+tab to cycle)", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	fp := f.pane(0)
+	fp.mu.Lock()
+	pressed := strings.Count(string(fp.input), "\x1b[Z")
+	footer := func() {
+		at := (strings.Count(string(fp.input), "\x1b[Z") - pressed) % len(cycle)
+		fp.screen = []string{"────────", "❯ ", "────────", cycle[at]}
+	}
+	footer()
+	fp.wrote = footer
+	fp.mu.Unlock()
+	before = len(fp.got())
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "plan"}); r.(proto.ChatResult).Code != "" {
+		t.Fatalf("mode pick: %+v", r)
+	}
+	if got := fp.got()[before:]; strings.Count(got, "\x1b[Z") != 2 {
+		t.Errorf("plan from default typed %q, want Shift+Tab twice", got)
+	}
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "auto"}); r.(proto.ChatResult).Code != "unsupported" {
+		t.Errorf("a mode outside the cycle: %+v, want unsupported", r)
+	}
+	fp.mu.Lock()
+	fp.wrote, fp.screen = nil, nil
+	fp.mu.Unlock()
+
+	// An image goes in as its pasted path, which Claude Code numbers
+	// itself: no [Image #N] token and no evidence line ride along.
+	before = len(fp.got())
+	png := base64.StdEncoding.EncodeToString(append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...))
+	send := proto.ChatSend{Chat: "a", Text: "describe [Image #1] in five words", Attachments: []session.Attachment{
+		{ID: "image-1", Kind: "image", MimeType: "image/png", Name: "image-1.png", SizeBytes: 72, Data: png}}}
+	if r, _ := d.chatRequest(context.Background(), send); r.(proto.ChatResult).Code != "" {
+		t.Fatalf("image send: %+v", r)
+	}
+	typed := gotAfter(t, fp, before, len("describe in five words"))
+	for deadline := time.Now().Add(2 * time.Second); !strings.Contains(typed, ".png") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		typed = fp.got()[before:]
+	}
+	if !strings.Contains(typed, "describe in five words") || !strings.Contains(typed, ".png") || strings.Contains(typed, "[Image #") || strings.Contains(typed, "evidence") {
+		t.Errorf("image send typed %q: want the text without its token, and the image's path", typed)
+	}
+
+	// A slash command Claude Code's menu offers matches for gets Esc before
+	// Enter, which closes the menu, so Enter sends it as typed, not the
+	// menu's first match. With no menu up, no Esc, which would stop a turn.
+	for _, c := range []struct {
+		text string
+		menu bool
+	}{{"/pwpro", true}, {"/pwprobe twice", false}} {
+		fp.mu.Lock()
+		fp.screen = []string{"────────", "❯ " + c.text, "────────"}
+		if c.menu {
+			fp.screen = append([]string{"  /pwprobe-two  Second probe skill. (user)"}, fp.screen...)
+		}
+		fp.modes.BracketedPaste = true
+		fp.mu.Unlock()
+		before = len(fp.got())
+		if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: c.text}); r.(proto.ChatResult).Code != "" {
+			t.Fatalf("send %q: %+v", c.text, r)
+		}
+		typed := gotAfter(t, fp, before, len(c.text))
+		for deadline := time.Now().Add(2 * time.Second); !strings.HasSuffix(typed, "\r") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			typed = fp.got()[before:]
+		}
+		esc := strings.HasSuffix(strings.TrimSuffix(typed, "\r"), "\x1b")
+		if !strings.Contains(typed, c.text) || !strings.HasSuffix(typed, "\r") || esc != c.menu {
+			t.Errorf("send %q typed %q: want the text, Esc %v, then Enter", c.text, typed, c.menu)
+		}
+	}
+	fp.mu.Lock()
+	fp.screen, fp.modes.BracketedPaste = nil, false
+	fp.mu.Unlock()
 
 	// Claude exits: its hooks' process leaves, the provider goes, and so
 	// does the pane chat.
@@ -160,6 +236,62 @@ func TestPaneChat(t *testing.T) {
 	d.mu.Unlock()
 	if kept {
 		t.Error("the pane chat outlived its claude")
+	}
+}
+
+// A pane chat's effort is the one the TUI shows, else the effortLevel in
+// Claude Code's user settings; with neither it stays unknown. The TUI's
+// model goes in as it changes, and a transcript's model stands until then.
+func TestPaneChatSettings(t *testing.T) {
+	conf := t.TempDir()
+	if err := os.WriteFile(filepath.Join(conf, "settings.json"), []byte(`{"effortLevel":"medium","model":"opus"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", snap: session.Snapshot{SessionID: "a"}}
+	pc.settings(paneLive{conf: conf})
+	if pc.snap.Effort == nil || *pc.snap.Effort != "medium" || pc.snap.Model != nil {
+		t.Fatalf("from the settings: effort %v, model %v; want medium and none", pc.snap.Effort, pc.snap.Model)
+	}
+	tui := paneLive{conf: conf, tui: phoneSettings{model: "Opus 5.5", effort: "xhigh"}}
+	pc.settings(tui)
+	if *pc.snap.Effort != "xhigh" || pc.snap.Model == nil || *pc.snap.Model != "Opus 5.5" {
+		t.Fatalf("from the TUI: effort %v, model %v", *pc.snap.Effort, pc.snap.Model)
+	}
+	pc.reduce([]session.Event{{Type: session.EventSettings, Model: "claude-sonnet-5-5"}})
+	pc.settings(tui)
+	if *pc.snap.Model != "claude-sonnet-5-5" {
+		t.Errorf("model %q: the TUI's unchanged one took over the transcript's", *pc.snap.Model)
+	}
+	none := &paneChat{id: "b", snap: session.Snapshot{SessionID: "b"}}
+	none.settings(paneLive{conf: t.TempDir()})
+	if none.snap.Effort != nil {
+		t.Errorf("effort %q with no source: want unknown", *none.snap.Effort)
+	}
+}
+
+// A pane chat's context meter reads the last main-thread assistant line's
+// usage, input plus cache creation and reads, out of the model's window:
+// 1M when the TUI names the model's 1M version.
+func TestPaneChatContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T10:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":4000,"cache_read_input_tokens":36000,"output_tokens":90}}}
+{"type":"assistant","uuid":"s1","isSidechain":true,"timestamp":"2026-11-19T10:00:02Z","message":{"id":"m2","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":150000}}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 40002 || u.MaxTokens == nil || *u.MaxTokens != 200_000 {
+		t.Fatalf("usage %+v: want 40002 of 200K, the sidechain's skipped", u)
+	}
+	pc.catchUp(paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 5.5 1M"}})
+	if u := pc.snap.Usage; *u.MaxTokens != 1_000_000 {
+		t.Errorf("window %d with the TUI on Opus 5.5 1M: want 1M", *u.MaxTokens)
+	}
+	if w := contextWindow("claude-opus-5-5[1m]", ""); w != 1_000_000 {
+		t.Errorf("window of a [1m] id: %d", w)
 	}
 }
 

@@ -48,6 +48,23 @@ func ClaudeSettings(g vt.Grid) (model, effort string) {
 		if model == "" && strings.HasPrefix(row, "⎿  Kept model as ") {
 			model = strings.TrimSuffix(strings.TrimPrefix(row, "⎿  Kept model as "), " (default)")
 		}
+		// Claude Code 2.1.328 shows the effort over its input box as
+		// "◐ medium · /effort", and the model under "Claude Code v…" in
+		// its header as "Opus 5.5 · Claude Ultra", the logo before both.
+		if lead, ok := strings.CutSuffix(row, " · /effort"); effort == "" && ok {
+			if w := strings.Fields(lead); len(w) > 0 {
+				effort = w[len(w)-1]
+			}
+		}
+		if model == "" && strings.Contains(row, "Claude Code v") && i+1 < len(rows) {
+			head, _, _ := strings.Cut(rows[i+1], " · ")
+			for _, family := range []string{"Opus ", "Sonnet ", "Haiku ", "Fable "} {
+				if at := strings.Index(head, family); at >= 0 {
+					model = strings.TrimSpace(head[at:])
+					break
+				}
+			}
+		}
 		if effort == "" && strings.HasPrefix(row, "⎿  Set effort level to ") {
 			effort = strings.Fields(strings.TrimPrefix(row, "⎿  Set effort level to "))[0]
 		}

@@ -1320,8 +1320,9 @@ type ChatNew struct {
 }
 
 // ChatSend starts a turn with Text, or queues it behind the running one.
-// How "steer" adds it to the running turn where the provider can, and
-// "queue" always queues.
+// How "steer" adds it to the running turn where the provider can, "now"
+// does too and otherwise stops the turn and sends it first, and "queue"
+// always queues.
 type ChatSend struct {
 	Chat        string
 	Text        string

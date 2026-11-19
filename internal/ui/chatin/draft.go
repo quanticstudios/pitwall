@@ -22,6 +22,7 @@ type Image struct {
 	Data  []byte // PNG, JPEG or WebP, as Fit leaves it
 	Mime  string
 	Thumb paint.ImageOp
+	side  int // Thumb's side in pixels, 0 before it is made
 }
 
 // Draft is what a composer holds besides its text: the images whose
@@ -34,6 +35,12 @@ type Draft struct {
 
 // Token is image n's token in the text.
 func Token(n int) string { return "[Image #" + strconv.Itoa(n) + "]" }
+
+// glue gives each token in s a no-break space, as the composer's editor
+// holds it, so a token wraps as one word; unglue takes it back out. The
+// space is one rune either way, so rune offsets hold in both.
+func glue(s string) string   { return strings.ReplaceAll(s, "[Image #", "[Image\u00a0#") }
+func unglue(s string) string { return strings.ReplaceAll(s, "[Image\u00a0#", "[Image #") }
 
 // Add numbers img and returns the token to put in the text.
 func (d *Draft) Add(img Image) string {

@@ -270,3 +270,31 @@ func TestNotifiedOnce(t *testing.T) {
 		t.Fatalf("rows %q: want one", got)
 	}
 }
+
+// A skill or custom command shows as the prompt the user typed, with its
+// arguments; its expansion and a built-in such as /model stay out.
+func TestTranscriptSlashCommand(t *testing.T) {
+	tr := NewTranscript()
+	snap := base()
+	for _, l := range []string{
+		`{"type":"user","uuid":"c1","timestamp":"2026-11-19T20:57:29Z","origin":{"kind":"human"},"message":{"role":"user","content":"<command-message>pwprobe</command-message>\n<command-name>/pwprobe</command-name>\n<command-args>twice</command-args>"}}`,
+		`{"type":"user","uuid":"c2","timestamp":"2026-11-19T20:57:29Z","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /tmp/x"}]}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T20:57:30Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"PROBE-OK"}]}}`,
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-11-19T20:57:31Z"}`,
+		`{"type":"user","uuid":"c3","timestamp":"2026-11-19T20:58:00Z","message":{"role":"user","content":"<command-name>/model</command-name>"}}`,
+	} {
+		snap = apply(t, snap, tr.Line([]byte(l)))
+	}
+	var prompts []string
+	for _, it := range snap.Content {
+		if it.Kind == session.KindUserPrompt {
+			prompts = append(prompts, it.Text)
+		}
+	}
+	if len(prompts) != 1 || prompts[0] != "/pwprobe twice" {
+		t.Fatalf("prompts %q: want the skill as typed, no expansion or /model", prompts)
+	}
+	if len(snap.Turns) != 1 || snap.Turns[0].State != session.TurnCompleted || tr.Running() {
+		t.Errorf("turns %+v: want the skill's turn, completed", snap.Turns)
+	}
+}

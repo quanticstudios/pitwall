@@ -383,8 +383,9 @@ func (e *Editor) processKey(gtx layout.Context) (EditorEvent, bool) {
 		key.Filter{Focus: e, Name: "X", Required: key.ModShortcut},
 		key.Filter{Focus: e, Name: "A", Required: key.ModShortcut},
 
-		key.Filter{Focus: e, Name: key.NameDeleteBackward, Optional: key.ModShortcutAlt | key.ModShift},
-		key.Filter{Focus: e, Name: key.NameDeleteForward, Optional: key.ModShortcutAlt | key.ModShift},
+		// pitwall: Alt too, a word delete as in a shell.
+		key.Filter{Focus: e, Name: key.NameDeleteBackward, Optional: key.ModShortcutAlt | key.ModShift | key.ModAlt},
+		key.Filter{Focus: e, Name: key.NameDeleteForward, Optional: key.ModShortcutAlt | key.ModShift | key.ModAlt},
 
 		key.Filter{Focus: e, Name: key.NameHome, Optional: key.ModShortcut | key.ModShift},
 		key.Filter{Focus: e, Name: key.NameEnd, Optional: key.ModShortcut | key.ModShift},
@@ -515,6 +516,18 @@ func (e *Editor) command(gtx layout.Context, k key.Event) (EditorEvent, bool) {
 			}
 			e.text.MoveWord(1*direction, selAct)
 		}
+	}
+	// pitwall: a word delete before the shortcut block, which off macOS
+	// (ModShortcut == ModShortcutAlt == Ctrl) returned before reaching it.
+	if n := k.Name; (n == key.NameDeleteBackward || n == key.NameDeleteForward) && k.Modifiers&(key.ModShortcutAlt|key.ModAlt) != 0 {
+		dir := -1
+		if n == key.NameDeleteForward {
+			dir = 1
+		}
+		if !e.ReadOnly && e.deleteWord(dir) != 0 {
+			return ChangeEvent{}, true
+		}
+		return nil, false
 	}
 	if k.Modifiers.Contain(key.ModShortcut) {
 		switch k.Name {
