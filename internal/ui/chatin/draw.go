@@ -156,8 +156,8 @@ const (
 )
 
 // tip shows label above b, size big at the origin, once the pointer has
-// rested on it for tipDelay: centered, or ending at its right edge for a
-// control at the right end of the row.
+// rested on it for tipDelay: centered, but never starting left of b, or
+// ending at its right edge for a control at the right end of the row.
 func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point, label string, right bool) {
 	if c.hover == nil {
 		c.hover = map[*widget.Clickable]time.Time{}
@@ -181,13 +181,13 @@ func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable,
 	c.tipSeen = gtx.Now
 	m := op.Record(gtx.Ops)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(320), gtx.Dp(40))}
+	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(480), gtx.Dp(40))}
 	rec := op.Record(gtx.Ops)
 	d := layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Top: theme.SpaceXS + theme.Space2XS, Bottom: theme.SpaceXS + theme.Space2XS}.Layout(g, func(gtx layout.Context) layout.Dimensions {
 		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, label)
 	})
 	body := rec.Stop()
-	x := (size.X - d.Size.X) / 2
+	x := max(0, (size.X-d.Size.X)/2)
 	if right {
 		x = size.X - d.Size.X
 	}

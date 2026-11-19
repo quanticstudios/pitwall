@@ -93,9 +93,14 @@ func numbers(ims []Image) []int {
 // Shift+Tab's cycle: Default, Accept edits, Plan, and back; any other
 // mode goes to Default. Plan shows from the interaction mode too.
 func TestModes(t *testing.T) {
-	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeDefault, "bypassPermissions": ModeDefault, "": ModeDefault} {
-		if got := NextMode(from); got != want {
+	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeDefault, ModeBypass: ModeDefault, "": ModeDefault} {
+		if got := NextMode(from, false); got != want {
 			t.Errorf("NextMode(%q) = %q, want %q", from, got, want)
+		}
+	}
+	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeBypass, ModeBypass: ModeDefault} {
+		if got := NextMode(from, true); got != want {
+			t.Errorf("NextMode(%q) with bypass = %q, want %q", from, got, want)
 		}
 	}
 	if m := ModeOf(&session.Snapshot{PermissionMode: "default", InteractionMode: "plan"}); m != ModePlan {
@@ -542,3 +547,37 @@ func TestEffortChip(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestBypassMode: bypass reads red with a shield and its warning, and
+// Shift+Tab reaches it only in a chat that has run in it.
+func TestBypassMode(t *testing.T) {
+	th := theme.Dark()
+	if ModeName(ModeBypass) != "Bypass permissions" {
+		t.Errorf("label %q", ModeName(ModeBypass))
+	}
+	col, icon, tip := modeLook(th, ModeBypass)
+	if col != th.Readable(th.Red, th.Surface) || icon != "shield" || !strings.HasPrefix(tip, "Bypass permissions: ") {
+		t.Errorf("bypass looks %v %q %q", col, icon, tip)
+	}
+	if col, icon, _ := modeLook(th, ModeDefault); col == th.Readable(th.Red, th.Surface) || icon != "circle" {
+		t.Errorf("default looks %v %q", col, icon)
+	}
+	cycle := func(h *harness, n int) []string {
+		var got []string
+		for range n {
+			m := h.press(key.NameTab, key.ModShift)
+			got = append(got, m[0].(proto.ChatSet).Mode)
+		}
+		return got
+	}
+	h := newHarness(t)
+	if got := cycle(h, 4); !slices.Equal(got, []string{ModeAccept, ModePlan, ModeDefault, ModeAccept}) {
+		t.Fatalf("a chat never in bypass cycles %v", got)
+	}
+	h = newHarness(t)
+	h.snap.PermissionMode = ModeBypass
+	h.frame()
+	if got := cycle(h, 5); !slices.Equal(got, []string{ModeDefault, ModeAccept, ModePlan, ModeBypass, ModeDefault}) {
+		t.Fatalf("a chat started in bypass cycles %v", got)
+	}
+}

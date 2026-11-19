@@ -63,6 +63,7 @@ type Composer struct {
 	last    *sent          // the last send, until it is answered
 
 	mode, model, effort held
+	bypass              bool // the chat has run in bypass permissions, so Shift+Tab may go back to it
 	out                 []any
 	inited              bool
 }
@@ -366,7 +367,7 @@ func (c *Composer) submit(env Env, now time.Time) {
 // cycleMode moves the mode on from what the chat shows.
 func (c *Composer) cycleMode(env Env, now time.Time) {
 	cur := ModeOf(env.Snap)
-	next := NextMode(c.mode.show(cur, now))
+	next := NextMode(c.mode.show(cur, now), c.bypass)
 	c.mode = held{next, cur, now.Add(holdFor)}
 	c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: next})
 }
@@ -785,14 +786,12 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 // bar is the control row: the mode, the model, then the meter and Send.
 func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
 	now := gtx.Now
-	mode := c.mode.show(ModeOf(env.Snap), now)
-	modeCol, modeIcon := pickFg(th), "circle"
-	switch mode {
-	case ModeAccept:
-		modeCol, modeIcon = th.Purple, "pencil"
-	case ModePlan:
-		modeCol, modeIcon = th.Green, "map"
+	if ModeOf(env.Snap) == ModeBypass {
+		// why: the snapshot doesn't say whether Claude may enter bypass; one it ran in was started with it.
+		c.bypass = true
 	}
+	mode := c.mode.show(ModeOf(env.Snap), now)
+	modeCol, modeIcon, modeTip := modeLook(th, mode)
 	mdl := c.model.show(deref(env.Snap.Model), now)
 	eff := EffortName(c.effort.show(deref(env.Snap.Effort), now))
 	effCol := pickFg(th)
@@ -809,7 +808,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, false)
-				c.tip(gtx, th, &c.modeBtn, d.Size, "Permission mode (Shift+Tab)", false)
+				c.tip(gtx, th, &c.modeBtn, d.Size, modeTip, false)
 				c.modelX = gtx.Dp(theme.SpaceS) + d.Size.X + gtx.Dp(theme.SpaceXS)
 				return d
 			}),
@@ -863,6 +862,20 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 }
 
 func pickFg(th *theme.Theme) color.NRGBA { return theme.Mix(th.Fg, th.Muted, 0.3) }
+
+// modeLook is the mode chip's color, icon and tooltip for mode m. Bypass
+// is red with a shield, as Claude Code's TUI shows it in red.
+func modeLook(th *theme.Theme, m string) (color.NRGBA, string, string) {
+	switch m {
+	case ModeAccept:
+		return th.Purple, "pencil", "Permission mode (Shift+Tab)"
+	case ModePlan:
+		return th.Green, "map", "Permission mode (Shift+Tab)"
+	case ModeBypass:
+		return th.Readable(th.Red, th.Surface), "shield", "Bypass permissions: Claude runs every tool without asking (Shift+Tab)"
+	}
+	return pickFg(th), "circle", "Permission mode (Shift+Tab)"
+}
 
 // pick is a 28dp ghost control: an icon, a label, a chevron.
 func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, label string, col color.NRGBA, chevron bool) layout.Dimensions {
