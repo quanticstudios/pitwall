@@ -7,11 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/io/input"
+	"gioui.org/io/key"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -77,6 +80,19 @@ func TestChatTab(t *testing.T) {
 	if listed != dir {
 		t.Fatalf("panel lists %q, want the chat's folder %q", listed, dir)
 	}
+	// The composer's draft survives a switch to another tab and back.
+	cmp := u.composers["c1"]
+	if cmp == nil {
+		t.Fatal("the chat tab drew no composer")
+	}
+	cmp.SetText("half a thought")
+	u.nav.workspace = "w1"
+	frame()
+	u.nav.workspace = "wc"
+	frame()
+	if u.composers["c1"] != cmp || cmp.Text() != "half a thought" {
+		t.Fatalf("the draft is %q after a tab switch", u.composers["c1"].Text())
+	}
 	st := b.State()
 	if p := sidebar.AgentOf(&st, st.Workspaces[len(st.Workspaces)-1]); p != model.ProviderClaude {
 		t.Fatalf("sidebar mark %q", p)
@@ -96,5 +112,45 @@ func TestChatTranscripts(t *testing.T) {
 	u.chatTranscript(st, "a")
 	if _, ok := u.transcripts["b"]; ok || len(u.transcripts) != 1 {
 		t.Fatalf("a closed chat keeps its transcript: %d", len(u.transcripts))
+	}
+}
+
+// TestChatComposerKeys: 2 typed into the empty composer answers the
+// chat's newest approval through its transcript, and leaves no draft.
+func TestChatComposerKeys(t *testing.T) {
+	old := findAide
+	findAide = func() []string { return nil }
+	defer func() { findAide = old }()
+	b := &chatBackend{FakeBackend: NewFakeBackend()}
+	b.mu.Lock()
+	b.st.Workspaces = append(b.st.Workspaces, model.Workspace{ID: "wc", SessionID: "s1", Name: "chat", Label: "Fix it", Path: t.TempDir(), Chat: "c1"})
+	s1 := &b.st.Sessions[slices.IndexFunc(b.st.Sessions, func(s model.Session) bool { return s.ID == "s1" })]
+	s1.Order = append(s1.Order, "wc")
+	b.st.Chats = []model.Chat{{ID: "c1", WorkspaceID: "wc", Provider: model.ProviderClaude, State: session.StateWaiting, Title: "Fix it"}}
+	b.mu.Unlock()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
+	var r input.Router
+	var ops op.Ops
+	now := time.Now()
+	frame := func() {
+		ops.Reset()
+		now = now.Add(time.Second)
+		u.layout(gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1600, 800)), Now: now})
+		r.Frame(&ops)
+	}
+	frame()
+	u.nav.workspace = "wc"
+	for range 3 {
+		frame()
+	}
+	r.Queue(key.EditEvent{Text: "2"})
+	frame()
+	frame()
+	want := proto.ChatApprove{Chat: "c1", Request: "r1", Decision: "allow-session"}
+	if !slices.Contains(b.Sent(), any(want)) {
+		t.Fatalf("sent %+v, want %+v", b.Sent(), want)
+	}
+	if c := u.composers["c1"]; c == nil || c.Text() != "" {
+		t.Fatal("the key stayed in the composer as a draft")
 	}
 }

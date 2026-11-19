@@ -17,6 +17,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -1257,6 +1258,14 @@ func (m *multi) Chat(id string) (session.Snapshot, bool) {
 		return h.b.Chat(id)
 	}
 	return session.Snapshot{}, false
+}
+
+// ChatResults answers from the backend of the host that owns chat id.
+func (m *multi) ChatResults(id string) []chatin.Result {
+	if h := m.of(id); h != nil {
+		return h.b.ChatResults(id)
+	}
+	return nil
 }
 
 // Monitor answers from the backend of the host that owns Monitor tab ws.

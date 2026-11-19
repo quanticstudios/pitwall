@@ -36,6 +36,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/board"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
@@ -363,6 +364,7 @@ type ui struct {
 	panel       sidePanel                    // the agent panel on the right while nav.panelOpen
 	transcripts map[string]*panel.Transcript // the chat tabs', by chat id, see chatTranscript
 	chatHead    chatHead                     // the chat tab's header, or its terminal view's bar
+	composers   map[string]*chatin.Composer  // per chat, its send box and draft
 	usage       usageWatch                   // token use for the tabs' hover cards
 	invalidate  func()                       // the window's Invalidate; nil in tests
 
