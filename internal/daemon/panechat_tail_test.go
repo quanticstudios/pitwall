@@ -216,6 +216,9 @@ func TestPaneChatUnreadable(t *testing.T) {
 		t.Fatalf("no transcript yet: %+v", r)
 	}
 	os.WriteFile(path, []byte(turnLines(0, "ok")), 0o000)
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("this system reads a mode 000 file (Windows, root)")
+	}
 	d.mu.Lock()
 	delete(d.paneChats, "a") // a window that reads it first now
 	d.mu.Unlock()
