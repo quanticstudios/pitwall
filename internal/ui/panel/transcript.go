@@ -76,6 +76,7 @@ type Transcript struct {
 	menu    bool
 	pill    widget.Clickable // New output
 	seen    string           // what the chat held when the reader was last at its end
+	prompt  string           // the newest prompt's item id, to follow a new one
 	aideBtn widget.Clickable
 	aide    bool // Open in aide was clicked, until OpenAide takes it
 }
@@ -369,6 +370,12 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 	t.blocks = blocks(s.Content, t.blocks)
 	t.buildRows(gtx, d)
 
+	// A new prompt, sent here, queued or typed elsewhere, takes the
+	// reader to the end wherever they scrolled.
+	if id := lastPrompt(s); id != t.prompt {
+		t.prompt = id
+		t.ToEnd()
+	}
 	// It follows the newest row once it overflows, from the end the first
 	// time it does; a short one stays at the top.
 	follow := t.list.Position.Length > size.Y
@@ -580,7 +587,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			logged--
 		}
 		if logged > 0 || run {
-			open := t.toggled(gtx, logID(d.s, b), logOpen(run, b.failed))
+			// A work log stays one line, running or done, until the user
+			// opens it.
+			open := t.toggled(gtx, logID(d.s, b), false)
 			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
 			for i := b.lo; open && i < b.hi; i++ {
 				if i != b.reply {
@@ -634,6 +643,21 @@ func rowGap(rows []trow, i int) unit.Dp {
 	return gapInTurn
 }
 
+// ToEnd scrolls to the newest row and follows it again, as sending does.
+func (t *Transcript) ToEnd() {
+	t.list.Position.BeforeEnd = false
+}
+
+// lastPrompt is the id of s's newest prompt, "" for none.
+func lastPrompt(s *session.Snapshot) string {
+	for i := len(s.Content) - 1; i >= 0; i-- {
+		if s.Content[i].Kind == session.KindUserPrompt {
+			return s.Content[i].ID
+		}
+	}
+	return ""
+}
+
 // newOutput is the "New output" pill once the reader scrolled up and the
 // chat added to it; a click goes back to the end and follows again.
 func (t *Transcript) newOutput(gtx layout.Context, d *cdraw, s *session.Snapshot, size image.Point) {
@@ -650,7 +674,7 @@ func (t *Transcript) newOutput(gtx layout.Context, d *cdraw, s *session.Snapshot
 		return
 	}
 	for t.pill.Clicked(gtx) {
-		t.list.Position.BeforeEnd = false
+		t.ToEnd()
 		t.seen = sig
 		return
 	}
