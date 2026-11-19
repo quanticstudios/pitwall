@@ -173,7 +173,7 @@ func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
 	}
 	return layout.Inset{Top: 8, Bottom: 9, Left: bodyIndent, Right: rowPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		if it.Kind == session.KindAssistantText {
-			return d.markdown(gtx, it.ID, d.t.reply(it))
+			return d.markdown(gtx, it.ID, d.t.reply(it, false))
 		}
 		return d.selectable(gtx, d.t.sel(it.ID), d.small(c), txt)
 	})

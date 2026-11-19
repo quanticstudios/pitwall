@@ -3,6 +3,8 @@ package app
 import (
 	"image"
 	"slices"
+	"strings"
+	"unicode/utf8"
 
 	gl "gioui.org/layout"
 	"gioui.org/op"
@@ -11,6 +13,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -120,6 +123,30 @@ func (u *ui) doneView(st *model.State) string {
 // herdr's toasts: a dot in the state's color, the tab on the first line, what
 // happened on a muted second one. A click on a card jumps to its tab; the ×
 // drops it.
+// noticeBody is a notice's one line, "label · detail": the detail's bold,
+// italic and code in their own fonts, its markers, a heading's # too,
+// gone.
+func noticeBody(gtx gl.Context, th *theme.Theme, s string) (op.CallOp, image.Point) {
+	label, detail, ok := strings.Cut(s, " · ")
+	txt, styles := mdview.Inline(th, th.UIFont, detail)
+	if ok {
+		n := utf8.RuneCountInString(label + " · ")
+		for i := range styles {
+			styles[i].Start, styles[i].End = styles[i].Start+n, styles[i].End+n
+		}
+		txt = label + " · " + txt
+	} else {
+		txt, styles = mdview.Inline(th, th.UIFont, s)
+	}
+	m := op.Record(gtx.Ops)
+	mat := op.Record(gtx.Ops)
+	paint.ColorOp{Color: th.Muted}.Add(gtx.Ops)
+	matCall := mat.Stop()
+	gtx.Constraints.Min = image.Point{}
+	dims := widget.Label{MaxLines: 1, Styles: styles}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), txt, matCall)
+	return m.Stop(), dims.Size
+}
+
 func (u *ui) drawDone(gtx gl.Context) {
 	th := u.th
 	dot, gap := gtx.Dp(8), gtx.Dp(12)
@@ -147,7 +174,7 @@ func (u *ui) drawDone(gtx gl.Context) {
 		tgtx := gtx
 		tgtx.Constraints.Max.X = textWidth
 		head, hs := textCall(tgtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, it.title)
-		body, bs := textCall(tgtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, model.NoticeBody(it.act))
+		body, bs := noticeBody(tgtx, th, model.NoticeBody(it.act))
 		lineGap := gtx.Dp(3)
 		h := pad.Y + hs.Y + lineGap + bs.Y + pad.Y
 		at := image.Pt(right-w, y-h)

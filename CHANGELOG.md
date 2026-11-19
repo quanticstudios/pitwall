@@ -23,12 +23,16 @@ the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
 ## Unreleased
-
 - Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
 - Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
 - A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
 - A turn's work log, such as "Working for 2m · 14 tools", stays one line while the turn runs and after it ends, a failed call's too, and opens only when you click it. A log you opened stays open.
 - A Claude Code TUI pane's chat shows a reply as soon as Claude Code writes it to its transcript, where it could wait 10 s or more after the turn ended. Claude Code writes each block whole, so a long reply in a TUI pane still appears when its block is done, not word by word.
+- Chat replies draw their markdown properly. Bold is semibold, italic slants, strikethrough has its line, and inline code is mono on a pill, inside bold and links too. Links are in the accent color and open on a click, as does inline code naming a file in the chat's folder, such as `src/main.go:47`. Lists hang their bullets and numbers outside the text, nest with a disc, a ring and a square, and leave a gap between two lists. A code block inside a list item sits under its text. Code blocks never wrap: a long line scrolls the block sideways. A diff colors its added, removed and hunk lines. Block quote bars run unbroken across their paragraphs with round ends, rules sit evenly between sections, and a `<details>` block folds behind its summary, which opens and closes it like a tool row. Tables, code blocks, flowcharts and images sit in frames with the theme's 8 px corners, and a table's header and rows are clipped to them. Inline code in a table cell sits on the same pill as in a paragraph, and task boxes are pitwall's own checkbox. While a reply streams, a half-written bold, italic or code span already draws styled, with no markers flashing.
+- A notice's line shows its reply's bold, italic and code instead of the raw `**` and backticks.
+- A chat no longer draws a second ⋯ button over the top right of its replies, where it covered a code block's Copy; Open in aide stays in the header's menu. A reply's image that can't be shown is a panel with its alt text, and its tooltip says Image not available.
+- Numbers in the UI font use tabular figures, so durations, counts and table columns keep their width. A space after an emoji is a normal space again, not a 1.25 em gap.
+- The markdown reader slants italic text, draws bold at 600, frames its tables and code like the chat, and shows color emoji, which it left blank before.
 
 ## v0.2.18
 

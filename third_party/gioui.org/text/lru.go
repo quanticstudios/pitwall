@@ -161,6 +161,7 @@ type layoutKey struct {
 	wrapPolicy         WrapPolicy
 	lineHeight         fixed.Int26_6
 	lineHeightScale    float32
+	styles             string // pitwall: Parameters.Styles, see stylesIn
 }
 
 const maxSize = 1000

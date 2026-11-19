@@ -49,8 +49,17 @@ type Block struct {
 	// Marker is a list item's "•" or "3.", on its first block only.
 	Marker string
 	// Task is a task list item's box: 0 none, 1 open, 2 done.
-	Task  int
-	Spans []Span
+	Task int
+	// NewList is set on a list's first block, so two lists in a row
+	// read as two.
+	NewList bool
+	// Fold is the <details> block this block is in, numbered from 1 in
+	// the order they open; 0 for none. Its summary is the block with
+	// Summary set, Fold its own number and Parent the fold it is in; Open
+	// says the details start open.
+	Fold, Parent  int
+	Summary, Open bool
+	Spans         []Span
 	// Text and Lang are a code block's.
 	Text, Lang string
 	// Note says why a Mermaid block shows as code.
@@ -79,14 +88,24 @@ type parser struct {
 	src   []byte
 	out   []Block
 	slugs map[string]int
-	// marker and task go on the next block a list item emits.
-	marker string
-	task   int
+	// marker and task go on the next block a list item emits, newList
+	// on the next block a list emits.
+	marker  string
+	task    int
+	newList bool
+	// folds are the <details> open around the next block, innermost
+	// last, 0 for one without a summary; nfold counts them.
+	folds []int
+	nfold int
 }
 
 func (p *parser) emit(b Block) {
 	if p.marker != "" {
 		b.Marker, b.Task, p.marker, p.task = p.marker, p.task, "", 0
+	}
+	b.NewList, p.newList = p.newList, false
+	if !b.Summary && len(p.folds) > 0 {
+		b.Fold = p.folds[len(p.folds)-1]
 	}
 	p.out = append(p.out, b)
 }
@@ -123,6 +142,7 @@ func (p *parser) block(n ast.Node, indent, quote int) {
 	case *ast.Blockquote:
 		p.blocks(n, indent, quote+1)
 	case *ast.List:
+		p.newList = true
 		i := n.Start
 		for item := n.FirstChild(); item != nil; item = item.NextSibling() {
 			p.marker = "•"
@@ -315,6 +335,8 @@ var (
 	brTag   = regexp.MustCompile(`(?i)^<br\s*/?>$`)
 	tag     = regexp.MustCompile(`<[^>]*>`)
 	comment = regexp.MustCompile(`(?s)<!--.*?-->`)
+	summary = regexp.MustCompile(`(?is)<summary[^>]*>(.*?)</summary>`)
+	details = regexp.MustCompile(`<details\b[^>]*>`)
 )
 
 // attr is the value of name in an HTML tag, "" without one.
@@ -343,6 +365,35 @@ func (p *parser) html(s string, indent, quote int) {
 		}
 		p.emit(Block{Kind: Images, Indent: indent, Quote: quote, Imgs: imgs})
 		return
+	}
+	lower := strings.ToLower(s)
+	defer func() {
+		for range strings.Count(lower, "</details") {
+			if len(p.folds) > 0 {
+				p.folds = p.folds[:len(p.folds)-1]
+			}
+		}
+	}()
+	opens := details.FindAllString(lower, -1)
+	if m := summary.FindStringSubmatch(s); m != nil && len(opens) > 0 {
+		// a <details> block: its summary is the fold's toggle, its body
+		// the blocks up to </details>
+		for range opens[:len(opens)-1] {
+			p.folds = append(p.folds, 0)
+		}
+		parent := 0
+		if len(p.folds) > 0 {
+			parent = p.folds[len(p.folds)-1]
+		}
+		p.nfold++
+		p.folds = append(p.folds, p.nfold)
+		t := strings.Join(strings.Fields(tag.ReplaceAllString(m[1], " ")), " ")
+		open := strings.Contains(opens[len(opens)-1], "open")
+		p.emit(Block{Kind: Para, Indent: indent, Quote: quote, Spans: []Span{{Text: t, Bold: true}}, Summary: true, Fold: p.nfold, Parent: parent, Open: open})
+		return
+	}
+	for range opens {
+		p.folds = append(p.folds, 0)
 	}
 	t := strings.Join(strings.Fields(tag.ReplaceAllString(s, " ")), " ")
 	if t != "" {
