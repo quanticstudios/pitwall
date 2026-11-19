@@ -34,6 +34,7 @@ takes `--dry-run`.
   - API errors, retries and plan limits with their reset time are cards in red or yellow. A hook that blocks a step or gives feedback is a quiet row naming the hook and its verdict.
   - A finished reply's footer adds the turn's tokens in and out and its cost, with each model's breakdown on hover. TUI pane chats now count their tokens too.
   - A plan renders as markdown, with Approve (1) and Refine (2). A question shows its header, checkboxes when several options may be picked, and an option's preview beside the list.
+- Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
 - Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
 - A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
 - A turn's work log, such as "Working for 2m · 14 tools", stays one line while the turn runs and after it ends, a failed call's too, and opens only when you click it. A log you opened stays open.
