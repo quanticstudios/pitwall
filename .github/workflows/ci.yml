@@ -17,7 +17,13 @@ env:
   GOFLAGS: -tags=novulkan
 
 jobs:
-  linux:
+  # Each shard gets its own runner so no one runs much past four minutes;
+  # linux below is the check that main requires.
+  linux-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [lint, cmd, daemon-al, daemon-mz, rest, drill]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -28,7 +34,8 @@ jobs:
         with:
           go-version-file: go.mod
       # why: internal/agent runs the generated pi and OpenCode guards, and fails without node here.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: matrix.shard == 'rest'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       - name: Install Gio's build dependencies
@@ -36,32 +43,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev socat jq
       - name: gofmt
+        if: matrix.shard == 'lint'
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
             printf 'gofmt needed:\n%s\n' "$unformatted"
             exit 1
           fi
-      - run: go vet ./...
+      - if: matrix.shard == 'lint'
+        run: go vet ./...
       - name: go vet for Windows
+        if: matrix.shard == 'lint'
         run: GOOS=windows go vet ./...
       - name: Link the Windows release binaries with their icon
+        if: matrix.shard == 'lint'
         run: |
           GOOS=windows GOARCH=amd64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
           GOOS=windows GOARCH=arm64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
-      - run: go test -race -timeout 10m ./...
-      # why: testenv.Main moves HOME, so a test that finds the home some other way shows up here.
-      - name: No test wrote pitwall's files under HOME
-        run: |
-          for d in .local/state/pitwall .config/pitwall .cache/pitwall; do
-            if [ -e "$HOME/$d" ]; then echo "::error::a test wrote ~/$d"; exit 1; fi
-          done
-      - run: go test -race gioui.org/app
-      - name: Check the vendored terminal module
-        run: |
-          go -C third_party/x-vt vet ./...
-          go -C third_party/x-vt test -race -timeout 5m ./...
+      - name: Vet the vendored terminal module
+        if: matrix.shard == 'lint'
+        run: go -C third_party/x-vt vet ./...
       - name: Scripts
+        if: matrix.shard == 'lint'
         run: |
           sh -n scripts/install.sh
           sh -n scripts/get.sh
@@ -72,6 +75,45 @@ jobs:
           sh -n scripts/core-smoke.sh
           sh scripts/apk_test.sh
           sh scripts/apk-release_test.sh
+      - name: Test cmd/pitwall
+        if: matrix.shard == 'cmd'
+        run: go test -race -timeout 10m -skip '^TestUpdateDrill$' ./cmd/pitwall
+      # why: internal/daemon alone was the floor; its tests split by name
+      # range so a new test lands in a shard on its own.
+      - name: Test daemon A-L
+        if: matrix.shard == 'daemon-al'
+        run: go test -race -timeout 10m -run '^Test[A-L]' ./internal/daemon
+      - name: Test daemon M-Z
+        if: matrix.shard == 'daemon-mz'
+        run: go test -race -timeout 10m -run '^Test[M-Z]' ./internal/daemon
+      - name: Test the rest
+        if: matrix.shard == 'rest'
+        run: |
+          go test -race -timeout 10m $(go list ./... | grep -v -e '/internal/daemon$' -e '/cmd/pitwall$')
+          go test -race gioui.org/app
+          go -C third_party/x-vt test -race -timeout 5m ./...
+      # why: it builds pitwall releases, so it runs once, beside the others.
+      - name: Release drill
+        if: matrix.shard == 'drill'
+        run: go test -race -count=1 -timeout 10m -run '^TestUpdateDrill$' ./cmd/pitwall
+      # why: testenv.Main moves HOME, so a test that finds the home some other way shows up here.
+      - name: No test wrote pitwall's files under HOME
+        if: matrix.shard != 'lint'
+        run: |
+          for d in .local/state/pitwall .config/pitwall .cache/pitwall; do
+            if [ -e "$HOME/$d" ]; then echo "::error::a test wrote ~/$d"; exit 1; fi
+          done
+
+  # The check main requires: every linux-test shard passed.
+  linux:
+    if: always()
+    needs: linux-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULT: ${{ needs.linux-test.result }}
+        run: test "$RESULT" = success
 
   # pitwall-core: the daemon and every command but the window. No apt step,
   # so a runtime dependency on a GUI library fails here; every go command,
@@ -191,12 +233,13 @@ jobs:
           echo "::error file=CHANGELOG.md::This PR changes cmd/ or internal/ but adds no line under the top '## Unreleased' section of CHANGELOG.md. Add one, or ask a maintainer for the no-changelog label and re-run this job."
           exit 1
 
-  other:
+  # macOS shards; other below is the check that main requires.
+  macos-test:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
-    runs-on: ${{ matrix.os }}
+        shard: [build, drill, cmd, rest]
+    runs-on: macos-latest
     timeout-minutes: 30
     defaults:
       run:
@@ -208,19 +251,40 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test gioui.org/app
-      - name: Test the platform-independent packages
-        run: go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+      - name: Build, vet and test the platform-independent packages
+        if: matrix.shard == 'build'
+        run: |
+          go build ./...
+          go vet ./...
+          go test gioui.org/app
+          go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+          sh scripts/get_test.sh
       - name: Release drill
+        if: matrix.shard == 'drill'
         run: go test -count=1 -v -run 'TestUpdateDrill|TestFinishUpdate' ./cmd/pitwall
       # why: the macOS suite has never passed; drop continue-on-error after its first green run.
-      - name: Test everything
+      - name: Test cmd/pitwall
+        if: matrix.shard == 'cmd'
         continue-on-error: true
-        run: go test -timeout 5m ./...
-      - name: get.sh
-        run: sh scripts/get_test.sh
+        run: go test -timeout 5m -skip '^TestUpdateDrill$' ./cmd/pitwall
+      - name: Test the rest
+        if: matrix.shard == 'rest'
+        continue-on-error: true
+        run: go test -timeout 5m $(go list ./... | grep -v '/cmd/pitwall$')
+
+  # The check main requires, under its old matrix name.
+  other:
+    if: always()
+    needs: macos-test
+    strategy:
+      matrix:
+        os: [macos-latest]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULT: ${{ needs.macos-test.result }}
+        run: test "$RESULT" = success
 
   # Windows' suite ran as one -p=1 lane because Git-heavy packages
   # competing overrun checkpoint and retrieval deadlines. Each shard gets
