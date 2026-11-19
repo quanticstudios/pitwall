@@ -1,0 +1,16 @@
+{
+  "mode": "",
+  "prompt": "markdown",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "# Markdown in the chat\n\nThe parser and the drawing share code with the reader. This paragraph sits right after a heading.\n\nA second paragraph follows the first one with no heading between them.\n\n## Inline styles\n\nText can be **bold**, *italic*, ***bold and italic***, ~~struck through~~, or `inline code`. Code can sit inside bold: **run `go test ./...` first**. It can sit inside a link: [the `Parse` function](https://pkg.go.dev/github.com/yuin/goldmark). A bare URL such as https://github.com/quanticstudios/pitwall should be clickable too, and so should a path like `internal/ui/panel/chatreply.go:47`.\n\n### Lists\n\n- A bullet item\n- A bullet item with **bold** and `code`\n  - A nested item\n  - Another nested item that runs long enough to wrap onto a second line, so the hanging indent shows where the text starts\n    1. Third level, numbered\n- Back to the top level\n\n1. First step\n2. Second step, with a code block inside:\n\n   ```sh\n   mise exec -- go test ./internal/ui/...\n   ```\n\n3. Third step\n\n- [x] Parse inline styles\n- [ ] Draw them\n\n#### Quotes\n\n> A block quote with *emphasis* and `code`.\n>\n> > A nested quote.\n\n## Code\n\n```go\nfunc (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensions {\n\treturn layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)} // a long trailing comment that runs past the edge of the column to force sideways scrolling\n}\n```\n\n```diff\n--- a/chatreply.go\n+++ b/chatreply.go\n@@ -12,3 +12,4 @@\n unchanged line\n-removed line\n+added line\n+another added line\n```\n\n## Tables\n\n| Check                                                                                              |  Status  |   Time |\n| :------------------------------------------------------------------------------------------------- | :------: | -----: |\n| `go vet ./...`                                                                                     | ✓ passed |   1.2s |\n| `go test ./...`                                                                                    | ✗ failed |  48.9s |\n| A cell with much wider content that makes the table wider than the reply column on a narrow window |    ✓     |   0.1s |\n\n---\n\n<details>\n<summary>Details block</summary>\n\nHidden text inside details.\n\n</details>\n\nDone ✓, one failure ✗, and an emoji 🚀 at the end. This last paragraph is long on purpose: it keeps going so the measure of the column shows, how long lines wrap at about ninety-six characters, and whether the line height of 1.6 reads comfortably over several lines of prose without any markup at all.\n"
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

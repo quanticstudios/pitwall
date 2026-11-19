@@ -149,7 +149,7 @@ func (u *ui) chatTranscript(st *model.State, id string) *panel.Transcript {
 	}
 	t := u.transcripts[id]
 	if t == nil {
-		t = new(panel.Transcript)
+		t = &panel.Transcript{Open: openLink}
 		u.transcripts[id] = t
 	}
 	return t

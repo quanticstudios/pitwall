@@ -116,7 +116,7 @@ func TestMiddleCut(t *testing.T) {
 // TestCodePad: inline code gets a no-break space each side for its chip,
 // and a copy leaves them out.
 func TestCodePad(t *testing.T) {
-	p := spansPara([]mdview.Span{{Text: "call "}, {Text: "f()", Mono: true}, {Text: " now"}})
+	p := spansPara([]mdview.Span{{Text: "call "}, {Text: "f()", Mono: true}, {Text: " now"}}, nil)
 	if p.text != "call "+nbsp+"f()"+nbsp+" now" || p.plain != "call f() now" || p.code[0] != [2]int{6, 9} {
 		t.Fatalf("%q %q %v", p.text, p.plain, p.code)
 	}
@@ -130,7 +130,7 @@ func TestCodePad(t *testing.T) {
 }
 
 func TestCodePadPunct(t *testing.T) {
-	p := spansPara([]mdview.Span{{Text: "f()", Mono: true}, {Text: ": done"}})
+	p := spansPara([]mdview.Span{{Text: "f()", Mono: true}, {Text: ": done"}}, nil)
 	if p.text != nbsp+"f(): done" || p.ct.typed(0, len([]rune(p.text))) != "f(): done" {
 		t.Fatalf("%q", p.text)
 	}

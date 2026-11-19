@@ -1,0 +1,752 @@
+{
+ "mode": "",
+ "prompt": "markdown-stream",
+ "runtimeEvents": [
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "# Markdown in the chat\n\n"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "The parser and the drawi"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ng share code with the r"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "eader. This paragraph si"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ts right after a heading"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": ".\n\nA second paragraph fo"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "llows the first one with"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " no heading between them"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": ".\n\n## Inline styles\n\nTex"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "t can be **bold**, *ital"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ic*, ***bold and italic*"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "**, ~~struck through~~, "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "or `inline code`. Code c"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "an sit inside bold: **ru"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "n `go test ./...` first*"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "*. It can sit inside a l"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ink: [the `Parse` functi"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "on](https://pkg.go.dev/g"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ithub.com/yuin/goldmark)"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": ". A bare URL such as htt"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ps://github.com/quantics"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "tudios/pitwall should be"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " clickable too, and so s"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "hould a path like `inter"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "nal/ui/panel/chatreply.g"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "o:47`.\n\n### Lists\n\n- A b"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ullet item\n- A bullet it"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "em with **bold** and `co"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "de`\n  - A nested item\n  "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "- Another nested item th"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "at runs long enough to w"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "rap onto a second line, "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "so the hanging indent sh"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ows where the text start"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "s\n    1. Third level, nu"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "mbered\n- Back to the top"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " level\n\n1. First step\n2."
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " Second step, with a cod"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "e block inside:\n\n   ```s"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "h\n   mise exec -- go tes"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "t ./internal/ui/...\n   `"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "``\n\n3. Third step\n\n- [x]"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " Parse inline styles\n- ["
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " ] Draw them\n\n#### Quote"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "s\n\n> A block quote with "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "*emphasis* and `code`.\n>"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "\n> > A nested quote.\n\n##"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " Code\n\n```go\nfunc (d *cd"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "raw) markdown(gtx layout"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": ".Context, id string, r *"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "reply) layout.Dimensions"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " {\n\treturn layout.Dimens"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ions{Size: image.Pt(gtx."
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "Constraints.Max.X, 0)} /"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "/ a long trailing commen"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "t that runs past the edg"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "e of the column to force"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " sideways scrolling\n}\n``"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "`\n\n```diff\n--- a/chatrep"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ly.go\n+++ b/chatreply.go"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "\n@@ -12,3 +12,4 @@\n unch"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "anged line\n-removed line"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "\n+added line\n+another ad"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ded line\n```\n\n## Tables\n"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "\n| Check                "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "      |  Status  |   Tim"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "e |\n| :-----------------"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "------------------------"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "------------------------"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "------------------------"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "-------- | :------: | --"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "---: |\n| `go vet ./...` "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "            | ✓ passed |"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "   1.2s |\n| `go test ./."
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "..`                     "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "                        "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "               | ✗ faile"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "d |  48.9s |\n| A cell wi"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "th much wider content th"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "at makes the table wider"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " than the reply column o"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "n a narrow window |    ✓"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "     |   0.1s |\n\n---\n\n<d"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "etails>\n<summary>Details"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " block</summary>\n\nHidden"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " text inside details.\n\n<"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "/details>\n\nDone ✓, one f"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ailure ✗, and an emoji 🚀"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " at the end. This last p"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "aragraph is long on purp"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "ose: it keeps going so t"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "he measure of the column"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": " shows, how long lines w"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "rap at about ninety-six "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "characters, and whether "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "the line height of 1.6 r"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "eads comfortably over se"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "veral lines of prose wit"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "hout any markup at all.\n"
+  },
+  {
+   "type": "turn.completed",
+   "state": "completed"
+  }
+ ]
+}
