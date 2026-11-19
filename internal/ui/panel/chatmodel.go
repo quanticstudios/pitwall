@@ -31,9 +31,8 @@ type block struct {
 	turn   string // the items' turn id, "" for none
 	// reply is the index of the turn's last assistant text after its last
 	// tool call, drawn under the work log; -1 for none.
-	reply  int
-	tools  int  // tool calls in the turn
-	failed bool // one of them failed
+	reply int
+	tools int // tool calls in the turn
 }
 
 // blocks groups a transcript: each prompt is a bubble, the items after
@@ -72,7 +71,6 @@ func blocks(content []session.Item, out []block) []block {
 			case session.KindToolCall:
 				b.tools++
 				b.reply = -1
-				b.failed = b.failed || toolOpen(content[i].Tool)
 			case session.KindAssistantText:
 				b.reply = i
 			}
@@ -80,11 +78,6 @@ func blocks(content []session.Item, out []block) []block {
 	}
 	return out
 }
-
-// logOpen is whether a turn's work log starts open: the running turn
-// shows its work, and so does one with a failed call; a finished one
-// folds to its header.
-func logOpen(running, failed bool) bool { return running || failed }
 
 // toolOpen is whether a tool row starts open: only a failed call does.
 func toolOpen(c *session.ToolCall) bool { return c != nil && c.Status == "failed" }

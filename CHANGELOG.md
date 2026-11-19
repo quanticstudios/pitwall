@@ -24,6 +24,11 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
+- Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
+- A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
+- A turn's work log, such as "Working for 2m · 14 tools", stays one line while the turn runs and after it ends, a failed call's too, and opens only when you click it. A log you opened stays open.
+- A Claude Code TUI pane's chat shows a reply as soon as Claude Code writes it to its transcript, where it could wait 10 s or more after the turn ended. Claude Code writes each block whole, so a long reply in a TUI pane still appears when its block is done, not word by word.
 - The desktop chat draws each Claude Code tool call as a row built for it, folded to one line until you click it. An edit shows its file as a chip that opens it, +N −M, and a diff with line numbers and hunk headers that scrolls sideways instead of wrapping; a new file shows Created and its first lines. A command shows its description, `$ command`, how long it ran and its exit code, keeps its output's colors, and folds once the turn moves on; a background shell shows Running in background until it ends, and reading or stopping it adds to its row. Read shows the file and its lines, Grep and Glob what they found with a clickable file list, a web search its sources, a fetch its page, MCP tools their server and tool with their arguments and result as JSON, and a skill one quiet row. Pictures a tool returns show as thumbnails that open large, a PR link in a command's output shows the PR's live state, and a failed call shows its error in red on its row.
 
 ## v0.2.18
