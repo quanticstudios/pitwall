@@ -49,8 +49,11 @@ type Block struct {
 	// Marker is a list item's "•" or "3.", on its first block only.
 	Marker string
 	// Task is a task list item's box: 0 none, 1 open, 2 done.
-	Task  int
-	Spans []Span
+	Task int
+	// NewList is set on a list's first block, so two lists in a row
+	// read as two.
+	NewList bool
+	Spans   []Span
 	// Text and Lang are a code block's.
 	Text, Lang string
 	// Note says why a Mermaid block shows as code.
@@ -79,15 +82,18 @@ type parser struct {
 	src   []byte
 	out   []Block
 	slugs map[string]int
-	// marker and task go on the next block a list item emits.
-	marker string
-	task   int
+	// marker and task go on the next block a list item emits, newList
+	// on the next block a list emits.
+	marker  string
+	task    int
+	newList bool
 }
 
 func (p *parser) emit(b Block) {
 	if p.marker != "" {
 		b.Marker, b.Task, p.marker, p.task = p.marker, p.task, "", 0
 	}
+	b.NewList, p.newList = p.newList, false
 	p.out = append(p.out, b)
 }
 
@@ -123,6 +129,7 @@ func (p *parser) block(n ast.Node, indent, quote int) {
 	case *ast.Blockquote:
 		p.blocks(n, indent, quote+1)
 	case *ast.List:
+		p.newList = true
 		i := n.Start
 		for item := n.FirstChild(); item != nil; item = item.NextSibling() {
 			p.marker = "•"
@@ -315,6 +322,7 @@ var (
 	brTag   = regexp.MustCompile(`(?i)^<br\s*/?>$`)
 	tag     = regexp.MustCompile(`<[^>]*>`)
 	comment = regexp.MustCompile(`(?s)<!--.*?-->`)
+	summary = regexp.MustCompile(`(?is)<summary[^>]*>(.*?)</summary>`)
 )
 
 // attr is the value of name in an HTML tag, "" without one.
@@ -342,6 +350,13 @@ func (p *parser) html(s string, indent, quote int) {
 			imgs = append(imgs, Img{Src: s[m[2]:m[3]], Alt: attr(t, "alt")})
 		}
 		p.emit(Block{Kind: Images, Indent: indent, Quote: quote, Imgs: imgs})
+		return
+	}
+	if m := summary.FindStringSubmatch(s); m != nil {
+		// a <details> block: its summary as a bold line, its body follows
+		if t := strings.Join(strings.Fields(tag.ReplaceAllString(m[1], " ")), " "); t != "" {
+			p.emit(Block{Kind: Para, Indent: indent, Quote: quote, Spans: []Span{{Text: t, Bold: true}}})
+		}
 		return
 	}
 	t := strings.Join(strings.Fields(tag.ReplaceAllString(s, " ")), " ")

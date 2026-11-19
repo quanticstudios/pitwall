@@ -37,6 +37,8 @@ type Doc struct {
 	// Size is the body text's size; zero is the reader's, the type
 	// scale's Title step.
 	Size unit.Sp
+	// Code is inline code's color; zero is the reader's, purple toward Fg.
+	Code color.NRGBA
 
 	blocks  []Block
 	th      *theme.Theme
@@ -46,7 +48,7 @@ type Doc struct {
 	styles  map[part][]richtext.SpanStyle // texts' spans styled, by the same key
 	clicks  map[part]*widget.Clickable    // image links
 	graphs  map[*Graph]placed
-	wide    map[int]*sideways
+	wide    map[int]*Sideways
 	natural map[int][]int // a table's columns, unwrapped
 	cellOps op.Ops
 	cellTxt richtext.InteractiveText
@@ -72,9 +74,9 @@ type Pic struct {
 	Note string
 }
 
-// sideways is a code block's or a table's sideways scroll, when it is
+// Sideways is a code block's or a table's sideways scroll, when it is
 // wider than the column.
-type sideways struct {
+type Sideways struct {
 	g   gesture.Scroll
 	x   int
 	bar int // the bar's tag
@@ -300,20 +302,20 @@ func (d *Doc) styled(key part, th *theme.Theme, spans []Span, size unit.Sp, c co
 func (d *Doc) rich(th *theme.Theme, spans []Span, size unit.Sp, c color.NRGBA, heading bool) []richtext.SpanStyle {
 	link := th.Readable(th.Blue, th.Bg)
 	code := th.Readable(theme.Mix(th.Fg, th.Purple, 0.45), th.Bg)
+	if d.Code != (color.NRGBA{}) {
+		code = d.Code
+	}
 	out := make([]richtext.SpanStyle, 0, len(spans))
 	for _, s := range spans {
 		f, sz, col := th.UIFont, size, c
 		if heading {
 			f.Weight = font.SemiBold
 		}
-		if s.Bold {
-			f.Weight = font.Bold
-		}
-		if s.Italic {
-			f.Style = font.Italic
+		if g, scale, ok := SpanFont(th, f, s, d.mono); ok {
+			f, sz = g, size*unit.Sp(scale)
 		}
 		if s.Mono {
-			f, sz, col = th.MonoFont, size*unit.Sp(d.mono), code
+			col = code
 		}
 		if s.Strike {
 			col = th.TextQuiet
@@ -351,18 +353,29 @@ func (d *Doc) code(gtx gl.Context, th *theme.Theme, i int, s string) gl.Dimensio
 // origin. Wider than w, it scrolls by a sideways swipe, a sideways wheel
 // or the bar it draws under it, and sideways returns the bar's height.
 func (d *Doc) sideways(gtx gl.Context, th *theme.Theme, key, w, h, cw int, content op.CallOp) int {
-	over := cw - w
-	if over <= 0 {
+	if cw <= w {
 		content.Add(gtx.Ops)
 		return 0
 	}
 	if d.wide == nil {
-		d.wide = map[int]*sideways{}
+		d.wide = map[int]*Sideways{}
 	}
 	s := d.wide[key]
 	if s == nil {
-		s = &sideways{}
+		s = &Sideways{}
 		d.wide[key] = s
+	}
+	return s.Layout(gtx, th, w, h, cw, content)
+}
+
+// Layout draws content, cw wide and h high, in a strip w wide at the
+// origin. Wider than w, it scrolls by a sideways swipe, a sideways wheel
+// or the bar it draws under it, and Layout returns the bar's height.
+func (s *Sideways) Layout(gtx gl.Context, th *theme.Theme, w, h, cw int, content op.CallOp) int {
+	over := cw - w
+	if over <= 0 {
+		content.Add(gtx.Ops)
+		return 0
 	}
 	s.x = min(max(s.x, 0), over)
 	dx := s.g.Update(gtx.Metric, gtx.Source, gtx.Now, gesture.Horizontal, pointer.ScrollRange{Min: -s.x, Max: over - s.x}, pointer.ScrollRange{})
