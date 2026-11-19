@@ -134,6 +134,7 @@ func (t TextStyle) iterateSpan(gtx layout.Context, maxWidth int, span SpanStyle,
 	ti := textIterator{
 		viewport: image.Rectangle{Max: gtx.Constraints.Max},
 		maxLines: 1,
+		color:    span.Color,
 	}
 
 	line := glyphs[:0]
