@@ -179,7 +179,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			n.mu.Unlock()
 			ws := findWorkspace(&st, a.WorkspaceID)
 			show, sound := notifyRule(rules, a, now)
-			if show && !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
+			if show && !viewing && ws != nil && !ws.Detached && model.ForUser(*ws, a) && notifies(&st, session, ws.SessionID) {
 				h.Sent(a.WorkspaceID, time.Now())
 				title := notificationTitleOn(b, &st, *ws)
 				// A finished tab the user opened, and any tab waiting on the user,

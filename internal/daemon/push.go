@@ -46,7 +46,7 @@ func (d *Daemon) pushLoop(ctx context.Context, p *remote.Pusher) {
 		h, out = model.DecideNotifications(h, d.attended(), false, "", time.Now())
 		var notices []remote.Notice
 		for _, a := range out {
-			if w := d.workspace(a.WorkspaceID); w != nil && !w.Detached {
+			if w := d.workspace(a.WorkspaceID); w != nil && !w.Detached && model.ForUser(*w, a) {
 				notices = append(notices, remote.NoticeOf(d.st, a))
 			}
 		}

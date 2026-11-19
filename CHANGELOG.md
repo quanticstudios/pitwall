@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Stop desktop and phone notifications when a worker tab finishes a turn, since the tab that started it reads the result. A worker that asks for approval, asks a question or fails still notifies.
+
 ## v0.2.17
 
 - In a Claude chat, an approval card and its notice say what the tool runs, such as `Edit: main.go`, instead of its raw JSON input. Tool rows and cards show the chat's own files relative to its folder, and an approval answered mid-turn keeps its line above the reply that followed. A turn stopped with Esc ends on a quiet Stopped line instead of a red "Turn interrupted". An image paste that fails, such as on X11 without xclip, now says why under the composer instead of only taking its token back out. A sent prompt's thumbnail carries its `[Image #N]` token's number, not its position. Alt+T starts Claude Code's TUI in the chat's permission mode even when that is Default, where it started in the TUI's own default, such as auto mode. A chat tab keeps its first prompt as its name after a daemon restart instead of falling back to its folder's.

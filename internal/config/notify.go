@@ -12,7 +12,7 @@ type Notify struct {
 	Sound       string   `toml:"sound" doc:"Play a sound with each notification: \"bell\", a sound file's path, or \"\" for none. Played with paplay, pw-play or afplay, whichever is installed."`
 	Approval    *bool    `toml:"approval" doc:"Notify when an agent asks permission or has a plan to approve."`
 	Input       *bool    `toml:"input" doc:"Notify when an agent asks a question, or a terminal asks for you (pitwall notify, a bell, OSC 9)."`
-	Done        *bool    `toml:"done" doc:"Notify when an agent finishes a turn."`
+	Done        *bool    `toml:"done" doc:"Notify when an agent finishes a turn. A worker's finished turn goes to the tab that started it, never to you."`
 	Failed      *bool    `toml:"failed" doc:"Notify when an agent's turn fails."`
 	MutedAgents []string `toml:"muted_agents" doc:"Agents that never notify: claude, codex, pi, omp, gemini, opencode, or terminal for pitwall notify and bells."`
 	QuietHours  string   `toml:"quiet_hours" doc:"\"22:00-08:00\": between these times nothing plays a sound and only approvals and errors notify. \"\" for none."`
