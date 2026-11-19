@@ -129,7 +129,7 @@ func (d *cdraw) planCard(gtx layout.Context, p *session.PlanApproval) layout.Dim
 				if plan.Text == "" {
 					return layout.Dimensions{}
 				}
-				return d.panelBox(gtx, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, plan.ID, d.t.reply(&plan)) })
+				return d.panelBox(gtx, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, plan.ID, d.t.reply(&plan, false)) })
 			},
 			func(gtx layout.Context) layout.Dimensions {
 				return hrow(gtx, gtx.Dp(theme.SpaceS),

@@ -189,7 +189,7 @@ func (d *cdraw) compaction(gtx layout.Context, it *session.Item) layout.Dimensio
 	}
 	sum := session.Item{ID: id, Text: summary}
 	body := at(gtx, image.Pt(0, head.Size.Y+gtx.Dp(theme.SpaceS)), func(gtx layout.Context) layout.Dimensions {
-		return d.panelBox(gtx, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, id, d.t.reply(&sum)) })
+		return d.panelBox(gtx, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, id, d.t.reply(&sum, false)) })
 	})
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, head.Size.Y+gtx.Dp(theme.SpaceS)+body.Size.Y)}
 }
@@ -691,7 +691,7 @@ func (d *cdraw) agentResult(gtx layout.Context, id, out string, open bool) layou
 	w := gtx.Constraints.Max.X
 	key := "result:" + id
 	full := session.Item{ID: key, Text: out}
-	r := d.t.reply(&full)
+	r := d.t.reply(&full, false)
 	short, cut := summaryCut(r.plain, 3, 280) // the words, not the markdown
 	cut = cut || r.plain != strings.TrimSpace(out) && strings.Count(out, "\n") > 2
 	px := gtx.Dp(rowPad)

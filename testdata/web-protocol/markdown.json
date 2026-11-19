@@ -1,0 +1,75 @@
+{"prompt":"markdown","provider":"claude","scenario":"markdown",
+"runtimeEvents": [
+  {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
+  {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
+  {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.000Z","itemId":"fake-test-turn-1/reply","kind":"assistant-text","text":"# Markdown in the chat\n\nThe parser and the drawing share code with the reader. This paragraph sits right after a heading.\n\nA second paragraph follows the first one with no heading between them.\n\n## Inline styles\n\nText can be **bold**, *italic*, ***bold and italic***, ~~struck through~~, or `inline code`. Code can sit inside bold: **run `go test ./...` first**. It can sit inside a link: [the `Parse` function](https://pkg.go.dev/github.com/yuin/goldmark). A bare URL such as https://github.com/quanticstudios/pitwall should be clickable too, and so should a path like `internal/ui/panel/chatreply.go:47`.\n\n### Lists\n\n- A bullet item\n- A bullet item with **bold** and `code`\n  - A nested item\n  - Another nested item that runs long enough to wrap onto a second line, so the hanging indent shows where the text starts\n    1. Third level, numbered\n- Back to the top level\n\n1. First step\n2. Second step, with a code block inside:\n\n   ```sh\n   mise exec -- go test ./internal/ui/...\n   ```\n\n3. Third step\n\n- [x] Parse inline styles\n- [ ] Draw them\n\n#### Quotes\n\n\u003e A block quote with *emphasis* and `code`.\n\u003e\n\u003e \u003e A nested quote.\n\n## Code\n\n```go\nfunc (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensions {\n\treturn layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)} // a long trailing comment that runs past the edge of the column to force sideways scrolling\n}\n```\n\n```diff\n--- a/chatreply.go\n+++ b/chatreply.go\n@@ -12,3 +12,4 @@\n unchanged line\n-removed line\n+added line\n+another added line\n```\n\n## Tables\n\n| Check                                                                                              |  Status  |   Time |\n| :------------------------------------------------------------------------------------------------- | :------: | -----: |\n| `go vet ./...`                                                                                     | ✓ passed |   1.2s |\n| `go test ./...`                                                                                    | ✗ failed |  48.9s |\n| A cell with much wider content that makes the table wider than the reply column on a narrow window |    ✓     |   0.1s |\n\n## Diagrams and images\n\n```mermaid\nflowchart LR\n  A[Parse] --\u003e B(Heal)\n  B --\u003e C{Streaming?}\n  C --\u003e|yes| D[Draw]\n  C --\u003e|no| D\n```\n\n![The chat window](docs/chat.png)\n\n---\n\n\u003cdetails\u003e\n\u003csummary\u003eDetails block\u003c/summary\u003e\n\nHidden text inside details.\n\n\u003c/details\u003e\n\nDone ✓, one failure ✗, and an emoji 🚀 at the end. This last paragraph is long on purpose: it keeps going so the measure of the column shows, how long lines wrap at about ninety-six characters, and whether the line height of 1.6 reads comfortably over several lines of prose without any markup at all.\n"},
+  {"type":"turn.completed","createdAt":"2030-01-01T00:00:00.000Z","state":"completed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
+  {"type":"session.exited","createdAt":"2030-01-01T00:00:00.000Z","exitCode":0}
+],
+"deltas": [
+  {"version":1,"sessionId":"chat","seq":1,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z","type":"snapshot","snapshot":{"sessionId":"chat","paneId":"chat","workspaceId":"tab","provider":"claude","content":[],"turns":[],"pendingApprovals":[],"pendingUserInputs":[],"planApproval":null,"sessionState":"ready","running":false,"detail":null,"lastCompletedAt":null,"lastError":null,"lastErrorAt":null,"model":null,"effort":null,"serviceTier":null,"permissionMode":"default","interactionMode":"build","selectionNotice":null,"runtimeGeneration":0,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":2,"revision":2,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":3,"revision":3,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"attachments":[],"id":"prompt","kind":"user-prompt","provider":null,"text":"markdown","turnId":null,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
+  {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"createdAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1/reply","kind":"assistant-text","provider":"claude","text":"# Markdown in the chat\n\nThe parser and the drawing share code with the reader. This paragraph sits right after a heading.\n\nA second paragraph follows the first one with no heading between them.\n\n## Inline styles\n\nText can be **bold**, *italic*, ***bold and italic***, ~~struck through~~, or `inline code`. Code can sit inside bold: **run `go test ./...` first**. It can sit inside a link: [the `Parse` function](https://pkg.go.dev/github.com/yuin/goldmark). A bare URL such as https://github.com/quanticstudios/pitwall should be clickable too, and so should a path like `internal/ui/panel/chatreply.go:47`.\n\n### Lists\n\n- A bullet item\n- A bullet item with **bold** and `code`\n  - A nested item\n  - Another nested item that runs long enough to wrap onto a second line, so the hanging indent shows where the text starts\n    1. Third level, numbered\n- Back to the top level\n\n1. First step\n2. Second step, with a code block inside:\n\n   ```sh\n   mise exec -- go test ./internal/ui/...\n   ```\n\n3. Third step\n\n- [x] Parse inline styles\n- [ ] Draw them\n\n#### Quotes\n\n\u003e A block quote with *emphasis* and `code`.\n\u003e\n\u003e \u003e A nested quote.\n\n## Code\n\n```go\nfunc (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensions {\n\treturn layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)} // a long trailing comment that runs past the edge of the column to force sideways scrolling\n}\n```\n\n```diff\n--- a/chatreply.go\n+++ b/chatreply.go\n@@ -12,3 +12,4 @@\n unchanged line\n-removed line\n+added line\n+another added line\n```\n\n## Tables\n\n| Check                                                                                              |  Status  |   Time |\n| :------------------------------------------------------------------------------------------------- | :------: | -----: |\n| `go vet ./...`                                                                                     | ✓ passed |   1.2s |\n| `go test ./...`                                                                                    | ✗ failed |  48.9s |\n| A cell with much wider content that makes the table wider than the reply column on a narrow window |    ✓     |   0.1s |\n\n## Diagrams and images\n\n```mermaid\nflowchart LR\n  A[Parse] --\u003e B(Heal)\n  B --\u003e C{Streaming?}\n  C --\u003e|yes| D[Draw]\n  C --\u003e|no| D\n```\n\n![The chat window](docs/chat.png)\n\n---\n\n\u003cdetails\u003e\n\u003csummary\u003eDetails block\u003c/summary\u003e\n\nHidden text inside details.\n\n\u003c/details\u003e\n\nDone ✓, one failure ✗, and an emoji 🚀 at the end. This last paragraph is long on purpose: it keeps going so the measure of the column shows, how long lines wrap at about ninety-six characters, and whether the line height of 1.6 reads comfortably over several lines of prose without any markup at all.\n","turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":7,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"completed"}},
+  {"version":1,"sessionId":"chat","seq":9,"revision":7,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.000Z"},
+  {"version":1,"sessionId":"chat","seq":10,"revision":8,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"interrupted","sessionState":"stopped","running":false,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.000Z"}
+],
+"snapshot": {
+  "sessionId": "chat",
+  "paneId": "chat",
+  "workspaceId": "tab",
+  "provider": "claude",
+  "content": [
+    {
+      "attachments": [],
+      "id": "prompt",
+      "kind": "user-prompt",
+      "provider": null,
+      "text": "markdown",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1/reply",
+      "kind": "assistant-text",
+      "provider": "claude",
+      "text": "# Markdown in the chat\n\nThe parser and the drawing share code with the reader. This paragraph sits right after a heading.\n\nA second paragraph follows the first one with no heading between them.\n\n## Inline styles\n\nText can be **bold**, *italic*, ***bold and italic***, ~~struck through~~, or `inline code`. Code can sit inside bold: **run `go test ./...` first**. It can sit inside a link: [the `Parse` function](https://pkg.go.dev/github.com/yuin/goldmark). A bare URL such as https://github.com/quanticstudios/pitwall should be clickable too, and so should a path like `internal/ui/panel/chatreply.go:47`.\n\n### Lists\n\n- A bullet item\n- A bullet item with **bold** and `code`\n  - A nested item\n  - Another nested item that runs long enough to wrap onto a second line, so the hanging indent shows where the text starts\n    1. Third level, numbered\n- Back to the top level\n\n1. First step\n2. Second step, with a code block inside:\n\n   ```sh\n   mise exec -- go test ./internal/ui/...\n   ```\n\n3. Third step\n\n- [x] Parse inline styles\n- [ ] Draw them\n\n#### Quotes\n\n\u003e A block quote with *emphasis* and `code`.\n\u003e\n\u003e \u003e A nested quote.\n\n## Code\n\n```go\nfunc (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensions {\n\treturn layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)} // a long trailing comment that runs past the edge of the column to force sideways scrolling\n}\n```\n\n```diff\n--- a/chatreply.go\n+++ b/chatreply.go\n@@ -12,3 +12,4 @@\n unchanged line\n-removed line\n+added line\n+another added line\n```\n\n## Tables\n\n| Check                                                                                              |  Status  |   Time |\n| :------------------------------------------------------------------------------------------------- | :------: | -----: |\n| `go vet ./...`                                                                                     | ✓ passed |   1.2s |\n| `go test ./...`                                                                                    | ✗ failed |  48.9s |\n| A cell with much wider content that makes the table wider than the reply column on a narrow window |    ✓     |   0.1s |\n\n## Diagrams and images\n\n```mermaid\nflowchart LR\n  A[Parse] --\u003e B(Heal)\n  B --\u003e C{Streaming?}\n  C --\u003e|yes| D[Draw]\n  C --\u003e|no| D\n```\n\n![The chat window](docs/chat.png)\n\n---\n\n\u003cdetails\u003e\n\u003csummary\u003eDetails block\u003c/summary\u003e\n\nHidden text inside details.\n\n\u003c/details\u003e\n\nDone ✓, one failure ✗, and an emoji 🚀 at the end. This last paragraph is long on purpose: it keeps going so the measure of the column shows, how long lines wrap at about ninety-six characters, and whether the line height of 1.6 reads comfortably over several lines of prose without any markup at all.\n",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    }
+  ],
+  "turns": [
+    {
+      "completedAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1",
+      "provider": "claude",
+      "startedAt": "2030-01-01T00:00:00.000Z",
+      "state": "completed"
+    }
+  ],
+  "pendingApprovals": [],
+  "pendingUserInputs": [],
+  "planApproval": null,
+  "sessionState": "stopped",
+  "running": false,
+  "detail": null,
+  "lastCompletedAt": "2030-01-01T00:00:00.000Z",
+  "lastError": null,
+  "lastErrorAt": null,
+  "model": null,
+  "effort": null,
+  "serviceTier": null,
+  "permissionMode": "default",
+  "interactionMode": "build",
+  "selectionNotice": null,
+  "runtimeGeneration": 0,
+  "revision": 8,
+  "updatedAt": "2030-01-01T00:00:00.000Z"
+}
+}

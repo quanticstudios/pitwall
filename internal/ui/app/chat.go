@@ -59,7 +59,6 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir string, focus bool) {
 	s, ok := ch.Chat(id)
 	if ok {
-		aide := curHost() == "" && findAide() != nil
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
 		cmp := u.composer(st, id)
@@ -71,7 +70,9 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		env := u.chatEnv(st, id, &s, t)
 		env.Focus = env.Focus && focus
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
-			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, aide) }),
+			// Open in aide is the header's menu; the transcript's own copy
+			// floated over the reply's top right.
+			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, false) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.TodoStrip(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
@@ -87,9 +88,6 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		}
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
-		}
-		if t.OpenAide() {
-			openAide(findAide())
 		}
 	} else {
 		gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
@@ -154,7 +152,7 @@ func (u *ui) chatTranscript(st *model.State, id string) *panel.Transcript {
 	}
 	t := u.transcripts[id]
 	if t == nil {
-		t = new(panel.Transcript)
+		t = &panel.Transcript{Open: openLink}
 		u.transcripts[id] = t
 	}
 	return t

@@ -6,6 +6,7 @@ import (
 	"math"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -21,6 +22,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/x/richtext"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -37,6 +39,11 @@ type Doc struct {
 	// Size is the body text's size; zero is the reader's, the type
 	// scale's Title step.
 	Size unit.Sp
+	// Code is inline code's color; zero is the reader's, purple toward Fg.
+	Code color.NRGBA
+	// CodeFill, when set, puts inline code on a pill of that color, as
+	// the chat's paragraphs draw it.
+	CodeFill color.NRGBA
 
 	blocks  []Block
 	th      *theme.Theme
@@ -46,8 +53,9 @@ type Doc struct {
 	styles  map[part][]richtext.SpanStyle // texts' spans styled, by the same key
 	clicks  map[part]*widget.Clickable    // image links
 	graphs  map[*Graph]placed
-	wide    map[int]*sideways
-	natural map[int][]int // a table's columns, unwrapped
+	wide    map[int]*Sideways
+	tips    map[part]*hoverTip // missing images' tooltips
+	natural map[int][]int      // a table's columns, unwrapped
 	cellOps op.Ops
 	cellTxt richtext.InteractiveText
 }
@@ -64,17 +72,17 @@ type placed struct {
 	pl        Placed
 }
 
-// Pic is an image as a block shows it: Img at Size once loaded, else the
-// line Note in its place.
+// Pic is an image as a block shows it: Img at Size once loaded, else a
+// panel with its name in its place and Note, why, in its tooltip.
 type Pic struct {
 	Img  paint.ImageOp
 	Size image.Point
 	Note string
 }
 
-// sideways is a code block's or a table's sideways scroll, when it is
+// Sideways is a code block's or a table's sideways scroll, when it is
 // wider than the column.
-type sideways struct {
+type Sideways struct {
 	g   gesture.Scroll
 	x   int
 	bar int // the bar's tag
@@ -83,7 +91,7 @@ type sideways struct {
 // Set makes b the blocks drawn, dropping the old ones' state.
 func (d *Doc) Set(b []Block) {
 	d.blocks = b
-	d.texts, d.styles, d.clicks, d.wide, d.natural, d.graphs = nil, nil, nil, nil, nil, nil
+	d.texts, d.styles, d.clicks, d.wide, d.natural, d.graphs, d.tips = nil, nil, nil, nil, nil, nil, nil
 }
 
 // Blocks are the blocks drawn.
@@ -300,25 +308,30 @@ func (d *Doc) styled(key part, th *theme.Theme, spans []Span, size unit.Sp, c co
 func (d *Doc) rich(th *theme.Theme, spans []Span, size unit.Sp, c color.NRGBA, heading bool) []richtext.SpanStyle {
 	link := th.Readable(th.Blue, th.Bg)
 	code := th.Readable(theme.Mix(th.Fg, th.Purple, 0.45), th.Bg)
+	if d.Code != (color.NRGBA{}) {
+		code = d.Code
+	}
 	out := make([]richtext.SpanStyle, 0, len(spans))
 	for _, s := range spans {
 		f, sz, col := th.UIFont, size, c
 		if heading {
 			f.Weight = font.SemiBold
 		}
-		if s.Bold {
-			f.Weight = font.Bold
-		}
-		if s.Italic {
-			f.Style = font.Italic
+		if g, scale, ok := SpanFont(th, f, s, d.mono); ok {
+			f, sz = g, size*unit.Sp(scale)
 		}
 		if s.Mono {
-			f, sz, col = th.MonoFont, size*unit.Sp(d.mono), code
+			col = code
 		}
 		if s.Strike {
 			col = th.TextQuiet
 		}
 		ss := richtext.SpanStyle{Font: f, Size: sz, Color: col, Content: Detab(s.Text)}
+		if s.Mono && d.CodeFill != (color.NRGBA{}) {
+			// no-break spaces are the pill's sides
+			ss.Content = "\u00a0" + ss.Content + "\u00a0"
+			ss.Background, ss.Radius, ss.PadY = d.CodeFill, theme.RadiusControl, theme.Space2XS
+		}
 		if s.Link != "" {
 			ss.Color, ss.Interactive = link, true
 			ss.Set("url", s.Link)
@@ -341,51 +354,67 @@ func (d *Doc) code(gtx gl.Context, th *theme.Theme, i int, s string) gl.Dimensio
 	t.Pop()
 	call := m.Stop()
 	h := dl.Size.Y + 2*pad
-	rr := clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl))
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
-	extra := d.sideways(gtx, th, i, w, h, dl.Size.X+2*pad, call)
+	rad := gtx.Dp(theme.RadiusPopover)
+	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(0, 0, w, h), rad).Op(gtx.Ops))
+	extra := d.sideways(gtx, th, i, w, h, max(w, dl.Size.X+2*pad), rad, call)
+	frame(gtx, image.Pt(w, h), rad, th.BorderSubtle)
 	return gl.Dimensions{Size: image.Pt(w, h+extra)}
 }
 
 // sideways draws content, cw wide and h high, in a strip w wide at the
 // origin. Wider than w, it scrolls by a sideways swipe, a sideways wheel
 // or the bar it draws under it, and sideways returns the bar's height.
-func (d *Doc) sideways(gtx gl.Context, th *theme.Theme, key, w, h, cw int, content op.CallOp) int {
+func (d *Doc) sideways(gtx gl.Context, th *theme.Theme, key, w, h, cw, rad int, content op.CallOp) int {
+	if cw <= w {
+		cl := clip.UniformRRect(image.Rect(0, 0, cw, h), rad).Push(gtx.Ops)
+		content.Add(gtx.Ops)
+		cl.Pop()
+		return 0
+	}
+	if d.wide == nil {
+		d.wide = map[int]*Sideways{}
+	}
+	s := d.wide[key]
+	if s == nil {
+		s = &Sideways{}
+		d.wide[key] = s
+	}
+	return s.Layout(gtx, th, w, h, cw, rad, content)
+}
+
+// Layout draws content, cw wide and h high, in a strip w wide at the
+// origin, its corners rounded by rad. Wider than w, it scrolls by a
+// sideways swipe, a sideways wheel or the bar it draws under it, kept
+// clear of the corners, and Layout returns the bar's height.
+func (s *Sideways) Layout(gtx gl.Context, th *theme.Theme, w, h, cw, rad int, content op.CallOp) int {
 	over := cw - w
 	if over <= 0 {
 		content.Add(gtx.Ops)
 		return 0
 	}
-	if d.wide == nil {
-		d.wide = map[int]*sideways{}
-	}
-	s := d.wide[key]
-	if s == nil {
-		s = &sideways{}
-		d.wide[key] = s
-	}
 	s.x = min(max(s.x, 0), over)
 	dx := s.g.Update(gtx.Metric, gtx.Source, gtx.Now, gesture.Horizontal, pointer.ScrollRange{Min: -s.x, Max: over - s.x}, pointer.ScrollRange{})
 	s.x = min(max(s.x+dx, 0), over)
-	bh, in := gtx.Dp(10), gtx.Dp(3)
-	thumb := max(gtx.Dp(32), w*w/cw)
-	free := max(w-thumb, 1)
+	bh, in := gtx.Dp(theme.SpaceS+theme.Space2XS), gtx.Dp(theme.Space2XS+1)
+	track := w - 2*rad // the bar keeps clear of rounded corners
+	thumb := max(gtx.Dp(theme.Space2XL), track*w/cw)
+	free := max(track-thumb, 1)
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &s.bar, Kinds: pointer.Press | pointer.Drag})
 		if !ok {
 			break
 		}
 		if e, ok := ev.(pointer.Event); ok {
-			s.x = min(max((int(e.Position.X)-thumb/2)*over/free, 0), over)
+			s.x = min(max((int(e.Position.X)-rad-thumb/2)*over/free, 0), over)
 		}
 	}
-	cl := clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops)
+	cl := clip.UniformRRect(image.Rect(0, 0, w, h), rad).Push(gtx.Ops)
 	s.g.Add(gtx.Ops)
 	t := op.Offset(image.Pt(-s.x, 0)).Push(gtx.Ops)
 	content.Add(gtx.Ops)
 	t.Pop()
 	cl.Pop()
-	x := free * s.x / over
+	x := rad + free*s.x/over
 	r := image.Rect(x, h+in, x+thumb, h+bh-in)
 	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Fg, 0.22), clip.UniformRRect(r, r.Dy()/2).Op(gtx.Ops))
 	bar := clip.Rect{Min: image.Pt(0, h), Max: image.Pt(w, h+bh)}.Push(gtx.Ops)
@@ -411,7 +440,7 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 	if cols == 0 {
 		return gl.Dimensions{}
 	}
-	pad := gtx.Dp(theme.SpaceS)
+	px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
 	size := d.size(th) * 0.9375
 	natural := d.natural[i]
 	if len(natural) != cols {
@@ -424,7 +453,7 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 				mgtx.Ops = &d.cellOps
 				mgtx.Constraints = gl.Constraints{Max: image.Pt(1<<20, 1<<20)}
 				dm := richtext.TextStyle{State: &d.cellTxt, Styles: d.rich(th, cell, size, th.Fg, ri == 0), Shaper: th.Shaper}.Layout(mgtx)
-				natural[c] = max(natural[c], dm.Size.X+2*pad+1)
+				natural[c] = max(natural[c], dm.Size.X+2*px+1)
 			}
 		}
 		if d.natural == nil {
@@ -442,6 +471,10 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 	line := th.BorderSubtle
 	calls := make([]op.CallOp, cols)
 	for ri, r := range b.Rows {
+		if ri > 0 {
+			paint.FillShape(gtx.Ops, line, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(tw, y+1)}.Op())
+			y++
+		}
 		h := 0
 		for c := range cols {
 			var cell []Span
@@ -449,7 +482,7 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 				cell = r[c]
 			}
 			cg := gtx
-			cg.Constraints = gl.Constraints{Min: image.Pt(widths[c]-2*pad, 0), Max: image.Pt(widths[c]-2*pad, 1<<24)}
+			cg.Constraints = gl.Constraints{Min: image.Pt(widths[c]-2*px, 0), Max: image.Pt(widths[c]-2*px, 1<<24)}
 			al := text.Start
 			if c < len(b.Align) {
 				al = map[byte]text.Alignment{'c': text.Middle, 'r': text.End}[b.Align[c]]
@@ -462,30 +495,37 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 			calls[c] = cm.Stop()
 			h = max(h, dm.Size.Y)
 		}
-		rh := h + 2*pad
+		rh := h + 2*py
 		if ri == 0 {
-			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(tw, y+rh)}.Op())
+			paint.FillShape(gtx.Ops, th.Surface, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(tw, y+rh)}.Op())
 		}
 		x := 0
 		for c := range cols {
-			t := op.Offset(image.Pt(x+pad, y+pad)).Push(gtx.Ops)
+			t := op.Offset(image.Pt(x+px, y+py)).Push(gtx.Ops)
 			calls[c].Add(gtx.Ops)
 			t.Pop()
 			x += widths[c]
 		}
-		paint.FillShape(gtx.Ops, line, clip.Rect{Min: image.Pt(0, y+rh), Max: image.Pt(tw, y+rh+1)}.Op())
-		y += rh + 1
+		y += rh
 	}
-	// The outline and the column lines.
-	paint.FillShape(gtx.Ops, line, clip.Stroke{Path: clip.Rect{Max: image.Pt(tw, y)}.Path(), Width: 1}.Op())
 	x := 0
 	for c := 0; c < cols-1; c++ {
 		x += widths[c]
 		paint.FillShape(gtx.Ops, line, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+1, y)}.Op())
 	}
 	call := m.Stop()
-	extra := d.sideways(gtx, th, i, w, y+1, tw+1, call)
-	return gl.Dimensions{Size: image.Pt(w, y+1+extra)}
+	rad := gtx.Dp(theme.RadiusPopover)
+	extra := d.sideways(gtx, th, i, w, y, tw, rad, call)
+	frame(gtx, image.Pt(min(tw, w), y), rad, line)
+	return gl.Dimensions{Size: image.Pt(w, y+extra)}
+}
+
+// frame rings a box of size sz at the origin, corners rad: a crisp 1 px
+// line inside its edge.
+func frame(gtx gl.Context, sz image.Point, rad int, c color.NRGBA) {
+	rr := clip.UniformRRect(image.Rectangle{Max: sz}, rad)
+	defer rr.Push(gtx.Ops).Pop()
+	paint.FillShape(gtx.Ops, c, clip.Stroke{Path: rr.Path(gtx.Ops), Width: 2}.Op())
 }
 
 // fitColumns shares w between columns of the natural widths: each gets
@@ -536,12 +576,13 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 	sp := gtx.Dp(theme.SpaceS)
 	x, y, rowH := 0, 0, 0
 	for k, im := range b.Imgs {
-		pic := Pic{Note: "Image " + imgName(im) + " not shown"}
+		pic := Pic{Note: "Image not available"}
 		if d.Picture != nil {
 			pic = d.Picture(im, w)
 		}
 		var sz image.Point
 		var draw func(at image.Point)
+		rad := gtx.Dp(theme.RadiusPopover)
 		if pic.Size != (image.Point{}) {
 			sz = image.Pt(gtx.Dp(unit.Dp(pic.Size.X)), gtx.Dp(unit.Dp(pic.Size.Y)))
 			if sz.X > w {
@@ -549,25 +590,39 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 			}
 			draw = func(at image.Point) {
 				t := op.Offset(at).Push(gtx.Ops)
-				cl := clip.Rect{Max: sz}.Push(gtx.Ops)
+				cl := clip.UniformRRect(image.Rectangle{Max: sz}, rad).Push(gtx.Ops)
 				s := float32(sz.X) / float32(pic.Size.X)
 				a := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(s, s))).Push(gtx.Ops)
 				pic.Img.Add(gtx.Ops)
 				paint.PaintOp{}.Add(gtx.Ops)
 				a.Pop()
 				cl.Pop()
+				frame(gtx, sz, rad, th.BorderSubtle)
 				t.Pop()
 			}
 		} else {
+			// A panel in the image's place: its icon and its name, and why it
+			// is not shown in a tooltip.
+			px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
+			is := gtx.Sp(th.Sp(theme.Body))
 			lg := gtx
-			lg.Constraints = gl.Constraints{Max: image.Pt(w, 1<<24)}
+			lg.Constraints = gl.Constraints{Max: image.Pt(max(0, w-2*px-is-py), 1<<24)}
 			m := op.Record(gtx.Ops)
-			dl := widget.Label{}.Layout(lg, th.Shaper, th.UIFont, th.Sp(theme.Body), pic.Note, colorCall(gtx, th.TextQuiet))
+			dl := widget.Label{}.Layout(lg, th.Shaper, th.UIFont, th.Sp(theme.Body), imgName(im), colorCall(gtx, th.TextQuiet))
 			call := m.Stop()
-			sz = dl.Size
+			tip := d.tip(part{i, k})
+			sz = image.Pt(dl.Size.X+2*px+is+py, dl.Size.Y+2*py)
 			draw = func(at image.Point) {
 				t := op.Offset(at).Push(gtx.Ops)
+				r := image.Rectangle{Max: sz}
+				paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(r, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+				it := op.Offset(image.Pt(px, py+(dl.Size.Y-is)/2)).Push(gtx.Ops)
+				sidebar.Icon(gtx, "image", is, th.TextQuiet)
+				it.Pop()
+				lt := op.Offset(image.Pt(px+is+py, py)).Push(gtx.Ops)
 				call.Add(gtx.Ops)
+				lt.Pop()
+				tip.layout(gtx, th, sz, pic.Note)
 				t.Pop()
 			}
 		}
@@ -610,7 +665,7 @@ func (d *Doc) graph(gtx gl.Context, th *theme.Theme, g *Graph) gl.Dimensions {
 	w := gtx.Constraints.Max.X
 	pad := gtx.Dp(theme.SpaceL)
 	fs := th.Sp(theme.Body)
-	panel := th.SurfaceSecondary
+	panel := th.Surface
 	fill := theme.Mix(panel, th.Primary, 0.14)
 	ring := theme.Mix(panel, th.Primary, 0.65)
 	edge := th.Muted
@@ -673,8 +728,10 @@ func (d *Doc) graph(gtx gl.Context, th *theme.Theme, g *Graph) gl.Dimensions {
 	scale := min(float32(1), float32(w-2*pad)/float32(max(pl.Size.X, 1)))
 	dw, dh := int(float32(pl.Size.X)*scale), int(float32(pl.Size.Y)*scale)
 	r := image.Rect(0, 0, w, dh+2*pad)
-	paint.FillShape(gtx.Ops, panel, clip.UniformRRect(r, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-	cl := clip.Rect(r).Push(gtx.Ops)
+	rad := gtx.Dp(theme.RadiusPopover)
+	paint.FillShape(gtx.Ops, panel, clip.UniformRRect(r, rad).Op(gtx.Ops))
+	frame(gtx, r.Max, rad, th.BorderSubtle)
+	cl := clip.UniformRRect(r, rad).Push(gtx.Ops)
 	defer cl.Pop()
 	a := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(scale, scale)).Offset(f32.Pt(float32((w-dw)/2), float32(pad)))).Push(gtx.Ops)
 	defer a.Pop()
@@ -721,7 +778,7 @@ func (d *Doc) graph(gtx gl.Context, th *theme.Theme, g *Graph) gl.Dimensions {
 			mid = pts[m]
 		}
 		lr := image.Rectangle{Min: mid.Sub(esizes[k].Div(2)), Max: mid.Sub(esizes[k].Div(2)).Add(esizes[k])}
-		paint.FillShape(gtx.Ops, panel, clip.UniformRRect(lr.Inset(-gtx.Dp(3)), gtx.Dp(3)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, panel, clip.UniformRRect(lr.Inset(-gtx.Dp(theme.SpaceXS)), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		t := op.Offset(lr.Min).Push(gtx.Ops)
 		elabels[k].Add(gtx.Ops)
 		t.Pop()
@@ -788,10 +845,10 @@ func shape(gtx gl.Context, s Shape, r image.Rectangle, fill, ring color.NRGBA, w
 	case Circle:
 		path = clip.Ellipse(r).Path(gtx.Ops)
 	default:
-		rad := gtx.Dp(4)
+		rad := gtx.Dp(theme.RadiusControl)
 		switch s {
 		case Round:
-			rad = gtx.Dp(12)
+			rad = gtx.Dp(theme.RadiusCard)
 		case Stadium:
 			rad = r.Dy() / 2
 		}
@@ -799,4 +856,64 @@ func shape(gtx gl.Context, s Shape, r image.Rectangle, fill, ring color.NRGBA, w
 	}
 	paint.FillShape(gtx.Ops, fill, clip.Outline{Path: path}.Op())
 	paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: path, Width: width}.Op())
+}
+
+// tipDelay is how long the pointer rests on a missing image before its
+// tooltip shows, as the type spec sets for tooltips.
+const tipDelay = 500 * time.Millisecond
+
+// hoverTip is a tooltip's hover state: whether the pointer is on its
+// target, and since when.
+type hoverTip struct {
+	h     gesture.Hover
+	since time.Time
+}
+
+// tip is part p's tooltip state, made the first time.
+func (d *Doc) tip(p part) *hoverTip {
+	t := d.tips[p]
+	if t == nil {
+		if d.tips == nil {
+			d.tips = map[part]*hoverTip{}
+		}
+		t = &hoverTip{}
+		d.tips[p] = t
+	}
+	return t
+}
+
+// layout takes hover over a target sz at the origin and, once the
+// pointer has rested on it for tipDelay, draws text under it over
+// everything, as pitwall's tooltips look.
+func (t *hoverTip) layout(gtx gl.Context, th *theme.Theme, sz image.Point, text string) {
+	cl := clip.Rect{Max: sz}.Push(gtx.Ops)
+	on := t.h.Update(gtx.Source)
+	t.h.Add(gtx.Ops)
+	cl.Pop()
+	if !on || text == "" {
+		t.since = time.Time{}
+		return
+	}
+	if t.since.IsZero() {
+		t.since = gtx.Now
+	}
+	if gtx.Now.Sub(t.since) < tipDelay {
+		gtx.Execute(op.InvalidateCmd{At: t.since.Add(tipDelay)})
+		return
+	}
+	m := op.Record(gtx.Ops)
+	lg := gtx
+	lg.Constraints = gl.Constraints{Max: image.Pt(1<<20, 1<<20)}
+	lc := op.Record(gtx.Ops)
+	dl := widget.Label{MaxLines: 1}.Layout(lg, th.Shaper, th.UIFont, th.Sp(theme.Small), text, colorCall(gtx, th.Fg))
+	call := lc.Stop()
+	pad := image.Pt(gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceXS))
+	box := dl.Size.Add(pad.Mul(2))
+	o := op.Offset(image.Pt(0, sz.Y+gtx.Dp(theme.SpaceXS))).Push(gtx.Ops)
+	kit.Surface(gtx, image.Rectangle{Max: box}, gtx.Dp(theme.RadiusControl), kit.Floating, th.BorderStrong, th.SurfaceElevated)
+	lo := op.Offset(pad).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	lo.Pop()
+	o.Pop()
+	op.Defer(gtx.Ops, m.Stop())
 }

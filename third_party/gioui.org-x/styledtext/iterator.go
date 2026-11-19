@@ -2,6 +2,7 @@ package styledtext
 
 import (
 	"image"
+	"image/color"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -15,6 +16,9 @@ import (
 // textIterator computes the bounding box of and paints text. This iterator is
 // specialized to laying out single lines of text.
 type textIterator struct {
+	// pitwall: color is the text's, set again after a bitmap glyph,
+	// whose image replaces the paint material.
+	color color.NRGBA
 	// viewport is the rectangle of document coordinates that the iterator is
 	// trying to fill with text.
 	viewport image.Rectangle
@@ -142,9 +146,14 @@ func (it *textIterator) paintGlyph(gtx layout.Context, shaper *text.Shaper, glyp
 	}
 	if glyph.Flags&text.FlagLineBreak > 0 || cap(line)-len(line) == 0 || !visibleOrBefore {
 		t := op.Offset(it.lineOff).Push(gtx.Ops)
-		op := clip.Outline{Path: shaper.Shape(line)}.Op().Push(gtx.Ops)
+		cl := clip.Outline{Path: shaper.Shape(line)}.Op().Push(gtx.Ops)
 		paint.PaintOp{}.Add(gtx.Ops)
-		op.Pop()
+		cl.Pop()
+		// pitwall: color emoji are bitmaps, which Shape leaves out.
+		if call := shaper.Bitmaps(line); call != (op.CallOp{}) {
+			call.Add(gtx.Ops)
+			paint.ColorOp{Color: it.color}.Add(gtx.Ops)
+		}
 		t.Pop()
 		line = line[:0]
 	}

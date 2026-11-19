@@ -797,10 +797,9 @@ func (v *View) follow(link string) {
 // pic is what image im shows, for a block width pixels wide, loading it
 // the first time.
 func (v *View) pic(im Img, width int) Pic {
-	name := imgName(im)
 	where, err := resolveImage(im.Src, filepath.Dir(v.path), v.Fetch == nil)
 	if err != nil {
-		return Pic{Note: fmt.Sprintf("Image %s not shown: %s", name, plainErr(err))}
+		return Pic{Note: "Image not available: " + plainErr(err)}
 	}
 	p := v.picture(where, width)
 	v.mu.Lock()
@@ -809,7 +808,7 @@ func (v *View) pic(im Img, width int) Pic {
 	case p.done && p.err == "":
 		return Pic{Img: p.img, Size: p.size}
 	case p.done:
-		return Pic{Note: fmt.Sprintf("Image %s not shown (%s): %s", name, im.Src, p.err)}
+		return Pic{Note: fmt.Sprintf("Image not available (%s): %s", im.Src, p.err)}
 	}
-	return Pic{Note: "Loading " + name + "…"}
+	return Pic{Note: "Loading…"}
 }
