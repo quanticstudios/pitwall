@@ -93,7 +93,7 @@ func GluePunct(spans []richtext.SpanStyle) []richtext.SpanStyle {
 	for i := 1; i < len(spans); i++ {
 		prev, cur := &spans[i-1], &spans[i]
 		n := len(cur.Content) - len(strings.TrimLeft(cur.Content, ".,;:!?)]'\"…"))
-		if n == 0 || prev.Content == "" || strings.ContainsAny(prev.Content[len(prev.Content)-1:], " \n\t") {
+		if n == 0 || prev.Content == "" || prev.Background.A != 0 || strings.ContainsAny(prev.Content[len(prev.Content)-1:], " \n\t") {
 			continue
 		}
 		prev.Content += cur.Content[:n]

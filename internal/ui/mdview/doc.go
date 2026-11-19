@@ -53,7 +53,13 @@ type Block struct {
 	// NewList is set on a list's first block, so two lists in a row
 	// read as two.
 	NewList bool
-	Spans   []Span
+	// Fold is the <details> block this block is in, numbered from 1 in
+	// the order they open; 0 for none. Its summary is the block with
+	// Summary set, Fold its own number and Parent the fold it is in; Open
+	// says the details start open.
+	Fold, Parent  int
+	Summary, Open bool
+	Spans         []Span
 	// Text and Lang are a code block's.
 	Text, Lang string
 	// Note says why a Mermaid block shows as code.
@@ -87,6 +93,10 @@ type parser struct {
 	marker  string
 	task    int
 	newList bool
+	// folds are the <details> open around the next block, innermost
+	// last, 0 for one without a summary; nfold counts them.
+	folds []int
+	nfold int
 }
 
 func (p *parser) emit(b Block) {
@@ -94,6 +104,9 @@ func (p *parser) emit(b Block) {
 		b.Marker, b.Task, p.marker, p.task = p.marker, p.task, "", 0
 	}
 	b.NewList, p.newList = p.newList, false
+	if !b.Summary && len(p.folds) > 0 {
+		b.Fold = p.folds[len(p.folds)-1]
+	}
 	p.out = append(p.out, b)
 }
 
@@ -323,6 +336,7 @@ var (
 	tag     = regexp.MustCompile(`<[^>]*>`)
 	comment = regexp.MustCompile(`(?s)<!--.*?-->`)
 	summary = regexp.MustCompile(`(?is)<summary[^>]*>(.*?)</summary>`)
+	details = regexp.MustCompile(`<details\b[^>]*>`)
 )
 
 // attr is the value of name in an HTML tag, "" without one.
@@ -352,12 +366,34 @@ func (p *parser) html(s string, indent, quote int) {
 		p.emit(Block{Kind: Images, Indent: indent, Quote: quote, Imgs: imgs})
 		return
 	}
-	if m := summary.FindStringSubmatch(s); m != nil {
-		// a <details> block: its summary as a bold line, its body follows
-		if t := strings.Join(strings.Fields(tag.ReplaceAllString(m[1], " ")), " "); t != "" {
-			p.emit(Block{Kind: Para, Indent: indent, Quote: quote, Spans: []Span{{Text: t, Bold: true}}})
+	lower := strings.ToLower(s)
+	defer func() {
+		for range strings.Count(lower, "</details") {
+			if len(p.folds) > 0 {
+				p.folds = p.folds[:len(p.folds)-1]
+			}
 		}
+	}()
+	opens := details.FindAllString(lower, -1)
+	if m := summary.FindStringSubmatch(s); m != nil && len(opens) > 0 {
+		// a <details> block: its summary is the fold's toggle, its body
+		// the blocks up to </details>
+		for range opens[:len(opens)-1] {
+			p.folds = append(p.folds, 0)
+		}
+		parent := 0
+		if len(p.folds) > 0 {
+			parent = p.folds[len(p.folds)-1]
+		}
+		p.nfold++
+		p.folds = append(p.folds, p.nfold)
+		t := strings.Join(strings.Fields(tag.ReplaceAllString(m[1], " ")), " ")
+		open := strings.Contains(opens[len(opens)-1], "open")
+		p.emit(Block{Kind: Para, Indent: indent, Quote: quote, Spans: []Span{{Text: t, Bold: true}}, Summary: true, Fold: p.nfold, Parent: parent, Open: open})
 		return
+	}
+	for range opens {
+		p.folds = append(p.folds, 0)
 	}
 	t := strings.Join(strings.Fields(tag.ReplaceAllString(s, " ")), " ")
 	if t != "" {
