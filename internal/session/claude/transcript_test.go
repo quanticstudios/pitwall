@@ -128,3 +128,26 @@ func TestTranscriptSlashCommand(t *testing.T) {
 		t.Errorf("turns %+v: want the skill's turn, completed", snap.Turns)
 	}
 }
+
+// A pasted picture in a prompt line becomes the prompt's image attachment,
+// as a chat tab's is, so the transcript draws its thumbnail.
+func TestTranscriptPromptImage(t *testing.T) {
+	tr := NewTranscript()
+	line := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T22:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"text","text":"[Image #1] what is this"}]}}`
+	snap := apply(t, base(), tr.Line([]byte(line)))
+	if len(snap.Content) != 1 {
+		t.Fatalf("content %+v", snap.Content)
+	}
+	it := snap.Content[0]
+	if it.Text != "[Image #1] what is this" || len(it.Attachments) != 1 {
+		t.Fatalf("prompt %q with %d attachments", it.Text, len(it.Attachments))
+	}
+	if a := it.Attachments[0]; a.Kind != "image" || a.MimeType != "image/png" || a.Data != "iVBORw0KGgo=" || a.ID != "image-1" {
+		t.Errorf("attachment %+v", a)
+	}
+	// A picture sent alone is still a prompt.
+	alone := `{"type":"user","uuid":"p2","timestamp":"2026-11-19T22:01:00Z","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"/9j/"}}]}}`
+	if snap = apply(t, snap, tr.Line([]byte(alone))); len(snap.Content) != 2 || len(snap.Content[1].Attachments) != 1 {
+		t.Errorf("a picture alone: %+v", snap.Content)
+	}
+}
