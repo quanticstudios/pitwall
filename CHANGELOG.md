@@ -28,6 +28,7 @@ takes `--dry-run`.
 - A Claude chat in bypass permissions shows its mode chip in red with a shield, labelled Bypass permissions, and a tooltip that says Claude runs every tool without asking. Shift+Tab reaches Bypass after Plan only in a chat that has run in bypass, so a chat that never opted in can't land in it by accident.
 - Mark a parent tab's sidebar row only for a worker that asks for input: a question, an approval or a plan. A worker's finished turn, PR or work stays on the worker's own row, so the parent's accent bar no longer lingers.
 - Stop desktop and phone notifications when a worker tab finishes a turn, since the tab that started it reads the result. A worker that asks for approval, asks a question or fails still notifies.
+- Every pane that runs Claude Code's TUI now shows as the desktop chat, however claude started: typed in a shell (`cdang` too), `pitwall new -- claude`, a worktree worker, a preset or a restored tab. The chat and the TUI are two views of the one running claude, so its flags, bypass permissions included, stay in effect. Alt+T flips the focused pane between them, mid-turn too, with nothing stopped or restarted. The chat shows the whole conversation so far, typing goes into the composer (mid-turn, Claude Code queues it), Esc stops the turn, and approvals and questions are cards that 1, 2 and 3 answer. Each pane of a split decides for itself. When claude exits, the pane shows the shell again. `[chat] claude = "terminal"` starts these panes in the TUI instead.
 
 ## v0.2.17
 

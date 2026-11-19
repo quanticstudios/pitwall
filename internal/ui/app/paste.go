@@ -261,6 +261,14 @@ func (u *ui) dropFiles(e app.FileDropEvent) {
 		if !e.Position.In(p.rect) || findPane(&st, id) == nil {
 			continue
 		}
+		if ws := findWorkspace(&st, u.nav.workspace); u.paneChatShown(&st, ws, id) {
+			// A pane chat takes them in its composer, as a chat tab does.
+			cmp, env := u.composer(&st, id), chatin.Env{Images: true, Invalidate: u.invalidate}
+			for _, path := range e.Paths {
+				cmp.Reading(env, func(context.Context) ([]byte, error) { return readDroppedImage(path) })
+			}
+			return
+		}
 		pn := findPane(&st, id)
 		if curHost() != "" && model.IsAgent(pn.Provider) {
 			p.dropFiles = append(p.dropFiles, e.Paths...)

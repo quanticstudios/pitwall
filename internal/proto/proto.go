@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 85 added no message: a daemon at PaneChatLevel answers the Chat*
+// messages for a pane running Claude Code's TUI (model.PaneChat), with the
+// pane's id as the chat's, so a window can show that pane as a chat.
 // Level 83 added Activity.Background: a turn that ended with a background
 // shell or subagent still running, which reads Background, not Working.
 // Level 82 added Activity.Repeats and Repeating: a working agent that
@@ -222,7 +225,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 84
+const Level = 85
+
+// PaneChatLevel is the first daemon that answers Chat* messages for a pane
+// running Claude Code's TUI; a window shows such a pane as a chat only then.
+const PaneChatLevel = 85
 
 // ChatTerminalLevel added ChatTerminal and model.Chat.Terminal.
 const ChatTerminalLevel = 84

@@ -364,6 +364,8 @@ type ui struct {
 	panel       sidePanel                    // the agent panel on the right while nav.panelOpen
 	transcripts map[string]*panel.Transcript // the chat tabs', by chat id, see chatTranscript
 	chatHead    chatHead                     // the chat tab's header, or its terminal view's bar
+	paneHeads   map[string]*chatHead         // the pane chats' headers, by pane id
+	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
 	usage       usageWatch                   // token use for the tabs' hover cards
 	invalidate  func()                       // the window's Invalidate; nil in tests
@@ -605,6 +607,8 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.chatTerminal = false
 		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" {
 			u.toggleChatTerminal(st, ws)
+		} else if u.paneChatKey(st) {
+			u.flipPaneChat(u.nav.focused())
 		}
 	}
 	if u.nav.sidebarKeys {
@@ -731,6 +735,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.reviewKeys(gtx, &st)
 	}
 	for u.modal.kind == modalNone {
+		u.nav.paneChatKey = u.paneChatKey(&st)
 		filters := append(u.nav.keyFilters(&st), u.popupFilters()...)
 		if u.sw.open || u.pal.open || u.hints.on || u.browser.open || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
@@ -1278,6 +1283,10 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		if a, ok := unseen[id]; ok {
 			att = &a
 		}
+		if u.paneChatShown(st, ws, id) {
+			u.layoutPaneChat(gtx, st, ws, p, id, r, id == focused, sole)
+			continue
+		}
 		u.layoutPane(gtx, st, p, id, r, id == focused, findFocus && id == u.find.pane, sole, att)
 		if pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
 			u.drawHooksNotice(gtx, p, r)
@@ -1296,6 +1305,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		}
 		if !live[id] && findPane(st, id) == nil {
 			delete(u.panes, id)
+			delete(u.paneHeads, id)
 		}
 	}
 	u.layoutDividers(gtx, ws.ID, tabID, root, area, gap)

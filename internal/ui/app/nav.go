@@ -71,6 +71,9 @@ type nav struct {
 	// chatTerminal asks the window to flip the shown chat tab between the
 	// chat and Claude Code's TUI.
 	chatTerminal bool
+	// paneChatKey is set by the window each frame: chat_terminal is the
+	// window's on the shown tab, whose focused pane is a pane chat.
+	paneChatKey bool
 	// sidebarKeys asks the window to move the keyboard into the sidebar,
 	// or back to the pane (focus_sidebar).
 	sidebarKeys bool
@@ -729,8 +732,8 @@ func (n *nav) keyFilters(st *model.State) []key.Filter {
 			continue // the pane's
 		} else if a == "keep_peek" && n.peek == "" {
 			continue // the pane's while nothing is peeked at
-		} else if w := findWorkspace(st, n.workspace); a == "chat_terminal" && (w == nil || w.Chat == "") {
-			continue // the pane's outside a chat tab
+		} else if w := findWorkspace(st, n.workspace); a == "chat_terminal" && (w == nil || w.Chat == "") && !n.paneChatKey {
+			continue // the pane's outside a chat tab and a pane chat
 		}
 		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}

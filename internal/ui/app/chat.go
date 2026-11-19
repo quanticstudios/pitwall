@@ -49,18 +49,27 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)
 	gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
-	s, ok := ch.Chat(ws.Chat)
+	u.chatBody(gtx, st, ch, ws.Chat, ws.Path, true)
+}
+
+// chatBody draws chat id's transcript with the composer under it, and
+// sends the composer's messages and the requests answered on it. dir is
+// where the transcript's paths are; focus is whether the composer may
+// take the keys, as a pane chat in an unfocused split may not.
+func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir string, focus bool) {
+	s, ok := ch.Chat(id)
 	if ok {
 		aide := curHost() == "" && findAide() != nil
-		t := u.chatTranscript(st, ws.Chat)
-		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, ws.Path
-		cmp := u.composer(st, ws.Chat)
+		t := u.chatTranscript(st, id)
+		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
+		cmp := u.composer(st, id)
 		if f, ok := u.b.(ChatResulter); ok {
-			for _, r := range f.ChatResults(ws.Chat) {
+			for _, r := range f.ChatResults(id) {
 				cmp.Result(r, gtx.Now)
 			}
 		}
-		env := u.chatEnv(st, ws.Chat, &s, t)
+		env := u.chatEnv(st, id, &s, t)
+		env.Focus = env.Focus && focus
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, aide) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
@@ -69,10 +78,10 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 			u.send(m)
 		}
 		for _, a := range t.Answers() {
-			u.send(proto.ChatApprove{Chat: ws.Chat, Request: a.Request, Decision: a.Decision})
+			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision})
 		}
 		for _, a := range t.Inputs() {
-			u.send(proto.ChatAnswer{Chat: ws.Chat, Request: a.Request, Answers: a.Answers})
+			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
 		}
 		if t.OpenAide() {
 			openAide(findAide())
@@ -82,7 +91,7 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 			return para(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Muted, "Reading the chat…")
 		})
 	}
-	if c := findChat(st, ws.Chat); !ok || c != nil && chatLive(c.State) {
+	if c := findChat(st, id); !ok || c != nil && chatLive(c.State) {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(ChatPoll)})
 	}
 }
@@ -146,11 +155,12 @@ func (u *ui) chatTranscript(st *model.State, id string) *panel.Transcript {
 	return t
 }
 
+// findChat is chat id: a chat tab's, or a pane chat's (paneChatOf).
 func findChat(st *model.State, id string) *model.Chat {
 	for i := range st.Chats {
 		if st.Chats[i].ID == id {
 			return &st.Chats[i]
 		}
 	}
-	return nil
+	return paneChatOf(st, id)
 }

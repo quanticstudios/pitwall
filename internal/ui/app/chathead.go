@@ -133,9 +133,14 @@ func withKey(what, key string) string {
 // the Claude mark, the title, the branch, and Terminal, the agent panel
 // and a more menu with Open in aide when aide is installed.
 func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace) int {
-	h := &u.chatHead
+	return u.chatStrip(gtx, &u.chatHead, ws, findChat(st, ws.Chat), func() { u.toggleChatTerminal(st, ws) })
+}
+
+// chatStrip is layoutChatHead's strip with header state h, for chat c in
+// tab ws, where Terminal runs toggle: a chat tab's, or a pane chat's.
+func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *model.Chat, toggle func()) int {
 	for h.term.Clicked(gtx) {
-		u.toggleChatTerminal(st, ws)
+		toggle()
 	}
 	for h.panel.Clicked(gtx) {
 		u.nav.panelOpen = !u.nav.panelOpen
@@ -148,7 +153,6 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 		openAide(findAide())
 	}
 	aide := curHost() == "" && findAide() != nil
-	c := findChat(st, ws.Chat)
 	title := tabTitle(*ws)
 	claude := c != nil && c.Provider == model.ProviderClaude
 	prov := model.ProviderClaude
@@ -177,13 +181,13 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 	kids = append(kids, gl.Flexed(1, fill))
 	if claude {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.tipped(gtx, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
+			return u.tipped(gtx, h, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
 				return ghostIconButton(gtx, th, &h.term, "terminal", "Terminal")
 			})
 		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
 	kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-		return u.tipped(gtx, &h.panel, withKey("Agent panel", u.keyOf("toggle_panel")), func(gtx gl.Context) gl.Dimensions {
+		return u.tipped(gtx, h, &h.panel, withKey("Agent panel", u.keyOf("toggle_panel")), func(gtx gl.Context) gl.Dimensions {
 			return kit.IconButton(gtx, th, &h.panel, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "panel-right", size, col)
 			})
@@ -200,7 +204,7 @@ func (u *ui) layoutChatHead(gtx gl.Context, st *model.State, ws *model.Workspace
 	}
 	height := u.strip(gtx, th.Bg, kids)
 	if aide && (h.menu || !anim.Reduced() && gtx.Now.Sub(h.menuAt) < menuOut) {
-		u.chatMenu(gtx, height)
+		u.chatMenu(gtx, h, height)
 	}
 	return height
 }
@@ -232,7 +236,7 @@ func (u *ui) layoutTerminalBar(gtx gl.Context, st *model.State, ws *model.Worksp
 			return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, d.Size.Y)}
 		}),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.tipped(gtx, &h.back, withKey("Back to chat", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
+			return u.tipped(gtx, h, &h.back, withKey("Back to chat", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
 				return kit.Button(gtx, th, &h.back, kit.Secondary, kit.Medium, "Back to chat")
 			})
 		}),
@@ -321,9 +325,8 @@ func ghostIconButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon,
 
 // tipped draws w and, while c is hovered, tip under it over everything:
 // after tipDelay, or at once when another tooltip showed within tipChain.
-func (u *ui) tipped(gtx gl.Context, c *widget.Clickable, tip string, w gl.Widget) gl.Dimensions {
+func (u *ui) tipped(gtx gl.Context, h *chatHead, c *widget.Clickable, tip string, w gl.Widget) gl.Dimensions {
 	d := w(gtx)
-	h := &u.chatHead
 	if !c.Hovered() || tip == "" {
 		if h.tipOf == c {
 			h.tipOf = nil
@@ -359,8 +362,7 @@ func (u *ui) tipped(gtx gl.Context, c *widget.Clickable, tip string, w gl.Widget
 
 // chatMenu draws the header's more menu under its button, the strip's last,
 // with a press anywhere else closing it. top is the strip's height.
-func (u *ui) chatMenu(gtx gl.Context, top int) {
-	h := &u.chatHead
+func (u *ui) chatMenu(gtx gl.Context, h *chatHead, top int) {
 	th := u.th
 	for {
 		if _, ok := gtx.Event(pointer.Filter{Target: &h.backdrop, Kinds: pointer.Press}); !ok {
