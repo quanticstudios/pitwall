@@ -32,6 +32,8 @@ takes `--dry-run`.
 - An image sent from a Claude Code pane's chat goes in as a pasted path that Claude Code numbers itself, without the composer's token or an evidence line, so the prompt no longer shows the image twice.
 - Ctrl+Backspace and Ctrl+Delete delete a word in every text field, and so do Alt+Backspace and Alt+Delete. Right after an image chip in the composer, a word delete removes the whole chip.
 - A chat draws inside the same rounded frame as a terminal pane, in a chat tab and in a Claude Code pane, splits included.
+- A slash command sent from a Claude Code pane's chat runs as typed. Claude Code's slash menu took the Enter and ran its first match, so `/ux` could run another command starting with ux. pitwall now closes that menu with Esc first, and only when the menu is on screen. The chat also shows a skill or custom command you ran, such as `/pwprobe twice`, as your prompt.
+- Ctrl+Enter sends a message while Claude works instead of queuing it, and Enter still queues. In a chat tab Claude can't take a message mid-turn, so Ctrl+Enter stops the turn and sends the message ahead of the queue. In a Claude Code pane it goes into the TUI at once, and Claude Code takes it into the running turn when it can. The send button's tooltip names the key.
 
 ## v0.2.18
 
