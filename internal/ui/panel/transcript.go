@@ -587,6 +587,11 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			}
 		}
 		if b.reply >= 0 {
+			// A request answered before the reply came stays with the work
+			// it was about, above the reply.
+			for ; k < len(t.done) && t.done[k].at <= b.reply; k++ {
+				t.rows = append(t.rows, trow{res: &t.done[k]})
+			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
 		}
 	}

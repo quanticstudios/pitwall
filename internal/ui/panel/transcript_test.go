@@ -234,6 +234,40 @@ func TestTranscriptTurn(t *testing.T) {
 	}
 }
 
+// TestTranscriptAnsweredLine: an approval answered mid-turn keeps its
+// line above the reply that came after it, not under the reply.
+func TestTranscriptAnsweredLine(t *testing.T) {
+	th := theme.Dark()
+	s := longTurn(2)
+	s.PendingApprovals = []session.Approval{{ID: "r1", RequestType: session.RequestCommand, Request: &session.ToolRequest{ToolName: "Bash", Command: "make"}}}
+	var tr Transcript
+	var ops op.Ops
+	now := time.Now()
+	transcriptFrame(&tr, th, s, &ops, now)
+	if !tr.Key("1") {
+		t.Fatal("1 did not answer the approval")
+	}
+	s.PendingApprovals = nil
+	turn := "t1"
+	s.Content = append(s.Content, session.Item{ID: "c2", Kind: session.KindToolCall, TurnID: &turn,
+		Tool: &session.ToolCall{ToolName: "Bash", Command: "make", Status: "completed"}},
+		session.Item{ID: "a", Kind: session.KindAssistantText, TurnID: &turn, Text: "Built."})
+	s.Running, s.Turns[0].State = false, session.TurnCompleted
+	transcriptFrame(&tr, th, s, &ops, now)
+	var order []string
+	for _, r := range tr.rows {
+		switch {
+		case r.res != nil:
+			order = append(order, "answered")
+		case r.seg == segReply:
+			order = append(order, "reply")
+		}
+	}
+	if !reflect.DeepEqual(order, []string{"answered", "reply"}) {
+		t.Fatalf("rows %v, want the answered line above the reply", order)
+	}
+}
+
 // BenchmarkTranscriptTurn is one frame of a running turn of 2,000 calls,
 // its work log open.
 func BenchmarkTranscriptTurn(b *testing.B) {
