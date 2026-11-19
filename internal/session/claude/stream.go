@@ -390,9 +390,9 @@ func (s *stream) assistant(l line) []session.Event {
 			continue
 		}
 		// Only what streaming did not give; an interrupted turn's line can
-		// hold less than was streamed. A thinking block always reports, so
-		// its row exists and ends now even when Claude hides the text.
-		if n := s.streamed[id]; n < len(text) || kind == session.KindReasoningText {
+		// hold less than was streamed. A thinking block whose text Claude
+		// hides still reports, so its row exists and ends now.
+		if n := s.streamed[id]; n < len(text) || kind == session.KindReasoningText && text == "" {
 			out = append(out, session.Event{Type: session.EventContent, ItemID: id, Kind: kind, Model: m.Model, Text: text[n:]})
 		}
 	}

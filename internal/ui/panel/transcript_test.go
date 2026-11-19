@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -213,9 +215,10 @@ func longTurn(n int) *session.Snapshot {
 	return s
 }
 
-// TestTranscriptTurn: a running turn's open work log is a list row per
-// call, so only the calls in view are laid out, and a click on its
-// header folds it to one row.
+// TestTranscriptTurn: a work log is one header row, running or done,
+// until the user opens it. Open, it is a list row per call, so only the
+// calls in view are laid out, and it stays open after the turn ends. A
+// failed call does not open its log.
 func TestTranscriptTurn(t *testing.T) {
 	th := theme.Dark()
 	s := longTurn(2000)
@@ -224,13 +227,30 @@ func TestTranscriptTurn(t *testing.T) {
 	now := time.Now()
 	transcriptFrame(&tr, th, s, &ops, now)
 	transcriptFrame(&tr, th, s, &ops, now)
-	if len(tr.rows) != 2002 || tr.laid == 0 || tr.laid > 60 {
-		t.Fatalf("%d rows, laid out %d of 2,000 calls", len(tr.rows), tr.laid)
+	if len(tr.rows) != 2 || tr.rows[1].seg != segHead || !tr.rows[1].running || tr.rows[1].open || !tr.rows[1].last {
+		t.Fatalf("running turn: %d rows, want the prompt and one folded header", len(tr.rows))
 	}
 	tr.clicks[logID(s, tr.rows[1].b)].Click()
 	transcriptFrame(&tr, th, s, &ops, now)
-	if len(tr.rows) != 2 || tr.rows[1].seg != segHead || !tr.rows[1].last {
-		t.Fatalf("folded log: %d rows", len(tr.rows))
+	transcriptFrame(&tr, th, s, &ops, now)
+	if len(tr.rows) != 2002 || tr.laid == 0 || tr.laid > 60 {
+		t.Fatalf("opened log: %d rows, laid out %d of 2,000 calls", len(tr.rows), tr.laid)
+	}
+	s.Turns[0].State = session.TurnCompleted
+	s.Running = false
+	transcriptFrame(&tr, th, s, &ops, now.Add(time.Minute))
+	transcriptFrame(&tr, th, s, &ops, now.Add(time.Minute))
+	if len(tr.rows) != 2002 || tr.rows[1].running {
+		t.Fatalf("finished turn the user opened: %d rows", len(tr.rows))
+	}
+
+	done := longTurn(3)
+	done.Turns[0].State = session.TurnCompleted
+	done.Content[2].Tool.Status = "failed"
+	var fresh Transcript
+	transcriptFrame(&fresh, th, done, &ops, now)
+	if len(fresh.rows) != 2 || fresh.rows[1].open {
+		t.Fatalf("finished turn with a failed call: %d rows, want one folded header", len(fresh.rows))
 	}
 }
 
@@ -279,4 +299,78 @@ func BenchmarkTranscriptTurn(b *testing.B) {
 	for i := 0; b.Loop(); i++ {
 		transcriptFrame(&tr, th, s, &ops, now.Add(time.Duration(i)*time.Millisecond))
 	}
+}
+
+// TestTranscriptFollow: pinned at the end, a growing reply and new rows
+// keep the end in view; a wheel scroll up stops following and new output
+// leaves the reader where they are; a new prompt, or ToEnd as sending
+// does, goes back to the end and follows again.
+func TestTranscriptFollow(t *testing.T) {
+	th := theme.Dark()
+	s := longChat(200)
+	s.PendingApprovals = nil
+	var tr Transcript
+	var ops op.Ops
+	var r input.Router
+	now := time.Now()
+	frame := func() {
+		now = now.Add(time.Second / 60)
+		ops.Reset()
+		tr.Layout(layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 800)), Now: now}, th, s, false)
+		r.Frame(&ops)
+	}
+	atEnd := func(what string) {
+		t.Helper()
+		if tr.list.Position.BeforeEnd || tr.list.Position.First+tr.list.Position.Count != len(tr.rows)+2 {
+			t.Fatalf("%s: rows %d+%d of %d, before end %v", what, tr.list.Position.First, tr.list.Position.Count, len(tr.rows)+2, tr.list.Position.BeforeEnd)
+		}
+	}
+	add := func(it session.Item) { s.Content = append(s.Content, it) }
+	for range 3 {
+		frame()
+	}
+	atEnd("opened")
+
+	add(session.Item{ID: "reply", Kind: session.KindAssistantText, Text: "first words"})
+	frame()
+	for i := range 40 {
+		s.Content[len(s.Content)-1].Text += fmt.Sprintf("\n\nline %d of a reply that streams in", i)
+		frame()
+		atEnd(fmt.Sprint("growing reply, delta ", i))
+	}
+	add(session.Item{ID: "tool", Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: "go vet ./...", Status: "running"}})
+	frame()
+	atEnd("tool row")
+
+	r.Queue(pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(500, 400), Scroll: f32.Pt(0, -600)})
+	frame()
+	frame()
+	if !tr.list.Position.BeforeEnd {
+		t.Fatal("a scroll up left the transcript at its end")
+	}
+	first, off := tr.list.Position.First, tr.list.Position.Offset
+	s.Content[len(s.Content)-1].Tool.Output = "ok"
+	add(session.Item{ID: "more", Kind: session.KindAssistantText, Text: "more output\n\nand more"})
+	frame()
+	if tr.list.Position.First != first || tr.list.Position.Offset != off || !tr.list.Position.BeforeEnd {
+		t.Fatalf("new output moved a scrolled reader: row %d+%d, was %d+%d", tr.list.Position.First, tr.list.Position.Offset, first, off)
+	}
+
+	add(session.Item{ID: "p2", Kind: session.KindUserPrompt, Text: "next, please"})
+	frame()
+	frame()
+	atEnd("new prompt")
+
+	r.Queue(pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(500, 400), Scroll: f32.Pt(0, -600)})
+	frame()
+	frame()
+	if !tr.list.Position.BeforeEnd {
+		t.Fatal("a second scroll up left the transcript at its end")
+	}
+	tr.ToEnd()
+	frame()
+	atEnd("ToEnd")
+	s.Content[len(s.Content)-1].Text += "\n\ngrows after the send"
+	frame()
+	atEnd("growth after ToEnd")
 }

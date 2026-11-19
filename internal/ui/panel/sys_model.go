@@ -281,12 +281,6 @@ func planKey(name string) (string, bool) {
 	return "", false
 }
 
-// sysError is whether an item is an error notice, which opens its turn's
-// work log as a failed call does.
-func sysError(it *session.Item) bool {
-	return it.Kind == session.KindSystem && it.Phase == session.PhaseError
-}
-
 // lastTodo is the index of the last task-list call in content[lo:hi],
 // -1 for none.
 func lastTodo(content []session.Item, lo, hi int) int {

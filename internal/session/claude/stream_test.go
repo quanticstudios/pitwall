@@ -143,3 +143,43 @@ func TestStreamHarness(t *testing.T) {
 		t.Errorf("compaction %q", compact)
 	}
 }
+
+// TestPartialMessages: thinking and text deltas each grow their item in
+// order as they stream, and the finished assistant lines then add nothing:
+// one reasoning item and one text item, each with the whole block once.
+func TestPartialMessages(t *testing.T) {
+	s := newStream("SESSION")
+	s.turn = "turn-1"
+	delta := func(i int, typ, field, text string) string {
+		return `{"type":"stream_event","api_message_id":"msg_1","session_id":"SESSION","event":{"type":"content_block_delta","index":` +
+			string(rune('0'+i)) + `,"delta":{"type":"` + typ + `","` + field + `":"` + text + `"}}}`
+	}
+	snap := base()
+	var grown []string
+	for _, l := range []string{
+		delta(0, "thinking_delta", "thinking", "Let me "),
+		delta(0, "thinking_delta", "thinking", "count."),
+		delta(1, "text_delta", "text", "One, "),
+		delta(1, "text_delta", "text", "two, "),
+		delta(1, "text_delta", "text", "three."),
+	} {
+		snap, _ = reduce(t, s, snap, l)
+		grown = append(grown, snap.Content[len(snap.Content)-1].Text)
+	}
+	if want := []string{"Let me ", "Let me count.", "One, ", "One, two, ", "One, two, three."}; !reflect.DeepEqual(grown, want) {
+		t.Fatalf("grew %q, want %q", grown, want)
+	}
+	snap, events := reduce(t, s, snap,
+		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5-5","content":[{"type":"thinking","thinking":"Let me count."}]},"session_id":"SESSION","uuid":"a-1"}`,
+		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"One, two, three."}]},"session_id":"SESSION","uuid":"a-2"}`)
+	if len(events) != 0 {
+		t.Fatalf("finished lines emitted %+v", events)
+	}
+	var got []string
+	for _, it := range snap.Content {
+		got = append(got, string(it.Kind)+":"+it.Text)
+	}
+	if want := []string{"reasoning-text:Let me count.", "assistant-text:One, two, three."}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("items %q, want %q", got, want)
+	}
+}

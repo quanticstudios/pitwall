@@ -31,9 +31,8 @@ type block struct {
 	turn   string // the items' turn id, "" for none
 	// reply is the index of the turn's last assistant text after its last
 	// tool call, drawn under the work log; -1 for none.
-	reply  int
-	tools  int  // tool calls in the turn
-	failed bool // one of them failed, or an error ended it
+	reply int
+	tools int // tool calls in the turn
 	// todo is the turn's last task-list call, its checklist card; -1 for
 	// none. todos counts its task-list calls, which the work log leaves out.
 	todo, todos int
@@ -75,7 +74,6 @@ func blocks(content []session.Item, out []block) []block {
 			switch content[i].Kind {
 			case session.KindToolCall:
 				b.reply = -1
-				b.failed = b.failed || toolOpen(content[i].Tool)
 				if isTodo(content[i].Tool) { // its card, not the work log, shows it
 					b.todo = i
 					b.todos++
@@ -84,18 +82,11 @@ func blocks(content []session.Item, out []block) []block {
 				}
 			case session.KindAssistantText:
 				b.reply = i
-			case session.KindSystem:
-				b.failed = b.failed || sysError(&content[i])
 			}
 		}
 	}
 	return out
 }
-
-// logOpen is whether a turn's work log starts open: the running turn
-// shows its work, and so does one with a failed call; a finished one
-// folds to its header.
-func logOpen(running, failed bool) bool { return running || failed }
 
 // toolOpen is whether a tool row starts open: only a failed call does.
 func toolOpen(c *session.ToolCall) bool { return c != nil && c.Status == "failed" }

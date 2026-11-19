@@ -76,6 +76,10 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		for _, m := range cmp.Messages() {
+			if _, ok := m.(proto.ChatSend); ok {
+				t.ToEnd()
+				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before this
+			}
 			u.send(m)
 		}
 		for _, a := range t.Answers() {

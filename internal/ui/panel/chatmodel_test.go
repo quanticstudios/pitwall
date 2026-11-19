@@ -53,29 +53,23 @@ func TestBlocks(t *testing.T) {
 	}
 }
 
-// TestBlocksTodoAndError: a turn's last task-list call is its checklist,
-// and an error notice opens its log as a failed call does.
-func TestBlocksTodoAndError(t *testing.T) {
+// TestBlocksTodo: a turn's last task-list call is its checklist, and the
+// work log leaves its task-list calls out.
+func TestBlocksTodo(t *testing.T) {
 	todo := func(id string, done int) session.Item {
 		it := turnItem(id, session.KindToolCall, "t1")
 		it.Tool = &session.ToolCall{CallID: id, ToolName: "TodoWrite", Status: "completed", Tasks: []session.Task{{Status: "completed"}, {Status: "pending"}}}
 		return it
 	}
-	errItem := turnItem("e", session.KindSystem, "t1")
-	errItem.Phase = session.PhaseError
-	c := []session.Item{turnItem("p", session.KindUserPrompt, "t1"), todo("w1", 0), turnItem("c", session.KindToolCall, "t1"), todo("w2", 1), errItem}
+	c := []session.Item{turnItem("p", session.KindUserPrompt, "t1"), todo("w1", 0), turnItem("c", session.KindToolCall, "t1"), todo("w2", 1)}
 	b := blocks(c, nil)[1]
-	if b.todo != 3 || b.todos != 2 || !b.failed || b.tools != 1 {
-		t.Fatalf("block %+v: want the second TodoWrite as its card, two left out of the log, failed", b)
+	if b.todo != 3 || b.todos != 2 || b.tools != 1 {
+		t.Fatalf("block %+v: want the second TodoWrite as its card, two left out of the log", b)
 	}
 }
 
-// TestOpenRules: the running turn's log starts open and a finished one
-// folded; only a failed call starts open; what the user set wins.
+// TestOpenRules: only a failed call starts open; what the user set wins.
 func TestOpenRules(t *testing.T) {
-	if !logOpen(true, false) || logOpen(false, false) || !logOpen(false, true) {
-		t.Fatal("log: running or failed open, finished folded")
-	}
 	for status, want := range map[string]bool{"failed": true, "running": false, "completed": false} {
 		if got := toolOpen(&session.ToolCall{Status: status}); got != want {
 			t.Errorf("%s call open = %v", status, got)
