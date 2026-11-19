@@ -363,6 +363,7 @@ type ui struct {
 
 	panel      sidePanel                   // the agent panel on the right while nav.panelOpen
 	transcript panel.Transcript            // the chat tab on screen
+	chatHead   chatHead                    // the chat tab's header, or its terminal view's bar
 	composers  map[string]*chatin.Composer // per chat, its send box and draft
 	usage      usageWatch                  // token use for the tabs' hover cards
 	invalidate func()                      // the window's Invalidate; nil in tests
@@ -599,6 +600,12 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	if u.nav.monitorView {
 		u.nav.monitorView = false
 		u.toggleMonitor()
+	}
+	if u.nav.chatTerminal {
+		u.nav.chatTerminal = false
+		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" {
+			u.toggleChatTerminal(st, ws)
+		}
 	}
 	if u.nav.sidebarKeys {
 		u.nav.sidebarKeys = false
@@ -1207,10 +1214,16 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	} else {
 		u.drag = nil
 	}
-	if ws.Chat != "" {
+	if c := findChat(st, ws.Chat); ws.Chat != "" && (c == nil || c.Terminal == "" || root == nil) {
 		u.paneMenu.close()
 		u.layoutChat(gtx, st, ws)
 		return
+	} else if ws.Chat != "" {
+		// The terminal view: its bar, then the tab's one pane as any tab's.
+		bar := u.layoutTerminalBar(gtx, st, ws)
+		defer op.Offset(image.Pt(0, bar)).Push(gtx.Ops).Pop()
+		gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-bar)
+		gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
 	}
 	if ws.Monitor {
 		u.paneMenu.close()

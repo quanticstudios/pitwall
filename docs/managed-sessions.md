@@ -1183,6 +1183,21 @@ assistant text, one line per tool call, approvals with their ids.
   aIDE.app on macOS or an `aide.desktop` entry on Linux; aide cannot open
   one chat until its bridge (M6).
 
+- `[chat] claude = "chat"` (the default) makes the New task dialog, its
+  presets and the welcome card start Claude Code as a chat. A task with a
+  preset's env or guard, an account profile, flags a chat does not take,
+  a queue or a schedule still runs the TUI, as does "Claude Code
+  (terminal)". `pitwall new` and `pitwall worktree new` run the TUI, since
+  `send`, `read` and `wait` do not reach chats.
+- The terminal view (`proto.ChatTerminal`, `chat_terminal`, Alt+T): the
+  daemon interrupts a running turn, closes the driver and runs `claude
+  --resume <Resume>` (`--session-id` before the first turn) in a pane of
+  the chat's tab; `Chat.Terminal` names that pane. Back sends two Ctrl+C,
+  closes the pane after 3 s, and resumes the driver; the pane exiting or
+  closing does the same. Commands that need the driver answer `busy`
+  meanwhile. Saved state leaves the pane out. Turns taken in the TUI reach
+  the driver on resume but not the transcript.
+
 <a id="web"></a>
 ## Web protocol constraints
 

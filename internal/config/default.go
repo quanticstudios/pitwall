@@ -34,6 +34,7 @@ func defaults() Config {
 	c.Worktrees = defaultWorktrees()
 	c.Git = defaultGit()
 	c.Sidebar = defaultSidebar()
+	c.Chat = defaultChat()
 	c.Remote = defaultRemote()
 	c.Web = defaultWeb()
 	c.DevProxy = defaultDevProxy()

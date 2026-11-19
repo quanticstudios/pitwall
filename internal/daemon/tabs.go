@@ -92,7 +92,17 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int, gone ...model.Pane) []Pan
 		}
 		out = append(out, d.dropPane(id))
 	}
+	panes := layout.Panes(w.Tabs[ti].Layout)
+	for _, g := range gone {
+		panes = append(panes, g.ID) // removePane took its own out of the layout
+	}
 	w.Tabs = slices.Delete(w.Tabs, ti, ti+1)
+	if len(w.Tabs) == 0 && w.Chat != "" {
+		// A chat tab's only tab is its terminal view; the chat stays.
+		w.ActiveTab = ""
+		d.terminalClosed(w.Chat, panes)
+		return out
+	}
 	if len(w.Tabs) == 0 {
 		return append(out, d.removeWorkspace(w.ID, gone...)...)
 	}

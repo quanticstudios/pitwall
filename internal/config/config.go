@@ -38,6 +38,7 @@ type Config struct {
 	Worktrees Worktrees   `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
 	Sidebar   Sidebar     `toml:"sidebar" doc:"The sidebar's tree or inbox, and when the inbox settles a tab."`
+	Chat      Chat        `toml:"chat" doc:"Managed chats: whether starting Claude Code opens a desktop chat or its TUI."`
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
@@ -125,6 +126,7 @@ type Keys struct {
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	FocusSidebar    Binding `toml:"focus_sidebar" group:"Window" doc:"Focus sidebar: move through its groups, tabs and agents with the arrow keys or j and k, Enter to open one, Esc to go back to the pane. See docs/keys.md"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
+	ChatTerminal    Binding `toml:"chat_terminal" group:"Agents" doc:"Flip a Claude chat's tab between the chat and Claude Code's own TUI on the same conversation, for /config, /login and other screens the chat cannot draw. The window takes this key only on a chat tab"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the review view of the tab's changes since its default branch, committed or not, where you comment on lines and send the comments to the tab's agent"`
 	DiffPager       Binding `toml:"diff_pager" group:"Review" doc:"Open diff in pager: the same changes in your git pager in a new pane"`
 	StageTerminal   Binding `toml:"stage_terminal" group:"Review" doc:"Stage hunks in terminal: git add -p, then git reset -p to take hunks back, in a new pane in the tab's worktree, on the host for pitwall --host"`
@@ -380,6 +382,8 @@ type Settings struct {
 	Notifications NotifySettings
 	// Sidebar is [sidebar] resolved.
 	Sidebar SidebarSettings
+	// Chat is [chat] resolved.
+	Chat ChatSettings
 	// MergeMethod is [git] merge_method: squash, merge or rebase.
 	MergeMethod string
 	// ArchiveOnMerge archives a merged worktree tab without a click.
@@ -654,6 +658,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ri...)
 	fi = append(fi, resolveGit(c.Git, &s)...)
 	s.Sidebar, ri = resolveSidebar(c.Sidebar)
+	fi = append(fi, ri...)
+	s.Chat, ri = resolveChat(c.Chat)
 	fi = append(fi, ri...)
 	var ai []issue
 	s.MaxRunning, s.Presets, ai = resolveAgents(c.Agents)
