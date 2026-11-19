@@ -249,8 +249,8 @@ func (u *ui) dropFiles(e app.FileDropEvent) {
 		return
 	}
 	st := u.b.State()
-	if ws := findWorkspace(&st, u.nav.workspace); ws != nil && ws.Chat != "" {
-		// A chat tab has no panes: the images go to its composer.
+	if ws := findWorkspace(&st, u.nav.workspace); ws != nil && ws.Chat != "" && !chatTerminal(&st, ws.Chat) {
+		// A chat tab shows no panes: the images go to its composer.
 		cmp, env := u.composer(&st, ws.Chat), chatin.Env{Images: u.link().Level >= proto.ChatAttachLevel, Invalidate: u.invalidate}
 		for _, path := range e.Paths {
 			cmp.Reading(env, func(context.Context) ([]byte, error) { return readDroppedImage(path) })
@@ -303,4 +303,11 @@ func readDroppedImage(path string) ([]byte, error) {
 		return nil, errTooBig
 	}
 	return b, err
+}
+
+// chatTerminal reports whether chat id shows its terminal view, whose pane
+// takes drops as any pane does.
+func chatTerminal(st *model.State, id string) bool {
+	c := findChat(st, id)
+	return c != nil && c.Terminal != "" && findPane(st, c.Terminal) != nil
 }
