@@ -25,6 +25,10 @@ func TestClaudeSettings(t *testing.T) {
 		{"  ⎿  Set model to Sonnet 5.5 for this session only\n  ⎿  Kept model as Opus 5.5 (default)\n────────\n❯ \n────────", "Opus 5.5", ""},
 		{"  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high\n  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n────────\n❯ \n────────", "Haiku 5.5", "medium"},
 		{"  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high\n────────\n❯ \n────────", "Haiku 5.5", "xhigh"},
+		// Claude Code 2.1.328: the header names the model, the effort sits over the box.
+		{" ▐▛███▜▌   Claude Code v2.1.328\n▝▜█████▛▘  Opus 5.5 · Claude Ultra\n  ▘▘ ▝▝    /tmp/repo\n                    ◐ medium · /effort\n────────\n❯ \n────────", "Opus 5.5", "medium"},
+		{" ▐▛███▜▌   Claude Code v2.1.328\n▝▜█████▛▘  Opus private text · Claude Ultra\n────────\n❯ \n────────", "", ""},
+		{"  ⎿  Set effort level to low (this session only)\n                    ◐ high · /effort\n────────\n❯ \n────────", "", "high"},
 	} {
 		e := vt.New(100, 10, nil)
 		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))
@@ -77,6 +81,27 @@ func TestClaudeMode(t *testing.T) {
 		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))
 		if got := ClaudeMode(e.Snapshot()); got != tc.want {
 			t.Errorf("%q: %q, want %q", tc.text, got, tc.want)
+		}
+	}
+}
+
+// Claude Code 2.1.328's slash menu sits right over the input box; a sent
+// command's echo higher up, or a box with no menu, is none.
+func TestSlashMenu(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want bool
+	}{
+		{"❯ /pwprobe      Probe skill for a pitwall test. (user)\n  /pwprobe-two  Second probe skill. (user)\n────────\n❯ /pwpro\n────────", true},
+		{"  /pwprobe-two  Second probe skill. (user)\n❯ /pwprobe      Probe skill for a pitwall test. (user)\n────────\n❯ /pwpro\n────────", true},
+		{"❯ /pwprobe\n\n● PROBE-OK\n\n────────\n❯ \n────────", false},
+		{"❯ /pwprobe\n────────\n❯ \n────────", false},
+		{"────────\n❯ /pwpro\n────────", false},
+	} {
+		e := vt.New(100, 10, nil)
+		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))
+		if got := SlashMenu(e.Snapshot()); got != tc.want {
+			t.Errorf("%q: %v, want %v", tc.text, got, tc.want)
 		}
 	}
 }

@@ -1255,12 +1255,13 @@ func (d *Daemon) chatStart(c *chat) error {
 }
 
 // chatSend sends m as how asks: a turn when idle, else queued, or steered
-// into the running turn.
+// into the running turn. "now" steers too, and where the provider cannot,
+// it stops the turn and sends m first.
 func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how string) (turn, note string, err error) {
 	switch how {
-	case "", "queue", "steer":
+	case "", "queue", "steer", "now":
 	default:
-		return "", "", invalid("unknown send %q: want steer or queue", how)
+		return "", "", invalid("unknown send %q: want steer, now or queue", how)
 	}
 	if strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0 {
 		return "", "", invalid("nothing to send")
@@ -1274,7 +1275,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	}
 	c.cfg.Held = false
 	// why: aide checks a skill against the held switch, so it waits for that switch instead of steering this turn.
-	if how == "steer" && c.snap.Busy() && c.drv != nil && (m.Skill == nil || held == "") {
+	if (how == "steer" || how == "now") && c.snap.Busy() && c.drv != nil && (m.Skill == nil || held == "") {
 		sm, err := provide(c.cfg.Cwd, m)
 		if err != nil {
 			return "", "", err
@@ -1283,6 +1284,14 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 		case err == nil:
 			c.prompt(m, true)
 			return "", "", nil
+		case errors.Is(err, session.ErrUnsupported) && how == "now":
+			// why: Claude's CLI takes no message mid-turn, so this one stops the turn and goes ahead of the queue.
+			c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, queued(m))
+			if err := c.drv.Interrupt(ctx); err != nil {
+				c.cfg.Queue = c.cfg.Queue[1:]
+				return "", "", err
+			}
+			return "", "interrupted", nil
 		case errors.Is(err, session.ErrUnsupported):
 			note = "queued: the provider cannot steer a running turn"
 		case !errors.Is(err, session.ErrIdle):
