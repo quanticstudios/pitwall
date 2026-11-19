@@ -45,6 +45,18 @@ func requestWhat(a session.Approval) string {
 	return r.ToolName
 }
 
+// approvalWhy is an approval card's muted line under what it runs: the
+// request's detail, unless that only restates the title and the command,
+// as Claude's "Bash: git push" or a provider's "Edit needs approval".
+func approvalWhy(a session.Approval) string {
+	why := strings.TrimSpace(deref(a.Detail))
+	if why == requestWhat(a) || strings.HasSuffix(why, " needs approval") ||
+		a.Request != nil && a.Request.ToolName != "" && strings.HasPrefix(why, a.Request.ToolName+": ") {
+		return ""
+	}
+	return why
+}
+
 // requestTitle is an approval card's title.
 func (d *cdraw) requestTitle(a session.Approval) string {
 	switch a.RequestType {
@@ -159,11 +171,7 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 		bs = new([3]widget.Clickable)
 		d.t.answer[a.ID] = bs
 	}
-	what := requestWhat(a)
-	why := strings.TrimSpace(deref(a.Detail))
-	if why == what || strings.HasSuffix(why, " needs approval") {
-		why = "" // the provider's generic line says nothing the title does not
-	}
+	what, why := requestWhat(a), approvalWhy(a)
 	return d.card(gtx, "shield", d.requestTitle(a), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return vstack(gtx, gtx.Dp(theme.SpaceS),

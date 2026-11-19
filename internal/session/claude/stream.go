@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -505,7 +506,9 @@ func (s *stream) canUseTool(l line) []session.Event {
 		return []session.Event{{Type: session.EventRequestOpened, RequestID: l.RequestID, RequestType: session.RequestPlan,
 			Detail: in.Plan, Request: &session.ToolRequest{ToolName: r.ToolName, Input: r.Input}}}
 	}
-	detail := in.Command
+	// The arg, as a tool row shows it: the command, or the file's name,
+	// not the raw input the notice and the card would print as JSON.
+	detail := flow.ToolArg(session.ToolCall{ToolName: r.ToolName, Input: r.Input, Command: in.Command})
 	if detail == "" {
 		detail = string(r.Input)
 	}
