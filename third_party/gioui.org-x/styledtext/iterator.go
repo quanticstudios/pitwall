@@ -142,9 +142,13 @@ func (it *textIterator) paintGlyph(gtx layout.Context, shaper *text.Shaper, glyp
 	}
 	if glyph.Flags&text.FlagLineBreak > 0 || cap(line)-len(line) == 0 || !visibleOrBefore {
 		t := op.Offset(it.lineOff).Push(gtx.Ops)
-		op := clip.Outline{Path: shaper.Shape(line)}.Op().Push(gtx.Ops)
+		cl := clip.Outline{Path: shaper.Shape(line)}.Op().Push(gtx.Ops)
 		paint.PaintOp{}.Add(gtx.Ops)
-		op.Pop()
+		cl.Pop()
+		// pitwall: color emoji are bitmaps, which Shape leaves out.
+		if call := shaper.Bitmaps(line); call != (op.CallOp{}) {
+			call.Add(gtx.Ops)
+		}
 		t.Pop()
 		line = line[:0]
 	}

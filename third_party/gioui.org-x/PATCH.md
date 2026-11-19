@@ -18,3 +18,6 @@ The change is marked `pitwall` in a comment:
   and `PadY`, and the same fields on `richtext.SpanStyle`: a rounded box
   behind a span on each line it takes, so inline code in a table cell sits
   on the same pill as in a chat paragraph.
+- `styledtext/iterator.go`, `paintGlyph`: draws a line's bitmap glyphs
+  after its outlines, as `widget.Label` does, so a color emoji in the
+  reader or a table cell shows instead of leaving a blank.
