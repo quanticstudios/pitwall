@@ -17,6 +17,7 @@ If you are an agent CHANGING pitwall: read AGENTS.md, then CONTRIBUTING.md. Ever
 - [Command line](https://github.com/quanticstudios/pitwall/blob/main/docs/cli.md): every command
 - [Hooks](https://github.com/quanticstudios/pitwall/blob/main/docs/hooks.md): what `pitwall hooks install` changes for each agent
 - [Using pitwall](https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md): the window, sessions, review, worktrees, tasks
+- [The desktop chat](https://github.com/quanticstudios/pitwall/blob/main/docs/chat.md): Claude Code panes as a chat, Alt+T to the TUI, the composer's keys
 - [Remote hosts](https://github.com/quanticstudios/pitwall/blob/main/docs/remote.md): agents on another machine over ssh
 - [Phone](https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md): the Android app and the phone page, pairing, push notifications
 - [Troubleshooting](https://github.com/quanticstudios/pitwall/blob/main/docs/troubleshooting.md): `pitwall doctor`, then the logs

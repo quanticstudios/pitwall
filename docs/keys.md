@@ -116,8 +116,9 @@ or the settings page to use them; their keys are the ones in the aide table.
 The command palette runs their actions either way.
 
 In a chat tab's terminal view, and in any pane running Claude Code, Alt+T
-(aide and conventional) flips to the chat and back, so Claude Code's own
-Alt+T toggle never reaches its TUI. Rebind `chat_terminal` to keep it.
+(aide and conventional; Cmd+Option+T in mac) flips to the chat and back, so
+Claude Code's own Alt+T toggle never reaches its TUI. Rebind `chat_terminal`
+to keep it. The chat's own keys are under [The desktop chat](#the-desktop-chat).
 
 aide:
 
@@ -191,6 +192,7 @@ mac:
 | Cmd+B                                   | Show or hide the sidebar                                  |
 | Cmd+Shift+B                             | Move the keyboard into the sidebar, or back to the pane   |
 | Cmd+L                                   | Show or hide the agent panel                              |
+| Cmd+Option+T                            | On a chat tab or a pane running Claude Code: flip between the chat and the TUI |
 | Cmd+Shift+R                             | Review the tab's changes: comment, then send to its agent |
 | Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
 | Cmd+Option+U                           | Jump to the pane you last sent an agent prompt, across sessions |
@@ -421,6 +423,23 @@ newest block. PageUp/PageDown scrolls the output. c copies the command, y
 copies the output, and Shift+Y copies both.
 Escape or q closes. See [shell integration](usage.md#shell-integration) for
 shell setup and [the browser](usage.md#command-scrollback-browser) for limits.
+
+### The desktop chat
+
+In [the desktop chat](chat.md)'s composer:
+
+| Keys                    | Action                                                         |
+| ----------------------- | -------------------------------------------------------------- |
+| Enter                   | Send; while Claude works, queue the message above the box      |
+| Ctrl+Enter              | Send now, into the running turn (Cmd+Enter on macOS)           |
+| Shift+Enter             | New line                                                       |
+| Shift+Tab               | Next permission mode: Default, Accept edits, Plan, and Bypass permissions in a chat that runs in bypass |
+| Esc                     | Stop the turn                                                  |
+| 1, 2, 3                 | Answer an approval card; a question's options take their numbers and Enter |
+| /                       | Slash commands, as the first character                         |
+| Ctrl+Backspace          | Delete the word, or the image chip, before the cursor          |
+| Ctrl+V                  | Paste text or an image (Cmd+V on macOS)                        |
+| Alt+T                   | Flip to Claude Code's TUI and back (Cmd+Option+T in mac)       |
 
 ### Markdown reader
 

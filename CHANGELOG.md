@@ -23,6 +23,8 @@ the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
 ## Unreleased
+
+- The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
 - Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
 - Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
 - A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.

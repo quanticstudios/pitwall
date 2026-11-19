@@ -70,7 +70,7 @@ settle_after_days = 3                   # settle a tab this many days idle; 0 ne
 settle_on_merge = true                  # settle a tab once its pull request merges
 
 [chat]
-claude = "chat"                         # or "terminal": what starting Claude Code opens; Alt+T flips a chat to the TUI
+claude = "chat"                         # or "terminal": how Claude Code panes show; Alt+T flips between chat and TUI
 width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
 
 [git]
@@ -180,6 +180,10 @@ An agent stuck in Working keeps the machine awake without a time limit,
 even if its row says quiet. A failed turn that sends no hook can cause
 this. The grace period starts only after no agent is Working. Turn Keep
 awake off to release the lock.
+
+`[chat] claude` decides how a pane running Claude Code shows: `chat`, the
+default, draws it as [the desktop chat](chat.md), and `terminal` shows the
+TUI. Alt+T flips either way.
 
 `[chat] width` sets how wide a chat tab's transcript grows: `comfortable`
 is 736 dp, `standard` (the default) is 960 dp, enough for a 120-column diff at
