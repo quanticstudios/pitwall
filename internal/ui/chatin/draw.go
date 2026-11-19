@@ -148,34 +148,6 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 	})
 }
 
-// segment is one effort in the popover's row of efforts.
-func segment(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name string, on bool) layout.Dimensions {
-	return layout.Inset{Right: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(28)
-			w := gtx.Constraints.Max.X
-			rect := image.Rectangle{Max: image.Pt(w, h)}
-			fill, fg := th.SurfaceSecondary, th.Fg
-			switch {
-			case on:
-				fill, fg = th.SelectedBg, th.Readable(th.Primary, th.SelectedBg)
-			case b.Pressed():
-				fill = th.Pressed
-			case b.Hovered():
-				fill = th.Hover
-			}
-			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-			m := op.Record(gtx.Ops)
-			d := text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), fg, name)
-			call := m.Stop()
-			o := op.Offset(image.Pt((w-d.Size.X)/2, (h-d.Size.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			return layout.Dimensions{Size: rect.Max}
-		})
-	})
-}
-
 // tipDelay is how long the pointer rests on a control before its tooltip
 // shows; within tipNear of another tooltip it shows at once.
 const (
@@ -184,8 +156,8 @@ const (
 )
 
 // tip shows label above b, size big at the origin, once the pointer has
-// rested on it for tipDelay: centered, or ending at its right edge for a
-// control at the right end of the row.
+// rested on it for tipDelay: centered, but never starting left of b, or
+// ending at its right edge for a control at the right end of the row.
 func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point, label string, right bool) {
 	if c.hover == nil {
 		c.hover = map[*widget.Clickable]time.Time{}
@@ -209,13 +181,13 @@ func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable,
 	c.tipSeen = gtx.Now
 	m := op.Record(gtx.Ops)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(320), gtx.Dp(40))}
+	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(480), gtx.Dp(40))}
 	rec := op.Record(gtx.Ops)
 	d := layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Top: theme.SpaceXS + theme.Space2XS, Bottom: theme.SpaceXS + theme.Space2XS}.Layout(g, func(gtx layout.Context) layout.Dimensions {
 		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, label)
 	})
 	body := rec.Stop()
-	x := (size.X - d.Size.X) / 2
+	x := max(0, (size.X-d.Size.X)/2)
 	if right {
 		x = size.X - d.Size.X
 	}

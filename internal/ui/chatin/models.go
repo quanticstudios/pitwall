@@ -58,6 +58,7 @@ const (
 	ModeDefault = "default"
 	ModeAccept  = "acceptEdits"
 	ModePlan    = "plan"
+	ModeBypass  = "bypassPermissions"
 )
 
 var modes = []string{ModeDefault, ModeAccept, ModePlan}
@@ -74,11 +75,16 @@ func ModeOf(s *session.Snapshot) string {
 }
 
 // NextMode is the mode Shift+Tab moves to from m: the next of Default,
-// Accept edits and Plan, and Default from any other.
-func NextMode(m string) string {
-	for i, x := range modes {
+// Accept edits, Plan and, when bypass, Bypass permissions; Default from
+// any other.
+func NextMode(m string, bypass bool) string {
+	ms := modes
+	if bypass {
+		ms = append(ms[:len(ms):len(ms)], ModeBypass)
+	}
+	for i, x := range ms {
 		if x == m {
-			return modes[(i+1)%len(modes)]
+			return ms[(i+1)%len(ms)]
 		}
 	}
 	return ModeDefault
@@ -93,10 +99,22 @@ func ModeName(m string) string {
 		return "Accept edits"
 	case ModePlan:
 		return "Plan"
-	case "bypassPermissions":
+	case ModeBypass:
 		return "Bypass permissions"
 	}
 	return m
+}
+
+// EffortName is the effort chip's label for e: "High", or "Effort" while
+// it is unset or the default.
+func EffortName(e string) string {
+	switch e {
+	case "", "default":
+		return "Effort"
+	case "xhigh":
+		return "Extra high"
+	}
+	return strings.ToUpper(e[:1]) + e[1:]
 }
 
 // Meter is the context meter's reading from u: the tokens in context and

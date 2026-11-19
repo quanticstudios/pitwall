@@ -23,6 +23,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -43,13 +44,15 @@ type Composer struct {
 
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
 	modeBtn, modelBtn widget.Clickable
+	effortBtn         widget.Clickable
 	gone              map[string]bool           // queued messages removed here that the chat still lists
 	rm                map[int]*widget.Clickable // per image, its remove x
 	items             map[string]*widget.Clickable
-	menu              bool       // the model popover is open
-	popT              anim.Value // its fade and scale in, 0 to 1
-	scrim, pop        int        // the popover's click-outside and own tags
-	modelX            int        // the model control's left edge in the card
+	menu              bool              // a popover is open
+	which             *widget.Clickable // the control whose popover is open or fading out
+	popT              anim.Value        // its fade and scale in, 0 to 1
+	scrim, pop        int               // the popover's click-outside and own tags
+	modelX, effortX   int               // the model and effort controls' left edges in the card
 	hover             map[*widget.Clickable]time.Time
 	tipSeen           time.Time // the last frame a tooltip showed
 
@@ -60,6 +63,7 @@ type Composer struct {
 	last    *sent          // the last send, until it is answered
 
 	mode, model, effort held
+	bypass              bool // the chat has run in bypass permissions, so Shift+Tab may go back to it
 	out                 []any
 	inited              bool
 }
@@ -321,7 +325,14 @@ func (c *Composer) PullBack(q session.QueuedInput) {
 	c.SetText(text)
 }
 
-// setMenu opens or closes the model popover: 150 ms in, 100 ms out.
+// toggle opens b's popover, or closes it when it is the one open.
+func (c *Composer) toggle(now time.Time, b *widget.Clickable) {
+	open := !c.menu || c.which != b
+	c.which = b
+	c.setMenu(now, open)
+}
+
+// setMenu opens or closes the popover: 150 ms in, 100 ms out.
 func (c *Composer) setMenu(now time.Time, open bool) {
 	c.menu = open
 	if open {
@@ -356,7 +367,7 @@ func (c *Composer) submit(env Env, now time.Time) {
 // cycleMode moves the mode on from what the chat shows.
 func (c *Composer) cycleMode(env Env, now time.Time) {
 	cur := ModeOf(env.Snap)
-	next := NextMode(c.mode.show(cur, now))
+	next := NextMode(c.mode.show(cur, now), c.bypass)
 	c.mode = held{next, cur, now.Add(holdFor)}
 	c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: next})
 }
@@ -518,7 +529,10 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
 	if c.modelBtn.Clicked(gtx) {
-		c.setMenu(gtx.Now, !c.menu)
+		c.toggle(gtx.Now, &c.modelBtn)
+	}
+	if c.effortBtn.Clicked(gtx) {
+		c.toggle(gtx.Now, &c.effortBtn)
 	}
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &c.scrim, Kinds: pointer.Press})
@@ -529,7 +543,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.setMenu(gtx.Now, false)
 		}
 	}
-	if c.menu {
+	if c.menu && c.which == &c.modelBtn {
 		for _, m := range remote.Models {
 			if c.click("model:" + m).Clicked(gtx) {
 				c.model = held{m, deref(env.Snap.Model), gtx.Now.Add(holdFor)}
@@ -537,6 +551,8 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 				c.setMenu(gtx.Now, false)
 			}
 		}
+	}
+	if c.menu && c.which == &c.effortBtn {
 		for _, e := range remote.Efforts {
 			if c.click("effort:" + e).Clicked(gtx) {
 				c.effort = held{e, deref(env.Snap.Effort), gtx.Now.Add(holdFor)}
@@ -770,22 +786,21 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 // bar is the control row: the mode, the model, then the meter and Send.
 func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
 	now := gtx.Now
-	mode := c.mode.show(ModeOf(env.Snap), now)
-	modeCol, modeIcon := pickFg(th), "circle"
-	switch mode {
-	case ModeAccept:
-		modeCol, modeIcon = th.Purple, "pencil"
-	case ModePlan:
-		modeCol, modeIcon = th.Green, "map"
+	if ModeOf(env.Snap) == ModeBypass {
+		// why: the snapshot doesn't say whether Claude may enter bypass; one it ran in was started with it.
+		c.bypass = true
 	}
+	mode := c.mode.show(ModeOf(env.Snap), now)
+	modeCol, modeIcon, modeTip := modeLook(th, mode)
 	mdl := c.model.show(deref(env.Snap.Model), now)
-	eff := c.effort.show(deref(env.Snap.Effort), now)
+	eff := EffortName(c.effort.show(deref(env.Snap.Effort), now))
+	effCol := pickFg(th)
+	if eff == EffortName("") {
+		effCol = th.Muted
+	}
 	label := "Model"
 	if mdl != "" {
 		label = ModelName(mdl)
-	}
-	if eff != "" {
-		label += " · " + eff
 	}
 	used, total, metered := Meter(env.Snap.Usage)
 	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -793,15 +808,27 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, false)
-				c.tip(gtx, th, &c.modeBtn, d.Size, "Permission mode (Shift+Tab)", false)
+				c.tip(gtx, th, &c.modeBtn, d.Size, modeTip, false)
 				c.modelX = gtx.Dp(theme.SpaceS) + d.Size.X + gtx.Dp(theme.SpaceXS)
 				return d
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modelBtn, "", label, pickFg(th), true)
-				c.tip(gtx, th, &c.modelBtn, d.Size, "Model and effort", false)
+				c.tip(gtx, th, &c.modelBtn, d.Size, "Model", false)
+				c.effortX = c.modelX + d.Size.X + gtx.Dp(theme.SpaceXS)
 				return d
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// shortcut: only Claude's efforts are known (remote.Efforts); the snapshot says nothing of other providers'.
+				if env.Snap.Provider != model.ProviderClaude {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Left: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					d := c.pick(gtx, th, &c.effortBtn, "", eff, effCol, true)
+					c.tip(gtx, th, &c.effortBtn, d.Size, "Effort", false)
+					return d
+				})
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
@@ -836,6 +863,20 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 
 func pickFg(th *theme.Theme) color.NRGBA { return theme.Mix(th.Fg, th.Muted, 0.3) }
 
+// modeLook is the mode chip's color, icon and tooltip for mode m. Bypass
+// is red with a shield, as Claude Code's TUI shows it in red.
+func modeLook(th *theme.Theme, m string) (color.NRGBA, string, string) {
+	switch m {
+	case ModeAccept:
+		return th.Purple, "pencil", "Permission mode (Shift+Tab)"
+	case ModePlan:
+		return th.Green, "map", "Permission mode (Shift+Tab)"
+	case ModeBypass:
+		return th.Readable(th.Red, th.Surface), "shield", "Bypass permissions: Claude runs every tool without asking (Shift+Tab)"
+	}
+	return pickFg(th), "circle", "Permission mode (Shift+Tab)"
+}
+
 // pick is a 28dp ghost control: an icon, a label, a chevron.
 func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, label string, col color.NRGBA, chevron bool) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
@@ -864,7 +905,7 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 		switch {
 		case b.Pressed():
 			fill = th.Pressed
-		case b.Hovered() || b == &c.modelBtn && c.menu:
+		case b.Hovered() || b == c.which && c.menu:
 			fill = th.Hover
 		}
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
@@ -1048,9 +1089,8 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, q session.Queu
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// popover is the model picker over the transcript, above the model
-// control: the models, then the efforts in a row. A press outside closes
-// it. Its origin is the card's top left.
+// popover is the model or effort picker over the transcript, above its
+// control. A press outside closes it. Its origin is the card's top left.
 func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float32) {
 	m := op.Record(gtx.Ops)
 	if c.menu {
@@ -1062,35 +1102,36 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 	now := gtx.Now
 	curModel := ModelName(c.model.show(deref(env.Snap.Model), now))
 	curEffort := c.effort.show(deref(env.Snap.Effort), now)
-	pw := gtx.Dp(288)
+	pw, x := gtx.Dp(288), c.modelX
+	if c.which == &c.effortBtn {
+		pw, x = gtx.Dp(160), c.effortX
+	}
 	pg := gtx
 	pg.Constraints = layout.Constraints{Min: image.Pt(pw, 0), Max: image.Pt(pw, gtx.Constraints.Max.Y)}
 	rec := op.Record(gtx.Ops)
 	d := layout.UniformInset(theme.SpaceXS).Layout(pg, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		kids := []layout.FlexChild{layout.Rigid(heading(th, "Model"))}
+		var kids []layout.FlexChild
+		if c.which == &c.effortBtn {
+			for _, e := range remote.Efforts {
+				kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return menuRow(gtx, th, c.click("effort:"+e), EffortName(e), e == curEffort)
+				}))
+			}
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+		}
+		kids = append(kids, layout.Rigid(heading(th, "Model")))
 		for _, v := range remote.Models {
 			on := v != "default" && ModelName(v) == curModel
 			kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return menuRow(gtx, th, c.click("model:"+v), ModelName(v), on)
 			}))
 		}
-		kids = append(kids, layout.Rigid(heading(th, "Effort")), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Left: theme.SpaceXS, Right: theme.SpaceXS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				var es []layout.FlexChild
-				for _, e := range remote.Efforts {
-					es = append(es, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return segment(gtx, th, c.click("effort:"+e), e, e == curEffort)
-					}))
-				}
-				return layout.Flex{}.Layout(gtx, es...)
-			})
-		}))
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 	})
 	body := rec.Stop()
-	// Above the card, from the model control's left edge.
-	p := image.Pt(c.modelX, -d.Size.Y-gtx.Dp(theme.SpaceS))
+	// Above the card, from its control's left edge.
+	p := image.Pt(x, -d.Size.Y-gtx.Dp(theme.SpaceS))
 	o := op.Offset(p).Push(gtx.Ops)
 	rect := image.Rectangle{Max: d.Size}
 	// Fade and scale from 0.97 out of its bottom left corner, by the trigger.

@@ -23,6 +23,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -92,9 +93,14 @@ func numbers(ims []Image) []int {
 // Shift+Tab's cycle: Default, Accept edits, Plan, and back; any other
 // mode goes to Default. Plan shows from the interaction mode too.
 func TestModes(t *testing.T) {
-	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeDefault, "bypassPermissions": ModeDefault, "": ModeDefault} {
-		if got := NextMode(from); got != want {
+	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeDefault, ModeBypass: ModeDefault, "": ModeDefault} {
+		if got := NextMode(from, false); got != want {
 			t.Errorf("NextMode(%q) = %q, want %q", from, got, want)
+		}
+	}
+	for from, want := range map[string]string{ModeDefault: ModeAccept, ModeAccept: ModePlan, ModePlan: ModeBypass, ModeBypass: ModeDefault} {
+		if got := NextMode(from, true); got != want {
+			t.Errorf("NextMode(%q) with bypass = %q, want %q", from, got, want)
 		}
 	}
 	if m := ModeOf(&session.Snapshot{PermissionMode: "default", InteractionMode: "plan"}); m != ModePlan {
@@ -492,5 +498,86 @@ func TestTranscriptKeys(t *testing.T) {
 	h.frame()
 	if want := []string{"1", string(key.NameReturn), "5"}; !slices.Equal(got, want) || h.c.Text() != "52" {
 		t.Fatalf("keys %v, text %q", got, h.c.Text())
+	}
+}
+
+// TestEffortChip: the effort chip reads "Effort" while unset, the chat's
+// effort once set, and a pick at once; a pick sends ChatSet, and the
+// model popover lists no efforts.
+func TestEffortChip(t *testing.T) {
+	for e, want := range map[string]string{"": "Effort", "default": "Effort", "high": "High", "xhigh": "Extra high", "max": "Max"} {
+		if got := EffortName(e); got != want {
+			t.Errorf("EffortName(%q) = %q, want %q", e, got, want)
+		}
+	}
+	h := newHarness(t)
+	h.snap.Provider = model.ProviderClaude
+	h.frame()
+	h.c.modelBtn.Click()
+	h.frame()
+	if !h.c.menu || h.c.which != &h.c.modelBtn {
+		t.Fatal("the model chip opened no model popover")
+	}
+	for k := range h.c.items {
+		if strings.HasPrefix(k, "effort:") {
+			t.Fatalf("the model popover lists %s", k)
+		}
+	}
+	h.c.effortBtn.Click()
+	h.frame()
+	if !h.c.menu || h.c.which != &h.c.effortBtn {
+		t.Fatal("the effort chip did not switch to its popover")
+	}
+	h.frame()
+	h.c.click("effort:max").Click()
+	m := h.frame()
+	if len(m) != 1 || !reflect.DeepEqual(m[0], proto.ChatSet{Chat: "c1", Effort: "max"}) {
+		t.Fatalf("an effort pick sent %+v", m)
+	}
+	if h.c.menu {
+		t.Fatal("the popover stayed open after a pick")
+	}
+	if got := EffortName(h.c.effort.show(deref(h.snap.Effort), h.now)); got != "Max" {
+		t.Fatalf("held label %q, want Max", got)
+	}
+	h.snap.Effort = ptr("high")
+	if got := EffortName(h.c.effort.show(deref(h.snap.Effort), h.now)); got != "High" {
+		t.Fatalf("label after the chat reports %q, want High", got)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// TestBypassMode: bypass reads red with a shield and its warning, and
+// Shift+Tab reaches it only in a chat that has run in it.
+func TestBypassMode(t *testing.T) {
+	th := theme.Dark()
+	if ModeName(ModeBypass) != "Bypass permissions" {
+		t.Errorf("label %q", ModeName(ModeBypass))
+	}
+	col, icon, tip := modeLook(th, ModeBypass)
+	if col != th.Readable(th.Red, th.Surface) || icon != "shield" || !strings.HasPrefix(tip, "Bypass permissions: ") {
+		t.Errorf("bypass looks %v %q %q", col, icon, tip)
+	}
+	if col, icon, _ := modeLook(th, ModeDefault); col == th.Readable(th.Red, th.Surface) || icon != "circle" {
+		t.Errorf("default looks %v %q", col, icon)
+	}
+	cycle := func(h *harness, n int) []string {
+		var got []string
+		for range n {
+			m := h.press(key.NameTab, key.ModShift)
+			got = append(got, m[0].(proto.ChatSet).Mode)
+		}
+		return got
+	}
+	h := newHarness(t)
+	if got := cycle(h, 4); !slices.Equal(got, []string{ModeAccept, ModePlan, ModeDefault, ModeAccept}) {
+		t.Fatalf("a chat never in bypass cycles %v", got)
+	}
+	h = newHarness(t)
+	h.snap.PermissionMode = ModeBypass
+	h.frame()
+	if got := cycle(h, 5); !slices.Equal(got, []string{ModeDefault, ModeAccept, ModePlan, ModeBypass, ModeDefault}) {
+		t.Fatalf("a chat started in bypass cycles %v", got)
 	}
 }
