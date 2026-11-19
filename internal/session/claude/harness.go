@@ -154,3 +154,23 @@ func settingNote(out string) (string, bool) {
 	}
 	return "", false
 }
+
+// localCommands are Claude Code's built-ins that run in the TUI and start
+// no turn; their line, with or without an origin, is a command chip or a
+// divider, never a prompt. Skills and user or plugin commands start a
+// turn and stay prompts.
+var localCommands = map[string]bool{
+	"model": true, "effort": true, "compact": true, "clear": true, "context": true, "cost": true, "status": true,
+	"usage": true, "config": true, "help": true, "login": true, "logout": true, "doctor": true, "memory": true,
+	"permissions": true, "hooks": true, "mcp": true, "agents": true, "resume": true, "rewind": true, "export": true,
+	"fast": true, "plugin": true, "ide": true, "terminal-setup": true, "vim": true, "theme": true, "add-dir": true,
+	"release-notes": true, "bug": true, "feedback": true, "upgrade": true, "statusline": true, "privacy-settings": true,
+	"todos": true, "tasks": true, "bashes": true, "output-style": true, "exit": true, "quit": true, "skills": true,
+	"reload-plugins": true, "color": true, "focus": true, "rename": true, "recap": true,
+}
+
+// localCommand is whether "/name args" is one of localCommands.
+func localCommand(cmd string) bool {
+	name, _, _ := strings.Cut(strings.TrimPrefix(cmd, "/"), " ")
+	return localCommands[name]
+}

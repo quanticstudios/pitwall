@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"slices"
 	"strconv"
@@ -296,5 +297,57 @@ func TestTranscriptSlashCommand(t *testing.T) {
 	}
 	if len(snap.Turns) != 1 || snap.Turns[0].State != session.TurnCompleted || tr.Running() {
 		t.Errorf("turns %+v: want the skill's turn, completed", snap.Turns)
+	}
+}
+
+// TestLocalCommands: the command lines of live Claude Code 2.1.328
+// sessions, built-ins all: none is a prompt or starts a turn, even when a
+// line says the human typed it; a skill's line still is a prompt.
+func TestLocalCommands(t *testing.T) {
+	for _, name := range []string{"tui-commands.jsonl", "tui-tasks.jsonl", "print-compact.jsonl"} {
+		b, err := os.ReadFile("testdata/transcripts/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range bytes.Split(b, []byte("\n")) {
+			if !bytes.Contains(l, []byte("<command-name>")) {
+				continue
+			}
+			var tl transcriptLine
+			if json.Unmarshal(l, &tl) != nil {
+				continue
+			}
+			if text, ok := promptText(tl); ok {
+				t.Errorf("%s: %q is a prompt", name, text)
+			}
+			// The same line marked as the human's, as a newer Claude Code might.
+			tl.Origin = &struct {
+				Kind string `json:"kind"`
+			}{"human"}
+			if text, ok := promptText(tl); ok {
+				t.Errorf("%s: %q marked human is a prompt", name, text)
+			}
+		}
+	}
+	tr := NewTranscript()
+	snap := base()
+	for _, l := range []string{
+		`{"type":"user","uuid":"m1","timestamp":"2026-11-19T21:37:54Z","origin":{"kind":"human"},"message":{"role":"user","content":"<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args>claude-opus-5-5</command-args>"}}`,
+		`{"type":"user","uuid":"m2","timestamp":"2026-11-19T21:37:54Z","message":{"role":"user","content":"<local-command-stdout>Set model to ` + "`Opus 5.5`" + ` and saved as your default for new sessions</local-command-stdout>"}}`,
+		`{"type":"user","uuid":"s1","timestamp":"2026-11-19T21:38:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"<command-message>pwprobe</command-message>\n<command-name>/pwprobe</command-name>\n<command-args>twice</command-args>"}}`,
+	} {
+		snap = apply(t, snap, tr.Line([]byte(l)))
+	}
+	if got := systems(snap); len(got) != 1 || got[0] != "setting: Switched to Opus 5.5" {
+		t.Errorf("system items %q: want the /model divider", got)
+	}
+	var prompts []string
+	for _, it := range snap.Content {
+		if it.Kind == session.KindUserPrompt {
+			prompts = append(prompts, it.Text)
+		}
+	}
+	if len(prompts) != 1 || prompts[0] != "/pwprobe twice" || len(snap.Turns) != 1 {
+		t.Errorf("prompts %q, %d turns: want the skill alone, one turn", prompts, len(snap.Turns))
 	}
 }

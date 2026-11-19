@@ -358,6 +358,9 @@ func promptText(l transcriptLine) (string, bool) {
 			return "", false
 		}
 		if cmd, ok := slashPrompt(t); ok {
+			if localCommand(cmd) {
+				return "", false // a built-in that runs no turn: its chip or divider
+			}
 			return cmd, true
 		}
 	}
