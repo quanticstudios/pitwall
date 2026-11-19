@@ -53,8 +53,10 @@ type transcriptLine struct {
 	Origin           *struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
-	// queue-operation: what Claude Code queued, such as a task notification
-	Operation string `json:"operation"`
+	// queue-operation: what Claude Code queued, such as a task notification;
+	// a system line: its note
+	Operation string          `json:"operation"`
+	Content   json.RawMessage `json:"content"`
 	Message   struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
@@ -71,7 +73,6 @@ type transcriptLine struct {
 
 	// system lines: local_command, compact_boundary, informational,
 	// api_error, stop_hook_summary
-	Content       json.RawMessage `json:"content"` // a string in system lines and queue operations
 	Level         string          `json:"level"`
 	Error         json.RawMessage `json:"error"`
 	RetryInMS     float64         `json:"retryInMs"`
@@ -103,8 +104,8 @@ func (t *Transcript) Line(b []byte) []session.Event {
 	var out []session.Event
 	switch l.Type {
 	case "user":
-		if text, ok := promptText(l); ok {
-			out = t.prompt(l, text)
+		if text, atts, ok := promptText(l); ok {
+			out = t.prompt(l, text, atts)
 			break
 		}
 		if text, ok := userText(l); ok {
@@ -301,7 +302,7 @@ func (t *Transcript) notified(l transcriptLine, n note, text string) []session.E
 
 // prompt is a prompt line: the end of the running turn, then the prompt and
 // the turn it starts. An interrupt's marker ends the turn alone.
-func (t *Transcript) prompt(l transcriptLine, text string) []session.Event {
+func (t *Transcript) prompt(l transcriptLine, text string, atts []session.Attachment) []session.Event {
 	if strings.HasPrefix(strings.TrimSpace(text), "[Request interrupted by user") {
 		return t.End(session.TurnInterrupted)
 	}
@@ -311,33 +312,40 @@ func (t *Transcript) prompt(l transcriptLine, text string) []session.Event {
 	t.compacted = false
 	t.turn = cmp.Or(l.UUID, "prompt:"+l.Timestamp)
 	return append(out,
-		session.Event{Type: session.EventContent, ItemID: t.turn, Kind: session.KindUserPrompt, Text: text},
+		session.Event{Type: session.EventContent, ItemID: t.turn, Kind: session.KindUserPrompt, Text: text, Attachments: atts},
 		session.Event{Type: session.EventTurnStarted, TurnID: t.turn})
 }
 
-// promptText is the text of a user line that is something the user said,
-// false for a tool's result, a slash command's echo, a ! command's output,
-// a harness note or a compaction summary, as flow reads them. A line
-// Claude Code marks as the human's is a prompt even when it starts with
-// markup, as pasted text does.
-func promptText(l transcriptLine) (string, bool) {
+// promptText is the text and pictures of a user line that is something the
+// user said, false for a tool's result, a slash command's echo, a !
+// command's output, a harness note or a compaction summary, as flow reads
+// them. Each picture is an image attachment, numbered as the prompt's
+// [Image #N] tokens count them, as a chat tab's are.
+func promptText(l transcriptLine) (string, []session.Attachment, bool) {
 	if l.IsMeta || l.IsCompactSummary || l.Origin != nil && l.Origin.Kind != "human" {
-		return "", false
+		return "", nil, false
 	}
 	human := l.Origin != nil && l.Origin.Kind == "human"
 	var text string
+	var atts []session.Attachment
 	if json.Unmarshal(l.Message.Content, &text) != nil {
 		var blocks []block
 		if json.Unmarshal(l.Message.Content, &blocks) != nil {
-			return "", false
+			return "", nil, false
 		}
 		var parts []string
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_result":
-				return "", false
+				return "", nil, false
 			case "text":
 				parts = append(parts, b.Text)
+			case "image":
+				if s := b.Source; s != nil && s.Type == "base64" && s.Data != "" {
+					n := strconv.Itoa(len(atts) + 1)
+					atts = append(atts, session.Attachment{ID: "image-" + n, Kind: "image", MimeType: s.MediaType,
+						Name: "image-" + n + "." + strings.TrimPrefix(s.MediaType, "image/"), SizeBytes: int64(len(s.Data) / 4 * 3), Data: s.Data})
+				}
 			}
 		}
 		text = strings.Join(parts, "\n")
@@ -348,16 +356,16 @@ func promptText(l transcriptLine) (string, bool) {
 		// human's; a built-in's, such as /model, comes unmarked and draws as
 		// a command chip or a divider.
 		if !human {
-			return "", false
+			return "", nil, false
 		}
 		if cmd, ok := slashPrompt(t); ok {
 			if localCommand(cmd) {
-				return "", false // a built-in that runs no turn: its chip or divider
+				return "", nil, false // a built-in that runs no turn: its chip or divider
 			}
-			return cmd, true
+			return cmd, nil, true
 		}
 	}
-	return text, t != ""
+	return text, atts, t != "" || len(atts) > 0
 }
 
 // slashPrompt is a skill's or custom command's line as the user typed it,

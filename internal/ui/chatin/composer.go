@@ -342,6 +342,15 @@ func (c *Composer) toggle(now time.Time, b *widget.Clickable) {
 	c.setMenu(now, open)
 }
 
+// CloseMenu closes an open popover at once, as when the composer is no
+// longer drawn: its tab or pane went out of view.
+func (c *Composer) CloseMenu() {
+	if c.menu {
+		c.menu = false
+		c.popT.Set(time.Now(), 0, 0)
+	}
+}
+
 // setMenu opens or closes the popover: 150 ms in, 100 ms out.
 func (c *Composer) setMenu(now time.Time, open bool) {
 	c.menu = open
@@ -575,7 +584,8 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		if !ok {
 			break
 		}
-		if _, ok := ev.(pointer.Event); ok {
+		// why: a press on the open popover's own chip is left to its click, which toggles it shut.
+		if e, ok := ev.(pointer.Event); ok && !e.Position.Round().In(c.anchors[c.which]) {
 			c.setMenu(gtx.Now, false)
 		}
 	}
@@ -620,6 +630,9 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 		c.popT.Set(gtx.Now, 0, 0)
 	}
 	c.ed.LineHeight, c.ed.LineHeightScale = th.Sp(theme.Large)*1.5, 1 // follows the UI size
+	if c.menu && !env.Focus {                                         // the keys went to another pane, a dialog or a peek
+		c.setMenu(gtx.Now, false)
+	}
 	if env.Focus && !gtx.Focused(&c.ed) && !c.menu {
 		gtx.Execute(key.FocusCmd{Tag: &c.ed})
 	}
@@ -1221,7 +1234,10 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 	if c.menu {
 		big := 1 << 15
 		area := clip.Rect{Min: image.Pt(-big, -big), Max: image.Pt(big, big)}.Push(gtx.Ops)
+		// why: a press outside closes the popover and still reaches what it lands on, another pane included.
+		pass := pointer.PassOp{}.Push(gtx.Ops)
 		event.Op(gtx.Ops, &c.scrim)
+		pass.Pop()
 		area.Pop()
 	}
 	now := gtx.Now

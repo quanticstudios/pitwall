@@ -180,6 +180,11 @@ type block struct {
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"` // tool_result: a string or text blocks
 	IsError   bool            `json:"is_error"`
+	Source    *struct {
+		Type      string `json:"type"`
+		MediaType string `json:"media_type"`
+		Data      string `json:"data"`
+	} `json:"source"` // image: a base64 picture
 }
 
 type modelUsage struct {
@@ -261,7 +266,8 @@ func (s *stream) system(l line) []session.Event {
 			out = append(out, session.Event{Type: session.EventResumeID, ResumeID: l.SessionID,
 				Version: l.Version, Capabilities: l.Capabilities})
 		}
-		if l.Model != "" {
+		if l.Model != "" && l.Model != s.contextModel {
+			out = append(out, session.Event{Type: session.EventSettings, Model: l.Model}) // the model the CLI runs, picked or its default
 			s.contextModel = l.Model
 		}
 		if l.SlashCommands != nil && !slices.Equal(l.SlashCommands, s.commands) {

@@ -364,14 +364,14 @@ func TestLocalCommands(t *testing.T) {
 			if json.Unmarshal(l, &tl) != nil {
 				continue
 			}
-			if text, ok := promptText(tl); ok {
+			if text, _, ok := promptText(tl); ok {
 				t.Errorf("%s: %q is a prompt", name, text)
 			}
 			// The same line marked as the human's, as a newer Claude Code might.
 			tl.Origin = &struct {
 				Kind string `json:"kind"`
 			}{"human"}
-			if text, ok := promptText(tl); ok {
+			if text, _, ok := promptText(tl); ok {
 				t.Errorf("%s: %q marked human is a prompt", name, text)
 			}
 		}
@@ -419,5 +419,41 @@ func TestLocalCommandIdle(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A pasted picture in a prompt line becomes the prompt's image attachment,
+// as a chat tab's is, so the transcript draws its thumbnail.
+func TestTranscriptPromptImage(t *testing.T) {
+	tr := NewTranscript()
+	line := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T22:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"text","text":"[Image #1] what is this"}]}}`
+	snap := apply(t, base(), tr.Line([]byte(line)))
+	if len(snap.Content) != 1 {
+		t.Fatalf("content %+v", snap.Content)
+	}
+	it := snap.Content[0]
+	if it.Text != "[Image #1] what is this" || len(it.Attachments) != 1 {
+		t.Fatalf("prompt %q with %d attachments", it.Text, len(it.Attachments))
+	}
+	if a := it.Attachments[0]; a.Kind != "image" || a.MimeType != "image/png" || a.Data != "iVBORw0KGgo=" || a.ID != "image-1" {
+		t.Errorf("attachment %+v", a)
+	}
+	// A picture sent alone is still a prompt.
+	alone := `{"type":"user","uuid":"p2","timestamp":"2026-11-19T22:01:00Z","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"/9j/"}}]}}`
+	if snap = apply(t, snap, tr.Line([]byte(alone))); len(snap.Content) != 2 || len(snap.Content[1].Attachments) != 1 {
+		t.Errorf("a picture alone: %+v", snap.Content)
+	}
+}
+
+// TestTranscriptUnknownCommand: Claude Code's note for a slash command it
+// has no such name for is a quiet notice row, and no turn starts.
+func TestTranscriptUnknownCommand(t *testing.T) {
+	tr := NewTranscript()
+	snap := apply(t, base(), tr.Line([]byte(`{"type":"system","subtype":"informational","uuid":"n1","timestamp":"2026-11-19T10:00:00Z","level":"info","content":"Unknown command: /nope"}`)))
+	if got := systems(snap); len(got) != 1 || got[0] != "notice: Unknown command: /nope" {
+		t.Errorf("system items %q: want the notice", got)
+	}
+	if tr.Running() || len(snap.Turns) != 0 {
+		t.Errorf("running %v, %d turns: want none", tr.Running(), len(snap.Turns))
 	}
 }

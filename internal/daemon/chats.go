@@ -351,6 +351,7 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 			s.Content, s.Turns = seed.snap.Content, seed.snap.Turns
 		}
 		c.commit([]session.Delta{{Type: session.DeltaSnapshot, Snapshot: &s}}, stamp)
+		c.defaults()
 		if seed != nil {
 			c.system("Forked from " + cmp.Or(seed.title, "a chat"))
 			c.cfg.Points = seed.points
@@ -842,6 +843,7 @@ func (c *chat) open() {
 	}
 	c.log, c.snap, c.seq, c.published = l, snap, seq, seq
 	c.syncQueue()
+	c.defaults()
 	if c.cfg.RecentPrompt == "" {
 		for _, it := range c.snap.Content {
 			if it.Kind == session.KindUserPrompt {
@@ -1194,6 +1196,29 @@ func (c *chat) reduce(e session.Event) {
 // system adds a system line to the transcript.
 func (c *chat) system(text string) {
 	c.reduce(session.Event{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem, Text: text})
+}
+
+// defaults gives a Claude chat the model and effort it runs with while
+// its snapshot names none, so the composer never shows a bare Model or
+// Effort it could know: what the chat was started with, else Claude
+// Code's user settings, read only. The CLI's init names the model it
+// runs once it starts.
+func (c *chat) defaults() {
+	if c.cfg.Provider != model.ProviderClaude || c.snap.Model != nil && c.snap.Effort != nil {
+		return
+	}
+	m, e := claudeSettingsFile(filepath.Join(claudeConfigDir(model.Pane{Cwd: c.cfg.Cwd}), "settings.json"))
+	set := map[string]any{}
+	if v := cmp.Or(c.cfg.Model, m); c.snap.Model == nil && v != "" {
+		set["model"] = v
+	}
+	if v := cmp.Or(c.cfg.Effort, e); c.snap.Effort == nil && v != "" {
+		set["effort"] = v
+	}
+	if len(set) > 0 {
+		b, _ := json.Marshal(set)
+		c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: b}}, session.Stamp(time.Now()))
+	}
 }
 
 // read publishes what the loop holds back, so a subscriber's next deltas

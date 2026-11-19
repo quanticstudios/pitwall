@@ -34,6 +34,10 @@ takes `--dry-run`.
   - API errors, retries and plan limits with their reset time are cards in red or yellow. A hook that blocks a step or gives feedback is a quiet row naming the hook and its verdict.
   - A finished reply's footer adds the turn's tokens in and out and its cost, with each model's breakdown on hover. TUI pane chats now count their tokens too.
   - A plan renders as markdown, with Approve (1) and Refine (2). A question shows its header, checkboxes when several options may be picked, and an option's preview beside the list.
+- A composer popover, such as the model picker, closes on Alt+T, on a tab switch and when another pane takes focus. A click outside it closes it and still lands where it was aimed, so clicking another pane focuses that pane.
+- A chat tab shows its model and effort from the start: the ones it was started with, else the model and effortLevel in Claude Code's user settings, read only. Once Claude Code starts, the chip shows the model it runs.
+- A Claude Code pane's chat shows a sent picture as a thumbnail under the prompt, as a chat tab does, instead of only its chip.
+- A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
 - The composer's model, effort and mode popovers open just above their chips, left edges aligned, instead of above the whole card.

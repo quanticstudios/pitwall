@@ -221,3 +221,12 @@ func TestStreamEchoes(t *testing.T) {
 		t.Fatalf("replayed line shown again: %+v", got)
 	}
 }
+
+// The CLI's init names the model it runs, picked or its default, and the
+// snapshot shows it.
+func TestInitModel(t *testing.T) {
+	snap, _ := reduce(t, newStream("SESSION"), base(), initLine)
+	if snap.Model == nil || *snap.Model != "claude-sonnet-5-5" {
+		t.Fatalf("model %v: want init's claude-sonnet-5-5", snap.Model)
+	}
+}
