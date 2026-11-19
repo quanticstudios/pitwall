@@ -22,6 +22,17 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
+- Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
+- The composer's model, effort and mode popovers open just above their chips, left edges aligned, instead of above the whole card.
+- Clicking the permission mode chip opens a picker of the modes: Default, Accept edits, Plan, and Bypass permissions in a chat that may enter it. Shift+Tab still cycles. In a Claude Code pane, a pick presses Shift+Tab until the TUI's footer shows that mode.
+- A Claude Code pane's chat shows the model and effort its TUI shows, as Claude Code 2.1.328 draws them in its header and over its input box. Before the TUI shows an effort, the `effortLevel` in Claude Code's user settings stands in, read only.
+- An image sent from a Claude Code pane's chat goes in as a pasted path that Claude Code numbers itself, without the composer's token or an evidence line, so the prompt no longer shows the image twice.
+- Ctrl+Backspace and Ctrl+Delete delete a word in every text field, and so do Alt+Backspace and Alt+Delete. Right after an image chip in the composer, a word delete removes the whole chip.
+- A chat draws inside the same rounded frame as a terminal pane, in a chat tab and in a Claude Code pane, splits included.
+
 ## v0.2.18
 
 - A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.
