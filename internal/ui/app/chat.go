@@ -62,6 +62,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		aide := curHost() == "" && findAide() != nil
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
+		t.PRs, t.Open = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }
 		cmp := u.composer(st, id)
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(id) {

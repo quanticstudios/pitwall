@@ -23,6 +23,7 @@ type stream struct {
 	streamed map[string]int              // text item id: bytes stream_event deltas gave it
 	blocks   map[string]int              // message id: content blocks its assistant lines gave so far
 	tools    map[string]session.ToolCall // tool_use id: the call so far
+	bg       map[string]session.ToolCall // tool_use id: a call whose shell runs in the background
 
 	contextModel  string
 	contextTokens *int64
@@ -68,6 +69,10 @@ type line struct {
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
 	ToolUseID string          `json:"tool_use_id"`
+	// user: the CLI's own result beside a tool_result; the transcript file
+	// spells it toolUseResult.
+	ToolUseResult  json.RawMessage `json:"tool_use_result"`
+	ToolUseResult2 json.RawMessage `json:"toolUseResult"`
 
 	// stream_event
 	Event        *streamEvent `json:"event"`
@@ -353,7 +358,14 @@ func todos(input json.RawMessage) []session.Task {
 func (s *stream) user(l line) []session.Event {
 	var m apiMessage
 	var blocks []block
-	if json.Unmarshal(l.Message, &m) != nil || json.Unmarshal(m.Content, &blocks) != nil {
+	if json.Unmarshal(l.Message, &m) != nil {
+		return nil
+	}
+	if json.Unmarshal(m.Content, &blocks) != nil {
+		var text string
+		if json.Unmarshal(m.Content, &text) == nil && strings.Contains(text, "<task-notification>") {
+			return s.notice(text)
+		}
 		return nil
 	}
 	var out []session.Event
@@ -366,6 +378,11 @@ func (s *stream) user(l line) []session.Event {
 		if b.IsError {
 			t.Status = "failed"
 		}
+		res := l.ToolUseResult
+		if res == nil {
+			res = l.ToolUseResult2
+		}
+		s.finish(&t, b, res)
 		s.tools[b.ToolUseID] = t
 		out = append(out, session.Event{Type: session.EventContent, ItemID: b.ToolUseID, Kind: session.KindToolCall, Tool: &t})
 	}

@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The desktop chat draws each Claude Code tool call as a row built for it, folded to one line until you click it. An edit shows its file as a chip that opens it, +N −M, and a diff with line numbers and hunk headers that scrolls sideways instead of wrapping; a new file shows Created and its first lines. A command shows its description, `$ command`, how long it ran and its exit code, keeps its output's colors, and folds once the turn moves on; a background shell shows Running in background until it ends, and reading or stopping it adds to its row. Read shows the file and its lines, Grep and Glob what they found with a clickable file list, a web search its sources, a fetch its page, MCP tools their server and tool with their arguments and result as JSON, and a skill one quiet row. Pictures a tool returns show as thumbnails that open large, a PR link in a command's output shows the PR's live state, and a failed call shows its error in red on its row.
+
 ## v0.2.18
 
 - A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.

@@ -19,6 +19,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -39,6 +40,12 @@ type Transcript struct {
 	// Copy puts text on the clipboard: the window's clipboard path. Nil
 	// writes it directly.
 	Copy func(gtx layout.Context, text string)
+	// Open opens what a tool row links to: a file's absolute path or a
+	// URL. Nil leaves the links inert.
+	Open func(target string)
+	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
+	// whose output names one shows its live state.
+	PRs map[string]model.PR
 
 	list   layout.List
 	blocks []block
@@ -71,6 +78,7 @@ type Transcript struct {
 	what    map[string]string               // pending approvals' commands, for their line
 	items   int                             // len(Content) this frame
 	diffs   map[string]diffCache            // edits' lines by item id
+	tool    toolState                       // the tool rows' scroll, shells and images
 
 	more    widget.Clickable
 	menu    bool
@@ -421,6 +429,7 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 	})
 	t.pickSelection(gtx)
 	t.newOutput(gtx, d, s, size)
+	t.zoomLayer(gtx, d, size)
 	if aide {
 		d.moreMenu(gtx, size)
 	}
@@ -565,6 +574,7 @@ func (t *Transcript) pickSelection(gtx layout.Context) {
 func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	t.rows = t.rows[:0]
 	running := runningTurns(d.s)
+	t.tool.shells.index(d.s.Content)
 	k := 0
 	for _, b := range t.blocks {
 		for ; k < len(t.done) && t.done[k].at <= b.lo; k++ {
@@ -583,7 +593,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			open := t.toggled(gtx, logID(d.s, b), logOpen(run, b.failed))
 			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
 			for i := b.lo; open && i < b.hi; i++ {
-				if i != b.reply {
+				if i != b.reply && !t.tool.shells.isAttached(i) {
 					t.rows[len(t.rows)-1].last = false
 					t.rows = append(t.rows, trow{b: b, seg: segItem, i: i, last: true})
 				}
