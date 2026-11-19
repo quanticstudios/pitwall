@@ -14,6 +14,16 @@ import (
 // https://code.claude.com/docs/en/settings-reference#autocontinueatusagelimit.
 // It lives in user settings, not the global .claude.json, and defaults on.
 func claudeAutoContinue(p model.Pane) bool {
+	dir := claudeConfigDir(p)
+	if dir == "" {
+		return true
+	}
+	return claudeAutoContinueFile(filepath.Join(dir, "settings.json"))
+}
+
+// claudeConfigDir is the config dir pane p's Claude Code reads: its
+// CLAUDE_CONFIG_DIR, else ~/.claude; "" with no home.
+func claudeConfigDir(p model.Pane) string {
 	dir := os.Getenv("CLAUDE_CONFIG_DIR")
 	for _, e := range p.Env {
 		if v, ok := strings.CutPrefix(e, "CLAUDE_CONFIG_DIR="); ok {
@@ -23,14 +33,34 @@ func claudeAutoContinue(p model.Pane) bool {
 	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return true
+			return ""
 		}
 		dir = filepath.Join(home, ".claude")
 	}
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(p.Cwd, dir)
 	}
-	return claudeAutoContinueFile(filepath.Join(dir, "settings.json"))
+	return dir
+}
+
+// claudeEffortFile is the effortLevel in Claude Code's user settings at
+// path, "" when unset, unknown or unreadable. Never writes.
+func claudeEffortFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var s struct {
+		Effort string `json:"effortLevel"`
+	}
+	if json.Unmarshal(b, &s) != nil {
+		return ""
+	}
+	switch s.Effort {
+	case "low", "medium", "high", "xhigh", "max":
+		return s.Effort
+	}
+	return ""
 }
 
 // Only an explicit false lets pitwall schedule a Claude resume. Missing

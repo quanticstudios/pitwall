@@ -2,11 +2,14 @@ package daemon
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -138,12 +141,54 @@ func TestPaneChat(t *testing.T) {
 		t.Errorf("idle interrupt typed %q", got)
 	}
 
-	// Shift+Tab in the chat is one Shift+Tab in the TUI, whatever mode the
-	// chat guessed comes next: the TUI's own cycle decides.
+	// With no footer to read, a mode pick is one Shift+Tab.
 	before = len(f.pane(0).got())
 	d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "default"})
 	if got := gotAfter(t, f.pane(0), before, 3); got != "\x1b[Z" {
 		t.Errorf("mode press typed %q, want Shift+Tab", got)
+	}
+	// With one, it presses Shift+Tab until the footer reads the mode
+	// picked, in the TUI's own cycle.
+	cycle := []string{"", "  ⏵⏵ accept edits on (shift+tab to cycle)", "  ⏸ plan mode on (shift+tab to cycle)", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	fp := f.pane(0)
+	fp.mu.Lock()
+	pressed := strings.Count(string(fp.input), "\x1b[Z")
+	footer := func() {
+		at := (strings.Count(string(fp.input), "\x1b[Z") - pressed) % len(cycle)
+		fp.screen = []string{"────────", "❯ ", "────────", cycle[at]}
+	}
+	footer()
+	fp.wrote = footer
+	fp.mu.Unlock()
+	before = len(fp.got())
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "plan"}); r.(proto.ChatResult).Code != "" {
+		t.Fatalf("mode pick: %+v", r)
+	}
+	if got := fp.got()[before:]; strings.Count(got, "\x1b[Z") != 2 {
+		t.Errorf("plan from default typed %q, want Shift+Tab twice", got)
+	}
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSet{Chat: "a", Mode: "auto"}); r.(proto.ChatResult).Code != "unsupported" {
+		t.Errorf("a mode outside the cycle: %+v, want unsupported", r)
+	}
+	fp.mu.Lock()
+	fp.wrote, fp.screen = nil, nil
+	fp.mu.Unlock()
+
+	// An image goes in as its pasted path, which Claude Code numbers
+	// itself: no [Image #N] token and no evidence line ride along.
+	before = len(fp.got())
+	png := base64.StdEncoding.EncodeToString(append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...))
+	send := proto.ChatSend{Chat: "a", Text: "describe [Image #1] in five words", Attachments: []session.Attachment{
+		{ID: "image-1", Kind: "image", MimeType: "image/png", Name: "image-1.png", SizeBytes: 72, Data: png}}}
+	if r, _ := d.chatRequest(context.Background(), send); r.(proto.ChatResult).Code != "" {
+		t.Fatalf("image send: %+v", r)
+	}
+	typed := gotAfter(t, fp, before, len("describe in five words"))
+	for deadline := time.Now().Add(2 * time.Second); !strings.Contains(typed, ".png") && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		typed = fp.got()[before:]
+	}
+	if !strings.Contains(typed, "describe in five words") || !strings.Contains(typed, ".png") || strings.Contains(typed, "[Image #") || strings.Contains(typed, "evidence") {
+		t.Errorf("image send typed %q: want the text without its token, and the image's path", typed)
 	}
 
 	// Claude exits: its hooks' process leaves, the provider goes, and so
@@ -159,5 +204,35 @@ func TestPaneChat(t *testing.T) {
 	d.mu.Unlock()
 	if kept {
 		t.Error("the pane chat outlived its claude")
+	}
+}
+
+// A pane chat's effort is the one the TUI shows, else the effortLevel in
+// Claude Code's user settings; with neither it stays unknown. The TUI's
+// model goes in as it changes, and a transcript's model stands until then.
+func TestPaneChatSettings(t *testing.T) {
+	conf := t.TempDir()
+	if err := os.WriteFile(filepath.Join(conf, "settings.json"), []byte(`{"effortLevel":"medium","model":"opus"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", snap: session.Snapshot{SessionID: "a"}}
+	pc.settings(paneLive{conf: conf})
+	if pc.snap.Effort == nil || *pc.snap.Effort != "medium" || pc.snap.Model != nil {
+		t.Fatalf("from the settings: effort %v, model %v; want medium and none", pc.snap.Effort, pc.snap.Model)
+	}
+	tui := paneLive{conf: conf, tui: phoneSettings{model: "Opus 5.5", effort: "xhigh"}}
+	pc.settings(tui)
+	if *pc.snap.Effort != "xhigh" || pc.snap.Model == nil || *pc.snap.Model != "Opus 5.5" {
+		t.Fatalf("from the TUI: effort %v, model %v", *pc.snap.Effort, pc.snap.Model)
+	}
+	pc.reduce([]session.Event{{Type: session.EventSettings, Model: "claude-sonnet-5-5"}})
+	pc.settings(tui)
+	if *pc.snap.Model != "claude-sonnet-5-5" {
+		t.Errorf("model %q: the TUI's unchanged one took over the transcript's", *pc.snap.Model)
+	}
+	none := &paneChat{id: "b", snap: session.Snapshot{SessionID: "b"}}
+	none.settings(paneLive{conf: t.TempDir()})
+	if none.snap.Effort != nil {
+		t.Errorf("effort %q with no source: want unknown", *none.snap.Effort)
 	}
 }

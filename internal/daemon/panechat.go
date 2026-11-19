@@ -8,8 +8,11 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,7 +46,9 @@ type paneChat struct {
 	// queued are the messages the chat typed mid-turn, which Claude Code
 	// holds until the turn ends; the next prompt line takes them.
 	queued []session.QueuedInput
-	footer bool // the TUI's footer gave the mode at least once
+	footer bool          // the TUI's footer gave the mode at least once
+	tui    phoneSettings // the TUI's model and effort as last put in the snapshot
+	conf   *string       // the effort in Claude Code's user settings, read once
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -53,6 +58,8 @@ type paneLive struct {
 	cwd  string
 	mode string         // the permission mode its hooks reported (Pane.AgentMode)
 	act  model.Activity // zero State when the pane has none
+	tui  phoneSettings  // the model and effort its screen showed (keepClaudeSettings)
+	conf string         // Claude Code's config dir for it
 }
 
 // paneChatOf is pane id's chat, made on first use, and its pane's state;
@@ -71,7 +78,7 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		return nil, paneLive{}, false
 	}
 	p := d.st.Panes[i]
-	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode}
+	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode, tui: d.phoneSettings[id], conf: claudeConfigDir(p)}
 	if ai := d.activityIndex(id); ai >= 0 {
 		l.act = d.st.Activities[ai]
 	}
@@ -201,12 +208,39 @@ func (pc *paneChat) catchUp(l paneLive) {
 	if mode != "" && mode != pc.snap.PermissionMode {
 		pc.reduce([]session.Event{{Type: session.EventSettings, Mode: mode}})
 	}
+	pc.settings(l)
 	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
 		pc.queued = nil // the agent stopped without taking them: an interrupt dropped them back in its box
 	}
 	if !slices.EqualFunc(pc.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool { return a.ID == b.ID }) {
 		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
+	}
+}
+
+// settings puts the model and effort the TUI shows in the snapshot as
+// they change; while it has shown no effort, the effort in Claude Code's
+// user settings stands in. Callers hold pc.mu.
+func (pc *paneChat) settings(l paneLive) {
+	set := map[string]any{}
+	if m := l.tui.model; m != "" && m != pc.tui.model {
+		set["model"] = m
+	}
+	eff := l.tui.effort
+	if eff == "" && l.conf != "" {
+		if pc.conf == nil {
+			e := claudeEffortFile(filepath.Join(l.conf, "settings.json"))
+			pc.conf = &e
+		}
+		eff = *pc.conf
+	}
+	if eff != "" && (pc.snap.Effort == nil || *pc.snap.Effort != eff) {
+		set["effort"] = eff
+	}
+	pc.tui = l.tui
+	if len(set) > 0 {
+		b, _ := json.Marshal(set)
+		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: b}}, session.Stamp(time.Now()))
 	}
 }
 
@@ -274,6 +308,9 @@ func (pc *paneChat) read(after int64) proto.ChatDeltas {
 	return out
 }
 
+// imageToken is a composer's [Image #N] token and the space after it.
+var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
+
 // paneSend types m into pc's pane: pasted text and image paths, with
 // Enter, mid-turn too, where Claude Code queues it and so does the chat
 // until the next prompt line.
@@ -281,6 +318,10 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	sm, err := provide(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
 		return "", err
+	}
+	if !slices.ContainsFunc(m.Attachments, func(a session.Attachment) bool { return a.Kind != "image" }) {
+		// why: Claude Code numbers each pasted image path itself; the composer's tokens and the evidence line would repeat them.
+		sm.Text = strings.TrimSpace(imageToken.ReplaceAllString(m.Text, ""))
 	}
 	if m.Skill != nil {
 		sm.Text = "/" + m.Skill.Name + " " + sm.Text
@@ -386,9 +427,7 @@ func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
 }
 
 // paneSet sets the model or effort through Claude Code's own pickers, for
-// this session only. A mode request presses Shift+Tab once, whatever mode
-// it names: the TUI moves to the next of its own modes, bypass included
-// when the session opted in, and the footer reports where it went.
+// this session only, and the mode through Shift+Tab (paneMode).
 func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
 	if m.Provider != "" && m.Provider != model.ProviderClaude {
 		return chatError{"unsupported", "this chat is Claude Code in a pane; it cannot switch provider"}
@@ -404,7 +443,40 @@ func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
 		}
 	}
 	if m.Mode != "" {
-		return d.paneKey(id, l.p, input.Key(key.Event{Name: key.NameTab, Modifiers: key.ModShift, State: key.Press}, l.p.Modes()))
+		return d.paneMode(id, l.p, m.Mode)
+	}
+	return nil
+}
+
+// paneMode presses Shift+Tab in pane id until the TUI's footer reads mode,
+// each press waiting for the footer to move: the TUI's own cycle decides
+// the order, bypass included when the session opted in. With no footer to
+// read, as while a prompt covers it, it presses once.
+func (d *Daemon) paneMode(id string, p Pane, mode string) error {
+	defer d.paneCommandLock(id)()
+	shiftTab := input.Key(key.Event{Name: key.NameTab, Modifiers: key.ModShift, State: key.Press}, p.Modes())
+	cur := agent.ClaudeMode(p.Snapshot())
+	if cur == "" {
+		return d.paneKey(id, p, shiftTab)
+	}
+	for seen := map[string]bool{}; cur != mode; {
+		if seen[cur] {
+			return chatError{"unsupported", "Shift+Tab in this session never reaches " + mode}
+		}
+		seen[cur] = true
+		if err := d.paneKey(id, p, shiftTab); err != nil {
+			return err
+		}
+		prev := cur
+		for deadline := time.Now().Add(menuWait.get()); cur == prev && time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+			if cur = agent.ClaudeMode(p.Snapshot()); cur == "" {
+				cur = prev
+			}
+		}
+		if cur == prev {
+			return errors.New("Claude Code's mode did not change")
+		}
 	}
 	return nil
 }
