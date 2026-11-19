@@ -68,6 +68,45 @@ const (
 	KindUserPrompt           ItemKind = "user-prompt" // the chat loop's, never a driver's
 )
 
+// System item phases, pitwall's: what a KindSystem item is, so the
+// desktop chat draws each its own way. "" is a plain line. Text is what a
+// reader that knows no phase (aide, the phone) shows.
+const (
+	PhaseCommand = "command" // a slash or ! command the user ran: "/name args" or "!cmd"
+	PhaseOutput  = "output"  // a local command's output, its ANSI colors kept
+	PhaseNotice  = "notice"  // a note from the harness: a background task ended, a hint
+	PhaseCompact = "compact" // the conversation was compacted: "Conversation compacted", then the summary
+	PhaseSetting = "setting" // the model, mode or effort changed: what to
+	PhaseWarning = "warning" // an API retry: the request failed and Claude tries again
+	PhaseError   = "error"   // an API error that ended the turn
+	PhaseHook    = "hook"    // a hook blocked a step or gave feedback
+)
+
+// SettingText is a PhaseSetting item's text for a change of model, effort
+// or permission mode, the one that is set: Switched to claude-opus-5-5,
+// Effort set to high, Plan mode.
+func SettingText(model, effort, mode string) string {
+	switch {
+	case model != "":
+		return "Switched to " + model
+	case effort != "":
+		return "Effort set to " + effort
+	}
+	switch mode {
+	case "plan":
+		return "Plan mode"
+	case "acceptEdits":
+		return "Accept edits mode"
+	case "bypassPermissions":
+		return "Bypass permissions mode"
+	case "auto":
+		return "Auto mode"
+	case "default", "":
+		return "Default mode"
+	}
+	return mode + " mode"
+}
+
 // RequestType is aide's ManagedSessionRequestType.
 type RequestType string
 
@@ -113,6 +152,8 @@ type Event struct {
 	Mode   string    `json:"mode,omitempty"`  // session.settings: the permission mode
 	Text   string    `json:"text,omitempty"`  // text to append; "" with a Tool
 	Tool   *ToolCall `json:"tool,omitempty"`  // invariant: the whole call so far, never a delta
+
+	Attachments []Attachment `json:"attachments,omitempty"` // content.delta: a user prompt's pictures
 
 	Message string `json:"message,omitempty"`
 

@@ -1,6 +1,14 @@
 package chatin
 
 import (
+	"gioui.org/f32"
+	"gioui.org/io/event"
+	"gioui.org/io/pointer"
+	"gioui.org/layout"
+	"gioui.org/op/clip"
+	"gioui.org/unit"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
+	"image"
 	"slices"
 	"strings"
 	"testing"
@@ -148,5 +156,73 @@ func TestComposerSendNow(t *testing.T) {
 	h.typ("now")
 	if m := h.press(key.NameReturn, key.ModShortcut); len(m) != 1 || m[0].(proto.ChatSend).How != "now" || m[0].(proto.ChatSend).Text != "now" {
 		t.Fatalf("busy Ctrl+Enter sent %v", m)
+	}
+}
+
+// An open popover closes when the composer loses the keys, as when
+// another pane takes focus, and on CloseMenu; a press outside it closes
+// it and still reaches what lies under it.
+func TestComposerPopoverCloses(t *testing.T) {
+	h := newHarness(t)
+	h.c.modelBtn.Click()
+	h.frame()
+	if !h.c.menu {
+		t.Fatal("the model chip opened no popover")
+	}
+	h.c.CloseMenu()
+	if h.c.menu {
+		t.Fatal("CloseMenu left it open")
+	}
+
+	h.c.modelBtn.Click()
+	h.frame()
+	h.ops.Reset()
+	gtx := layout.Context{Ops: &h.ops, Source: h.r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Exact(image.Pt(1000, 800)), Now: h.now}
+	env := h.env()
+	env.Focus = false
+	h.c.Layout(gtx, theme.Dark(), env)
+	if h.c.menu {
+		t.Fatal("the popover stayed open with the keys elsewhere")
+	}
+
+	// Under the composer, another pane's press area.
+	var below int
+	h.c.modelBtn.Click()
+	h.frame()
+	frame := func() {
+		h.ops.Reset()
+		gtx := layout.Context{Ops: &h.ops, Source: h.r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: layout.Exact(image.Pt(1000, 800)), Now: h.now}
+		gtx.Constraints.Min.Y = 0
+		area := clip.Rect{Max: image.Pt(1000, 800)}.Push(gtx.Ops)
+		event.Op(gtx.Ops, &below)
+		area.Pop()
+		h.c.Layout(gtx, theme.Dark(), h.env())
+		h.r.Frame(&h.ops)
+	}
+	frame()
+	gtx.Source = h.r.Source()
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &below, Kinds: pointer.Press}); !ok {
+			break
+		}
+	}
+	at := f32.Pt(900, 20) // above the card, far right of the popover
+	h.r.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: at},
+		pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: at})
+	pressed := false
+	for {
+		ev, ok := h.r.Source().Event(pointer.Filter{Target: &below, Kinds: pointer.Press})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
+			pressed = true
+		}
+	}
+	frame()
+	if h.c.menu || !pressed {
+		t.Fatalf("a press outside: menu %v, the pane under it pressed %v", h.c.menu, pressed)
 	}
 }

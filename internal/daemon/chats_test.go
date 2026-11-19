@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -210,7 +212,7 @@ func TestChatFlow(t *testing.T) {
 	for _, it := range snap.Content {
 		texts = append(texts, string(it.Kind)+": "+it.Text)
 	}
-	if want := []string{"user-prompt: Fix the build\nplease", "assistant-text: On it.", "user-prompt: and the tests"}; !slices.Equal(texts, want) || snap.Model == nil || *snap.Model != "m2" {
+	if want := []string{"user-prompt: Fix the build\nplease", "assistant-text: On it.", "user-prompt: and the tests", "system: Switched to m2"}; !slices.Equal(texts, want) || snap.Model == nil || *snap.Model != "m2" {
 		t.Fatalf("transcript %q, model %v", texts, snap.Model)
 	}
 	part := chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: id, After: full.Seq - 2})
@@ -538,5 +540,40 @@ func TestChatSendNow(t *testing.T) {
 	waitChat(gui, "the now message's turn", func(s model.State) bool { c := chatOf(s); return c.Turns == 2 && c.Queued == 1 })
 	if got, want := drv.got(), []string{"send long job", "interrupt", "send stop, do this"}; !slices.Equal(got, want) {
 		t.Fatalf("driver calls %q, want %q", got, want)
+	}
+}
+
+// A new Claude chat shows its model and effort from the start: what it
+// was started with, else Claude Code's user settings, never written.
+func TestChatClaudeDefaults(t *testing.T) {
+	conf := t.TempDir()
+	settings := filepath.Join(conf, "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"model":"opus","effortLevel":"high"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", conf)
+	f := &fakes{statsCalls: map[string]int{}}
+	prov := &stubProvider{}
+	sock, stop := runWith(t, f, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: prov}
+	})
+	defer stop()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	gui.waitState("first tab", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	for _, c := range []struct{ model, wantModel string }{{"", "opus"}, {"sonnet", "sonnet"}} {
+		r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Model: c.model})
+		if r.Code != "" {
+			t.Fatalf("new: %+v", r)
+		}
+		var snap session.Snapshot
+		if err := json.Unmarshal(chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: r.Chat}).Snapshot, &snap); err != nil {
+			t.Fatal(err)
+		}
+		if snap.Model == nil || *snap.Model != c.wantModel || snap.Effort == nil || *snap.Effort != "high" {
+			t.Errorf("started with %q: model %v effort %v, want %s and high", c.model, snap.Model, snap.Effort, c.wantModel)
+		}
+	}
+	if b, _ := os.ReadFile(settings); string(b) != `{"model":"opus","effortLevel":"high"}` {
+		t.Errorf("settings changed: %s", b)
 	}
 }

@@ -51,6 +51,19 @@ type paneChat struct {
 	conf   *string       // the effort in Claude Code's user settings, read once
 	ctx    int64         // tokens in context at the last assistant message, 0 before one
 	model  string        // that message's model
+	moded  bool          // the chat showed a mode: a change after it gets a divider
+	// agents are the subagents' own transcripts, by their tool call's id,
+	// and how far each was read.
+	agents  map[string]*agentFile
+	scanned time.Time // when subagents last looked for transcripts it lacked
+}
+
+// agentFile is a subagent's transcript and how far it was read; done once
+// its subagent ended and the file was read to its end.
+type agentFile struct {
+	path string
+	off  int64
+	done bool
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -167,28 +180,25 @@ func waits(s model.AgentState) bool {
 // catchUp reads what the transcript gained, then brings the turn, the open
 // request and the mode in line with the pane. Callers hold pc.mu.
 func (pc *paneChat) catchUp(l paneLive) {
-	if f, err := os.Open(pc.path); err == nil {
-		var b []byte
-		if _, err = f.Seek(pc.off, io.SeekStart); err == nil {
-			b, err = io.ReadAll(f)
+	// The subagents first: their last calls end before the line that ends
+	// them reaches the session's transcript.
+	pc.subagents()
+	for _, line := range pc.lines(pc.path, &pc.off) {
+		if t, m, ok := contextUsage(line); ok {
+			pc.ctx, pc.model = t, m
 		}
-		f.Close()
-		if err != nil {
-			log.Printf("pane chat %s: transcript: %q", pc.id, err)
-		}
-		if end := bytes.LastIndexByte(b, '\n'); end >= 0 {
-			for _, line := range bytes.Split(b[:end], []byte("\n")) {
-				if t, m, ok := contextUsage(line); ok {
-					pc.ctx, pc.model = t, m
-				}
-				es := pc.tr.Line(line)
-				if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
-					pc.queued = nil
-				}
-				pc.reduce(es)
+		es := pc.tr.Line(line)
+		for i := range es {
+			// A turn's usage report says the context as the meter reads it.
+			if es[i].Type == session.EventUsage && pc.ctx > 0 {
+				ctx, w := pc.ctx, contextWindow(pc.model, l.tui.model)
+				es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
 			}
-			pc.off += int64(end + 1)
 		}
+		if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
+			pc.queued = nil
+		}
+		pc.reduce(es)
 	}
 	a := l.act
 	switch {
@@ -212,7 +222,12 @@ func (pc *paneChat) catchUp(l paneLive) {
 	}
 	if mode != "" && mode != pc.snap.PermissionMode {
 		pc.reduce([]session.Event{{Type: session.EventSettings, Mode: mode}})
+		if pc.moded {
+			pc.reduce([]session.Event{{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem,
+				Phase: session.PhaseSetting, Text: session.SettingText("", "", mode)}})
+		}
 	}
+	pc.moded = pc.moded || mode != ""
 	pc.settings(l)
 	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
 		pc.queued = nil // the agent stopped without taking them: an interrupt dropped them back in its box
@@ -220,6 +235,71 @@ func (pc *paneChat) catchUp(l paneLive) {
 	if !slices.EqualFunc(pc.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool { return a.ID == b.ID }) {
 		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
+	}
+}
+
+// lines are the whole lines file path gained since *off, which moves past
+// them.
+func (pc *paneChat) lines(path string, off *int64) [][]byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	var b []byte
+	if _, err = f.Seek(*off, io.SeekStart); err == nil {
+		b, err = io.ReadAll(f)
+	}
+	f.Close()
+	if err != nil {
+		log.Printf("pane chat %s: transcript: %q", pc.id, err)
+	}
+	end := bytes.LastIndexByte(b, '\n')
+	if end < 0 {
+		return nil
+	}
+	*off += int64(end + 1)
+	return bytes.Split(b[:end], []byte("\n"))
+}
+
+// subagents reads what the subagents' transcripts gained: Claude Code
+// writes each to subagents/agent-<id>.jsonl beside the session's, and
+// names its tool call in agent-<id>.meta.json. A subagent that ended is
+// read to its end once, so a chat opened after it still shows its calls.
+func (pc *paneChat) subagents() {
+	calls := pc.tr.Subagents()
+	if len(calls) == 0 {
+		return
+	}
+	if pc.agents == nil {
+		pc.agents = map[string]*agentFile{}
+	}
+	missing := false
+	for c := range calls {
+		missing = missing || pc.agents[c] == nil
+	}
+	// shortcut: a subagent with no file of its own (an older Claude Code
+	// kept its lines in the session's) rescans the folder at most every 2s.
+	if missing && time.Since(pc.scanned) > 2*time.Second {
+		pc.scanned = time.Now()
+		metas, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(pc.path, ".jsonl"), "subagents", "agent-*.meta.json"))
+		for _, m := range metas {
+			var meta struct {
+				ToolUseID string `json:"toolUseId"`
+			}
+			if b, err := os.ReadFile(m); err == nil && json.Unmarshal(b, &meta) == nil && meta.ToolUseID != "" && pc.agents[meta.ToolUseID] == nil {
+				pc.agents[meta.ToolUseID] = &agentFile{path: strings.TrimSuffix(m, ".meta.json") + ".jsonl"}
+			}
+		}
+	}
+	for call, running := range calls {
+		a := pc.agents[call]
+		if a == nil || a.done {
+			continue
+		}
+		for _, line := range pc.lines(a.path, &a.off) {
+			pc.reduce(pc.tr.Subagent(call, line))
+		}
+		a.done = !running
 	}
 }
 
@@ -234,7 +314,7 @@ func (pc *paneChat) settings(l paneLive) {
 	eff := l.tui.effort
 	if eff == "" && l.conf != "" {
 		if pc.conf == nil {
-			e := claudeEffortFile(filepath.Join(l.conf, "settings.json"))
+			_, e := claudeSettingsFile(filepath.Join(l.conf, "settings.json"))
 			pc.conf = &e
 		}
 		eff = *pc.conf

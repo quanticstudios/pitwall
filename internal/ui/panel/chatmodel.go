@@ -33,6 +33,9 @@ type block struct {
 	// tool call, drawn under the work log; -1 for none.
 	reply int
 	tools int // tool calls in the turn
+	// todo is the turn's last task-list call, its checklist card; -1 for
+	// none. todos counts its task-list calls, which the work log leaves out.
+	todo, todos int
 }
 
 // blocks groups a transcript: each prompt is a bubble, the items after
@@ -47,7 +50,7 @@ func blocks(content []session.Item, out []block) []block {
 		case it.Kind == session.KindUserPrompt:
 			out = append(out, block{kind: blockPrompt, lo: i, hi: i + 1, turn: turn, reply: -1})
 			continue
-		case it.Kind == session.KindSystem && turn == "":
+		case it.Kind == session.KindSystem && (turn == "" || divider(it.Phase) && endsTurn(content, i)):
 			out = append(out, block{kind: blockSystem, lo: i, hi: i + 1, reply: -1})
 			continue
 		}
@@ -66,11 +69,17 @@ func blocks(content []session.Item, out []block) []block {
 		if b.kind != blockTurn {
 			continue
 		}
+		b.todo = -1
 		for i := b.lo; i < b.hi; i++ {
 			switch content[i].Kind {
 			case session.KindToolCall:
-				b.tools++
 				b.reply = -1
+				if isTodo(content[i].Tool) { // its card, not the work log, shows it
+					b.todo = i
+					b.todos++
+				} else {
+					b.tools++
+				}
 			case session.KindAssistantText:
 				b.reply = i
 			}
