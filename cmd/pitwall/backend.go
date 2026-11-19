@@ -16,6 +16,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -51,6 +52,8 @@ type backend struct {
 	ssID    uint64                            // the last Skillshare's ID
 	ssWaits map[uint64]*ssWait                // Skillshare calls waiting for their replies
 	chat    chatCache                         // the transcript of the chat on screen
+	chatReq map[string][]any                  // per chat, the Chat* requests waiting for their replies, oldest first
+	chatOut map[string][]chatin.Result        // per chat, the answers to the window's requests, not yet taken
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
 	// stays across a reconnect, for the view's stale state.
 	mon     proto.MonitorSample
@@ -88,7 +91,7 @@ var errOlderDaemon = errors.New("the daemon is older than this window")
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.
 func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), retry: make(chan struct{}, 1),
-		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, icons: map[string]*proto.FaviconResult{}, pastes: map[string]proto.PasteImageResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
+		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, icons: map[string]*proto.FaviconResult{}, pastes: map[string]proto.PasteImageResult{}, chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if c == nil {
 		b.outErr = errNotConnected
 		close(b.done)
@@ -200,12 +203,16 @@ func (b *backend) Send(msg any) error {
 		b.tree = proto.WorktreeInfo{}
 	}
 	level := b.link.Level
-	b.mu.Unlock()
 	// why: a daemon below proto.Level 1 drops the connection on a message
 	// type it does not know.
 	if need := proto.Since(msg); need > level {
+		b.mu.Unlock()
 		return fmt.Errorf("%w: %T needs level %d, the daemon is at %d", errOlderDaemon, msg, need, level)
 	}
+	if id, ok := chatOf(msg); ok {
+		b.chatReq[id] = append(b.chatReq[id], msg)
+	}
+	b.mu.Unlock()
 	b.outMu.Lock()
 	if err := b.outErr; err != nil {
 		b.outMu.Unlock()
@@ -353,6 +360,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.mu.Lock()
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
 	b.all, b.chat = nil, chatCache{}
+	clear(b.chatReq) // the new connection answers none of them
 	b.cmds = nil
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
@@ -536,6 +544,7 @@ func (b *backend) recvLoop() {
 			b.imgs.put(m.Image, b.keepImages)
 			pane = m.Pane
 		case proto.ChatDeltas:
+			b.chatReply(m.Chat) // a ChatRead's
 			if !b.chat.take(m) {
 				b.mu.Unlock()
 				continue
@@ -546,6 +555,7 @@ func (b *backend) recvLoop() {
 			if m.Chat == b.chat.id && m.Code == "not-found" {
 				b.chat.out = false
 			}
+			b.chatAnswered(m)
 		case proto.FaviconResult:
 			b.icons[m.Dir] = &m
 			if m.Root != "" {
@@ -667,4 +677,68 @@ func shown(st *model.State, session, pane string) bool {
 		}
 	}
 	return false
+}
+
+// chatOf is the chat a request is about, when the daemon's one reply to it,
+// a ChatResult or ChatRead's ChatDeltas, names that chat.
+func chatOf(msg any) (string, bool) {
+	switch m := msg.(type) {
+	case proto.ChatSend:
+		return m.Chat, true
+	case proto.ChatRead:
+		return m.Chat, true
+	case proto.ChatInterrupt:
+		return m.Chat, true
+	case proto.ChatApprove:
+		return m.Chat, true
+	case proto.ChatAnswer:
+		return m.Chat, true
+	case proto.ChatSet:
+		return m.Chat, true
+	case proto.ChatRewind:
+		return m.Chat, true
+	case proto.ChatQueue:
+		return m.Chat, true
+	case proto.ChatPin:
+		return m.Chat, true
+	case proto.ChatArchive:
+		return m.Chat, true
+	case proto.ChatUnarchive:
+		return m.Chat, true
+	case proto.ChatRename:
+		return m.Chat, true
+	}
+	return "", false
+}
+
+// chatAnswered keeps a ChatResult for the window when it answers a
+// ChatSend or refuses any request. b.mu is held.
+func (b *backend) chatAnswered(m proto.ChatResult) {
+	req := b.chatReply(m.Chat)
+	_, send := req.(proto.ChatSend)
+	refused := m.Code != "" && m.Code != "not-found"
+	if !refused && !send {
+		return
+	}
+	r := chatin.Result{Req: req}
+	if refused {
+		r.Message = m.Message
+	}
+	b.chatOut[m.Chat] = append(b.chatOut[m.Chat], r)
+}
+
+// chatReply takes the oldest request on chat id waiting for its reply,
+// nil when none is: the daemon answers a connection's requests in order.
+// b.mu is held.
+func (b *backend) chatReply(id string) any {
+	q := b.chatReq[id]
+	if len(q) == 0 {
+		return nil
+	}
+	if len(q) == 1 {
+		delete(b.chatReq, id)
+	} else {
+		b.chatReq[id] = q[1:]
+	}
+	return q[0]
 }

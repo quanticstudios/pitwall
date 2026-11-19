@@ -194,14 +194,16 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
 // "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
 // and for the phone app "chevron-left", "chevrons-up-down", "settings",
-// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", "panel-right", "ellipsis", and "skillshare", its mark in its own colors) in a size box, for
-// lists outside the sidebar.
+// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", "panel-right", "ellipsis", and "skillshare", its mark in its own colors, and for
+// the chat composer "circle", "image", "map" and "list-plus") in a size box, for lists
+// outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
 		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
-		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare, "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
+		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare,
+		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "map": icMap, "list-plus": "M11 12H3M16 6H3M16 18H3M18 9v6M21 12h-6", "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}
@@ -217,6 +219,8 @@ const (
 	icClipboard   = "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
 	icChevronLeft = "m15 18-6-6 6-6"
 	icArrowUp     = "m5 12 7-7 7 7M12 19V5"
+	icImage       = "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 7a2 2 0 1 0 0 4a2 2 0 1 0 0-4zM21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21"
+	icMap         = "M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0zM15 5.764v15M9 3.236v15"
 	icWifiOff     = "M12 20h.01M8.5 16.429a5 5 0 0 1 7 0M5 12.859a10 10 0 0 1 5.17-2.69M19 12.859a10 10 0 0 0-2.007-1.523M2 8.82a15 15 0 0 1 4.177-2.643M22 8.82a15 15 0 0 0-11.288-3.764M2 2l20 20"
 )
 
