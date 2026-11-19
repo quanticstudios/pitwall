@@ -140,7 +140,7 @@ func TestMultiRoutes(t *testing.T) {
 	if s, ok := recv(rd).(proto.SeePane); !ok || s.Pane != "rp" {
 		t.Fatalf("box got %#v", s)
 	}
-	if got := recv(ld); got != nil {
+	if got := first(drain(t, m.hosts[0].b, ld)); got != nil {
 		t.Fatalf("local got %#v as well", got)
 	}
 }
@@ -252,6 +252,36 @@ func TestWindowHosts(t *testing.T) {
 }
 
 // next is the next message e reads that is not a latency ping.
+// drain returns what b's daemon end e reads, pings left out, before a mark
+// b sends now. A send made before drain is queued ahead of the mark, so an
+// empty result proves there was none, without waiting out recv's deadline.
+func drain(t *testing.T, b *backend, e end) []any {
+	t.Helper()
+	mark := proto.Input{Pane: "drain-mark"}
+	if err := b.Send(mark); err != nil {
+		t.Fatal(err)
+	}
+	var got []any
+	for {
+		msg := next(e)
+		if msg == nil {
+			t.Fatal("the drain mark never arrived")
+		}
+		if in, ok := msg.(proto.Input); ok && in.Pane == mark.Pane {
+			return got
+		}
+		got = append(got, msg)
+	}
+}
+
+// first is msgs[0], or nil.
+func first(msgs []any) any {
+	if len(msgs) == 0 {
+		return nil
+	}
+	return msgs[0]
+}
+
 func next(e end) any {
 	for {
 		m := recv(e)
@@ -297,7 +327,7 @@ func TestMultiOriginOperations(t *testing.T) {
 			if err := m.Send(app.NewTaskOn{Host: "box", Task: proto.NewTask{Task: model.Task{SessionID: "ls"}}}); err == nil {
 				t.Error("task accepted through an unconfirmed or foreign link")
 			}
-			for msg := next(rd); msg != nil; msg = next(rd) {
+			for _, msg := range drain(t, m.hosts[1].b, rd) {
 				if _, claim := msg.(proto.SetOrigin); !claim {
 					t.Fatalf("operation reached an unconfirmed or foreign part: %#v", msg)
 				}
@@ -324,10 +354,10 @@ func TestMultiClaimBeforeTab(t *testing.T) {
 				if !ok || claim.SessionID != "rs" || claim.Origin != (model.Origin{Daemon: "here", Session: "ls"}) {
 					t.Fatalf("claim %#v", claim)
 				}
-				if msg := next(ld); msg != nil {
+				if msg := first(drain(t, m.hosts[0].b, ld)); msg != nil {
 					t.Fatalf("local operation before claim accepted: %#v", msg)
 				}
-				if msg := next(rd); msg != nil {
+				if msg := first(drain(t, m.hosts[1].b, rd)); msg != nil {
 					t.Fatalf("remote operation before claim accepted: %#v", msg)
 				}
 				rs.Sessions = slices.Clone(rs.Sessions)
@@ -341,10 +371,10 @@ func TestMultiClaimBeforeTab(t *testing.T) {
 				remote.mu.Unlock()
 				m.merge()
 				if !accepted {
-					if msg := next(ld); msg != nil {
+					if msg := first(drain(t, m.hosts[0].b, ld)); msg != nil {
 						t.Fatalf("linked or started after losing the claim: %#v", msg)
 					}
-					if msg := next(rd); msg != nil {
+					if msg := first(drain(t, m.hosts[1].b, rd)); msg != nil {
 						t.Fatalf("started after losing the claim: %#v", msg)
 					}
 					return
@@ -386,7 +416,7 @@ func TestMultiClaimReconnect(t *testing.T) {
 		t.Fatalf("claim after reconnect %#v, want %#v", got, claim)
 	}
 	m.merge()
-	if got := next(rd); got != nil {
+	if got := first(drain(t, m.hosts[1].b, rd)); got != nil {
 		t.Fatalf("unthrottled retry %#v", got)
 	}
 }
@@ -413,10 +443,10 @@ func TestMultiClaimExpires(t *testing.T) {
 	remote.link.Epoch++
 	remote.mu.Unlock()
 	m.merge()
-	if msg := next(rd); msg != nil {
+	if msg := first(drain(t, m.hosts[1].b, rd)); msg != nil {
 		t.Fatalf("expired claim started %#v", msg)
 	}
-	if msg := next(ld); msg != nil || len(m.claimTabs) != 0 {
+	if msg := first(drain(t, m.hosts[0].b, ld)); msg != nil || len(m.claimTabs) != 0 {
 		t.Fatalf("after expiry: local %#v, claims %d", msg, len(m.claimTabs))
 	}
 }
@@ -435,7 +465,7 @@ func TestMultiPendingHereOrigin(t *testing.T) {
 			if !ok || claim.Origin != (model.Origin{Daemon: "here", Session: "ls"}) {
 				t.Fatalf("claim %#v", claim)
 			}
-			if msg := next(ld); msg != nil {
+			if msg := first(drain(t, m.hosts[0].b, ld)); msg != nil {
 				t.Fatalf("linked before claim accepted: %#v", msg)
 			}
 			rs.Sessions = slices.Clone(rs.Sessions)
@@ -448,7 +478,7 @@ func TestMultiPendingHereOrigin(t *testing.T) {
 			remote.state = rs
 			remote.mu.Unlock()
 			m.merge()
-			msg := next(ld)
+			msg := first(drain(t, m.hosts[0].b, ld))
 			if !accepted && msg != nil {
 				t.Fatalf("linked after rejected claim: %#v", msg)
 			}
@@ -595,6 +625,8 @@ func TestMultiForgetKeptUntilGone(t *testing.T) {
 	if c, ok := next(rd).(proto.CloseTab); !ok || c.WorkspaceID != "rw" {
 		t.Fatalf("box got %#v, want the close", c)
 	}
+	// why: a background merge sent box's close, so its link here may still
+	// be on the way; a drain mark could pass it.
 	for m := recv(ld); m != nil; m = recv(ld) {
 		if l, ok := m.(proto.SessionLink); ok {
 			t.Fatalf("Forget changed before box closed the tab: %#v", l)
@@ -642,7 +674,7 @@ func TestMultiKillWaitsForHosts(t *testing.T) {
 	if !errors.As(err, new(app.Refusal)) {
 		t.Fatalf("kill with box down is no refusal the window shows: %#v", err)
 	}
-	if got := recv(ld); got != nil {
+	if got := first(drain(t, m.hosts[0].b, ld)); got != nil {
 		t.Fatalf("local got %#v", got)
 	}
 }
@@ -703,7 +735,7 @@ func TestMultiShareNeedsLevel(t *testing.T) {
 	if err := m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls"}}); err == nil {
 		t.Fatal("a part made for an old daemon here")
 	}
-	if got := next(rd); got != nil {
+	if got := first(drain(t, m.hosts[1].b, rd)); got != nil {
 		t.Fatalf("box got %#v", got)
 	}
 }
@@ -724,7 +756,7 @@ func TestMultiShareHereProfile(t *testing.T) {
 	if r := (app.Refusal{}); !errors.As(err, &r) {
 		t.Fatalf("a new session here took a profile it would drop: %v", err)
 	}
-	if got := next(ld); got != nil {
+	if got := first(drain(t, m.hosts[0].b, ld)); got != nil {
 		t.Fatalf("local got %#v", got)
 	}
 }
@@ -753,7 +785,7 @@ func TestMultiKillWaitsForParts(t *testing.T) {
 		}
 	}
 	kept := false
-	for got := recv(ld); got != nil; got = recv(ld) {
+	for _, got := range drain(t, m.hosts[0].b, ld) {
 		if _, ok := got.(proto.SessionKill); ok {
 			t.Fatal("killed here before box ended its part")
 		}
@@ -913,7 +945,7 @@ func TestMultiMonitor(t *testing.T) {
 	if w, ok := recv(rd).(proto.MonitorWatch); !ok || w.WorkspaceID != "rw" {
 		t.Fatalf("box got %#v", w)
 	}
-	if got := recv(ld); got != nil {
+	if got := first(drain(t, m.hosts[0].b, ld)); got != nil {
 		t.Fatalf("local got %#v", got)
 	}
 	if err := rd.c.Send(proto.MonitorSample{Tabs: map[string]string{"claude 7": "rp"}}); err != nil {
@@ -945,7 +977,7 @@ func TestMultiMonitor(t *testing.T) {
 			break
 		}
 	}
-	if got := recv(ld); got != nil {
+	if got := first(drain(t, m.hosts[0].b, ld)); got != nil {
 		t.Fatalf("local got %#v", got)
 	}
 }
@@ -979,7 +1011,7 @@ func TestMultiRemoteWorkers(t *testing.T) {
 		t.Fatalf("box's closed worker got %#v, want %#v", got, want)
 	}
 	var lost []model.RemoteWorker
-	for msg := next(ld); msg != nil; msg = next(ld) {
+	for _, msg := range drain(t, m.hosts[0].b, ld) {
 		if r, ok := msg.(proto.RemoteWorkers); ok {
 			lost = append(lost, r.Set...)
 		}
@@ -1003,9 +1035,9 @@ func TestMultiRemoteWorkers(t *testing.T) {
 	if err := m.Send(proto.CloseDoneWorkers{WorkspaceID: "lw"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range []end{ld, rd} {
+	for i, e := range []end{ld, rd} {
 		got := false
-		for msg := next(e); msg != nil; msg = next(e) {
+		for _, msg := range drain(t, m.hosts[i].b, e) {
 			got = got || msg == any(proto.CloseDoneWorkers{WorkspaceID: "lw"})
 		}
 		if !got {

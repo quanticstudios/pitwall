@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
 - Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
 - A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
 - A turn's work log, such as "Working for 2m · 14 tools", stays one line while the turn runs and after it ends, a failed call's too, and opens only when you click it. A log you opened stays open.
