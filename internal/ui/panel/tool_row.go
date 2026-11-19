@@ -550,7 +550,7 @@ func (d *cdraw) toolBody(it *session.Item, v toolView, out string) layout.Widget
 	case c.ToolName == "WebFetch" && out != "":
 		item := &session.Item{ID: "fetch:" + id, Text: out}
 		return func(gtx layout.Context) layout.Dimensions {
-			return d.markdown(gtx, item.ID, d.t.reply(item))
+			return d.markdown(gtx, item.ID, d.t.reply(item, false))
 		}
 	case c.ToolName == "Skill":
 		return nil

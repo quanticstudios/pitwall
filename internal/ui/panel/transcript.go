@@ -40,9 +40,10 @@ type Transcript struct {
 	// Copy puts text on the clipboard: the window's clipboard path. Nil
 	// writes it directly.
 	Copy func(gtx layout.Context, text string)
-	// Open opens what a tool row links to: a file's absolute path or a
-	// URL. Nil leaves the links inert.
-	Open func(target string)
+	// Open opens a link: one clicked in a reply, a URL or a file URL for a
+	// path under Dir, or a tool row's, a URL or a file's absolute path. Nil
+	// leaves links inert.
+	Open func(link string)
 	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
 	// whose output names one shows its live state.
 	PRs map[string]model.PR

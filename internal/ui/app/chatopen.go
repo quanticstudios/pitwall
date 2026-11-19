@@ -10,11 +10,12 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// openChatTarget opens what a chat's tool row links to: a URL in the
-// browser, a file the way a pane's path hint opens one, in the open_path
-// popup when it is set, else with the desktop opener.
+// openChatTarget opens a link a chat's transcript clicked: a URL, a file
+// URL from a reply included, as openLink does; a tool row's file path the
+// way a pane's path hint opens one, in the open_path popup when it is
+// set, else with the desktop opener.
 func (u *ui) openChatTarget(st *model.State, chat, dir, target string) {
-	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+	if strings.Contains(target, "://") {
 		openLink(target)
 		return
 	}
