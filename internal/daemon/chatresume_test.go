@@ -335,3 +335,33 @@ func TestChatSnapshotFieldsAfterRestart(t *testing.T) {
 		t.Fatalf("restored queue: %+v", snap)
 	}
 }
+
+// TestChatTitleAfterRestart: a chat tab named after its first prompt
+// keeps that name after a daemon restart.
+func TestChatTitleAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	f := &fakes{statsCalls: map[string]int{}}
+	opts := func(o *Options) {
+		o.Chats = root
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: &spyProvider{}}
+	}
+	hello := proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()}
+	sock, stop := runWith(t, f, opts)
+	gui := dialHello(t, sock, hello)
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "fix the login form"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	st := waitChat(gui, "first turn", func(s model.State) bool { c := chatOf(s); return c.Turns == 1 && c.State == session.StateReady })
+	if got := chatOf(st).Title; got != "fix the login form" {
+		t.Fatalf("title %q before the restart", got)
+	}
+	stop()
+	sock, stop = runWith(t, f, opts)
+	t.Cleanup(stop)
+	gui = dialHello(t, sock, hello)
+	st = waitChat(gui, "chat back", func(s model.State) bool { return chatOf(s).ID == r.Chat })
+	if got := chatOf(st).Title; got != "fix the login form" {
+		t.Fatalf("title %q after the restart, want the first prompt", got)
+	}
+}
