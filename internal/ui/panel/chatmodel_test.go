@@ -66,7 +66,11 @@ func TestBlocksTodo(t *testing.T) {
 	c := []session.Item{turnItem("p", session.KindUserPrompt, "t1"), todo("w1", 0), turnItem("c", session.KindToolCall, "t1"), todo("w2", 1), compact}
 	bs := blocks(c, nil)
 	if len(bs) != 3 || bs[2].kind != blockSystem {
-		t.Fatalf("blocks %+v: want the compaction outside the work log", bs)
+		t.Fatalf("blocks %+v: want the compaction that ends the turn outside the work log", bs)
+	}
+	mid := append(append([]session.Item{}, c[:2]...), compact, c[2])
+	if bs := blocks(mid, nil); len(bs) != 2 {
+		t.Fatalf("blocks %+v: want a mid-turn divider inside the one work log", bs)
 	}
 	b := bs[1]
 	if b.todo != 3 || b.todos != 2 || b.tools != 1 {

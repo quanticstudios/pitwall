@@ -332,8 +332,14 @@ func lastReply(s *session.Snapshot, it *session.Item) bool {
 }
 
 // divider is whether a system item's phase draws as a divider across the
-// column, which stands outside a work log even mid-turn: a folded log
-// would hide it.
+// column. One that ends its turn, as /compact's compaction does, stands
+// outside the work log, which would hide it folded; one mid-turn stays in
+// the log, so the turn keeps one header.
 func divider(phase string) bool {
 	return phase == session.PhaseCompact || phase == session.PhaseSetting
+}
+
+// endsTurn is whether item i is the last of its turn's run of items.
+func endsTurn(content []session.Item, i int) bool {
+	return i+1 == len(content) || deref(content[i+1].TurnID) != deref(content[i].TurnID)
 }
