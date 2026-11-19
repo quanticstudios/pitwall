@@ -105,12 +105,34 @@ func TestChatReadPace(t *testing.T) {
 		{"no longer shown", busy, "c", time.Second, 2 * time.Second, false, 0},
 	} {
 		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out, at: now.Add(-tc.ago), shown: now.Add(-tc.shown)}
-		if b.chat.streaming("c") != (tc.snap == busy && !tc.out) {
-			t.Errorf("%s: streaming %v", tc.what, b.chat.streaming("c"))
-		}
 		b.chatRead(tc.id)
 		if got := reads(); got != tc.want {
 			t.Errorf("%s: %d reads, want %d", tc.what, got, tc.want)
 		}
+	}
+
+	// Without a frame, the reply schedules the next read: every reply
+	// while the turn runs, and one more after a reply that changed an
+	// idle chat, such as the one that ends the turn.
+	for _, tc := range []struct {
+		what    string
+		snap    *session.Snapshot
+		out     bool
+		changed bool
+		after   time.Duration
+		ok      bool
+	}{
+		{"streaming", busy, false, false, chatStream, true},
+		{"read out", busy, true, true, 0, false},
+		{"idle, changed", idle, false, true, app.ChatPoll, true},
+		{"idle, unchanged", idle, false, false, app.ChatPoll, false},
+	} {
+		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out}
+		if after, ok := b.chat.again("c", tc.changed); after != tc.after && tc.ok || ok != tc.ok {
+			t.Errorf("%s: again %v %v, want %v %v", tc.what, after, ok, tc.after, tc.ok)
+		}
+	}
+	if _, ok := b.chat.again("x", true); ok {
+		t.Error("read again for another chat")
 	}
 }

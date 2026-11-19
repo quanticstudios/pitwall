@@ -546,8 +546,9 @@ func (b *backend) recvLoop() {
 		case proto.ChatDeltas:
 			b.chatReply(m.Chat) // a ChatRead's
 			changed := b.chat.take(m)
-			if id := m.Chat; b.chat.streaming(id) {
-				time.AfterFunc(chatStream, func() { b.chatRead(id) })
+			if after, ok := b.chat.again(m.Chat, changed); ok {
+				id := m.Chat
+				time.AfterFunc(after, func() { b.chatRead(id) })
 			}
 			if !changed {
 				b.mu.Unlock()

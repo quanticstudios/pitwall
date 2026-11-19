@@ -81,11 +81,18 @@ func (b *backend) chatRead(id string) {
 	}
 }
 
-// streaming is whether the chat's turn runs, so its next read goes out
-// chatStream after this reply, not on the window's next poll. Callers
-// hold b.mu.
-func (c *chatCache) streaming(id string) bool {
-	return c.id == id && !c.out && c.snap != nil && c.snap.Busy()
+// again is when to read chat id next without waiting for a frame:
+// chatStream while its turn runs, and app.ChatPoll after a reply that
+// changed it, so what lands as a turn ends shows though the window draws
+// no frame for a chat that went idle. Callers hold b.mu.
+func (c *chatCache) again(id string, changed bool) (time.Duration, bool) {
+	if c.id != id || c.out || c.snap == nil {
+		return 0, false
+	}
+	if c.snap.Busy() {
+		return chatStream, true
+	}
+	return app.ChatPoll, changed
 }
 
 // ChatResults implements app.ChatResulter.
