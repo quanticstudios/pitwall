@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"image"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
+	gioevent "gioui.org/io/event"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -107,6 +109,9 @@ func TestErrorLine(t *testing.T) {
 			t.Errorf("%q: %q", out, got)
 		}
 	}
+	if got := errorLine(&session.ToolCall{ToolName: "Bash", Output: "Exit code 3\ncompiling\nmain.go:3: undefined: foo\n"}); got != "main.go:3: undefined: foo" {
+		t.Errorf("command: %q", got)
+	}
 }
 
 func TestReadRange(t *testing.T) {
@@ -140,6 +145,16 @@ func TestShells(t *testing.T) {
 	if state != "completed" || out != "ready" {
 		t.Fatalf("%q %q", state, out)
 	}
+	read := &session.ToolCall{ToolName: "Read", Status: "completed", Input: in(`{"file_path":"/tmp/x/tasks/bx1.output"}`), Output: "1\ttick 1\n2\ttick 2\n3\t"}
+	content = append(content, session.Item{ID: "f", Tool: read},
+		session.Item{ID: "g", Tool: &session.ToolCall{ToolName: "Read", Input: in(`{"file_path":"/repo/tasks.go"}`)}})
+	sh.index(content)
+	if !sh.isAttached(3) || sh.isAttached(4) {
+		t.Fatalf("output file reads: %+v", sh.attached)
+	}
+	if _, out := shellState(content[0].Tool, []*session.ToolCall{read}); out != "tick 1\ntick 2" {
+		t.Fatalf("output file %q", out)
+	}
 	stop := &session.ToolCall{ToolName: "TaskStop", Status: "completed"}
 	if state, _ := shellState(content[0].Tool, []*session.ToolCall{stop}); state != "killed" {
 		t.Fatalf("stopped: %q", state)
@@ -165,11 +180,18 @@ func TestToolRowClicks(t *testing.T) {
 	th := theme.Dark()
 	var r input.Router
 	var ops op.Ops
+	var other int // another widget's key tag
 	frame := func() {
 		ops.Reset()
 		gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
 			Constraints: layout.Exact(image.Pt(1000, 800)), Now: time.Now()}
+		gioevent.Op(gtx.Ops, &other) // under the transcript, as the composer is beside it
 		tr.Layout(gtx, th, s, false)
+		for {
+			if _, ok := gtx.Event(key.FocusFilter{Target: &other}, key.Filter{Focus: &other, Name: key.NameEscape}); !ok {
+				break
+			}
+		}
 		r.Frame(&ops)
 	}
 	click := func(x, y float32) {
@@ -206,9 +228,58 @@ func TestToolRowClicks(t *testing.T) {
 	if tr.tool.zoom.key != "p/image-1" {
 		t.Fatalf("thumbnail click: zoom %q", tr.tool.zoom.key)
 	}
+	gtx := layout.Context{Ops: &ops, Source: r.Source()}
+	gtx.Execute(key.FocusCmd{Tag: &other}) // as the composer holds the keys
+	frame()
 	r.Queue(key.Event{Name: key.NameEscape, State: key.Press})
 	frame()
 	if tr.tool.zoom.key != "" {
 		t.Fatal("Esc left the picture open")
+	}
+}
+
+// TestToolEdgeCases: every renderer takes empty, malformed and huge calls
+// without a panic, and folds them to something sensible.
+func TestToolEdgeCases(t *testing.T) {
+	names := []string{"Bash", "Read", "Grep", "Glob", "LS", "Edit", "MultiEdit", "Write", "NotebookEdit", "WebSearch", "WebFetch",
+		"Skill", "ToolSearch", "TaskOutput", "TaskStop", "mcp__x__y", "mcp__broken", "Frobnicate", "Task", "TodoWrite"}
+	huge := strings.Repeat("line \x1b[31mred\x1b[0m\n", 50_000)
+	inputs := []json.RawMessage{nil, json.RawMessage(`{`), json.RawMessage(`[]`), json.RawMessage(`{"file_path":""}`)}
+	turn := "t"
+	s := &session.Snapshot{SessionID: "c", SessionState: session.StateReady}
+	for i, name := range names {
+		for j, in := range inputs {
+			for k, out := range []string{"", "\x1b[", "Links: [{bad json", huge} {
+				c := &session.ToolCall{ToolName: name, Input: in, Output: out, Status: []string{"completed", "failed", "running"}[k%3]}
+				v := describe(c, summarize(c, diffLines(c), time.Time{}, time.Now()), out)
+				if c.Status == "failed" && out == "" && v.errLine != "" {
+					t.Errorf("%s: an empty failure has error %q", name, v.errLine)
+				}
+				id := strings.Join([]string{name, string(rune('a' + j)), string(rune('a' + k))}, "-")
+				if i%2 == 0 && k == 3 && j > 0 {
+					continue // half the huge ones keep the frame quick
+				}
+				s.Content = append(s.Content, session.Item{ID: id, Kind: session.KindToolCall, Tool: c, TurnID: &turn})
+			}
+		}
+	}
+	if l := ansiLines("\x1b[38;2;1;2"); len(l) != 1 || l[0].text != "" {
+		t.Errorf("cut escape %+v", l)
+	}
+	if prettyJSON(`{"a":`) != `{"a":` {
+		t.Error("malformed JSON changed")
+	}
+	if webSources("Links: [{bad") != nil {
+		t.Error("malformed links gave sources")
+	}
+	tr := &Transcript{}
+	tr.init()
+	tr.open[logID(s, blocks(s.Content, nil)[0])] = true
+	for _, it := range s.Content {
+		tr.open[it.ID], tr.open["all:"+it.ID] = true, true
+	}
+	var ops op.Ops
+	for range 3 { // folds open, Show all on, the list scrolled through the end
+		transcriptFrame(tr, theme.Dark(), s, &ops, time.Now())
 	}
 }

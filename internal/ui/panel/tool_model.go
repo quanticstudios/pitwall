@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -382,9 +383,14 @@ func cleanOutput(s string) string {
 }
 
 // errorLine is a failed call's error as one line: its first line that
-// says something, past a shell's "Exit code N".
+// says something, past a shell's "Exit code N"; a command's last, since a
+// failing command prints its error after its progress.
 func errorLine(c *session.ToolCall) string {
-	for l := range strings.SplitSeq(cleanOutput(plainOutput(c.Output)), "\n") {
+	lines := strings.Split(cleanOutput(plainOutput(c.Output)), "\n")
+	if c.ExitCode != nil || c.Command != "" || c.ToolName == "Bash" {
+		slices.Reverse(lines)
+	}
+	for _, l := range lines {
 		l = strings.TrimSpace(l)
 		if l == "" || exitCodeLine.MatchString(l) {
 			continue
@@ -453,6 +459,7 @@ var (
 	backgroundID = regexp.MustCompile(`running in background with ID: ([A-Za-z0-9_-]+)`)
 	shellStatus  = regexp.MustCompile(`<status>([a-z_]+)</status>`)
 	shellOut     = regexp.MustCompile(`(?s)<(stdout|output)>\n?(.*?)\n?</(?:stdout|output)>`)
+	shellFile    = regexp.MustCompile(`/tasks/([A-Za-z0-9_-]+)\.output$`) // where Claude Code writes a shell's output
 )
 
 // shellID is the background shell a Bash call started, "" for none.
@@ -500,9 +507,17 @@ func (sh *shells) index(content []session.Item) {
 			started[id] = content[i].ID
 			continue
 		}
+		ref := shellRef(c)
+		if c.ToolName == "Read" {
+			m := shellFile.FindStringSubmatch(inputMap(c.Input).str("file_path"))
+			if m == nil {
+				continue
+			}
+			ref = m[1]
+		}
 		switch c.ToolName {
-		case "BashOutput", "TaskOutput", "KillShell", "KillBash", "TaskStop":
-			b, ok := started[shellRef(c)]
+		case "BashOutput", "TaskOutput", "KillShell", "KillBash", "TaskStop", "Read":
+			b, ok := started[ref]
 			if !ok {
 				continue
 			}
@@ -535,6 +550,12 @@ func shellState(c *session.ToolCall, attached []*session.ToolCall) (state, out s
 			if a.Status == "completed" {
 				state = "killed"
 			}
+		case "Read": // the shell's output file
+			var lines []string
+			for _, l := range readLines(reminder.ReplaceAllString(a.Output, "")) {
+				lines = append(lines, l.text)
+			}
+			out = strings.TrimRight(strings.Join(lines, "\n"), "\n")
 		default:
 			if m := shellStatus.FindStringSubmatch(a.Output); m != nil {
 				state = m[1]
