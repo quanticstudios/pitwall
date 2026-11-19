@@ -43,24 +43,29 @@ func claudeConfigDir(p model.Pane) string {
 	return dir
 }
 
-// claudeEffortFile is the effortLevel in Claude Code's user settings at
-// path, "" when unset, unknown or unreadable. Never writes.
-func claudeEffortFile(path string) string {
+// claudeSettingsFile is the model and effortLevel in Claude Code's user
+// settings at path, "" for one unset, unknown or unreadable. Never writes.
+func claudeSettingsFile(path string) (model, effort string) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var s struct {
+		Model  string `json:"model"`
 		Effort string `json:"effortLevel"`
 	}
 	if json.Unmarshal(b, &s) != nil {
-		return ""
+		return "", ""
 	}
 	switch s.Effort {
 	case "low", "medium", "high", "xhigh", "max":
-		return s.Effort
+	default:
+		s.Effort = ""
 	}
-	return ""
+	if len(s.Model) > 80 || strings.ContainsAny(s.Model, " \n\t") {
+		s.Model = ""
+	}
+	return s.Model, s.Effort
 }
 
 // Only an explicit false lets pitwall schedule a Claude resume. Missing
