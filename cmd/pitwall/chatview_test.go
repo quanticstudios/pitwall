@@ -4,10 +4,12 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 )
 
 // TestChatCache: a read's snapshot and the deltas after it build the
@@ -35,5 +37,30 @@ func TestChatCache(t *testing.T) {
 	}
 	if c.take(proto.ChatDeltas{Chat: "c", Seq: 4, Deltas: [][]byte{add(6, "gap")}}) || c.seq != 0 || len(c.snap.Content) != 3 {
 		t.Fatalf("gap: seq %d, %d items", c.seq, len(c.snap.Content))
+	}
+}
+
+// TestChatResults: each reply answers the chat's oldest request, so a
+// refusal names the request it refuses, a ChatSend's success is kept, and
+// other successes are dropped.
+func TestChatResults(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	set, send, rm := proto.ChatSet{Chat: "c", Mode: "plan"}, proto.ChatSend{Chat: "c", Text: "hi"}, proto.ChatQueue{Chat: "c", Action: "remove", ID: "q1"}
+	for _, m := range []any{proto.ChatRead{Chat: "c"}, set, send, proto.ChatInterrupt{Chat: "c"}, rm, proto.ChatNew{}} {
+		if id, ok := chatOf(m); ok {
+			b.chatReq[id] = append(b.chatReq[id], m)
+		}
+	}
+	b.chatReply("c") // the read's ChatDeltas
+	b.chatAnswered(proto.ChatResult{Chat: "c", Code: "unsupported", Message: "no plan mode"})
+	b.chatAnswered(proto.ChatResult{Chat: "c"})
+	b.chatAnswered(proto.ChatResult{Chat: "c"})
+	b.chatAnswered(proto.ChatResult{Chat: "c", Code: "invalid", Message: "no queued message q1"})
+	want := []chatin.Result{{Req: set, Message: "no plan mode"}, {Req: send}, {Req: rm, Message: "no queued message q1"}}
+	if got := b.ChatResults("c"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("results %+v, want %+v", got, want)
+	}
+	if b.ChatResults("c") != nil || len(b.chatReq) != 0 {
+		t.Fatalf("left %v and %v", b.chatOut, b.chatReq)
 	}
 }

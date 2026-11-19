@@ -75,6 +75,9 @@ type Env struct {
 	Images     bool
 	ReadImage  func(context.Context) ([]byte, error)
 	Invalidate func()
+	// Key, when set, offers a digit typed into the empty box, or Enter on
+	// it, to the transcript's pending request; true when it took the key.
+	Key func(name string) bool
 }
 
 type imageRead struct {
@@ -141,15 +144,33 @@ func (c *Composer) Slash() (string, bool) {
 	return Slash(c.ed.Text(), end)
 }
 
-// Failed shows why the daemon refused a request at now. A send refused
-// within moments, with the box still empty, comes back into the box.
-func (c *Composer) Failed(msg string, now time.Time) {
-	c.note = msg
-	if l := c.last; l != nil && now.Sub(l.at) < holdFor && c.ed.Len() == 0 && len(c.draft.Images) == 0 {
-		c.draft = l.draft
-		c.SetText(l.text)
+// Result is the daemon's answer to one of the window's Chat* requests:
+// the request, and why it was refused, "" when it went through.
+type Result struct {
+	Req     any
+	Message string
+}
+
+// Result takes the daemon's answer to a request at now. A refusal shows
+// its message. A ChatSend refused within moments, with the box still
+// empty, comes back into the box, and a refused queue removal brings its
+// row back.
+func (c *Composer) Result(r Result, now time.Time) {
+	if r.Message != "" {
+		c.note = r.Message
 	}
-	c.last = nil
+	switch m := r.Req.(type) {
+	case proto.ChatSend:
+		if l := c.last; r.Message != "" && l != nil && now.Sub(l.at) < holdFor && c.ed.Len() == 0 && len(c.draft.Images) == 0 {
+			c.draft = l.draft
+			c.SetText(l.text)
+		}
+		c.last = nil
+	case proto.ChatQueue:
+		if r.Message != "" {
+			delete(c.gone, m.ID)
+		}
+	}
 }
 
 // AddImage puts picture b at the caret as an [Image #N] token, with its
@@ -194,8 +215,13 @@ func (c *Composer) waiting() bool {
 }
 
 // Reading puts a token for an image at the caret now and reads the
-// image off the UI goroutine; a later frame fills it in.
+// image off the UI goroutine; a later frame fills it in. Without
+// env.Images it only notes that the daemon takes no images.
 func (c *Composer) Reading(env Env, read func(context.Context) ([]byte, error)) {
+	if !env.Images {
+		c.note = "Update the daemon to send images"
+		return
+	}
 	if c.reads == nil {
 		c.reads = make(chan imageRead, maxImages)
 	}
@@ -383,7 +409,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		switch {
 		case len(b) > 0:
 			ed.Insert(string(b))
-		case env.Images && env.ReadImage != nil:
+		case env.ReadImage != nil:
 			c.Reading(env, env.ReadImage)
 		}
 	}
@@ -423,6 +449,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.draft.Sync(ed.Text())
 		}
 	}
+	empty := ed.Len() == 0 && len(c.draft.Images) == 0
 	for {
 		ev, ok := ed.Update(gtx)
 		if !ok {
@@ -430,6 +457,9 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		switch ev.(type) {
 		case widget.SubmitEvent:
+			if empty && env.Key != nil && env.Key(string(key.NameReturn)) {
+				break
+			}
 			c.submit(env, gtx.Now)
 		case widget.ChangeEvent:
 			c.draft.Sync(ed.Text())
@@ -437,6 +467,9 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 				c.note = ""
 			}
 		}
+	}
+	if t := ed.Text(); empty && env.Key != nil && len(t) == 1 && t >= "1" && t <= "9" && env.Key(t) {
+		ed.SetText("")
 	}
 	for n, b := range c.rm {
 		if b.Clicked(gtx) {
@@ -520,9 +553,9 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	if !c.inited {
 		c.inited = true
 		c.ed.Submit = true
-		c.ed.LineHeight, c.ed.LineHeightScale = th.Sp(theme.Large)*1.5, 1
 		c.popT.Set(gtx.Now, 0, 0)
 	}
+	c.ed.LineHeight, c.ed.LineHeightScale = th.Sp(theme.Large)*1.5, 1 // follows the UI size
 	if env.Focus && !gtx.Focused(&c.ed) && !c.menu {
 		gtx.Execute(key.FocusCmd{Tag: &c.ed})
 	}
@@ -613,7 +646,7 @@ func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 
 func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.Dimensions {
 	size := image.Pt(gtx.Dp(48), gtx.Dp(64))
-	r := gtx.Dp(8)
+	r := gtx.Dp(theme.RadiusPopover)
 	rect := image.Rectangle{Max: size}
 	paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(rect, r).Op(gtx.Ops))
 	if im.Data != nil {
@@ -627,7 +660,7 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 	badge := withAlpha(th.Bg, 0xd9)
 	// The number, bottom left.
 	nm := op.Record(gtx.Ops)
-	nd := layout.Inset{Left: 4, Right: 4, Top: 3, Bottom: 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	nd := layout.Inset{Left: theme.SpaceXS, Right: theme.SpaceXS, Top: 3, Bottom: 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Fg, "#"+itoa(im.N))
 	})
 	ncall := nm.Stop()
@@ -706,7 +739,7 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 			label := lm.Stop()
 			base := rg.Bounds.Max.Y - rg.Baseline // the line's baseline
 			ly := base - (ld.Size.Y - ld.Baseline)
-			em, gap, padX, padY := gtx.Sp(size), gtx.Dp(theme.SpaceXS), gtx.Dp(6), gtx.Dp(2)
+			em, gap, padX, padY := gtx.Sp(size), gtx.Dp(theme.SpaceXS), gtx.Dp(6), gtx.Dp(theme.Space2XS)
 			w := ld.Size.X + 2*padX
 			withIcon := w+em+gap <= rg.Bounds.Dx()+2*padX
 			if withIcon {
@@ -1042,7 +1075,7 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 			}))
 		}
 		kids = append(kids, layout.Rigid(heading(th, "Effort")), layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Left: 4, Right: 4, Bottom: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: theme.SpaceXS, Right: theme.SpaceXS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				var es []layout.FlexChild
 				for _, e := range remote.Efforts {
 					es = append(es, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {

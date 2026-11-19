@@ -195,6 +195,7 @@ type harness struct {
 	clip []byte        // the clipboard's image
 	gate chan struct{} // when set, a clipboard read waits for it
 	now  time.Time
+	key  func(string) bool // the transcript's, nil when it takes no keys
 }
 
 func newHarness(t *testing.T) *harness {
@@ -208,7 +209,7 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key,
 		ReadImage: func(context.Context) ([]byte, error) {
 			if h.gate != nil {
 				<-h.gate
@@ -289,8 +290,13 @@ func TestComposerKeys(t *testing.T) {
 		t.Fatalf("the box kept %q", h.c.Text())
 	}
 
+	// Another request's refusal shows its note and leaves the box alone.
+	h.c.Result(Result{Req: proto.ChatSet{Chat: "c1", Mode: ModePlan}, Message: "unsupported"}, h.now)
+	if h.c.Text() != "" || h.c.note != "unsupported" {
+		t.Fatalf("a refused ChatSet filled the box: %q", h.c.Text())
+	}
 	// A refused send comes back into the empty box.
-	h.c.Failed("busy", h.now)
+	h.c.Result(Result{Req: s, Message: "busy"}, h.now)
 	if h.c.Text() != "one\ntwo [Image #1] three" || len(h.c.Images()) != 1 || h.c.note != "busy" {
 		t.Fatalf("the refused send is not back: %q", h.c.Text())
 	}
@@ -409,13 +415,59 @@ func TestQueuedRows(t *testing.T) {
 	if !h.c.gone["q1"] || !h.c.gone["q2"] {
 		t.Fatal("removed rows still show")
 	}
+	// A refused removal brings its row back.
+	h.c.Result(Result{Req: proto.ChatQueue{Chat: "c1", Action: "remove", ID: "q2"}, Message: "no queued message q2"}, h.now)
+	if !h.c.gone["q1"] || h.c.gone["q2"] {
+		t.Fatalf("after a refused removal: %v", h.c.gone)
+	}
 	h.snap.QueuedInputs = nil
 	h.frame()
 	if len(h.c.gone) != 0 {
 		t.Fatal("rows the chat dropped are still remembered")
 	}
 	// Enter with a draft while running queues and never interrupts.
-	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).How != "queue" {
+	m = h.press(key.NameReturn, 0)
+	if len(m) != 1 || m[0].(proto.ChatSend).How != "queue" {
 		t.Fatalf("Enter sent %+v", m)
+	}
+	// Once the send lands, a later refusal does not bring it back.
+	h.c.Result(Result{Req: m[0]}, h.now)
+	h.c.Result(Result{Req: proto.ChatSend{Chat: "c1"}, Message: "busy"}, h.now)
+	if h.c.Text() != "" {
+		t.Fatalf("a landed send came back: %q", h.c.Text())
+	}
+}
+
+// TestNoImages: a daemon too old for attachments gets a note, not a token.
+func TestNoImages(t *testing.T) {
+	var c Composer
+	c.Reading(Env{}, func(context.Context) ([]byte, error) { return pngOf(4, 4), nil })
+	if c.Text() != "" || len(c.draft.Images) != 0 || c.note == "" {
+		t.Fatalf("text %q, images %d, note %q", c.Text(), len(c.draft.Images), c.note)
+	}
+}
+
+// TestTranscriptKeys: a digit typed into the empty box, or Enter on it,
+// goes to the transcript; one it does not take stays, and a digit after
+// text is only text.
+func TestTranscriptKeys(t *testing.T) {
+	h := newHarness(t)
+	var got []string
+	h.key = func(name string) bool { got = append(got, name); return name != "5" }
+	h.r.Queue(key.EditEvent{Text: "1"})
+	h.frame()
+	if h.c.Text() != "" {
+		t.Fatalf("the box kept %q", h.c.Text())
+	}
+	h.press(key.NameReturn, 0)
+	h.r.Queue(key.EditEvent{Text: "5"})
+	h.frame()
+	if h.c.Text() != "5" {
+		t.Fatalf("an untaken digit left %q", h.c.Text())
+	}
+	h.r.Queue(key.EditEvent{Range: key.Range{Start: 1, End: 1}, Text: "2"})
+	h.frame()
+	if want := []string{"1", string(key.NameReturn), "5"}; !slices.Equal(got, want) || h.c.Text() != "52" {
+		t.Fatalf("keys %v, text %q", got, h.c.Text())
 	}
 }

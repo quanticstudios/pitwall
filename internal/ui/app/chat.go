@@ -21,10 +21,11 @@ type Chatter interface {
 	Chat(id string) (session.Snapshot, bool)
 }
 
-// ChatFailer is optionally implemented by a Backend: the message of the
-// last Chat* request the daemon refused for chat id, once.
-type ChatFailer interface {
-	ChatFailed(id string) (string, bool)
+// ChatResulter is optionally implemented by a Backend: the daemon's
+// answers to the window's ChatSend requests and its refusals of any other
+// Chat* request on chat id, each once.
+type ChatResulter interface {
+	ChatResults(id string) []chatin.Result
 }
 
 // ChatPoll is how often the window asks for a live chat's transcript
@@ -50,9 +51,9 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	if ok {
 		aide := curHost() == "" && findAide() != nil
 		cmp := u.composer(st, ws.Chat)
-		if f, ok := u.b.(ChatFailer); ok {
-			if msg, ok := f.ChatFailed(ws.Chat); ok {
-				cmp.Failed(msg, gtx.Now)
+		if f, ok := u.b.(ChatResulter); ok {
+			for _, r := range f.ChatResults(ws.Chat) {
+				cmp.Result(r, gtx.Now)
 			}
 		}
 		env := u.chatEnv(st, ws.Chat, &s)
@@ -81,9 +82,13 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 
 // chatEnv is what chat id's composer needs this frame.
 func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot) chatin.Env {
-	return chatin.Env{Chat: id, Snap: s, Width: composerWidth,
+	env := chatin.Env{Chat: id, Snap: s, Width: composerWidth,
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate}
+	if k, ok := any(&u.transcript).(interface{ Key(string) bool }); ok {
+		env.Key = k.Key // the transcript answers its pending request by key
+	}
+	return env
 }
 
 // composer is chat id's composer, kept in window state so its draft

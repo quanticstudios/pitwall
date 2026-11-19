@@ -131,7 +131,7 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 		case on:
 			paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
-		o := op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops)
+		o := op.Offset(image.Pt(gtx.Dp(theme.SpaceS), 0)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints.Max.X = w - gtx.Dp(36)
 		row(g, 0, h, func(gtx layout.Context) layout.Dimensions {
@@ -140,7 +140,7 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 		o.Pop()
 		if on {
 			is := gtx.Dp(14)
-			o := op.Offset(image.Pt(w-gtx.Dp(8)-is, (h-is)/2)).Push(gtx.Ops)
+			o := op.Offset(image.Pt(w-gtx.Dp(theme.SpaceS)-is, (h-is)/2)).Push(gtx.Ops)
 			sidebar.Icon(gtx, "check", is, th.Readable(th.Primary, th.SurfaceElevated))
 			o.Pop()
 		}

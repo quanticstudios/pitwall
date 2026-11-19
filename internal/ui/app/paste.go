@@ -251,12 +251,9 @@ func (u *ui) dropFiles(e app.FileDropEvent) {
 	st := u.b.State()
 	if ws := findWorkspace(&st, u.nav.workspace); ws != nil && ws.Chat != "" {
 		// A chat tab has no panes: the images go to its composer.
-		if u.link().Level < proto.ChatAttachLevel {
-			return
-		}
-		cmp := u.composer(&st, ws.Chat)
+		cmp, env := u.composer(&st, ws.Chat), chatin.Env{Images: u.link().Level >= proto.ChatAttachLevel, Invalidate: u.invalidate}
 		for _, path := range e.Paths {
-			cmp.Reading(chatin.Env{Invalidate: u.invalidate}, func(context.Context) ([]byte, error) { return readDroppedImage(path) })
+			cmp.Reading(env, func(context.Context) ([]byte, error) { return readDroppedImage(path) })
 		}
 		return
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 )
 
 // chatCache is the transcript of the one chat the window shows, kept up
@@ -57,13 +58,13 @@ func (b *backend) Chat(id string) (session.Snapshot, bool) {
 	return s, ok
 }
 
-// ChatFailed implements app.ChatFailer.
-func (b *backend) ChatFailed(id string) (string, bool) {
+// ChatResults implements app.ChatResulter.
+func (b *backend) ChatResults(id string) []chatin.Result {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	msg, ok := b.chatErr[id]
-	delete(b.chatErr, id)
-	return msg, ok
+	r := b.chatOut[id]
+	delete(b.chatOut, id)
+	return r
 }
 
 // take applies a ChatRead's reply and reports whether the transcript
