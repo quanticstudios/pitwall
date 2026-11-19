@@ -145,17 +145,23 @@ func TestReadRange(t *testing.T) {
 
 // TestShells: a call that reads or stops a background shell draws on the
 // shell's row, which takes its state and output.
-// TestOpenTarget: a relative path opens under the chat's folder; a rooted
-// path, a Windows drive path or a URL opens as given.
+// TestOpenTarget: a relative path opens under the chat's folder; a path
+// absolute for the OS, a rooted or drive path from any OS, or a URL opens
+// as given.
 func TestOpenTarget(t *testing.T) {
 	var got string
-	tr := &Transcript{Dir: filepath.FromSlash("/repo"), Open: func(s string) { got = s }}
+	dir := t.TempDir() // absolute for the OS: C:\... on Windows
+	abs := filepath.Join(dir, "b", "x.go")
+	tr := &Transcript{Dir: dir, Open: func(s string) { got = s }}
 	for in, want := range map[string]string{
-		"a/main.go":              filepath.Join(filepath.FromSlash("/repo"), "a", "main.go"),
-		"/etc/hosts":             "/etc/hosts",
-		`\\srv\share\x.txt`:      `\\srv\share\x.txt`,
-		"https://example.com/a":  "https://example.com/a",
-		"file:///repo/README.md": "file:///repo/README.md",
+		"a/main.go":                 filepath.Join(dir, "a", "main.go"),
+		abs:                         abs, // already absolute: never joined
+		`C:\Users\dev\acme\main.go`: `C:\Users\dev\acme\main.go`,
+		"C:/Users/dev/acme/x.go":    "C:/Users/dev/acme/x.go",
+		"/etc/hosts":                "/etc/hosts",
+		`\\srv\share\x.txt`:         `\\srv\share\x.txt`,
+		"https://example.com/a":     "https://example.com/a",
+		"file:///repo/README.md":    "file:///repo/README.md",
 	} {
 		tr.openTarget(in)
 		if got != want {
@@ -201,15 +207,18 @@ func TestShells(t *testing.T) {
 // a picture shows it large until Esc.
 func TestToolRowClicks(t *testing.T) {
 	turn := "t1"
-	read := &session.ToolCall{CallID: "r", ToolName: "Read", Status: "completed", Input: json.RawMessage(`{"file_path":"/repo/a/main.go"}`), Output: "     1→package a"}
-	pic := &session.ToolCall{CallID: "p", ToolName: "Read", Status: "completed", Input: json.RawMessage(`{"file_path":"/repo/shot.png"}`),
+	repo := t.TempDir() // absolute for the OS: C:\... on Windows
+	file := filepath.Join(repo, "a", "main.go")
+	path := func(p string) json.RawMessage { b, _ := json.Marshal(map[string]string{"file_path": p}); return b }
+	read := &session.ToolCall{CallID: "r", ToolName: "Read", Status: "completed", Input: path(file), Output: "     1→package a"}
+	pic := &session.ToolCall{CallID: "p", ToolName: "Read", Status: "completed", Input: path(filepath.Join(repo, "shot.png")),
 		Images: []session.Attachment{{ID: "image-1", Kind: "image", Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}}}
 	s := &session.Snapshot{SessionID: "c", SessionState: session.StateReady, Content: []session.Item{
 		{ID: "r", Kind: session.KindToolCall, Tool: read, TurnID: &turn},
 		{ID: "p", Kind: session.KindToolCall, Tool: pic, TurnID: &turn},
 	}}
 	var opened []string
-	tr := &Transcript{Dir: "/repo", Open: func(p string) { opened = append(opened, p) }}
+	tr := &Transcript{Dir: repo, Open: func(p string) { opened = append(opened, p) }}
 	tr.init()
 	tr.open[logID(s, blocks(s.Content, nil)[0])] = true
 	th := theme.Dark()
@@ -242,7 +251,7 @@ func TestToolRowClicks(t *testing.T) {
 	x0 := float32(24)
 	y := float32(24 + 1 + 34 + 1 + 17)
 	click(x0+120, y)
-	if len(opened) != 1 || opened[0] != "/repo/a/main.go" || isOpen(tr.open, "r", false) {
+	if len(opened) != 1 || opened[0] != file || isOpen(tr.open, "r", false) {
 		t.Fatalf("chip click: opened %v, row open %v", opened, isOpen(tr.open, "r", false))
 	}
 	click(x0+600, y)

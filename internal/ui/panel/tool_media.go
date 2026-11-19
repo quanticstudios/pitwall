@@ -166,7 +166,7 @@ func (d *cdraw) fileList(gtx layout.Context, id string, hits []fileHit) layout.D
 	for i, h := range hits {
 		p := relPath(d.t.Dir, h.path)
 		dir, file := "", p
-		if k := strings.LastIndexByte(p, '/'); k >= 0 {
+		if k := strings.LastIndexAny(p, `/\`); k >= 0 {
 			dir, file = p[:k+1], p[k+1:]
 		}
 		note := ""

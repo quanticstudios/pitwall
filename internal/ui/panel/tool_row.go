@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,13 +77,17 @@ func (t *Transcript) openTarget(target string) {
 	if t.Open == nil || target == "" {
 		return
 	}
-	// A rooted path, /x on Windows too, is never under the chat's folder.
-	rooted := filepath.IsAbs(target) || strings.HasPrefix(target, "/") || strings.HasPrefix(target, `\`)
+	// A rooted or drive path is never under the chat's folder, whichever OS
+	// wrote it: /x on Windows, C:\x on Linux.
+	rooted := filepath.IsAbs(target) || strings.HasPrefix(target, "/") || strings.HasPrefix(target, `\`) || drivePath.MatchString(target)
 	if !strings.Contains(target, "://") && !rooted && t.Dir != "" {
 		target = filepath.Join(t.Dir, target)
 	}
 	t.Open(target)
 }
+
+// drivePath is a Windows path from a drive's root, C:\ or C:/.
+var drivePath = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 // linkClicked reports a click on a link inside row id's header, and
 // drops the row's own click from the same press, so the link does not
@@ -282,7 +287,7 @@ func (d *cdraw) linkChip(gtx layout.Context, ck *widget.Clickable, txt string, p
 			txt = middleCut(txt, room, gtx.Sp(sz)*55/100)
 		}
 		dir, file := "", txt
-		if i := strings.LastIndexByte(txt, '/'); path && i >= 0 && i < len(txt)-1 {
+		if i := strings.LastIndexAny(txt, `/\`); path && i >= 0 && i < len(txt)-1 {
 			dir, file = txt[:i+1], txt[i+1:]
 		}
 		hot := ck.Hovered()
