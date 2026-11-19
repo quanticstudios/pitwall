@@ -804,11 +804,17 @@ func (d *Daemon) loadChats() {
 			log.Printf("chat %s: its tab %s is gone", e.Name(), cfg.Workspace)
 			continue
 		}
-		c := d.newChat(cfg.ID, d.o.Providers[cfg.Provider], w.Label)
+		// The saved label comes back as the tab's folder; an unnamed chat
+		// tab goes by its first prompt, as it did before the restart.
+		title := w.Label
+		if !w.NameSet && cfg.RecentPrompt != "" {
+			title = promptTitle(cfg.RecentPrompt)
+		}
+		c := d.newChat(cfg.ID, d.o.Providers[cfg.Provider], title)
 		c.cfg = cfg
 		c.saved, _ = json.Marshal(cfg)
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
-			Title: w.Label, RecentPrompt: cfg.RecentPrompt, Pinned: cfg.Pinned, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
+			Title: title, RecentPrompt: cfg.RecentPrompt, Pinned: cfg.Pinned, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
 		if len(w.Tabs) > 0 { // a handoff kept the terminal view's claude running
 			c.term = layout.Panes(w.Tabs[0].Layout)[0]
 			c.sum.Terminal = c.term

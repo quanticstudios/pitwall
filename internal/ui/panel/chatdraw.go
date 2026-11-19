@@ -343,12 +343,13 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 		return layout.Dimensions{}
 	}
 	var ws []layout.Widget
+	refs := imageRefs(it.Text)
 	n := 0
 	for i := range it.Attachments {
 		a := &it.Attachments[i]
 		if a.Kind == "image" {
 			n++
-			no := n
+			no := imageNo(refs, n)
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.thumbnail(gtx, it.ID, a, no) })
 			continue
 		}

@@ -186,6 +186,9 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 	c := it.Tool
 	lines := d.diff(it)
 	sum := summarize(c, lines, parseTime(it.CreatedAt), d.t.now)
+	if sum.path {
+		sum.arg = relPath(d.t.Dir, sum.arg)
+	}
 	out := toolOutput(c)
 	body := d.toolBody(it, sum, lines, out)
 	open := body != nil && d.t.toggled(gtx, it.ID, toolOpen(c))

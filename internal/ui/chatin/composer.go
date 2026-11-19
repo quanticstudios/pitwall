@@ -56,6 +56,7 @@ type Composer struct {
 	reading int            // clipboard or dropped images on their way
 	reads   chan imageRead // their results, read on the UI goroutine
 	note    string         // why the last image or send failed
+	noteAt  string         // the text when an image's note went up: taking its token out is no edit that clears it
 	last    *sent          // the last send, until it is answered
 
 	mode, model, effort held
@@ -202,7 +203,7 @@ func (c *Composer) fill(n int, b []byte, err error) {
 	}
 	if err != nil {
 		c.RemoveImage(n)
-		c.note = "Can't attach the image: " + err.Error()
+		c.note, c.noteAt = "Can't attach the image: "+err.Error(), c.ed.Text()
 		return
 	}
 	c.note = ""
@@ -463,8 +464,8 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.submit(env, gtx.Now)
 		case widget.ChangeEvent:
 			c.draft.Sync(ed.Text())
-			if !c.waiting() {
-				c.note = ""
+			if !c.waiting() && ed.Text() != c.noteAt {
+				c.note, c.noteAt = "", ""
 			}
 		}
 	}

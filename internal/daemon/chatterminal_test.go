@@ -123,12 +123,17 @@ func TestChatTerminal(t *testing.T) {
 }
 
 // TestTerminalCmd: a chat with no turn yet creates its session under the
-// id the driver resumes afterwards.
+// id the driver resumes afterwards, and the TUI keeps the chat's mode,
+// default included, so it does not start in its own default.
 func TestTerminalCmd(t *testing.T) {
 	c := &chat{cfg: session.Config{Model: "opus", Mode: "default"}}
 	cmd := terminalCmd(c, "claude")
-	if len(cmd) != 5 || cmd[1] != "--session-id" || cmd[2] != c.cfg.Resume || c.cfg.Resume == "" || cmd[3] != "--model" {
+	if len(cmd) != 7 || cmd[1] != "--session-id" || cmd[2] != c.cfg.Resume || c.cfg.Resume == "" || cmd[3] != "--model" || cmd[5] != "--permission-mode" || cmd[6] != "default" {
 		t.Fatalf("cmd %q, resume %q", cmd, c.cfg.Resume)
+	}
+	c = &chat{cfg: session.Config{}}
+	if cmd := terminalCmd(c, "claude"); !slices.Equal(cmd[3:], []string{"--permission-mode", "default"}) {
+		t.Fatalf("no mode set: cmd %q", cmd)
 	}
 }
 

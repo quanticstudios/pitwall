@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"image"
 	"image/png"
 	"io"
@@ -193,6 +194,7 @@ type harness struct {
 	ops  op.Ops
 	snap session.Snapshot
 	clip []byte        // the clipboard's image
+	cerr error         // what reading it fails with
 	gate chan struct{} // when set, a clipboard read waits for it
 	now  time.Time
 	key  func(string) bool // the transcript's, nil when it takes no keys
@@ -214,7 +216,7 @@ func (h *harness) env() Env {
 			if h.gate != nil {
 				<-h.gate
 			}
-			return h.clip, nil
+			return h.clip, h.cerr
 		}}
 }
 
@@ -434,6 +436,28 @@ func TestQueuedRows(t *testing.T) {
 	h.c.Result(Result{Req: proto.ChatSend{Chat: "c1"}, Message: "busy"}, h.now)
 	if h.c.Text() != "" {
 		t.Fatalf("a landed send came back: %q", h.c.Text())
+	}
+}
+
+// TestImageReadFails: a paste whose image can't be read takes its token
+// out and keeps saying why, past the frame that sees the token go.
+func TestImageReadFails(t *testing.T) {
+	h := newHarness(t)
+	h.typ("look ")
+	h.cerr = errors.New("pasting an image needs xclip; install it")
+	h.paste("")
+	h.waitImage()
+	h.frame()
+	h.frame()
+	if h.c.Text() != "look " || len(h.c.Images()) != 0 {
+		t.Fatalf("text %q, %d images", h.c.Text(), len(h.c.Images()))
+	}
+	if !strings.Contains(h.c.note, "needs xclip") {
+		t.Fatalf("note %q, want why the image did not attach", h.c.note)
+	}
+	h.typ("x")
+	if h.c.note != "" {
+		t.Fatalf("typing kept the note %q", h.c.note)
 	}
 }
 

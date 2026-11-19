@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -113,6 +114,16 @@ func imageRefs(s string) []imageRef {
 	return out
 }
 
+// imageNo is the number a prompt's n-th image shows: that of its n-th
+// [Image #N] token, since the composer sends images in token order and
+// keeps a removed image's number, else n.
+func imageNo(refs []imageRef, n int) int {
+	if n >= 1 && n <= len(refs) {
+		return refs[n-1].n
+	}
+	return n
+}
+
 // proseChars is about where reply prose stops, in characters.
 const proseChars = 96
 
@@ -168,6 +179,19 @@ func recommended(q session.Question) int {
 }
 
 // --- tool rows ---
+
+// relPath is p relative to dir when p is under it, else p: the chat's
+// own files read as main.go, not their absolute path.
+func relPath(dir, p string) string {
+	if dir == "" || !filepath.IsAbs(p) {
+		return p
+	}
+	r, err := filepath.Rel(dir, p)
+	if err != nil || r == "." || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return p
+	}
+	return r
+}
 
 // toolSummary is what a tool row shows.
 type toolSummary struct {

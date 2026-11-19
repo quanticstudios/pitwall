@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -77,6 +78,20 @@ func TestImageRefs(t *testing.T) {
 	}
 	if imageRefs("no images") != nil {
 		t.Fatal("refs in plain text")
+	}
+}
+
+// TestImageNo: a prompt's thumbnails take its tokens' numbers, so a draft
+// that lost image #1 shows #2 on both, and images past the tokens count on.
+func TestImageNo(t *testing.T) {
+	refs := imageRefs("What does this say? [Image #2] and [Image #5]")
+	for n, want := range map[int]int{1: 2, 2: 5, 3: 3} {
+		if got := imageNo(refs, n); got != want {
+			t.Errorf("image %d shows #%d, want #%d", n, got, want)
+		}
+	}
+	if got := imageNo(nil, 1); got != 1 {
+		t.Errorf("no tokens: #%d", got)
 	}
 }
 
@@ -205,5 +220,23 @@ func TestToolOutput(t *testing.T) {
 	c.Status, c.Output = "completed", ""
 	if got := toolOutput(c); got != "" {
 		t.Fatalf("finished: %q", got)
+	}
+}
+
+// TestRelPath: a path under the chat's folder reads relative to it, and
+// anything else stays as it came.
+func TestRelPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "acme-api") // absolute on every OS
+	for _, c := range [][3]string{
+		{dir, filepath.Join(dir, "main.go"), "main.go"},
+		{dir, filepath.Join(dir, "internal", "x.go"), filepath.Join("internal", "x.go")},
+		{dir, dir, dir},
+		{dir, filepath.Join(dir+"-old", "main.go"), filepath.Join(dir+"-old", "main.go")},
+		{dir, "main.go", "main.go"},
+		{"", filepath.Join(dir, "main.go"), filepath.Join(dir, "main.go")},
+	} {
+		if got := relPath(c[0], c[1]); got != c[2] {
+			t.Errorf("relPath(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
 	}
 }

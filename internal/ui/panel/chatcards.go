@@ -27,8 +27,9 @@ func (d *cdraw) agent() string {
 	return "The agent"
 }
 
-// requestWhat is what an approval asks to run or touch, in one line.
-func requestWhat(a session.Approval) string {
+// requestWhat is what an approval asks to run or touch, in one line, a
+// file under dir relative to it.
+func requestWhat(a session.Approval, dir string) string {
 	r := a.Request
 	if r == nil {
 		return firstLine(deref(a.Detail))
@@ -37,12 +38,24 @@ func requestWhat(a session.Approval) string {
 	case r.Command != "":
 		return strings.TrimSpace(r.Command)
 	case r.FilePath != "":
-		return r.FilePath
+		return relPath(dir, r.FilePath)
 	}
 	if arg := flow.ToolArg(session.ToolCall{ToolName: r.ToolName, Input: r.Input}); arg != "" {
 		return r.ToolName + " " + arg
 	}
 	return r.ToolName
+}
+
+// approvalWhy is an approval card's muted line under what it runs: the
+// request's detail, unless that only restates the title and the command,
+// as Claude's "Bash: git push" or a provider's "Edit needs approval".
+func approvalWhy(a session.Approval) string {
+	why := strings.TrimSpace(deref(a.Detail))
+	if why == requestWhat(a, "") || strings.HasSuffix(why, " needs approval") ||
+		a.Request != nil && a.Request.ToolName != "" && strings.HasPrefix(why, a.Request.ToolName+": ") {
+		return ""
+	}
+	return why
 }
 
 // requestTitle is an approval card's title.
@@ -73,10 +86,13 @@ func (d *cdraw) tail() []layout.Widget {
 		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.working(gtx, start) })
 	}
-	if s.LastError != nil && *s.LastError != "" {
-		msg := *s.LastError
+	if msg, stopped := endLine(s); msg != "" {
+		c := d.th.Readable(d.th.Red, d.th.Bg)
+		if stopped {
+			c = d.th.Muted
+		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel("error"), d.body(d.th.Readable(d.th.Red, d.th.Bg)), msg)
+			return d.selectable(gtx, d.t.sel("error"), d.body(c), msg)
 		})
 	}
 	for _, a := range s.PendingApprovals {
@@ -99,6 +115,19 @@ func (d *cdraw) tail() []layout.Widget {
 		})
 	}
 	return out
+}
+
+// endLine is the line under a chat whose last turn did not complete: its
+// error in red, or a muted Stopped when someone stopped the turn, which
+// the snapshot also files as an error.
+func endLine(s *session.Snapshot) (msg string, stopped bool) {
+	if s.LastError == nil || *s.LastError == "" {
+		return "", false
+	}
+	if n := len(s.Turns); n > 0 && s.Turns[n-1].State == session.TurnInterrupted && *s.LastError == "Turn "+session.TurnInterrupted {
+		return "Stopped", true
+	}
+	return *s.LastError, false
 }
 
 // working is the header of a turn that has nothing to show yet.
@@ -159,11 +188,7 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 		bs = new([3]widget.Clickable)
 		d.t.answer[a.ID] = bs
 	}
-	what := requestWhat(a)
-	why := strings.TrimSpace(deref(a.Detail))
-	if why == what || strings.HasSuffix(why, " needs approval") {
-		why = "" // the provider's generic line says nothing the title does not
-	}
+	what, why := requestWhat(a, d.t.Dir), approvalWhy(a)
 	return d.card(gtx, "shield", d.requestTitle(a), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return vstack(gtx, gtx.Dp(theme.SpaceS),
