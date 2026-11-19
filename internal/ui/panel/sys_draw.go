@@ -95,24 +95,24 @@ func (d *cdraw) sysItem(gtx layout.Context, it *session.Item, inLog bool) layout
 func (d *cdraw) commandChip(gtx layout.Context, cmd string, right bool) layout.Dimensions {
 	th := d.th
 	w := gtx.Constraints.Max.X
-	px, h := gtx.Dp(10), gtx.Dp(hit)
+	px, h := gtx.Dp(theme.SpaceS+theme.Space2XS), gtx.Dp(hit)
 	ic := "terminal"
 	if strings.HasPrefix(cmd, "/") {
 		ic = "zap"
 	}
 	g := gtx
-	g.Constraints.Max.X = max(0, min(w, d.col*84/100)-2*px-gtx.Dp(20))
+	g.Constraints.Max.X = max(0, min(w, d.col*84/100)-2*px-gtx.Dp(theme.SpaceL+theme.SpaceXS))
 	c, td := measure(g, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, th.MonoFont, th.Sp(theme.Body), th.Fg, cmd)
 	})
-	cw := td.Size.X + 2*px + gtx.Dp(20)
+	cw := td.Size.X + 2*px + gtx.Dp(theme.SpaceL+theme.SpaceXS)
 	x := 0
 	if right {
 		x = w - cw
 	}
 	rrect(gtx, image.Rect(x, 0, x+cw, h), gtx.Dp(theme.RadiusControl), th.SurfaceSecondary, th.BorderSubtle)
 	icon(gtx, image.Pt(x+px, (h-gtx.Dp(14))/2), ic, 14, th.Muted)
-	at(gtx, image.Pt(x+px+gtx.Dp(20), (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
+	at(gtx, image.Pt(x+px+gtx.Dp(theme.SpaceL+theme.SpaceXS), (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
@@ -137,7 +137,7 @@ func (d *cdraw) commandOutput(gtx layout.Context, id, out string, right bool) la
 // before it; with ck it is a fold, its chevron saying open.
 func (d *cdraw) divider(gtx layout.Context, ck *widget.Clickable, ic, txt string, open bool) layout.Dimensions {
 	th := d.th
-	w, h := gtx.Constraints.Max.X, gtx.Dp(28)
+	w, h := gtx.Constraints.Max.X, gtx.Dp(hit)
 	draw := func(gtx layout.Context) layout.Dimensions {
 		c := th.Muted
 		if ck != nil && ck.Hovered() {
@@ -157,7 +157,9 @@ func (d *cdraw) divider(gtx layout.Context, ck *widget.Clickable, ic, txt string
 			}
 			parts = append(parts, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, chev, gtx.Dp(12), c) })
 		}
-		mc, md := measure(gtx, func(gtx layout.Context) layout.Dimensions { return hrow(gtx, gtx.Dp(6), parts...) })
+		mc, md := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return hrow(gtx, gtx.Dp(theme.SpaceXS+theme.Space2XS), parts...)
+		})
 		mx := (w - md.Size.X) / 2
 		gap := gtx.Dp(theme.SpaceM)
 		line := th.BorderSubtle
@@ -229,12 +231,12 @@ func (d *cdraw) notice(gtx layout.Context, id string, tone color.NRGBA, title, m
 	th := d.th
 	w := gtx.Constraints.Max.X
 	fg := th.Readable(tone, th.Surface)
-	px, py := gtx.Dp(theme.SpaceM), gtx.Dp(10)
+	px, py := gtx.Dp(cardPadX), gtx.Dp(cardPadY)
 	isz := gtx.Dp(14)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px-isz-gtx.Dp(theme.SpaceS)), gtx.Constraints.Max.Y)}
 	c, bd := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return vstack(gtx, gtx.Dp(2),
+		return vstack(gtx, gtx.Dp(theme.Space2XS),
 			func(gtx layout.Context) layout.Dimensions {
 				if title == "" {
 					return layout.Dimensions{}
@@ -322,7 +324,7 @@ func (d *cdraw) thinkRow(gtx layout.Context, i int) layout.Dimensions {
 	bd := at(g, image.Pt(gtx.Dp(bodyIndent), hd.Size.Y), func(gtx layout.Context) layout.Dimensions {
 		return d.selectable(gtx, d.t.sel(it.ID), tstyle{italic, th.Sp(theme.Body), th.Muted, 1.55}, txt)
 	})
-	return layout.Dimensions{Size: image.Pt(w, hd.Size.Y+bd.Size.Y+gtx.Dp(10))}
+	return layout.Dimensions{Size: image.Pt(w, hd.Size.Y+bd.Size.Y+gtx.Dp(theme.SpaceS+theme.Space2XS))}
 }
 
 // --- task lists ---
@@ -333,7 +335,7 @@ func (d *cdraw) todoCard(gtx layout.Context, it *session.Item) layout.Dimensions
 	th := d.th
 	tasks := it.Tool.Tasks
 	w := gtx.Constraints.Max.X
-	px, py := gtx.Dp(theme.SpaceM), gtx.Dp(10)
+	px, py := gtx.Dp(cardPadX), gtx.Dp(cardPadY)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px), gtx.Constraints.Max.Y)}
 	c, bd := measure(g, func(gtx layout.Context) layout.Dimensions {
@@ -343,6 +345,7 @@ func (d *cdraw) todoCard(gtx layout.Context, it *session.Item) layout.Dimensions
 	})
 	h := bd.Size.Y + 2*py
 	rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover), th.Bg, th.BorderSubtle)
+	defer clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover)).Push(gtx.Ops).Pop()
 	at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return bd })
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
@@ -365,14 +368,14 @@ func (d *cdraw) todoHead(gtx layout.Context, tasks []session.Task) layout.Dimens
 	at(gtx, image.Pt(w-nd.Size.X, (h-nd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { nc.Add(gtx.Ops); return nd })
 	bx0 := x + td.Size.X + gtx.Dp(theme.SpaceM)
 	bx1 := w - nd.Size.X - gtx.Dp(theme.SpaceM)
-	if bw := min(bx1-bx0, gtx.Dp(160)); bw > gtx.Dp(24) {
+	if bw := min(bx1-bx0, gtx.Dp(160)); bw > gtx.Dp(theme.SpaceXL) {
 		bx0 = bx1 - bw
-		y := h/2 - gtx.Dp(2)
-		rad := gtx.Dp(2)
-		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(bx0, y, bx1, y+gtx.Dp(4)), rad).Op(gtx.Ops))
+		y := h/2 - gtx.Dp(theme.Space2XS)
+		rad := gtx.Dp(theme.Space2XS)
+		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(bx0, y, bx1, y+gtx.Dp(theme.SpaceXS)), rad).Op(gtx.Ops))
 		if len(tasks) > 0 && done > 0 {
 			fx := bx0 + bw*done/len(tasks)
-			paint.FillShape(gtx.Ops, th.Readable(th.Green, th.Bg), clip.UniformRRect(image.Rect(bx0, y, fx, y+gtx.Dp(4)), rad).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.Readable(th.Green, th.Bg), clip.UniformRRect(image.Rect(bx0, y, fx, y+gtx.Dp(theme.SpaceXS)), rad).Op(gtx.Ops))
 		}
 	}
 	return layout.Dimensions{Size: image.Pt(w, h)}
@@ -384,7 +387,7 @@ func (d *cdraw) todoList(gtx layout.Context, tasks []session.Task) layout.Dimens
 	for i, t := range tasks {
 		rows[i] = func(gtx layout.Context) layout.Dimensions { return d.todoRow(gtx, t) }
 	}
-	return vstack(gtx, gtx.Dp(2), rows...)
+	return vstack(gtx, gtx.Dp(theme.Space2XS), rows...)
 }
 
 // todoRow is one task: an open circle while pending, a spinner while in
@@ -401,13 +404,13 @@ func (d *cdraw) todoRow(gtx layout.Context, t session.Task) layout.Dimensions {
 		c = th.Muted
 	}
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-isz-gtx.Dp(10)), gtx.Constraints.Max.Y)}
+	g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-isz-gtx.Dp(theme.SpaceS+theme.Space2XS)), gtx.Constraints.Max.Y)}
 	tc, td := measure(g, func(gtx layout.Context) layout.Dimensions {
 		return label(gtx, th, f, th.Sp(theme.Body), c, taskText(t), 0)
 	})
 	line := gtx.Sp(th.Sp(theme.Body)) * 135 / 100
-	h := max(td.Size.Y, line) + gtx.Dp(4)
-	iy := gtx.Dp(2) + (line-isz)/2
+	h := max(td.Size.Y, line) + gtx.Dp(theme.SpaceXS)
+	iy := gtx.Dp(theme.Space2XS) + (line-isz)/2
 	switch t.Status {
 	case "in_progress":
 		if d.s.Running {
@@ -423,10 +426,10 @@ func (d *cdraw) todoRow(gtx layout.Context, t session.Task) layout.Dimensions {
 	default:
 		icon(gtx, image.Pt(0, iy), "circle", 14, th.TextQuiet)
 	}
-	x := isz + gtx.Dp(10)
-	at(gtx, image.Pt(x, gtx.Dp(2)), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
-	if t.Status == "completed" && td.Size.Y <= line+gtx.Dp(2) {
-		y := gtx.Dp(2) + td.Size.Y/2
+	x := isz + gtx.Dp(theme.SpaceS+theme.Space2XS)
+	at(gtx, image.Pt(x, gtx.Dp(theme.Space2XS)), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
+	if t.Status == "completed" && td.Size.Y <= line+gtx.Dp(theme.Space2XS) {
+		y := gtx.Dp(theme.Space2XS) + td.Size.Y/2
 		paint.FillShape(gtx.Ops, theme.Mix(th.Muted, th.Bg, 0.3), clip.Rect{Min: image.Pt(x, y), Max: image.Pt(x+td.Size.X, y+gtx.Dp(1))}.Op())
 	}
 	return layout.Dimensions{Size: image.Pt(w, h)}
@@ -462,7 +465,6 @@ func (t *Transcript) TodoStrip(gtx layout.Context, th *theme.Theme, s *session.S
 		}
 	}
 	if now == "" {
-		now = "Next: " + taskText(tasks[tasksDone(tasks)%len(tasks)])
 		for _, task := range tasks {
 			if task.Status != "completed" {
 				now = "Next: " + taskText(task)
@@ -491,6 +493,7 @@ func (t *Transcript) TodoStrip(gtx layout.Context, th *theme.Theme, s *session.S
 			h += body.Size.Y + gtx.Dp(theme.SpaceS)
 		}
 		rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover), th.Surface, th.BorderSubtle)
+		defer clip.UniformRRect(image.Rect(0, 0, w, h).Inset(gtx.Dp(1)), gtx.Dp(theme.RadiusPopover)-gtx.Dp(1)).Push(gtx.Ops).Pop()
 		clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
 			rowFill(gtx, th, ck, image.Pt(w, hh))
 			x := px
@@ -551,7 +554,7 @@ func (d *cdraw) agentCard(gtx layout.Context, it *session.Item) layout.Dimension
 	outer := gtx.Dp(theme.SpaceS)
 	cw := w - 2*gtx.Dp(rowPad) + 2*outer
 	px := gtx.Dp(theme.SpaceM)
-	hh := gtx.Dp(rowH) + gtx.Dp(4)
+	hh := gtx.Dp(rowH) + gtx.Dp(theme.SpaceXS)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(cw, gtx.Constraints.Max.Y)}
 	callsOpen := d.t.toggled(gtx, "calls:"+it.ID, false)
@@ -626,10 +629,13 @@ func (d *cdraw) agentCard(gtx layout.Context, it *session.Item) layout.Dimension
 		return vstack(gtx, 0, ws...)
 	})
 	h := bd.Size.Y
-	y := gtx.Dp(3)
+	y := gtx.Dp(theme.Space2XS)
 	x := gtx.Dp(rowPad) - outer
-	rrect(gtx, image.Rect(x, y, x+cw, y+h), gtx.Dp(theme.RadiusPopover), th.Surface, th.BorderSubtle)
+	r := image.Rect(x, y, x+cw, y+h)
+	rrect(gtx, r, gtx.Dp(theme.RadiusPopover), th.Surface, th.BorderSubtle)
+	cl := clip.UniformRRect(r.Inset(gtx.Dp(1)), gtx.Dp(theme.RadiusPopover)-gtx.Dp(1)).Push(gtx.Ops)
 	at(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions { body.Add(gtx.Ops); return bd })
+	cl.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h+2*y)}
 }
 
@@ -709,7 +715,7 @@ func (d *cdraw) agentResult(gtx layout.Context, id, out string, open bool) layou
 				})
 			})
 		}
-		return vstack(gtx, gtx.Dp(2), ws...)
+		return vstack(gtx, gtx.Dp(theme.Space2XS), ws...)
 	})
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Max: image.Pt(w, gtx.Dp(1))}.Op())
 	py := gtx.Dp(theme.SpaceS)
@@ -720,15 +726,15 @@ func (d *cdraw) agentResult(gtx layout.Context, id, out string, open bool) layou
 // tag is a small muted chip: a subagent's type.
 func (d *cdraw) tag(gtx layout.Context, txt string) layout.Dimensions {
 	th := d.th
-	px := gtx.Dp(6)
+	px := gtx.Dp(theme.SpaceXS + theme.Space2XS)
 	g := gtx
 	g.Constraints.Max.X = max(0, gtx.Constraints.Max.X-2*px)
 	c, td := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, th.UIFont, th.Sp(theme.Caption), th.Muted, txt)
+		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, txt)
 	})
-	w, h := td.Size.X+2*px, td.Size.Y+gtx.Dp(4)
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(4)).Op(gtx.Ops))
-	at(gtx, image.Pt(px, gtx.Dp(2)), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
+	w, h := td.Size.X+2*px, td.Size.Y+gtx.Dp(theme.SpaceXS)
+	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+	at(gtx, image.Pt(px, gtx.Dp(theme.Space2XS)), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
@@ -753,19 +759,19 @@ func (d *cdraw) pasteChip(gtx layout.Context, id string, p paste) layout.Dimensi
 			return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), theme.Mix(th.Fg, th.Bg, 0.2), txt)
 		})
 		h := gtx.Dp(hit)
-		w := gtx.Dp(30) + td.Size.X + gtx.Dp(28)
+		w := gtx.Dp(30) + td.Size.X + gtx.Dp(hit)
 		fill := th.SurfaceElevated
 		if ck.Hovered() {
 			fill = theme.Mix(fill, th.Fg, 0.06)
 		}
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-		icon(gtx, image.Pt(gtx.Dp(10), (h-gtx.Dp(14))/2), "clipboard", 14, th.Muted)
+		icon(gtx, image.Pt(gtx.Dp(theme.SpaceS+theme.Space2XS), (h-gtx.Dp(14))/2), "clipboard", 14, th.Muted)
 		at(gtx, image.Pt(gtx.Dp(30), (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return td })
 		chev := "chevron-right"
 		if open {
 			chev = "chevron-down"
 		}
-		icon(gtx, image.Pt(w-gtx.Dp(20), (h-gtx.Dp(12))/2), chev, 12, th.Muted)
+		icon(gtx, image.Pt(w-gtx.Dp(theme.SpaceL+theme.SpaceXS), (h-gtx.Dp(12))/2), chev, 12, th.Muted)
 		return layout.Dimensions{Size: image.Pt(w, h)}
 	})
 	if !open {
@@ -828,15 +834,15 @@ func (d *cdraw) footMeta(gtx layout.Context, turn, when string) layout.Dimension
 // footTip is the footer's breakdown above it: one line per model.
 func (d *cdraw) footTip(gtx layout.Context, lines []string) {
 	th := d.th
-	px, py := gtx.Dp(10), gtx.Dp(8)
+	px, py := gtx.Dp(theme.SpaceS+theme.Space2XS), gtx.Dp(theme.SpaceS)
 	ws := make([]layout.Widget, len(lines))
 	for i, l := range lines {
 		ws[i] = func(gtx layout.Context) layout.Dimensions {
 			return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Fg, l)
 		}
 	}
-	c, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions { return vstack(gtx, gtx.Dp(2), ws...) })
-	r := image.Rect(0, -bd.Size.Y-2*py-gtx.Dp(4), bd.Size.X+2*px, -gtx.Dp(4))
+	c, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions { return vstack(gtx, gtx.Dp(theme.Space2XS), ws...) })
+	r := image.Rect(0, -bd.Size.Y-2*py-gtx.Dp(theme.SpaceXS), bd.Size.X+2*px, -gtx.Dp(theme.SpaceXS))
 	rrect(gtx, r, gtx.Dp(theme.RadiusControl), th.SurfaceElevated, th.BorderStrong)
 	at(gtx, r.Min.Add(image.Pt(px, py)), func(gtx layout.Context) layout.Dimensions { c.Add(gtx.Ops); return bd })
 }

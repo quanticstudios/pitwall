@@ -423,10 +423,10 @@ func (d *cdraw) option(gtx layout.Context, c *widget.Clickable, on, check bool, 
 			bx, bs := px+gtx.Dp(32), gtx.Dp(16)
 			r := image.Rect(bx, py+gtx.Dp(1), bx+bs, py+gtx.Dp(1)+bs)
 			if on {
-				paint.FillShape(gtx.Ops, th.Primary, clip.UniformRRect(r, gtx.Dp(4)).Op(gtx.Ops))
-				icon(gtx, r.Min.Add(image.Pt(gtx.Dp(2), gtx.Dp(2))), "check", 12, th.OnPrimary)
+				paint.FillShape(gtx.Ops, th.Primary, clip.UniformRRect(r, gtx.Dp(theme.SpaceXS)).Op(gtx.Ops))
+				icon(gtx, r.Min.Add(image.Pt(gtx.Dp(theme.Space2XS), gtx.Dp(theme.Space2XS))), "check", 12, th.OnPrimary)
 			} else {
-				rrect(gtx, r, gtx.Dp(4), th.Bg, th.BorderStrong)
+				rrect(gtx, r, gtx.Dp(theme.SpaceXS), th.Bg, th.BorderStrong)
 			}
 		}
 		at(gtx, image.Pt(px+lead, py), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return bd })
