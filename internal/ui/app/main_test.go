@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -21,5 +22,6 @@ func TestMain(m *testing.M) {
 	listFiles = func(context.Context, string) (string, []gitstat.FileStat, error) {
 		return "", nil, errors.New("no git in tests")
 	}
-	testenv.Main(m)
+	// why: fakeHome is read at init, before testenv moves HOME.
+	testenv.Main(m, func() { fakeHome, _ = os.UserHomeDir() })
 }

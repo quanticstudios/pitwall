@@ -49,8 +49,13 @@ jobs:
         run: |
           GOOS=windows GOARCH=amd64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
           GOOS=windows GOARCH=arm64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
-      # cmd/pitwall runs its tests twice (TestRunStaysOffHome), about 4-5 minutes under -race here.
       - run: go test -race -timeout 10m ./...
+      # why: testenv.Main moves HOME, so a test that finds the home some other way shows up here.
+      - name: No test wrote pitwall's files under HOME
+        run: |
+          for d in .local/state/pitwall .config/pitwall .cache/pitwall; do
+            if [ -e "$HOME/$d" ]; then echo "::error::a test wrote ~/$d"; exit 1; fi
+          done
       - run: go test -race gioui.org/app
       - name: Check the vendored terminal module
         run: |
