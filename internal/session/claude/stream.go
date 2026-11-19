@@ -25,20 +25,22 @@ type stream struct {
 	streamed map[string]int              // text item id: bytes stream_event deltas gave it
 	blocks   map[string]int              // message id: content blocks its assistant lines gave so far
 	tools    map[string]session.ToolCall // tool_use id: the call so far
-	// bg are the subagents that run in the background, by tool_use id:
-	// they outlive the turn that started them.
-	bg map[string]session.ToolCall
+	bg       map[string]session.ToolCall // tool_use id: a call whose shell runs in the background
+	tasks    map[string]string           // a background shell's task id: its call's tool_use id
+	// agentsBg are the subagents that run in the background, by tool_use
+	// id: they outlive the turn that started them.
+	agentsBg map[string]session.ToolCall
 	// agents are every subagent call of the session, by tool_use id, so
 	// a pane chat that reads a subagent's own transcript late still finds
 	// its card.
 	agents map[string]session.ToolCall
-	// tasks is the task list TaskCreate and TaskUpdate keep, which lasts
-	// the session.
-	tasks []session.Task
+	// todoList is the task list TaskCreate and TaskUpdate keep, which
+	// lasts the session.
+	todoList []session.Task
 	// background are the tasks started in the background, by task id: the
 	// ones whose end a chat shows.
-	background map[string]bool
-	compact    string // the compaction item whose summary comes next, "" for none
+	bgTasks map[string]bool
+	compact string // the compaction item whose summary comes next, "" for none
 	// modelEchoes counts the set_model requests whose "Set model to"
 	// output is still to come; the chat loop already showed each.
 	modelEchoes int
@@ -66,7 +68,7 @@ type ask struct {
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
 		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{},
-		bg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, background: map[string]bool{}, harnessed: map[string]bool{}}
+		agentsBg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, bgTasks: map[string]bool{}, harnessed: map[string]bool{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -89,15 +91,20 @@ type line struct {
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
 	ToolUseID string          `json:"tool_use_id"`
-	// user: what the tool's result means to the CLI, stream-json's key
-	// and the transcript's
+	// user: the CLI's own result beside a tool_result; the transcript file
+	// spells it toolUseResult.
 	ToolUseResult  json.RawMessage `json:"tool_use_result"`
-	ToolUseResultT json.RawMessage `json:"toolUseResult"`
+	ToolUseResult2 json.RawMessage `json:"toolUseResult"`
 
-	// system/task_started, task_progress, task_notification
-	TaskID          string     `json:"task_id"`
+	// system/task_notification, system/task_updated: a background task's state
+	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+	Patch  struct {
+		Status string `json:"status"`
+	} `json:"patch"`
+	// system/task_started, task_progress, task_notification: what the
+	// subagent cards and background rows read
 	TaskType        string     `json:"task_type"`
-	Status          string     `json:"status"`
 	Description     string     `json:"description"`
 	Summary         string     `json:"summary"`
 	SummaryIsReport bool       `json:"summary_is_report"`
@@ -283,7 +290,7 @@ func (s *stream) system(l line) []session.Event {
 		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Text: text}}
 	case "task_started":
 		if l.IsBackgrounded && l.TaskType != "local_agent" {
-			s.background[l.TaskID] = true
+			s.bgTasks[l.TaskID] = true
 		}
 		return nil
 	case "task_progress":
@@ -294,7 +301,12 @@ func (s *stream) system(l line) []session.Event {
 		t.Progress = l.Description
 		return s.put(t)
 	case "task_notification":
-		return s.taskDone(l.TaskID, l.ToolUseID, l.Status, l.Summary, l.Summary, l.SummaryIsReport, l.UUID)
+		// A background shell's call takes its state; a subagent's card
+		// ends; a task started in the background gets its row.
+		out := s.background(l.ToolUseID, l.Status)
+		return append(out, s.taskDone(l.TaskID, l.ToolUseID, l.Status, l.Summary, l.Summary, l.SummaryIsReport, l.UUID)...)
+	case "task_updated":
+		return s.background(s.tasks[l.TaskID], l.Patch.Status)
 	case "compact_boundary":
 		s.compact = cmp.Or(l.UUID, "compact:"+l.SessionID)
 		return []session.Event{{Type: session.EventContent, ItemID: s.compact, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
@@ -307,7 +319,7 @@ func (s *stream) system(l line) []session.Event {
 	case "api_retry":
 		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(l.UUID, "retry:"+strconv.Itoa(l.Attempt)), Kind: session.KindSystem,
 			Phase: session.PhaseWarning, Text: retryLine(l.ErrorStatus, errText(l.Error), l.RetryDelayMS, l.Attempt, l.MaxRetries)}}
-	case "status", "thinking_tokens", "hook_started", "hook_progress", "background_tasks_changed", "task_updated":
+	case "status", "thinking_tokens", "hook_started", "hook_progress", "background_tasks_changed":
 		// status's permissionMode echoes a set_permission_mode, which the
 		// chat loop patched when it called Set.
 		return nil
@@ -462,7 +474,7 @@ func (s *stream) subagentDone(parent string, blocks []block) []session.Event {
 
 // call is tool call id of this turn or a background subagent.
 func (s *stream) call(id string) (session.ToolCall, bool) {
-	if t, ok := s.bg[id]; ok {
+	if t, ok := s.agentsBg[id]; ok {
 		return t, true
 	}
 	if t, ok := s.tools[id]; ok {
@@ -474,8 +486,8 @@ func (s *stream) call(id string) (session.ToolCall, bool) {
 
 // put stores t where call finds it and reports it.
 func (s *stream) put(t session.ToolCall) []session.Event {
-	if _, ok := s.bg[t.CallID]; ok {
-		s.bg[t.CallID] = t
+	if _, ok := s.agentsBg[t.CallID]; ok {
+		s.agentsBg[t.CallID] = t
 	} else {
 		s.tools[t.CallID] = t
 	}
@@ -490,7 +502,7 @@ func (s *stream) put(t session.ToolCall) []session.Event {
 // ended; a foreground task's says nothing its call does not.
 func (s *stream) taskDone(task, callID, status, summary, result string, report bool, id string) []session.Event {
 	if t, ok := s.call(callID); ok && subagentTool(t.ToolName) {
-		delete(s.bg, callID)
+		delete(s.agentsBg, callID)
 		t.Status, t.Progress = "completed", ""
 		if status == "failed" || status == "killed" || status == "stopped" {
 			t.Status = "failed"
@@ -501,10 +513,10 @@ func (s *stream) taskDone(task, callID, status, summary, result string, report b
 		s.tools[callID], s.agents[callID] = t, t
 		return []session.Event{{Type: session.EventContent, ItemID: callID, Kind: session.KindToolCall, Tool: &t}}
 	}
-	if !s.background[task] {
+	if !s.bgTasks[task] {
 		return nil
 	}
-	delete(s.background, task)
+	delete(s.bgTasks, task)
 	return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(id, "task:"+task), Kind: session.KindSystem,
 		Phase: session.PhaseNotice, Text: taskLine(status, summary)}}
 }
@@ -533,25 +545,25 @@ func (s *stream) taskList(name string, input json.RawMessage) ([]session.Task, b
 		return tasks, true
 	case "TaskCreate":
 		n := 0
-		for _, t := range s.tasks {
+		for _, t := range s.todoList {
 			n = max(n, atoi(t.ID))
 		}
-		s.tasks = append(slices.Clip(s.tasks), session.Task{ID: strconv.Itoa(n + 1), Status: "pending", Subject: in.Subject, ActiveForm: in.ActiveForm})
+		s.todoList = append(slices.Clip(s.todoList), session.Task{ID: strconv.Itoa(n + 1), Status: "pending", Subject: in.Subject, ActiveForm: in.ActiveForm})
 	case "TaskUpdate":
-		s.tasks = slices.Clone(s.tasks)
-		i := slices.IndexFunc(s.tasks, func(t session.Task) bool { return t.ID == in.TaskID })
+		s.todoList = slices.Clone(s.todoList)
+		i := slices.IndexFunc(s.todoList, func(t session.Task) bool { return t.ID == in.TaskID })
 		switch {
 		case i < 0:
 		case in.Status == "deleted":
-			s.tasks = slices.Delete(s.tasks, i, i+1)
+			s.todoList = slices.Delete(s.todoList, i, i+1)
 		default:
-			t := &s.tasks[i]
+			t := &s.todoList[i]
 			t.Status, t.Subject, t.ActiveForm = cmp.Or(in.Status, t.Status), cmp.Or(in.Subject, t.Subject), cmp.Or(in.ActiveForm, t.ActiveForm)
 		}
 	default:
 		return nil, false
 	}
-	return append([]session.Task{}, s.tasks...), true
+	return append([]session.Task{}, s.todoList...), true
 }
 
 func atoi(s string) int {
@@ -572,6 +584,9 @@ func (s *stream) user(l line) []session.Event {
 		if json.Unmarshal(m.Content, &text) != nil {
 			return nil
 		}
+		if strings.Contains(text, "<task-notification>") {
+			return s.notice(text) // a background shell's call takes its state
+		}
 		return s.harness(l.UUID, text)
 	}
 	if l.ParentToolUseID != "" {
@@ -581,7 +596,7 @@ func (s *stream) user(l line) []session.Event {
 		Status string `json:"status"`
 	}
 	if json.Unmarshal(l.ToolUseResult, &result) != nil {
-		json.Unmarshal(l.ToolUseResultT, &result)
+		json.Unmarshal(l.ToolUseResult2, &result)
 	}
 	var out []session.Event
 	for _, b := range blocks {
@@ -596,10 +611,15 @@ func (s *stream) user(l line) []session.Event {
 		case subagentTool(t.ToolName) && result.Status == "async_launched":
 			// It runs on; its notification ends it, maybe turns later.
 			t.Status, t.Output, t.Progress = "running", "", "Running in the background"
-			s.bg[b.ToolUseID] = t
+			s.agentsBg[b.ToolUseID] = t
 		case t.ToolName == "TaskCreate":
 			s.renumber(t.Output)
 		}
+		res := l.ToolUseResult
+		if res == nil {
+			res = l.ToolUseResult2
+		}
+		s.finish(&t, b, res)
 		out = append(out, s.put(t)...)
 	}
 	return out
@@ -611,9 +631,9 @@ var taskCreated = regexp.MustCompile(`^Task #(\d+) created`)
 // says it has.
 func (s *stream) renumber(output string) {
 	m := taskCreated.FindStringSubmatch(output)
-	if n := len(s.tasks); m != nil && n > 0 {
-		s.tasks = slices.Clone(s.tasks)
-		s.tasks[n-1].ID = m[1]
+	if n := len(s.todoList); m != nil && n > 0 {
+		s.todoList = slices.Clone(s.todoList)
+		s.todoList[n-1].ID = m[1]
 	}
 }
 

@@ -28,6 +28,7 @@ type Transcript struct {
 	// turns the two into one divider; cmdID is its line's uuid.
 	cmd, cmdID string
 	compacted  bool              // a compaction since the last prompt: its /compact needs no chip
+	notifiedOf map[string]bool   // task id and state of each notification shown: Claude Code may queue one, then add it again
 	used       map[string]msgUse // the running turn's API messages' usage, by message id
 	usedOrder  []string
 }
@@ -53,7 +54,9 @@ type transcriptLine struct {
 	Origin           *struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
-	Message struct {
+	// queue-operation: what Claude Code queued, such as a task notification
+	Operation string `json:"operation"`
+	Message   struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
@@ -69,7 +72,7 @@ type transcriptLine struct {
 
 	// system lines: local_command, compact_boundary, informational,
 	// api_error, stop_hook_summary
-	Content       string          `json:"content"`
+	Content       json.RawMessage `json:"content"` // a string in system lines and queue operations
 	Level         string          `json:"level"`
 	Error         json.RawMessage `json:"error"`
 	RetryInMS     float64         `json:"retryInMs"`
@@ -126,6 +129,12 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		out = t.system(l)
 	case "attachment":
 		out = t.attachment(l)
+	case "queue-operation":
+		var text string
+		if l.Operation != "enqueue" || json.Unmarshal(l.Content, &text) != nil || !strings.Contains(text, "<task-notification>") {
+			return nil
+		}
+		out = t.s.notice(text) // a background shell ended
 	default:
 		return nil // summaries, snapshots, queue operations: nothing a chat shows
 	}
@@ -161,19 +170,20 @@ func (t *Transcript) system(l transcriptLine) []session.Event {
 	case "turn_duration":
 		return t.End(session.TurnCompleted) // Claude Code's mark at the end of each turn
 	case "local_command":
-		return t.harness(l, l.Content)
+		return t.harness(l, str(l.Content))
 	case "compact_boundary":
 		t.s.compact, t.compacted = cmp.Or(l.UUID, "compact:"+l.Timestamp), true
 		return []session.Event{{Type: session.EventContent, ItemID: t.s.compact, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
 	case "informational":
-		if l.Content == "" {
+		text := str(l.Content)
+		if text == "" {
 			return nil
 		}
 		phase := session.PhaseNotice
 		if l.Level == "warning" {
 			phase = session.PhaseWarning
 		}
-		return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: phase, Text: l.Content}}
+		return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: phase, Text: text}}
 	case "api_error":
 		return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: session.PhaseWarning,
 			Text: retryLine(nil, errText(l.Error), int64(l.RetryInMS), l.RetryAttempt, l.MaxRetries)}}
@@ -202,7 +212,7 @@ func (t *Transcript) attachment(l transcriptLine) []session.Event {
 	case "queued_command":
 		var text string
 		if json.Unmarshal(a.Prompt, &text) == nil && strings.Contains(text, "<task-notification>") {
-			return t.notified(l, harness(text))
+			return t.notified(l, harness(text), text)
 		}
 	case "hook_blocking_error", "hook_non_blocking_error", "hook_stopped_continuation", "hook_error_during_execution":
 		msg := cmp.Or(a.Message, a.Stderr)
@@ -227,7 +237,7 @@ func (t *Transcript) attachment(l transcriptLine) []session.Event {
 func (t *Transcript) harness(l transcriptLine, text string) []session.Event {
 	n := harness(text)
 	if n.notified != "" {
-		return t.notified(l, n)
+		return t.notified(l, n, text)
 	}
 	item := func(phase, text string) session.Event {
 		return session.Event{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: phase, Text: text}
@@ -276,9 +286,16 @@ func (t *Transcript) command(id, text string) session.Event {
 // notified is a <task-notification>: a background subagent's card ends,
 // another task gets its row. One that reaches an idle Claude starts a
 // turn of its own, which Claude Code runs without a prompt.
-func (t *Transcript) notified(l transcriptLine, n note) []session.Event {
-	t.s.background[n.task] = true // only a background task notifies
-	out := t.s.taskDone(n.task, n.notified, n.status, n.summary, n.result, n.result != "", l.UUID)
+func (t *Transcript) notified(l transcriptLine, n note, text string) []session.Event {
+	out := t.s.notice(text) // a background shell's call takes its state
+	if t.notifiedOf == nil {
+		t.notifiedOf = map[string]bool{}
+	}
+	if key := n.task + "/" + n.status; !t.notifiedOf[key] {
+		t.notifiedOf[key] = true
+		t.s.bgTasks[n.task] = true // only a background task notifies
+		out = append(out, t.s.taskDone(n.task, n.notified, n.status, n.summary, n.result, n.result != "", l.UUID)...)
+	}
 	if l.Origin != nil && l.Origin.Kind == "task-notification" {
 		out = append(t.End(session.TurnCompleted), out...)
 		clear(t.s.blocks)
@@ -545,4 +562,11 @@ func stampAt(ts string, d time.Duration) string {
 		at = time.Now()
 	}
 	return session.Stamp(at.Add(d))
+}
+
+// str is a JSON string's value, "" for anything else.
+func str(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
 }

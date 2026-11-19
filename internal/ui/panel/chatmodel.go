@@ -419,12 +419,19 @@ func diffLines(c *session.ToolCall) []diffLine {
 		}
 		_ = json.Unmarshal(in["edits"], &edits)
 		var out []diffLine
-		for _, e := range edits {
+		for i, e := range edits {
+			if len(edits) > 1 { // each edit under its own header, as hunks
+				out = append(out, diffLine{kind: '@', text: "Edit " + strconv.Itoa(i+1) + " of " + strconv.Itoa(len(edits))})
+			}
 			out = append(out, lineDiff(e.Old, e.New)...)
 		}
 		return out
-	case in["content"] != nil:
-		return lineDiff("", in.str("content"))
+	case in["content"] != nil: // a whole file: its lines from 1
+		out := lineDiff("", in.str("content"))
+		for i := range out {
+			out[i].new = i + 1
+		}
+		return out
 	case in["input"] != nil || in["patch"] != nil:
 		return unified(in.str("input", "patch"))
 	}

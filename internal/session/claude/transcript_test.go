@@ -258,3 +258,15 @@ func TestAPIError(t *testing.T) {
 		t.Errorf("apiError = %q", got)
 	}
 }
+
+// TestNotifiedOnce: a notification Claude Code queued mid-turn and then
+// added as a line of its own shows one row.
+func TestNotifiedOnce(t *testing.T) {
+	tr := NewTranscript()
+	n := `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>x</tool-use-id>\n<status>completed</status>\n<summary>Background command \"Sleep\" completed (exit code 0)</summary>\n</task-notification>`
+	snap := apply(t, base(), tr.Line([]byte(`{"type":"attachment","uuid":"a1","timestamp":"2026-11-19T10:00:00Z","attachment":{"type":"queued_command","prompt":"`+n+`"}}`)))
+	snap = apply(t, snap, tr.Line([]byte(`{"type":"user","uuid":"u1","timestamp":"2026-11-19T10:00:01Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"`+n+`"}}`)))
+	if got := systems(snap); len(got) != 1 || got[0] != "notice: Background task finished: Sleep" {
+		t.Fatalf("rows %q: want one", got)
+	}
+}
