@@ -38,10 +38,16 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      # why: internal/daemon builds no Gio; its control.sh examples need socat
+      # and jq. A stalled mirror held one shard's apt for five minutes, hence
+      # the timeouts and retries.
       - name: Install Gio's build dependencies
+        env:
+          PACKAGES: ${{ startsWith(matrix.shard, 'daemon-') && 'socat jq' || 'gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev socat jq' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev socat jq
+          apt="sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          $apt update
+          $apt install -y --no-install-recommends $PACKAGES
       - name: gofmt
         if: matrix.shard == 'lint'
         run: |
