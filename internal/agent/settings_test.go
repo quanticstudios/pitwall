@@ -69,6 +69,7 @@ func TestClaudeMode(t *testing.T) {
 		{"────────\n❯ \n────────\n  ⏵⏵ accept edits on (shift+tab to cycle)", "acceptEdits"},
 		{"────────\n❯ \n────────\n  ⏸ plan mode on (shift+tab to cycle)", "plan"},
 		{"────────\n❯ \n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)", "bypassPermissions"},
+		{"────────\n❯ \n────────\n  ⏵⏵ auto mode on (shift+tab to cycle)", "auto"},
 		{"⏺ plan mode on is a phrase\n────────\n❯ \n────────\n  ? for shortcuts", "default"},
 		{"⏺ Working…", ""},
 	} {

@@ -65,6 +65,9 @@ func (u *ui) flipPaneChat(id string) {
 		u.paneFlip = map[string]bool{}
 	}
 	u.paneFlip[id] = !u.paneFlip[id]
+	if u.invalidate != nil { // why: the flip lands after this frame drew the pane
+		u.invalidate()
+	}
 }
 
 // paneChatKey reports whether chat_terminal is the window's on the shown

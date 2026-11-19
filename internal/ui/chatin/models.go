@@ -95,6 +95,8 @@ func ModeName(m string) string {
 		return "Plan"
 	case "bypassPermissions":
 		return "Bypass permissions"
+	case "auto":
+		return "Auto"
 	}
 	return m
 }

@@ -109,6 +109,21 @@ func TestPaneChat(t *testing.T) {
 	if got := gotAfter(t, f.pane(0), before, 1); got != "\x1b" {
 		t.Errorf("interrupt typed %q, want Esc", got)
 	}
+	// Sent mid-turn, a message waits in the chat's queue until the next
+	// prompt line takes it.
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: "then this"}); r.(proto.ChatResult).Message != "queued" {
+		t.Fatalf("busy send: %+v", r)
+	}
+	if snap, seq = paneRead(t, d, "a", snap, seq); len(snap.QueuedInputs) != 1 || snap.QueuedInputs[0].Text != "then this" {
+		t.Fatalf("queue %+v: want the busy send", snap.QueuedInputs)
+	}
+	fh, _ = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"user","uuid":"p2","timestamp":"2026-11-18T10:01:00Z","message":{"role":"user","content":"then this"}}` + "\n")
+	fh.Close()
+	if snap, seq = paneRead(t, d, "a", snap, seq); len(snap.QueuedInputs) != 0 || len(snap.Turns) != 2 {
+		t.Fatalf("after its prompt: queue %+v, %d turns", snap.QueuedInputs, len(snap.Turns))
+	}
+
 	d.mu.Lock()
 	d.st.Activities[d.activityIndex("a")].State = model.StateCompleted
 	d.mu.Unlock()

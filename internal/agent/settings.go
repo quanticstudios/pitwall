@@ -115,7 +115,7 @@ func cleanClaudeSettings(model, effort string) (string, string) {
 }
 
 // ClaudeMode reads the permission mode under Claude Code's input box:
-// acceptEdits, plan or bypassPermissions from the footer, default when the
+// acceptEdits, plan, bypassPermissions or auto from the footer, default when the
 // box shows none of them, "" when g shows no input box.
 func ClaudeMode(g vt.Grid) string {
 	if !InputReady(model.ProviderClaude, g) {
@@ -130,6 +130,8 @@ func ClaudeMode(g vt.Grid) string {
 			return "plan"
 		case strings.Contains(low, "bypass permissions on"):
 			return "bypassPermissions"
+		case strings.Contains(low, "auto mode on"):
+			return "auto"
 		}
 	}
 	return "default"

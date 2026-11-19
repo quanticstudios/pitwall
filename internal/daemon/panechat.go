@@ -40,6 +40,9 @@ type paneChat struct {
 	snap   session.Snapshot
 	seq    int64
 	recent []session.Delta
+	// queued are the messages the chat typed mid-turn, which Claude Code
+	// holds until the turn ends; the next prompt line takes them.
+	queued []session.QueuedInput
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -121,7 +124,7 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 	var err error
 	switch m := m.(type) {
 	case proto.ChatSend:
-		note, err = d.paneSend(id, l, m)
+		note, err = d.paneSend(pc, l, m)
 	case proto.ChatInterrupt:
 		if busy(l.act.State) {
 			err = d.paneKey(id, l.p, press(key.NameEscape, l.p.Modes()))
@@ -164,7 +167,11 @@ func (pc *paneChat) catchUp(l paneLive) {
 		}
 		if end := bytes.LastIndexByte(b, '\n'); end >= 0 {
 			for _, line := range bytes.Split(b[:end], []byte("\n")) {
-				pc.reduce(pc.tr.Line(line))
+				es := pc.tr.Line(line)
+				if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
+					pc.queued = nil
+				}
+				pc.reduce(es)
 			}
 			pc.off += int64(end + 1)
 		}
@@ -183,6 +190,13 @@ func (pc *paneChat) catchUp(l paneLive) {
 	}
 	if mode := agent.ClaudeMode(l.p.Snapshot()); mode != "" && mode != pc.snap.PermissionMode {
 		pc.reduce([]session.Event{{Type: session.EventSettings, Mode: mode}})
+	}
+	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
+		pc.queued = nil // the agent stopped without taking them: an interrupt dropped them back in its box
+	}
+	if !slices.EqualFunc(pc.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool { return a.ID == b.ID }) {
+		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
+		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	}
 }
 
@@ -204,22 +218,28 @@ func (pc *paneChat) reduce(es []session.Event) {
 		if e.CreatedAt == "" {
 			e.CreatedAt = session.Stamp(time.Now())
 		}
-		rev := pc.snap.Revision + 1
-		for _, dl := range session.Reduce(pc.snap, e) {
-			dl.Version, dl.SessionID, dl.Seq, dl.Revision, dl.UpdatedAt = session.DeltaVersion, pc.id, pc.seq+1, rev, e.CreatedAt
-			if dl.Snapshot != nil {
-				s := *dl.Snapshot
-				s.Revision, s.UpdatedAt = rev, e.CreatedAt
-				dl.Snapshot = &s
-			}
-			n, err := session.Apply(&pc.snap, pc.seq, dl)
-			if err != nil {
-				log.Printf("pane chat %s: %s delta: %q", pc.id, dl.Type, err)
-				continue
-			}
-			pc.snap, pc.seq = n, dl.Seq
-			pc.recent = append(pc.recent, dl)
+		pc.commit(session.Reduce(pc.snap, e), e.CreatedAt)
+	}
+}
+
+// commit numbers ds as one revision stamped at stamp and applies them.
+// Callers hold pc.mu.
+func (pc *paneChat) commit(ds []session.Delta, stamp string) {
+	rev := pc.snap.Revision + 1
+	for _, dl := range ds {
+		dl.Version, dl.SessionID, dl.Seq, dl.Revision, dl.UpdatedAt = session.DeltaVersion, pc.id, pc.seq+1, rev, stamp
+		if dl.Snapshot != nil {
+			s := *dl.Snapshot
+			s.Revision, s.UpdatedAt = rev, stamp
+			dl.Snapshot = &s
 		}
+		n, err := session.Apply(&pc.snap, pc.seq, dl)
+		if err != nil {
+			log.Printf("pane chat %s: %s delta: %q", pc.id, dl.Type, err)
+			continue
+		}
+		pc.snap, pc.seq = n, dl.Seq
+		pc.recent = append(pc.recent, dl)
 	}
 	if len(pc.recent) > 2*recentDeltas {
 		pc.recent = slices.Clone(pc.recent[len(pc.recent)-recentDeltas:])
@@ -244,9 +264,10 @@ func (pc *paneChat) read(after int64) proto.ChatDeltas {
 	return out
 }
 
-// paneSend types m into the pane: pasted text and image paths, with
-// Enter, mid-turn too, where Claude Code queues it.
-func (d *Daemon) paneSend(id string, l paneLive, m proto.ChatSend) (string, error) {
+// paneSend types m into pc's pane: pasted text and image paths, with
+// Enter, mid-turn too, where Claude Code queues it and so does the chat
+// until the next prompt line.
+func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
 	sm, err := provide(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
 		return "", err
@@ -256,19 +277,23 @@ func (d *Daemon) paneSend(id string, l paneLive, m proto.ChatSend) (string, erro
 	}
 	var paths []string
 	for _, img := range sm.Images {
-		r := d.pasteImage(proto.PasteImage{Pane: id, Data: img.Data})
+		r := d.pasteImage(proto.PasteImage{Pane: pc.id, Data: img.Data})
 		if r.Err != "" {
 			return "", errors.New(r.Err)
 		}
 		paths = append(paths, r.Path)
 	}
-	if _, err := d.phoneSendPaths(id, sm.Text, paths); err != nil {
+	if _, err := d.phoneSendPaths(pc.id, sm.Text, paths); err != nil {
 		return "", err
 	}
-	if busy(l.act.State) {
-		return "queued", nil
+	if !busy(l.act.State) {
+		return "", nil
 	}
-	return "", nil
+	pc.mu.Lock()
+	pc.queued = append(pc.queued, session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
+		Attachments: nonNil(m.Attachments), Recipients: []string{}})
+	pc.mu.Unlock()
+	return "queued", nil
 }
 
 // paneKey presses data into pane id, as the user's own key.
