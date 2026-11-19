@@ -129,6 +129,8 @@ type Item struct {
 	Tool        *ToolCall       `json:"tool,omitempty"` // tool-call items only
 	TurnID      *string         `json:"turnId"`
 	UpdatedAt   string          `json:"updatedAt"`
+	// Cut marks an item Clip cut for a snapshot: ChatRead Item has it whole.
+	Cut bool `json:"cut,omitempty"`
 }
 
 // Attachment is aide's ManagedSessionAttachment: an image (Data, MimeType,
