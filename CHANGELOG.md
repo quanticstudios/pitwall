@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.2.17
 
 - In a Claude chat, an approval card and its notice say what the tool runs, such as `Edit: main.go`, instead of its raw JSON input. Tool rows and cards show the chat's own files relative to its folder, and an approval answered mid-turn keeps its line above the reply that followed. A turn stopped with Esc ends on a quiet Stopped line instead of a red "Turn interrupted". An image paste that fails, such as on X11 without xclip, now says why under the composer instead of only taking its token back out. A sent prompt's thumbnail carries its `[Image #N]` token's number, not its position. Alt+T starts Claude Code's TUI in the chat's permission mode even when that is Default, where it started in the TUI's own default, such as auto mode. A chat tab keeps its first prompt as its name after a daemon restart instead of falling back to its folder's.
 - The desktop chat tab has a composer under the transcript. Enter sends and Shift+Enter adds a line. While Claude works, Enter queues what you type and the button shows Queue, with a quiet Stop beside it. Esc stops the turn. Queued messages wait above the box, where Edit takes one back and the x drops it. Pasted or dropped images show as chips and `[Image #N]` tokens. The control row holds the permission mode (Shift+Tab cycles it), a model and effort picker, and a context meter that turns yellow at 75%. Each chat keeps its draft while you switch tabs.
