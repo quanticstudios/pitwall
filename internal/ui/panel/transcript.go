@@ -587,7 +587,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			logged--
 		}
 		if logged > 0 || run {
-			open := t.toggled(gtx, logID(d.s, b), logOpen(run, b.failed))
+			// A work log stays one line, running or done, until the user
+			// opens it.
+			open := t.toggled(gtx, logID(d.s, b), false)
 			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
 			for i := b.lo; open && i < b.hi; i++ {
 				if i != b.reply {

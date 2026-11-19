@@ -215,9 +215,10 @@ func longTurn(n int) *session.Snapshot {
 	return s
 }
 
-// TestTranscriptTurn: a running turn's open work log is a list row per
-// call, so only the calls in view are laid out, and a click on its
-// header folds it to one row.
+// TestTranscriptTurn: a work log is one header row, running or done,
+// until the user opens it. Open, it is a list row per call, so only the
+// calls in view are laid out, and it stays open after the turn ends. A
+// failed call does not open its log.
 func TestTranscriptTurn(t *testing.T) {
 	th := theme.Dark()
 	s := longTurn(2000)
@@ -226,13 +227,30 @@ func TestTranscriptTurn(t *testing.T) {
 	now := time.Now()
 	transcriptFrame(&tr, th, s, &ops, now)
 	transcriptFrame(&tr, th, s, &ops, now)
-	if len(tr.rows) != 2002 || tr.laid == 0 || tr.laid > 60 {
-		t.Fatalf("%d rows, laid out %d of 2,000 calls", len(tr.rows), tr.laid)
+	if len(tr.rows) != 2 || tr.rows[1].seg != segHead || !tr.rows[1].running || tr.rows[1].open || !tr.rows[1].last {
+		t.Fatalf("running turn: %d rows, want the prompt and one folded header", len(tr.rows))
 	}
 	tr.clicks[logID(s, tr.rows[1].b)].Click()
 	transcriptFrame(&tr, th, s, &ops, now)
-	if len(tr.rows) != 2 || tr.rows[1].seg != segHead || !tr.rows[1].last {
-		t.Fatalf("folded log: %d rows", len(tr.rows))
+	transcriptFrame(&tr, th, s, &ops, now)
+	if len(tr.rows) != 2002 || tr.laid == 0 || tr.laid > 60 {
+		t.Fatalf("opened log: %d rows, laid out %d of 2,000 calls", len(tr.rows), tr.laid)
+	}
+	s.Turns[0].State = session.TurnCompleted
+	s.Running = false
+	transcriptFrame(&tr, th, s, &ops, now.Add(time.Minute))
+	transcriptFrame(&tr, th, s, &ops, now.Add(time.Minute))
+	if len(tr.rows) != 2002 || tr.rows[1].running {
+		t.Fatalf("finished turn the user opened: %d rows", len(tr.rows))
+	}
+
+	done := longTurn(3)
+	done.Turns[0].State = session.TurnCompleted
+	done.Content[2].Tool.Status = "failed"
+	var fresh Transcript
+	transcriptFrame(&fresh, th, done, &ops, now)
+	if len(fresh.rows) != 2 || fresh.rows[1].open {
+		t.Fatalf("finished turn with a failed call: %d rows, want one folded header", len(fresh.rows))
 	}
 }
 
