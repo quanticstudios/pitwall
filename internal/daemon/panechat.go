@@ -34,8 +34,10 @@ import (
 type paneChat struct {
 	mu     sync.Mutex
 	id     string
-	path   string // the transcript
-	off    int64  // bytes of it read, up to the last whole line
+	path   string              // the transcript
+	off    int64               // bytes of it read, up to the last whole line
+	start  int64               // where the chat's reading of it starts (tailStart); the history before is paged
+	pages  map[string][2]int64 // the byte range of the page each item paged in came from
 	tr     *claude.Transcript
 	snap   session.Snapshot
 	seq    int64
@@ -117,6 +119,22 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		return nil, false
 	}
 	if r, ok := m.(proto.ChatRead); ok {
+		switch {
+		case r.Item != "":
+			it, err := pc.item(r.Item)
+			if err != nil {
+				return chatResult(id, "", "", err), true
+			}
+			b, _ := json.Marshal(session.Clip(it, itemBytes))
+			return proto.ChatDeltas{Chat: id, Item: b}, true
+		case r.Before > 0:
+			s, older, err := pc.page(r.Before)
+			if err != nil {
+				log.Printf("pane chat %s: page before %d: %q", id, r.Before, err)
+				return chatResult(id, "", "", err), true
+			}
+			return proto.ChatDeltas{Chat: id, Snapshot: wireSnapshot(s, 0), Page: r.Before, Older: older}, true
+		}
 		pc.mu.Lock()
 		defer pc.mu.Unlock()
 		pc.catchUp(l)
@@ -159,24 +177,10 @@ func waits(s model.AgentState) bool {
 // request and the mode in line with the pane. Callers hold pc.mu.
 func (pc *paneChat) catchUp(l paneLive) {
 	if f, err := os.Open(pc.path); err == nil {
-		var b []byte
-		if _, err = f.Seek(pc.off, io.SeekStart); err == nil {
-			b, err = io.ReadAll(f)
-		}
-		f.Close()
-		if err != nil {
+		if err := pc.readOn(f); err != nil {
 			log.Printf("pane chat %s: transcript: %q", pc.id, err)
 		}
-		if end := bytes.LastIndexByte(b, '\n'); end >= 0 {
-			for _, line := range bytes.Split(b[:end], []byte("\n")) {
-				es := pc.tr.Line(line)
-				if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
-					pc.queued = nil
-				}
-				pc.reduce(es)
-			}
-			pc.off += int64(end + 1)
-		}
+		f.Close()
 	}
 	a := l.act
 	switch {
@@ -208,6 +212,188 @@ func (pc *paneChat) catchUp(l paneLive) {
 		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	}
+}
+
+// A pane chat reads its transcript from the end: tailBytes back, to the
+// prompt of the turn with the tailItems-th chat line from the end or to
+// the last compaction, and the history before that in pages of the same
+// reach as the window scrolls up to it. Once the transcript outgrows what
+// the chat read by retailBytes or retailItems, or gains more than
+// tailBytes unread, the chat reads its tail again, so neither the daemon's
+// memory nor a snapshot grows with the file.
+const (
+	tailBytes   = 4 << 20
+	tailItems   = 200
+	retailBytes = 16 << 20
+	retailItems = 2000
+)
+
+// readOn reduces what f, the transcript, gained since pc.off, or reads
+// its tail again (see tailBytes). Callers hold pc.mu.
+func (pc *paneChat) readOn(f *os.File) error {
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	end := fi.Size()
+	if pc.off == 0 || end-pc.off > tailBytes || pc.off-pc.start > retailBytes || len(pc.snap.Content) > retailItems {
+		start, err := tailStart(f, end)
+		if err != nil {
+			return err
+		}
+		s := pc.snap
+		pc.tr, pc.snap = claude.NewTranscript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
+			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
+			InteractionMode: "build", Revision: s.Revision}
+		pc.start, pc.off, pc.pages = start, start, nil
+		defer func() { pc.recent = nil }() // no reader holds what this replays: each gets a snapshot
+	}
+	b := make([]byte, end-pc.off)
+	n, err := f.ReadAt(b, pc.off)
+	pc.off += int64(pc.lines(b[:n]))
+	if err == io.EOF {
+		err = nil
+	}
+	return err
+}
+
+// lines reduces b's whole lines and reports the bytes they take. Callers
+// hold pc.mu.
+func (pc *paneChat) lines(b []byte) int {
+	end := bytes.LastIndexByte(b, '\n')
+	if end < 0 {
+		return 0
+	}
+	for line := range bytes.SplitSeq(b[:end], []byte("\n")) {
+		es := pc.tr.Line(line)
+		if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
+			pc.queued = nil
+		}
+		pc.reduce(es)
+	}
+	return end + 1
+}
+
+// tailStart is where to read the transcript in r before offset end from
+// (see tailBytes): a prompt line's offset; the first whole line when none
+// is in reach; 0 when the reach takes in the whole file. Whole lines in
+// reach that show nothing, as when one line is longer than it, widen it.
+func tailStart(r io.ReaderAt, end int64) (int64, error) {
+	for reach := int64(tailBytes); ; reach *= 2 {
+		from := max(0, end-reach)
+		b := make([]byte, end-from)
+		if n, err := r.ReadAt(b, from); err != nil && !(err == io.EOF && int64(n) == end-from) {
+			return 0, err
+		}
+		start, items := int64(-1), 0
+		hi := bytes.LastIndexByte(b, '\n') // the newline that ends the line in hand
+		for hi >= 0 {
+			lo := bytes.LastIndexByte(b[:hi], '\n') + 1
+			if lo == 0 && from > 0 { // b[:hi] may start mid-line
+				break
+			}
+			switch claude.MarkOf(b[lo:hi]) {
+			case claude.MarkPrompt:
+				start = from + int64(lo)
+				if items >= tailItems {
+					return start, nil
+				}
+			case claude.MarkCompact:
+				if items > 0 {
+					if start < 0 {
+						start = from + int64(hi) + 1
+					}
+					return start, nil
+				}
+			case claude.MarkItem:
+				items++
+			}
+			hi = lo - 1
+		}
+		switch {
+		case from == 0:
+			return 0, nil
+		case start >= 0:
+			return start, nil
+		case items > 0:
+			return from + int64(hi) + 1, nil // the first whole line
+		}
+	}
+}
+
+// page is the history before cursor before, a ChatDeltas.Older, read as a
+// chat of its own, and the cursor of the history before it. It takes no
+// lock: the reach it reads is as small as a tail's.
+func (pc *paneChat) page(before int64) (session.Snapshot, int64, error) {
+	pc.mu.Lock()
+	ok := before <= pc.start
+	pc.mu.Unlock()
+	if !ok {
+		return session.Snapshot{}, 0, chatError{"not-found", "the chat moved on; read it again"}
+	}
+	f, err := os.Open(pc.path)
+	if err != nil {
+		return session.Snapshot{}, 0, err
+	}
+	defer f.Close()
+	start, err := tailStart(f, before)
+	if err != nil {
+		return session.Snapshot{}, 0, err
+	}
+	s, err := pc.reduceRange(f, start, before)
+	if err != nil {
+		return session.Snapshot{}, 0, err
+	}
+	pc.mu.Lock()
+	if pc.pages == nil {
+		pc.pages = map[string][2]int64{}
+	}
+	for _, it := range s.Content {
+		pc.pages[it.ID] = [2]int64{start, before}
+	}
+	pc.mu.Unlock()
+	return s, start, nil
+}
+
+// reduceRange is the transcript's bytes from from to to read as a chat of
+// their own, its last turn ended.
+func (pc *paneChat) reduceRange(f io.ReaderAt, from, to int64) (session.Snapshot, error) {
+	b := make([]byte, to-from)
+	if _, err := f.ReadAt(b, from); err != nil && err != io.EOF {
+		return session.Snapshot{}, err
+	}
+	p := &paneChat{id: pc.id, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: pc.id, Provider: model.ProviderClaude}}
+	p.lines(b)
+	p.reduce(p.tr.End(session.TurnCompleted))
+	return p.snap, nil
+}
+
+// item is item id whole: from the chat's tail, else read again from the
+// page it came in.
+func (pc *paneChat) item(id string) (session.Item, error) {
+	pc.mu.Lock()
+	i := slices.IndexFunc(pc.snap.Content, func(it session.Item) bool { return it.ID == id })
+	if i >= 0 {
+		defer pc.mu.Unlock()
+		return pc.snap.Content[i], nil
+	}
+	r, ok := pc.pages[id]
+	pc.mu.Unlock()
+	if ok {
+		f, err := os.Open(pc.path)
+		if err != nil {
+			return session.Item{}, err
+		}
+		defer f.Close()
+		s, err := pc.reduceRange(f, r[0], r[1])
+		if err != nil {
+			return session.Item{}, err
+		}
+		if i := slices.IndexFunc(s.Content, func(it session.Item) bool { return it.ID == id }); i >= 0 {
+			return s.Content[i], nil
+		}
+	}
+	return session.Item{}, chatError{"not-found", "item " + id + " is gone from the chat"}
 }
 
 // turnStart is when the running turn started, zero for none.
@@ -256,21 +442,19 @@ func (pc *paneChat) commit(ds []session.Delta, stamp string) {
 	}
 }
 
-// read is the deltas after seq after, or the snapshot when those are gone,
-// as chat.read answers. Callers hold pc.mu.
+// read is the deltas after seq after, or the snapshot when those are gone
+// or too big, as chat.read answers. Callers hold pc.mu.
 func (pc *paneChat) read(after int64) proto.ChatDeltas {
 	out := proto.ChatDeltas{Chat: pc.id, Seq: pc.seq}
 	kept := pc.recent[max(0, len(pc.recent)-recentDeltas):]
 	first := pc.seq - int64(len(kept))
 	if after > 0 && after >= first && after <= pc.seq {
-		out.Seq = after
-		for _, dl := range kept[after-first:] {
-			b, _ := json.Marshal(dl)
-			out.Deltas = append(out.Deltas, b)
+		if ds, ok := deltaJSON(kept[after-first:]); ok {
+			out.Seq, out.Deltas = after, ds
+			return out
 		}
-		return out
 	}
-	out.Snapshot, _ = json.Marshal(pc.snap)
+	out.Snapshot, out.Older = wireSnapshot(pc.snap, 0), pc.start
 	return out
 }
 

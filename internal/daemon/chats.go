@@ -176,8 +176,11 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 			return chatResult(m.Chat, "", "", err), true
 		}
 		var out proto.ChatDeltas
-		if !c.do(func() { out = c.read(m.After) }) {
+		if !c.do(func() { out, err = c.read(m) }) {
 			return chatResult(m.Chat, "", "", chatError{"not-found", "chat " + m.Chat + " is closed"}), true
+		}
+		if err != nil {
+			return chatResult(m.Chat, "", "", err), true
 		}
 		return out, true
 	case proto.ChatSend:
@@ -1196,24 +1199,91 @@ func (c *chat) system(text string) {
 	c.reduce(session.Event{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem, Text: text})
 }
 
-// read publishes what the loop holds back, so a subscriber's next deltas
-// follow what it returns.
-func (c *chat) read(after int64) proto.ChatDeltas {
+// read answers r: the deltas after r.After, else a snapshot of the newest
+// items (window), else the page or the item it asks for. It publishes
+// what the loop holds back, so a subscriber's next deltas follow what it
+// returns.
+func (c *chat) read(r proto.ChatRead) (proto.ChatDeltas, error) {
+	out := proto.ChatDeltas{Chat: c.id}
+	items := c.snap.Content
+	switch {
+	case r.Item != "":
+		i := slices.IndexFunc(items, func(it session.Item) bool { return it.ID == r.Item })
+		if i < 0 {
+			return out, chatError{"not-found", "item " + r.Item + " is gone from the chat"}
+		}
+		out.Item, _ = json.Marshal(session.Clip(items[i], itemBytes))
+		return out, nil
+	case r.Before > 0:
+		end := min(int(r.Before), len(items))
+		from := window(items, end)
+		out.Snapshot = wireSnapshot(session.Snapshot{SessionID: c.id, Content: items[:end]}, from)
+		out.Page, out.Older = r.Before, int64(from)
+		return out, nil
+	}
 	c.hold = time.Time{}
 	c.publish()
-	out := proto.ChatDeltas{Chat: c.id, Seq: c.seq}
+	out.Seq = c.seq
 	kept := c.recent[max(0, len(c.recent)-recentDeltas):]
 	first := c.seq - int64(len(kept)) // the seq before the oldest kept delta
-	if after > 0 && after >= first && after <= c.seq {
-		out.Seq = after
-		for _, dl := range kept[after-first:] {
-			b, _ := json.Marshal(dl)
-			out.Deltas = append(out.Deltas, b)
+	if r.After > 0 && r.After >= first && r.After <= c.seq {
+		if ds, ok := deltaJSON(kept[r.After-first:]); ok {
+			out.Seq, out.Deltas = r.After, ds
+			return out, nil
 		}
-		return out
 	}
-	out.Snapshot, _ = json.Marshal(c.snap)
-	return out
+	from := window(c.snap.Content, len(c.snap.Content))
+	out.Snapshot, out.Older = wireSnapshot(c.snap, from), int64(from)
+	return out, nil
+}
+
+// A ChatRead's reply stays well under the wire's frame limit, whatever
+// the chat holds: deltas up to deltaBytes, else a snapshot whose items
+// Clip cuts to session.ClipBytes, a stream chat's its newest snapBytes of
+// them, the rest in pages as big; one item asked for whole up to
+// itemBytes.
+const (
+	deltaBytes = 1 << 20
+	snapBytes  = 4 << 20
+	itemBytes  = 16 << 20
+)
+
+// deltaJSON is ds as JSON, false when they take more than deltaBytes.
+func deltaJSON(ds []session.Delta) ([][]byte, bool) {
+	out, n := make([][]byte, 0, len(ds)), 0
+	for _, dl := range ds {
+		b, _ := json.Marshal(dl)
+		if n += len(b); n > deltaBytes {
+			return nil, false
+		}
+		out = append(out, b)
+	}
+	return out, true
+}
+
+// wireSnapshot is s's JSON with its items from index from on, each cut by
+// Clip.
+func wireSnapshot(s session.Snapshot, from int) []byte {
+	items := make([]session.Item, 0, len(s.Content)-from)
+	for _, it := range s.Content[from:] {
+		items = append(items, session.Clip(it, session.ClipBytes))
+	}
+	s.Content = items
+	b, _ := json.Marshal(s)
+	return b
+}
+
+// window is the index of the oldest of the items before end that a
+// snapshot or page holds: snapBytes of them once cut, at most retailItems.
+func window(items []session.Item, end int) int {
+	n := 0
+	for i := end - 1; i >= 0; i-- {
+		b, _ := json.Marshal(session.Clip(items[i], session.ClipBytes))
+		if n += len(b); n > snapBytes || end-i > retailItems {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // chatStart starts the provider when it is not running: resuming its
