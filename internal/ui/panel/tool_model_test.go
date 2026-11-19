@@ -283,3 +283,22 @@ func TestToolEdgeCases(t *testing.T) {
 		transcriptFrame(tr, theme.Dark(), s, &ops, time.Now())
 	}
 }
+
+// TestOneLine: a header's command or argument is one line, whatever it
+// holds, so no newline, tab or control character draws as a block; the
+// body keeps the command as written.
+func TestOneLine(t *testing.T) {
+	cmd := "until grep -q done /tmp/x/tasks/b1.output;\n\tdo sleep 1;\r\n done \x1b[31m\x00\x07ok"
+	if got, want := oneLine(cmd), "until grep -q done /tmp/x/tasks/b1.output; do sleep 1; done ok"; got != want {
+		t.Fatalf("oneLine %q, want %q", got, want)
+	}
+	in, _ := json.Marshal(map[string]string{"command": cmd, "description": "Wait\tfor the\nloop"})
+	c := &session.ToolCall{ToolName: "Bash", Status: "completed", Input: in}
+	v := describe(c, summarize(c, nil, time.Time{}, time.Now()), "")
+	if v.arg != oneLine(cmd) || v.verb != "Wait for the loop" {
+		t.Fatalf("header %q %q", v.verb, v.arg)
+	}
+	if long := oneLine(strings.Repeat("ab ", 1000)); len([]rune(long)) != headRunes {
+		t.Fatalf("long header kept %d runes", len([]rune(long)))
+	}
+}

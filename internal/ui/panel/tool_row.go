@@ -256,7 +256,7 @@ func (d *cdraw) codeArg(gtx layout.Context, v toolView, room int) layout.Dimensi
 	if v.verb != "" {
 		fg = th.Muted
 	}
-	arg := firstLine(v.arg)
+	arg := v.arg
 	if !v.prompt {
 		return d.lbl(gtx, th.MonoFont, sz, fg, arg)
 	}

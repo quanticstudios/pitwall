@@ -61,6 +61,8 @@ func toolChat() *session.Snapshot {
 			Output: "Command running in background with ID: bx1. Output is being written to: /tmp/x", Background: "running"},
 		{ToolName: "TaskOutput", Status: "completed", Input: in(map[string]any{"task_id": "bx1"}),
 			Output: "<status>running</status>\n<output>\n> dev\n\x1b[36mready\x1b[0m on http://localhost:5173\n</output>"},
+		{ToolName: "Bash", Status: "completed", Input: in(map[string]any{"command": "until grep -q done /tmp/x/tasks/b1.output; do\n\tsleep 1\ndone"}), ExitCode: &zero,
+			StartedAt: at(8), EndedAt: at(11)},
 		{ToolName: "Bash", Status: "completed", Input: in(map[string]any{"command": "gh pr create --fill", "description": "Open the pull request"}), ExitCode: &zero,
 			Output: "https://github.com/quanticstudios/pitwall/pull/459"},
 		{ToolName: "Read", Status: "completed", Input: in(map[string]any{"file_path": "/repo/shots/tools.png"}),

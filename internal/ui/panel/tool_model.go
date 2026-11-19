@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"net/url"
 	"regexp"
@@ -51,6 +52,9 @@ func describe(c *session.ToolCall, sum toolSummary, out string) toolView {
 	switch c.ToolName {
 	case "Bash", "bash", "exec_command", "shell_command", "shell", "run_shell_command":
 		v.mono, v.prompt = true, true
+		if cmd := cmp.Or(c.Command, in.str("command", "cmd")); cmd != "" {
+			v.arg = cmd // all of it, made one line below
+		}
 		if d := in.str("description"); d != "" {
 			v.verb = d
 		} else {
@@ -135,8 +139,30 @@ func describe(c *session.ToolCall, sum toolSummary, out string) toolView {
 	if c.Status == "failed" {
 		v.errLine = errorLine(c)
 	}
+	v.verb, v.arg, v.note, v.errLine = oneLine(v.verb), oneLine(v.arg), oneLine(v.note), oneLine(v.errLine)
 	return v
 }
+
+// oneLine is s as a header shows it: escapes and control characters
+// dropped, each run of spaces, tabs and newlines one space, and at most
+// headRunes runes, since the label cuts it to the row anyway.
+func oneLine(s string) string {
+	s = ansi.ReplaceAllString(s, "")
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) || r == utf8.RuneError {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > headRunes {
+		s = string(r[:headRunes])
+	}
+	return s
+}
+
+// headRunes is the most of a header's text kept: more than any row shows.
+const headRunes = 400
 
 // shellVerb is a call that reads or stops a background shell, as a verb.
 func shellVerb(tool string) string {
