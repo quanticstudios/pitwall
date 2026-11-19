@@ -119,6 +119,11 @@ func heading(th *theme.Theme, s string) layout.Widget {
 
 // menuRow is a popover row: a name and a check on the current one.
 func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name string, on bool) layout.Dimensions {
+	return iconMenuRow(gtx, th, b, "", name, th.Fg, on)
+}
+
+// iconMenuRow is menuRow with a 14dp icon before the name, in col with it.
+func iconMenuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, name string, col color.NRGBA, on bool) layout.Dimensions {
 	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(28)
 		w := gtx.Constraints.Max.X
@@ -134,9 +139,14 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 		o := op.Offset(image.Pt(gtx.Dp(theme.SpaceS), 0)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints.Max.X = w - gtx.Dp(36)
-		row(g, 0, h, func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, name)
+		var ws []layout.Widget
+		if icon != "" {
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, icon, gtx.Dp(14), col) })
+		}
+		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+			return text(gtx, th, th.UIFont, th.Sp(theme.Body), col, name)
 		})
+		row(g, gtx.Dp(theme.SpaceS), h, ws...)
 		o.Pop()
 		if on {
 			is := gtx.Dp(14)

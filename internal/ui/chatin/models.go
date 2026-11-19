@@ -78,16 +78,22 @@ func ModeOf(s *session.Snapshot) string {
 // Accept edits, Plan and, when bypass, Bypass permissions; Default from
 // any other.
 func NextMode(m string, bypass bool) string {
-	ms := modes
-	if bypass {
-		ms = append(ms[:len(ms):len(ms)], ModeBypass)
-	}
+	ms := ModeItems(bypass)
 	for i, x := range ms {
 		if x == m {
 			return ms[(i+1)%len(ms)]
 		}
 	}
 	return ModeDefault
+}
+
+// ModeItems are the modes the mode chip's picker lists, in Shift+Tab's
+// order: bypass permissions only when the chat may enter it.
+func ModeItems(bypass bool) []string {
+	if bypass {
+		return append(modes[:len(modes):len(modes)], ModeBypass)
+	}
+	return modes
 }
 
 // ModeName is the pill's label for m.

@@ -15,9 +15,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// Thumb checks that b is a picture a chat takes and returns it scaled to
-// fit in w by h pixels.
-func Thumb(b []byte, w, h int) (*image.NRGBA, error) {
+// decode checks that b is a picture a chat takes and decodes it.
+func decode(b []byte) (image.Image, error) {
 	if len(b) > proto.MaxPasteImage {
 		return nil, errors.New("the image is over 20 MiB")
 	}
@@ -29,21 +28,45 @@ func Thumb(b []byte, w, h int) (*image.NRGBA, error) {
 		return nil, errors.New("the picture exceeds 40 megapixels")
 	}
 	im, _, err := image.Decode(bytes.NewReader(b))
+	return im, err
+}
+
+// Thumb checks that b is a picture a chat takes and returns it scaled to
+// fit in w by h pixels.
+func Thumb(b []byte, w, h int) (*image.NRGBA, error) {
+	im, err := decode(b)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Width*h > cfg.Height*w {
-		h = max(1, w*cfg.Height/cfg.Width)
+	sz := im.Bounds().Size()
+	if sz.X*h > sz.Y*w {
+		h = max(1, w*sz.Y/sz.X)
 	} else {
-		w = max(1, h*cfg.Width/cfg.Height)
+		w = max(1, h*sz.X/sz.Y)
 	}
 	thumb := image.NewNRGBA(image.Rect(0, 0, w, h))
-	bounds := im.Bounds()
-	for y := range h {
-		for x := range w {
-			thumb.Set(x, y, im.At(bounds.Min.X+x*bounds.Dx()/w, bounds.Min.Y+y*bounds.Dy()/h))
-		}
+	draw.CatmullRom.Scale(thumb, thumb.Bounds(), im, im.Bounds(), draw.Src, nil)
+	return thumb, nil
+}
+
+// Cover checks that b is a picture a chat takes and returns its middle
+// square, scaled to side by side pixels: a thumbnail cropped to fill.
+func Cover(b []byte, side int) (*image.NRGBA, error) {
+	im, err := decode(b)
+	if err != nil {
+		return nil, err
 	}
+	r := im.Bounds()
+	if d := r.Dx() - r.Dy(); d > 0 {
+		r.Min.X += d / 2
+		r.Max.X = r.Min.X + r.Dy()
+	} else {
+		r.Min.Y -= d / 2
+		r.Max.Y = r.Min.Y + r.Dx()
+	}
+	side = max(1, side)
+	thumb := image.NewNRGBA(image.Rect(0, 0, side, side))
+	draw.CatmullRom.Scale(thumb, thumb.Bounds(), im, r, draw.Src, nil)
 	return thumb, nil
 }
 
@@ -63,10 +86,7 @@ func Fit(b []byte) ([]byte, string, error) {
 	if mime := http.DetectContentType(b); sendTypes[mime] && len(b) <= maxSend {
 		return b, mime, nil
 	}
-	if _, err := Thumb(b, 1, 1); err != nil { // the size and type checks
-		return nil, "", err
-	}
-	im, _, err := image.Decode(bytes.NewReader(b))
+	im, err := decode(b)
 	if err != nil {
 		return nil, "", err
 	}
