@@ -155,27 +155,68 @@ func TestTurnOf(t *testing.T) {
 	}
 }
 
-// TestMultiKeys: number keys toggle a multiSelect question's options until
-// Enter moves on; then they pick in the next question.
+// newAsk is a question card's state as settle makes it.
+func newAsk(qs []session.Question) *ask {
+	a := &ask{moved: make([]bool, len(qs)), active: -1, other: make([]widget.Editor, len(qs))}
+	for _, q := range qs {
+		var m []bool
+		if q.Multi {
+			m = make([]bool, len(q.Options))
+		}
+		a.pick, a.multi = append(a.pick, -1), append(a.multi, m)
+		a.opts = append(a.opts, make([]widget.Clickable, len(q.Options)+1))
+	}
+	return a
+}
+
+// TestMultiKeys: the number keys act on one question at a time. They
+// toggle a multiSelect question's options until Enter moves on; a
+// single-select pick moves them to the next question; a click makes its
+// question theirs.
 func TestMultiKeys(t *testing.T) {
 	qs := []session.Question{
 		{ID: "f", Multi: true, Options: []session.PromptOption{{Label: "Apple"}, {Label: "Banana"}, {Label: "Cherry"}}},
 		{ID: "l", Options: []session.PromptOption{{Label: "Sidebar"}, {Label: "Top bar"}}},
+		{ID: "s", Options: []session.PromptOption{{Label: "Small"}, {Label: "Large"}}},
 	}
 	tr := &Transcript{}
 	tr.init()
 	tr.askQs = map[string][]session.Question{"q": qs}
-	a := &ask{moved: make([]bool, 2), pick: []int{-1, -1}, multi: [][]bool{make([]bool, 3), nil},
-		opts: [][]widget.Clickable{make([]widget.Clickable, 4), make([]widget.Clickable, 3)}, other: make([]widget.Editor, 2)}
+	a := newAsk(qs)
 	tr.asks["q"], tr.keyAsk = a, "q"
-	for _, k := range []string{"1", "3", string(key.NameReturn), "2"} {
+	enter := string(key.NameReturn)
+	for _, k := range []string{"1", "3"} {
 		tr.Key(k)
 	}
-	if !a.multi[0][0] || a.multi[0][1] || !a.multi[0][2] || a.pick[1] != 1 {
-		t.Fatalf("checks %v, pick %v: want Apple and Cherry, then Top bar", a.multi[0], a.pick)
+	if !a.multi[0][0] || a.multi[0][1] || !a.multi[0][2] || a.current() != 0 {
+		t.Fatalf("checks %v, keys on %d: want Apple and Cherry, keys still on the first", a.multi[0], a.current())
 	}
+	tr.Key("3") // toggles Cherry off: the keys stay until Enter
+	tr.Key("3")
+	tr.Key(enter)
+	if a.current() != 1 {
+		t.Fatalf("keys on %d after Enter: want the second question", a.current())
+	}
+	tr.Key("2")
+	if a.pick[1] != 1 || a.current() != 2 {
+		t.Fatalf("pick %v, keys on %d: want Top bar, then the keys on the third", a.pick, a.current())
+	}
+	a.choose(1, 0) // a click on Sidebar: its question is answered, the keys go on
+	if a.pick[1] != 0 || a.current() != 2 {
+		t.Fatalf("after a click: pick %v, keys on %d", a.pick, a.current())
+	}
+	a.choose(0, 1) // a click into the multiSelect question takes the keys there
+	if a.current() != 0 || !a.multi[0][1] {
+		t.Fatalf("after a click into the first: keys on %d, checks %v", a.current(), a.multi[0])
+	}
+	tr.Key("2") // Banana off again
+	tr.Key(enter)
+	tr.Key("1")
 	ans, ok := a.answers(qs)
-	if !ok || len(ans["f"]) != 2 || ans["l"][0] != "Top bar" {
+	if !ok || len(ans["f"]) != 2 || ans["l"][0] != "Sidebar" || ans["s"][0] != "Small" {
 		t.Fatalf("answers %v %v", ans, ok)
+	}
+	if keyFor(false, 0) != "" || keyFor(true, 0) != "1" || keyFor(true, 9) != "" {
+		t.Error("keyFor")
 	}
 }

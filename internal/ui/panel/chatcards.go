@@ -288,35 +288,44 @@ func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dime
 	return d.card(gtx, "ask", d.agent()+" has a question", func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		var ws []layout.Widget
+		cur := a.current()
 		for qi, q := range in.Questions {
 			if qi >= len(a.opts) {
 				break
 			}
+			active := qi == cur && len(in.Questions) > 1
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return vstack(gtx, gtx.Dp(theme.SpaceXS),
-					func(gtx layout.Context) layout.Dimensions {
-						if q.Header == "" && !q.Multi {
-							return layout.Dimensions{}
-						}
-						return hrow(gtx, gtx.Dp(theme.SpaceS),
+				return d.question(gtx, active, func(gtx layout.Context) layout.Dimensions {
+					return vstack(gtx, gtx.Dp(theme.SpaceS), func(gtx layout.Context) layout.Dimensions {
+						return vstack(gtx, gtx.Dp(theme.SpaceXS),
 							func(gtx layout.Context) layout.Dimensions {
-								if q.Header == "" {
+								if q.Header == "" && !q.Multi {
 									return layout.Dimensions{}
 								}
-								return d.tag(gtx, q.Header)
+								return hrow(gtx, gtx.Dp(theme.SpaceS),
+									func(gtx layout.Context) layout.Dimensions {
+										if q.Header == "" {
+											return layout.Dimensions{}
+										}
+										return d.tag(gtx, q.Header)
+									},
+									func(gtx layout.Context) layout.Dimensions {
+										if !q.Multi {
+											return layout.Dimensions{}
+										}
+										return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Pick any")
+									})
 							},
 							func(gtx layout.Context) layout.Dimensions {
-								if !q.Multi {
-									return layout.Dimensions{}
+								c := th.Fg
+								if qi != cur {
+									c = th.Muted
 								}
-								return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Pick any")
+								return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), c, 1.45}, q.Prompt)
 							})
-					},
-					func(gtx layout.Context) layout.Dimensions {
-						return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), th.Fg, 1.45}, q.Prompt)
-					})
+					}, func(gtx layout.Context) layout.Dimensions { return d.askOptions(gtx, a, qi, q, qi == cur) })
+				})
 			})
-			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.askOptions(gtx, a, qi, q) })
 		}
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
 			return d.keyButton(gtx, &a.submit, true, "Answer", "", ready)
@@ -328,7 +337,7 @@ func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dime
 // askOptions are question qi's option rows and its typed row; with
 // previews, the rows on the left and the picked option's preview on the
 // right, or under them when the card is narrow.
-func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Question) layout.Dimensions {
+func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Question, keys bool) layout.Dimensions {
 	th := d.th
 	multi := a.multiQ(qi)
 	rows := func(gtx layout.Context) layout.Dimensions {
@@ -339,7 +348,7 @@ func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Questio
 				on = multi[oi]
 			}
 			rs = append(rs, func(gtx layout.Context) layout.Dimensions {
-				return d.option(gtx, &a.opts[qi][oi], on, multi != nil, strconv.Itoa(oi+1), func(gtx layout.Context) layout.Dimensions {
+				return d.option(gtx, &a.opts[qi][oi], on, multi != nil, keyFor(keys, oi), func(gtx layout.Context) layout.Dimensions {
 					return vstack(gtx, gtx.Dp(1),
 						func(gtx layout.Context) layout.Dimensions {
 							return label(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, o.Label, 0)
@@ -359,7 +368,7 @@ func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Questio
 			otherOn = strings.TrimSpace(a.other[qi].Text()) != ""
 		}
 		rs = append(rs, func(gtx layout.Context) layout.Dimensions {
-			return d.option(gtx, &a.opts[qi][n], otherOn, multi != nil, strconv.Itoa(n+1), func(gtx layout.Context) layout.Dimensions {
+			return d.option(gtx, &a.opts[qi][n], otherOn, multi != nil, keyFor(keys, n), func(gtx layout.Context) layout.Dimensions {
 				return d.otherField(gtx, &a.other[qi])
 			})
 		})
@@ -418,7 +427,9 @@ func (d *cdraw) option(gtx layout.Context, c *widget.Clickable, on, check bool, 
 			fill = th.Hover
 		}
 		rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover), fill, ring)
-		at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { return d.keycap(gtx, k, false) })
+		if k != "" { // only the question the keys act on shows them
+			at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { return d.keycap(gtx, k, false) })
+		}
 		if check {
 			bx, bs := px+gtx.Dp(32), gtx.Dp(16)
 			r := image.Rect(bx, py+gtx.Dp(1), bx+bs, py+gtx.Dp(1)+bs)
@@ -521,4 +532,27 @@ func (d *cdraw) moreMenu(gtx layout.Context, size image.Point) {
 	// The menu takes presses so they do not reach the transcript under it.
 	defer clip.Rect(r).Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
+}
+
+// keyFor is option i's key on its keycap, "" when the keys act on
+// another question.
+func keyFor(keys bool, i int) string {
+	if !keys || i >= 9 {
+		return ""
+	}
+	return strconv.Itoa(i + 1)
+}
+
+// question draws one question of a card; the one the number keys act on,
+// when the card has several, has a bar in the primary color down its left.
+func (d *cdraw) question(gtx layout.Context, active bool, body layout.Widget) layout.Dimensions {
+	if !active {
+		return body(gtx)
+	}
+	bar := gtx.Dp(theme.Space2XS)
+	off := -gtx.Dp(cardPadX) + gtx.Dp(theme.SpaceS) // in the card's padding, clear of the options
+	c, dims := measure(gtx, body)
+	paint.FillShape(gtx.Ops, d.th.Primary, clip.UniformRRect(image.Rect(off, 0, off+bar, dims.Size.Y), bar/2).Op(gtx.Ops))
+	c.Add(gtx.Ops)
+	return dims
 }

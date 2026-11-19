@@ -128,8 +128,11 @@ type ask struct {
 	pick []int // per question, the option picked; len(options) is the typed answer, -1 none
 	// multi is, per multiSelect question, each option checked, nil for a
 	// single-select one; there pick is the option last toggled.
-	multi  [][]bool
-	moved  []bool // a multiSelect question Enter moved on from
+	multi [][]bool
+	moved []bool // a multiSelect question Enter moved on from
+	// active is the question the number keys act on, the one the user last
+	// clicked into; -1 for the first unanswered one.
+	active int
 	other  []widget.Editor
 	opts   [][]widget.Clickable // per question, one per option and one for the typed row
 	submit widget.Clickable
@@ -206,10 +209,13 @@ func (t *Transcript) Key(name string) bool {
 		t.decide(t.keyReq, act.decision)
 	case act.submit:
 		a := t.asks[t.keyAsk]
-		// Enter on a multiSelect question moves on to the next unanswered one.
-		if q := t.askQuestion(a); a.multiQ(q) != nil && !a.moved[q] && q < len(a.pick)-1 {
-			a.moved[q] = true
-			return true
+		// Enter on a multiSelect question moves on to the next open one,
+		// and sends the answers once none is left.
+		if q := t.askQuestion(a); a.multiQ(q) != nil {
+			a.moved[q], a.active = true, -1
+			if next := a.current(); next != q && a.open(next) {
+				return true
+			}
 		}
 		t.sendAsk(t.keyAsk)
 	default:
@@ -224,11 +230,18 @@ func (t *Transcript) Key(name string) bool {
 }
 
 // choose picks option o of question q: a multiSelect question toggles
-// it, the typed row aside.
+// it and keeps the keys, the typed row aside; a single-select pick moves
+// the keys on to the next unanswered question.
 func (a *ask) choose(q, o int) {
-	a.pick[q] = o
-	if m := a.multiQ(q); m != nil && o < len(m) {
-		m[o] = !m[o]
+	a.pick[q], a.active = o, q
+	if m := a.multiQ(q); m != nil {
+		if o < len(m) {
+			m[o] = !m[o]
+		}
+		return
+	}
+	if o < len(a.opts[q])-1 {
+		a.active = -1
 	}
 }
 
@@ -243,9 +256,22 @@ func (a *ask) multiQ(q int) []bool {
 // askQuestion is the question the number keys pick in: the first
 // without an answer, or a multiSelect one Enter has not moved on from;
 // else the last.
-func (t *Transcript) askQuestion(a *ask) int {
-	for i, p := range a.pick {
-		if p < 0 || a.multiQ(i) != nil && !a.moved[i] {
+func (t *Transcript) askQuestion(a *ask) int { return a.current() }
+
+// open is whether question i still waits on the user: no pick, or
+// multiSelect and not moved on from.
+func (a *ask) open(i int) bool {
+	return a.pick[i] < 0 || a.multiQ(i) != nil && !a.moved[i]
+}
+
+// current is the question the number keys act on: the one the user is in,
+// else the first without an answer, else the last.
+func (a *ask) current() int {
+	if a.active >= 0 && a.active < len(a.pick) {
+		return a.active
+	}
+	for i := range a.pick {
+		if a.open(i) {
 			return i
 		}
 	}
@@ -542,7 +568,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 		}
 		a := t.asks[in.ID]
 		if a == nil {
-			a = &ask{moved: make([]bool, len(in.Questions))}
+			a = &ask{moved: make([]bool, len(in.Questions)), active: -1}
 			for _, q := range in.Questions {
 				var m []bool
 				pick := recommended(q)
