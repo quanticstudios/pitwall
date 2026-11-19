@@ -112,7 +112,7 @@ func (d *cdraw) logItem(gtx layout.Context, i int, last bool) layout.Dimensions 
 	w := gtx.Constraints.Max.X
 	g := gtx
 	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
-	call, rd := measure(g, func(gtx layout.Context) layout.Dimensions { return d.logRow(gtx, &d.s.Content[i]) })
+	call, rd := measure(g, func(gtx layout.Context) layout.Dimensions { return d.logEntry(gtx, i) })
 	h := 1 + rd.Size.Y
 	if last {
 		h++

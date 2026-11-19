@@ -694,10 +694,14 @@ goes unreported.
 | --- | --- |
 | `stream_event` text `content_block_delta` | `content.delta` assistant-text, item id `<message.id>:<block index>` |
 | `stream_event` thinking delta | `content.delta` reasoning-text, same id rule |
+| `stream_event` `content_block_start` of a thinking block | an empty reasoning-text `content.delta`, so the row's time starts there; Claude often hides the text, and the `assistant` line still ends the row |
 | `assistant` text block | `content.delta` with only the text not yet streamed |
 | `assistant` `usage`, main thread, after a `result` | `session.usage.updated`: the last result's counts with the new `contextTokens`, when it changed |
-| `assistant` `tool_use` block | `content.delta` tool-call, item id the `tool_use` id, `Tool{status: running}`; `TodoWrite` fills `Tool.Tasks` |
-| `user` `tool_result` | that tool's `content.delta`: status completed, or failed when `is_error`, output the result text |
+| `assistant` `tool_use` block | `content.delta` tool-call, item id the `tool_use` id, `Tool{status: running}`; `TodoWrite`, `TaskCreate` and `TaskUpdate` fill `Tool.Tasks` with the whole list after the call, which the session keeps for the last two |
+| `assistant` or `user` with `parent_tool_use_id` | the subagent's calls on its `Task`/`Agent` call: `SubagentTools` names them, `SubagentCalls` holds each with its status and up to 8 KB of output |
+| `user` `tool_result` | that tool's `content.delta`: status completed, or failed when `is_error`, output the result text. A subagent whose `tool_use_result.status` is `async_launched` stays running until its `system/task_notification`, maybe turns later |
+| `user` text `<local-command-stdout>` | a `system` item, phase `output`; `/model` and `/effort`'s become phase `setting` ("Switched to …"), and `/compact`'s "Compacted" none |
+| `user` text after `system/compact_boundary` | the summary, added to the compaction's item |
 | `result` | `turn.completed`: `success` completed; `error_during_execution` with `terminal_reason` `aborted_streaming` or `aborted_tools` (stopped during a tool, as in `interrupt-tool`) interrupted; any other error failed with `result` as the message. `Point` is the `uuid` of the turn's last `assistant` line. Then `session.usage.updated` from `usage` and `modelUsage`. |
 | `control_request` `can_use_tool` | `request.opened`, request id the `request_id`, type from the tool name as aide's `classifyToolRequestType`, detail `<tool>: <command or input>`; `ExitPlanMode` as `plan-approval` with the plan as detail; `AskUserQuestion` as `user-input.requested`, question ids the question texts, option ids the labels |
 | `control_cancel_request` | `request.resolved` or `user-input.resolved` for that id; the loop adds "Claude withdrew this request" |
@@ -705,7 +709,39 @@ goes unreported.
 | `system/init` `slash_commands` | `session.commands` when the names differ from the last list: names only, since `system/init` has no descriptions or hints; `Terminal` from `terminal_slash_commands` and `session.TerminalCommand`. `skills` repeats names already in `slash_commands`, and `agents` are subagent types, not commands, so neither adds any |
 | `system/status` with `permissionMode` | the loop's `session.patch` for `permissionMode` |
 | `system/permission_denied` | a `system` item with the message (not expected with the stdio tool) |
-| `system/task_*`, `system/thinking_tokens`, `system/hook_*` | ignored |
+| `system/task_notification` | a background subagent's call ends with the report; a task started with `is_backgrounded` gets a `system` item, phase `notice`, "Background task finished: …" |
+| `system/task_progress` | a running subagent's `Tool.Progress` |
+| `system/compact_boundary` | a `system` item, phase `compact`, "Conversation compacted" |
+| `system/hook_response` that is not a success | a `system` item, phase `hook`: "PreToolUse:Bash hook blocked: <stderr>" |
+| `system/api_retry` | a `system` item, phase `warning`: "API error 529: … · retrying in 4s (attempt 2 of 10)" |
+| `system/task_started` (but `is_backgrounded`), `system/thinking_tokens`, `system/hook_started`, `system/hook_progress`, `system/task_updated`, `system/background_tasks_changed` | ignored |
+
+A `system` item's `phase` says what it is, so the desktop chat draws each
+its own way; its text reads on its own for aide and the phone. The phases
+are `command` (a slash or ! command: a chip on the user's side), `output`
+(its output, ANSI kept), `notice`, `compact` ("Conversation compacted",
+a blank line, the summary), `setting` (a model, effort or mode change: a
+divider), `warning` (an API retry), `error` (an API error that ended the
+turn) and `hook` (a hook's block or feedback). The chat loop adds a
+`setting` item when `ChatSet` changes a value the session already had; a
+pane chat adds one when the TUI's footer shows another mode.
+
+A pane chat reads Claude Code's transcript the same way. It adds what only
+the transcript says: `<command-name>` lines become `command` items, `/model`
+and `/effort` with their output one `setting` item; `<bash-input>` and
+`<bash-stdout>` a `!` command and its output; `system/local_command` lines
+the same; `system/informational` a `notice`; `system/api_error` a
+`warning`; an `isApiErrorMessage` assistant line an `error`, a usage limit's
+`|<unix time>` turned into its reset time; `<task-notification>` lines and
+`queued_command` attachments as above, one with `origin.kind`
+`task-notification` starting a turn of its own; hook attachments and
+`Stop hook feedback` lines a `hook`. `thinkingDurationMs` times a thinking
+row, and the turn's API messages' `usage`, counted once per message id,
+make its usage report at the turn's end, priced with `flow.PriceOf`.
+`<local-command-caveat>`, `<system-reminder>` and other meta lines show
+nothing. A running subagent's calls come from
+`<session>/subagents/agent-<id>.jsonl`, which `agent-<id>.meta.json` ties
+to its tool call by `toolUseId`.
 
 ### What the spike calls unstable, and what the driver does about it
 

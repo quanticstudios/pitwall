@@ -8,8 +8,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +46,16 @@ type paneChat struct {
 	// holds until the turn ends; the next prompt line takes them.
 	queued []session.QueuedInput
 	footer bool // the TUI's footer gave the mode at least once
+	moded  bool // the chat showed a mode: a change after it gets a divider
+	// agents are the running subagents' own transcripts, by their tool
+	// call's id, and how far each was read.
+	agents map[string]*agentFile
+}
+
+// agentFile is a subagent's transcript and how far it was read.
+type agentFile struct {
+	path string
+	off  int64
 }
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
@@ -158,25 +170,15 @@ func waits(s model.AgentState) bool {
 // catchUp reads what the transcript gained, then brings the turn, the open
 // request and the mode in line with the pane. Callers hold pc.mu.
 func (pc *paneChat) catchUp(l paneLive) {
-	if f, err := os.Open(pc.path); err == nil {
-		var b []byte
-		if _, err = f.Seek(pc.off, io.SeekStart); err == nil {
-			b, err = io.ReadAll(f)
+	// The subagents first: their last calls end before the line that ends
+	// them reaches the session's transcript.
+	pc.subagents()
+	for _, line := range pc.lines(pc.path, &pc.off) {
+		es := pc.tr.Line(line)
+		if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
+			pc.queued = nil
 		}
-		f.Close()
-		if err != nil {
-			log.Printf("pane chat %s: transcript: %q", pc.id, err)
-		}
-		if end := bytes.LastIndexByte(b, '\n'); end >= 0 {
-			for _, line := range bytes.Split(b[:end], []byte("\n")) {
-				es := pc.tr.Line(line)
-				if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
-					pc.queued = nil
-				}
-				pc.reduce(es)
-			}
-			pc.off += int64(end + 1)
-		}
+		pc.reduce(es)
 	}
 	a := l.act
 	switch {
@@ -200,13 +202,72 @@ func (pc *paneChat) catchUp(l paneLive) {
 	}
 	if mode != "" && mode != pc.snap.PermissionMode {
 		pc.reduce([]session.Event{{Type: session.EventSettings, Mode: mode}})
+		if pc.moded {
+			pc.reduce([]session.Event{{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem,
+				Phase: session.PhaseSetting, Text: session.SettingText("", "", mode)}})
+		}
 	}
+	pc.moded = pc.moded || mode != ""
 	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
 		pc.queued = nil // the agent stopped without taking them: an interrupt dropped them back in its box
 	}
 	if !slices.EqualFunc(pc.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool { return a.ID == b.ID }) {
 		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
+	}
+}
+
+// lines are the whole lines file path gained since *off, which moves past
+// them.
+func (pc *paneChat) lines(path string, off *int64) [][]byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	var b []byte
+	if _, err = f.Seek(*off, io.SeekStart); err == nil {
+		b, err = io.ReadAll(f)
+	}
+	f.Close()
+	if err != nil {
+		log.Printf("pane chat %s: transcript: %q", pc.id, err)
+	}
+	end := bytes.LastIndexByte(b, '\n')
+	if end < 0 {
+		return nil
+	}
+	*off += int64(end + 1)
+	return bytes.Split(b[:end], []byte("\n"))
+}
+
+// subagents reads what the running subagents' transcripts gained: Claude
+// Code writes each to subagents/agent-<id>.jsonl beside the session's,
+// and names its tool call in agent-<id>.meta.json.
+func (pc *paneChat) subagents() {
+	running := pc.tr.Subagents()
+	if len(running) == 0 {
+		return
+	}
+	if pc.agents == nil {
+		pc.agents = map[string]*agentFile{}
+	}
+	if slices.ContainsFunc(running, func(c string) bool { return pc.agents[c] == nil }) {
+		metas, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(pc.path, ".jsonl"), "subagents", "agent-*.meta.json"))
+		for _, m := range metas {
+			var meta struct {
+				ToolUseID string `json:"toolUseId"`
+			}
+			if b, err := os.ReadFile(m); err == nil && json.Unmarshal(b, &meta) == nil && meta.ToolUseID != "" && pc.agents[meta.ToolUseID] == nil {
+				pc.agents[meta.ToolUseID] = &agentFile{path: strings.TrimSuffix(m, ".meta.json") + ".jsonl"}
+			}
+		}
+	}
+	for _, call := range running {
+		if a := pc.agents[call]; a != nil {
+			for _, line := range pc.lines(a.path, &a.off) {
+				pc.reduce(pc.tr.Subagent(call, line))
+			}
+		}
 	}
 }
 

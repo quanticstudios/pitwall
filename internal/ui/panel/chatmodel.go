@@ -33,7 +33,10 @@ type block struct {
 	// tool call, drawn under the work log; -1 for none.
 	reply  int
 	tools  int  // tool calls in the turn
-	failed bool // one of them failed
+	failed bool // one of them failed, or an error ended it
+	// todo is the turn's last task-list call, its checklist card; -1 for
+	// none. todos counts its task-list calls, which the work log leaves out.
+	todo, todos int
 }
 
 // blocks groups a transcript: each prompt is a bubble, the items after
@@ -67,14 +70,22 @@ func blocks(content []session.Item, out []block) []block {
 		if b.kind != blockTurn {
 			continue
 		}
+		b.todo = -1
 		for i := b.lo; i < b.hi; i++ {
 			switch content[i].Kind {
 			case session.KindToolCall:
-				b.tools++
 				b.reply = -1
 				b.failed = b.failed || toolOpen(content[i].Tool)
+				if isTodo(content[i].Tool) { // its card, not the work log, shows it
+					b.todo = i
+					b.todos++
+				} else {
+					b.tools++
+				}
 			case session.KindAssistantText:
 				b.reply = i
+			case session.KindSystem:
+				b.failed = b.failed || sysError(&content[i])
 			}
 		}
 	}

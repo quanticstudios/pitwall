@@ -42,14 +42,31 @@ func TestBlocks(t *testing.T) {
 	got := blocks(c, nil)
 	want := []block{
 		{kind: blockPrompt, lo: 0, hi: 1, turn: "t1", reply: -1},
-		{kind: blockTurn, lo: 1, hi: 6, turn: "t1", reply: 5, tools: 2},
+		{kind: blockTurn, lo: 1, hi: 6, turn: "t1", reply: 5, tools: 2, todo: -1},
 		{kind: blockSystem, lo: 6, hi: 7, reply: -1},
 		{kind: blockPrompt, lo: 7, hi: 8, turn: "t2", reply: -1},
-		{kind: blockTurn, lo: 8, hi: 9, turn: "t2", reply: -1, tools: 1},
-		{kind: blockTurn, lo: 9, hi: 10, turn: "t3", reply: -1},
+		{kind: blockTurn, lo: 8, hi: 9, turn: "t2", reply: -1, tools: 1, todo: -1},
+		{kind: blockTurn, lo: 9, hi: 10, turn: "t3", reply: -1, todo: -1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("blocks\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// TestBlocksTodoAndError: a turn's last task-list call is its checklist,
+// and an error notice opens its log as a failed call does.
+func TestBlocksTodoAndError(t *testing.T) {
+	todo := func(id string, done int) session.Item {
+		it := turnItem(id, session.KindToolCall, "t1")
+		it.Tool = &session.ToolCall{CallID: id, ToolName: "TodoWrite", Status: "completed", Tasks: []session.Task{{Status: "completed"}, {Status: "pending"}}}
+		return it
+	}
+	errItem := turnItem("e", session.KindSystem, "t1")
+	errItem.Phase = session.PhaseError
+	c := []session.Item{turnItem("p", session.KindUserPrompt, "t1"), todo("w1", 0), turnItem("c", session.KindToolCall, "t1"), todo("w2", 1), errItem}
+	b := blocks(c, nil)[1]
+	if b.todo != 3 || b.todos != 2 || !b.failed || b.tools != 1 {
+		t.Fatalf("block %+v: want the second TodoWrite as its card, two left out of the log, failed", b)
 	}
 }
 
@@ -238,5 +255,18 @@ func TestRelPath(t *testing.T) {
 		if got := relPath(c[0], c[1]); got != c[2] {
 			t.Errorf("relPath(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
 		}
+	}
+}
+
+func TestPromptParts(t *testing.T) {
+	shown, ps := promptParts("\n\n<pasted_content id=\"ba5e\">\nline 1\nline 2\n</pasted_content id=\"ba5e\">\n\nCount the lines.<system-reminder>x</system-reminder>")
+	if shown != "Count the lines." || len(ps) != 1 || ps[0].lines != 2 || ps[0].text != "line 1\nline 2" {
+		t.Fatalf("shown %q, pastes %+v", shown, ps)
+	}
+	if !slashCommand("/model claude-opus-5-5") || slashCommand("/tmp/x is a path\nwith lines") || slashCommand("fix /model") {
+		t.Fatal("slashCommand")
+	}
+	if got, cut := summaryCut("The output was:\n\n```\n2 notes.txt\n```", 3, 280); got != "The output was:\n2 notes.txt" || !cut {
+		t.Fatalf("summaryCut = %q, %v", got, cut)
 	}
 }

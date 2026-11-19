@@ -15,6 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -86,17 +87,16 @@ func (d *cdraw) tail() []layout.Widget {
 		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.working(gtx, start) })
 	}
-	if msg, stopped := endLine(s); msg != "" {
-		c := d.th.Readable(d.th.Red, d.th.Bg)
-		if stopped {
-			c = d.th.Muted
-		}
-		out = append(out, func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel("error"), d.body(c), msg)
-		})
+	// A stopped turn already ends on its Interrupted line.
+	if msg, stopped := endLine(s); msg != "" && !stopped {
+		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, "error", d.th.Red, "", msg) })
+	}
+	if l := s.UsageLimit; l != nil {
+		title, msg := limitNotice(l, d.t.now)
+		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, "limit", d.th.Yellow, title, msg) })
 	}
 	for _, a := range s.PendingApprovals {
-		if d.t.sent[a.ID] {
+		if d.t.sent[a.ID] || a.RequestType == session.RequestPlan && s.PlanApproval != nil && s.PlanApproval.ID == a.ID {
 			continue
 		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.approvalCard(gtx, a) })
@@ -107,14 +107,58 @@ func (d *cdraw) tail() []layout.Widget {
 		}
 		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.askCard(gtx, in) })
 	}
-	if p := s.PlanApproval; p != nil {
-		out = append(out, func(gtx layout.Context) layout.Dimensions {
-			return d.card(gtx, "check", "The plan is ready", func(gtx layout.Context) layout.Dimensions {
-				return d.selectable(gtx, d.t.sel("plan:"+p.ID), d.body(d.th.Fg), strings.TrimSpace(deref(p.Detail)))
-			})
-		})
+	if p := s.PlanApproval; p != nil && !d.t.sent[p.ID] {
+		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.planCard(gtx, p) })
 	}
 	return out
+}
+
+// planCard is a plan waiting for approval: the plan as markdown, then
+// Approve 1 and Refine 2, which sends it back for Claude to plan more.
+func (d *cdraw) planCard(gtx layout.Context, p *session.PlanApproval) layout.Dimensions {
+	bs := d.t.answer[p.ID]
+	if bs == nil {
+		bs = new([3]widget.Clickable)
+		d.t.answer[p.ID] = bs
+	}
+	plan := session.Item{ID: "plan:" + p.ID, Text: strings.TrimSpace(deref(p.Detail))}
+	return d.card(gtx, "map", "Plan ready for review", func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return vstack(gtx, gtx.Dp(theme.SpaceM),
+			func(gtx layout.Context) layout.Dimensions {
+				if plan.Text == "" {
+					return layout.Dimensions{}
+				}
+				return d.panelBox(gtx, func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, plan.ID, d.t.reply(&plan)) })
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				return hrow(gtx, gtx.Dp(theme.SpaceS),
+					func(gtx layout.Context) layout.Dimensions {
+						return d.keyButton(gtx, &bs[0], true, "Approve", "1", true)
+					},
+					func(gtx layout.Context) layout.Dimensions {
+						return d.keyButton(gtx, &bs[2], false, "Refine", "2", true)
+					},
+				)
+			},
+		)
+	})
+}
+
+// limitNotice is a plan limit's card: which limit, and when it resets.
+func limitNotice(l *session.UsageLimit, now time.Time) (title, msg string) {
+	title = l.Label + " reached"
+	msg = "Claude stopped until the limit resets."
+	if l.ResetsAt != nil {
+		if at := parseTime(*l.ResetsAt); !at.IsZero() {
+			format := "15:04"
+			if at.Sub(now) > 20*time.Hour {
+				format = "Mon 15:04"
+			}
+			msg = "Resets " + at.Local().Format(format) + "."
+		}
+	}
+	return title, msg
 }
 
 // endLine is the line under a chat whose last turn did not complete: its
@@ -233,8 +277,10 @@ func (d *cdraw) monoBox(gtx layout.Context, key, s string) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// askCard is a pending question: each question's options as numbered
-// rows, the recommended one picked, a row for a typed answer, Answer.
+// askCard is a pending question: per question its header, the prompt
+// and its options as numbered rows, checkboxes when several may be
+// picked, the option's preview beside them when options carry one, a
+// row for a typed answer; then Answer.
 func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dimensions {
 	th := d.th
 	a := d.t.asks[in.ID]
@@ -247,35 +293,30 @@ func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dime
 				break
 			}
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), th.Fg, 1.45}, q.Prompt)
+				return vstack(gtx, gtx.Dp(theme.SpaceXS),
+					func(gtx layout.Context) layout.Dimensions {
+						if q.Header == "" && !q.Multi {
+							return layout.Dimensions{}
+						}
+						return hrow(gtx, gtx.Dp(theme.SpaceS),
+							func(gtx layout.Context) layout.Dimensions {
+								if q.Header == "" {
+									return layout.Dimensions{}
+								}
+								return d.tag(gtx, q.Header)
+							},
+							func(gtx layout.Context) layout.Dimensions {
+								if !q.Multi {
+									return layout.Dimensions{}
+								}
+								return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Pick any")
+							})
+					},
+					func(gtx layout.Context) layout.Dimensions {
+						return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), th.Fg, 1.45}, q.Prompt)
+					})
 			})
-			opts := func(gtx layout.Context) layout.Dimensions {
-				var rows []layout.Widget
-				for oi, o := range q.Options {
-					rows = append(rows, func(gtx layout.Context) layout.Dimensions {
-						return d.option(gtx, &a.opts[qi][oi], a.pick[qi] == oi, strconv.Itoa(oi+1), func(gtx layout.Context) layout.Dimensions {
-							return vstack(gtx, gtx.Dp(1),
-								func(gtx layout.Context) layout.Dimensions {
-									return label(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, o.Label, 0)
-								},
-								func(gtx layout.Context) layout.Dimensions {
-									if o.Description == "" {
-										return layout.Dimensions{}
-									}
-									return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, o.Description, 0)
-								})
-						})
-					})
-				}
-				n := len(q.Options)
-				rows = append(rows, func(gtx layout.Context) layout.Dimensions {
-					return d.option(gtx, &a.opts[qi][n], a.pick[qi] == n, strconv.Itoa(n+1), func(gtx layout.Context) layout.Dimensions {
-						return d.otherField(gtx, &a.other[qi])
-					})
-				})
-				return vstack(gtx, gtx.Dp(theme.SpaceXS), rows...)
-			}
-			ws = append(ws, opts)
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.askOptions(gtx, a, qi, q) })
 		}
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
 			return d.keyButton(gtx, &a.submit, true, "Answer", "", ready)
@@ -284,14 +325,87 @@ func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dime
 	})
 }
 
-// option is one of a question's rows: its number on a keycap, then body.
-func (d *cdraw) option(gtx layout.Context, c *widget.Clickable, on bool, k string, body layout.Widget) layout.Dimensions {
+// askOptions are question qi's option rows and its typed row; with
+// previews, the rows on the left and the picked option's preview on the
+// right, or under them when the card is narrow.
+func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Question) layout.Dimensions {
+	th := d.th
+	multi := a.multiQ(qi)
+	rows := func(gtx layout.Context) layout.Dimensions {
+		var rs []layout.Widget
+		for oi, o := range q.Options {
+			on := a.pick[qi] == oi
+			if multi != nil {
+				on = multi[oi]
+			}
+			rs = append(rs, func(gtx layout.Context) layout.Dimensions {
+				return d.option(gtx, &a.opts[qi][oi], on, multi != nil, strconv.Itoa(oi+1), func(gtx layout.Context) layout.Dimensions {
+					return vstack(gtx, gtx.Dp(1),
+						func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, o.Label, 0)
+						},
+						func(gtx layout.Context) layout.Dimensions {
+							if o.Description == "" {
+								return layout.Dimensions{}
+							}
+							return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, o.Description, 0)
+						})
+				})
+			})
+		}
+		n := len(q.Options)
+		otherOn := a.pick[qi] == n
+		if multi != nil {
+			otherOn = strings.TrimSpace(a.other[qi].Text()) != ""
+		}
+		rs = append(rs, func(gtx layout.Context) layout.Dimensions {
+			return d.option(gtx, &a.opts[qi][n], otherOn, multi != nil, strconv.Itoa(n+1), func(gtx layout.Context) layout.Dimensions {
+				return d.otherField(gtx, &a.other[qi])
+			})
+		})
+		return vstack(gtx, gtx.Dp(theme.SpaceXS), rs...)
+	}
+	preview := ""
+	for oi, o := range q.Options {
+		if o.Preview != "" && (preview == "" || a.pick[qi] == oi) {
+			preview = o.Preview
+		}
+	}
+	if preview == "" {
+		return rows(gtx)
+	}
+	box := func(gtx layout.Context) layout.Dimensions {
+		return d.monoBox(gtx, "preview:"+q.ID, mdview.Detab(strings.TrimRight(preview, "\n")))
+	}
+	w := gtx.Constraints.Max.X
+	if w < gtx.Dp(520) {
+		return vstack(gtx, gtx.Dp(theme.SpaceS), rows, box)
+	}
+	gap := gtx.Dp(theme.SpaceM)
+	lw := (w - gap) * 45 / 100
+	g := gtx
+	g.Constraints = layout.Constraints{Max: image.Pt(lw, gtx.Constraints.Max.Y)}
+	lc, ld := measure(g, rows)
+	g.Constraints = layout.Constraints{Max: image.Pt(w-lw-gap, gtx.Constraints.Max.Y)}
+	pc, pd := measure(g, box)
+	lc.Add(gtx.Ops)
+	at(gtx, image.Pt(lw+gap, 0), func(gtx layout.Context) layout.Dimensions { pc.Add(gtx.Ops); return pd })
+	return layout.Dimensions{Size: image.Pt(w, max(ld.Size.Y, pd.Size.Y))}
+}
+
+// option is one of a question's rows: its number on a keycap, a checkbox
+// when several may be picked, then body.
+func (d *cdraw) option(gtx layout.Context, c *widget.Clickable, on, check bool, k string, body layout.Widget) layout.Dimensions {
 	th := d.th
 	w := gtx.Constraints.Max.X
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
+		lead := gtx.Dp(32)
+		if check {
+			lead += gtx.Dp(24)
+		}
 		g := gtx
-		g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px-gtx.Dp(32)), gtx.Constraints.Max.Y)}
+		g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*px-lead), gtx.Constraints.Max.Y)}
 		call, bd := measure(g, body)
 		h := max(bd.Size.Y, gtx.Dp(18), gtx.Dp(hit)-2*py) + 2*py
 		fill, ring := th.Surface, th.BorderStrong
@@ -305,7 +419,17 @@ func (d *cdraw) option(gtx layout.Context, c *widget.Clickable, on bool, k strin
 		}
 		rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover), fill, ring)
 		at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { return d.keycap(gtx, k, false) })
-		at(gtx, image.Pt(px+gtx.Dp(32), py), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return bd })
+		if check {
+			bx, bs := px+gtx.Dp(32), gtx.Dp(16)
+			r := image.Rect(bx, py+gtx.Dp(1), bx+bs, py+gtx.Dp(1)+bs)
+			if on {
+				paint.FillShape(gtx.Ops, th.Primary, clip.UniformRRect(r, gtx.Dp(4)).Op(gtx.Ops))
+				icon(gtx, r.Min.Add(image.Pt(gtx.Dp(2), gtx.Dp(2))), "check", 12, th.OnPrimary)
+			} else {
+				rrect(gtx, r, gtx.Dp(4), th.Bg, th.BorderStrong)
+			}
+		}
+		at(gtx, image.Pt(px+lead, py), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return bd })
 		return layout.Dimensions{Size: image.Pt(w, h)}
 	})
 }
@@ -345,7 +469,7 @@ func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions 
 		g := gtx
 		g.Constraints.Max.X = room
 		f := th.MonoFont
-		if r.line == "Answered" {
+		if r.prose {
 			f = th.UIFont
 		}
 		wc, wd := measure(g, func(gtx layout.Context) layout.Dimensions {

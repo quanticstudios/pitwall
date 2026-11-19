@@ -307,7 +307,6 @@ func (d *cdraw) codeBlock(gtx layout.Context, key, lang, code string) layout.Dim
 // time it finished and how long the turn took. Its buttons sit flush
 // with the reply's left edge.
 func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start, end time.Time) layout.Dimensions {
-	th := d.th
 	plain, md := d.t.click("copy:plain:"+it.ID), d.t.click("copy:md:"+it.ID)
 	if plain.Clicked(gtx) {
 		d.t.copy(gtx, "plain:"+it.ID, r.plain)
@@ -331,11 +330,8 @@ func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start,
 				return d.ghost(gtx, md, "", "Copy as Markdown", d.t.isCopied("md:"+it.ID))
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				if when == "" {
-					return layout.Dimensions{}
-				}
 				return layout.Inset{Left: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, when)
+					return d.footMeta(gtx, deref(it.TurnID), when)
 				})
 			},
 		)

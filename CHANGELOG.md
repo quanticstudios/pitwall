@@ -22,6 +22,19 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The desktop chat draws everything in a Claude Code conversation natively, in New task chats and TUI pane chats alike, and no markup shows as text:
+  - A task list (TodoWrite, TaskCreate and TaskUpdate, Codex's plan) is a checklist card with "3 of 7" and the running task's active form. It updates in place. While a turn runs, a strip above the composer shows the task in progress; click it to see the whole list.
+  - A subagent (Task, Agent, Workflow) is a card with its description, type, state, time and tool count. Its calls fold inside it, and its result shows its first lines with Show all. A background subagent stays running until it reports, and parallel ones stack.
+  - Thinking is a quiet "Thought for 12s" row that opens to muted italic text. When Claude hides the thinking, the row only says how long.
+  - A slash command is a chip on your side, with its output as a quiet block under it. A `!` command is the same. `/model` and `/effort` become a divider, "Switched to Opus 5.5", and so do model, effort and mode changes from the composer or the TUI's footer.
+  - Pasted text is a "Pasted text · 20 lines" chip that opens. Reminders, caveats and other harness text stay hidden. A finished background task is a row, "Background task finished: …".
+  - A stopped turn ends on an Interrupted divider. A compaction is a "Conversation compacted" divider that opens to the summary.
+  - API errors, retries and plan limits with their reset time are cards in red or yellow. A hook that blocks a step or gives feedback is a quiet row naming the hook and its verdict.
+  - A finished reply's footer adds the turn's tokens in and out and its cost, with each model's breakdown on hover. TUI pane chats now count their tokens too.
+  - A plan renders as markdown, with Approve (1) and Refine (2). A question shows its header, checkboxes when several options may be picked, and an option's preview beside the list.
+
 ## v0.2.18
 
 - A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.

@@ -1,8 +1,10 @@
 package claude
 
 import (
+	"cmp"
 	"encoding/json"
 	"log"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +25,16 @@ type stream struct {
 	streamed map[string]int              // text item id: bytes stream_event deltas gave it
 	blocks   map[string]int              // message id: content blocks its assistant lines gave so far
 	tools    map[string]session.ToolCall // tool_use id: the call so far
+	// bg are the subagents that run in the background, by tool_use id:
+	// they outlive the turn that started them.
+	bg map[string]session.ToolCall
+	// tasks is the task list TaskCreate and TaskUpdate keep, which lasts
+	// the session.
+	tasks []session.Task
+	// background are the tasks started in the background, by task id: the
+	// ones whose end a chat shows.
+	background map[string]bool
+	compact    string // the compaction item whose summary comes next, "" for none
 
 	contextModel  string
 	contextTokens *int64
@@ -45,7 +57,8 @@ type ask struct {
 
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
-		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{}}
+		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{},
+		bg: map[string]session.ToolCall{}, background: map[string]bool{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -68,6 +81,32 @@ type line struct {
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
 	ToolUseID string          `json:"tool_use_id"`
+	// user: what the tool's result means to the CLI, stream-json's key
+	// and the transcript's
+	ToolUseResult  json.RawMessage `json:"tool_use_result"`
+	ToolUseResultT json.RawMessage `json:"toolUseResult"`
+
+	// system/task_started, task_progress, task_notification
+	TaskID          string     `json:"task_id"`
+	TaskType        string     `json:"task_type"`
+	Status          string     `json:"status"`
+	Description     string     `json:"description"`
+	Summary         string     `json:"summary"`
+	SummaryIsReport bool       `json:"summary_is_report"`
+	IsBackgrounded  bool       `json:"is_backgrounded"`
+	TaskUsage       *taskUsage `json:"usage"`
+	// system/hook_response
+	HookName string `json:"hook_name"`
+	ExitCode *int   `json:"exit_code"`
+	Outcome  string `json:"outcome"`
+	Stderr   string `json:"stderr"`
+	Stdout   string `json:"stdout"`
+	// system/api_retry
+	Attempt      int             `json:"attempt"`
+	MaxRetries   int             `json:"max_retries"`
+	RetryDelayMS int64           `json:"retry_delay_ms"`
+	ErrorStatus  *int            `json:"error_status"`
+	Error        json.RawMessage `json:"error"`
 
 	// stream_event
 	Event        *streamEvent `json:"event"`
@@ -93,9 +132,16 @@ type line struct {
 	} `json:"request"`
 }
 
+type taskUsage struct {
+	ToolUses int `json:"tool_uses"`
+}
+
 type streamEvent struct {
-	Type  string `json:"type"`
-	Index int    `json:"index"`
+	Type         string `json:"type"`
+	Index        int    `json:"index"`
+	ContentBlock struct {
+		Type string `json:"type"`
+	} `json:"content_block"`
 	Delta struct {
 		Type     string `json:"type"`
 		Text     string `json:"text"`
@@ -227,8 +273,33 @@ func (s *stream) system(l line) []session.Event {
 			id = l.ToolUseID + ":denied"
 		}
 		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Text: text}}
-	case "status", "task_started", "task_progress", "task_notification", "thinking_tokens",
-		"hook_started", "hook_progress", "hook_response":
+	case "task_started":
+		if l.IsBackgrounded && l.TaskType != "local_agent" {
+			s.background[l.TaskID] = true
+		}
+		return nil
+	case "task_progress":
+		t, ok := s.call(l.ToolUseID)
+		if !ok || !subagentTool(t.ToolName) || l.Description == "" || t.Progress == l.Description {
+			return nil
+		}
+		t.Progress = l.Description
+		return s.put(t)
+	case "task_notification":
+		return s.taskDone(l.TaskID, l.ToolUseID, l.Status, l.Summary, l.Summary, l.SummaryIsReport, l.UUID)
+	case "compact_boundary":
+		s.compact = cmp.Or(l.UUID, "compact:"+l.SessionID)
+		return []session.Event{{Type: session.EventContent, ItemID: s.compact, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
+	case "hook_response":
+		if l.Outcome == "success" || l.Outcome == "" && (l.ExitCode == nil || *l.ExitCode == 0) {
+			return nil
+		}
+		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(l.UUID, "hook:"+l.HookName), Kind: session.KindSystem,
+			Phase: session.PhaseHook, Text: hookLine(l.HookName, l.ExitCode, cmp.Or(l.Stderr, l.Stdout))}}
+	case "api_retry":
+		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(l.UUID, "retry:"+strconv.Itoa(l.Attempt)), Kind: session.KindSystem,
+			Phase: session.PhaseWarning, Text: retryLine(l.ErrorStatus, errText(l.Error), l.RetryDelayMS, l.Attempt, l.MaxRetries)}}
+	case "status", "thinking_tokens", "hook_started", "hook_progress", "background_tasks_changed", "task_updated":
 		// status's permissionMode echoes a set_permission_mode, which the
 		// chat loop patched when it called Set.
 		return nil
@@ -240,10 +311,21 @@ func (s *stream) system(l line) []session.Event {
 // streamEvent is a partial message's text or thinking as it streams. Its
 // item id is the one the finished assistant line's block gets.
 func (s *stream) streamEvent(l line) []session.Event {
-	if l.Event == nil || l.Event.Type != "content_block_delta" || l.ParentToolUseID != "" {
+	if l.Event == nil || l.ParentToolUseID != "" {
 		return nil
 	}
 	id := l.APIMessageID + ":" + strconv.Itoa(l.Event.Index)
+	if l.Event.Type == "content_block_start" {
+		// A thinking row starts timing when the model starts to think;
+		// its text may never come, as Claude hides it.
+		if t := l.Event.ContentBlock.Type; t == "thinking" || t == "redacted_thinking" {
+			return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindReasoningText, Model: s.contextModel}}
+		}
+		return nil
+	}
+	if l.Event.Type != "content_block_delta" {
+		return nil
+	}
 	d := l.Event.Delta
 	switch {
 	case d.Type == "text_delta" && d.Text != "":
@@ -293,12 +375,12 @@ func (s *stream) assistant(l line) []session.Event {
 		s.blocks[m.ID]++
 		kind, text := session.KindAssistantText, b.Text
 		switch b.Type {
-		case "thinking":
+		case "thinking", "redacted_thinking":
 			kind, text = session.KindReasoningText, b.Thinking
 		case "tool_use":
 			t := session.ToolCall{CallID: b.ID, ToolName: b.Name, Input: b.Input, Status: "running"}
-			if b.Name == "TodoWrite" {
-				t.Tasks = todos(b.Input)
+			if tasks, ok := s.taskList(b.Name, b.Input); ok {
+				t.Tasks = tasks
 			}
 			s.tools[b.ID] = t
 			out = append(out, session.Event{Type: session.EventContent, ItemID: b.ID, Kind: session.KindToolCall, Model: m.Model, Tool: &t})
@@ -308,44 +390,156 @@ func (s *stream) assistant(l line) []session.Event {
 			continue
 		}
 		// Only what streaming did not give; an interrupted turn's line can
-		// hold less than was streamed.
-		if n := s.streamed[id]; n < len(text) {
+		// hold less than was streamed. A thinking block always reports, so
+		// its row exists and ends now even when Claude hides the text.
+		if n := s.streamed[id]; n < len(text) || kind == session.KindReasoningText {
 			out = append(out, session.Event{Type: session.EventContent, ItemID: id, Kind: kind, Model: m.Model, Text: text[n:]})
 		}
 	}
 	return out
 }
 
-// subagent adds a subagent's tool calls to its Task call, as aide does;
-// its text and the calls themselves stay out of the transcript.
+// subagent adds a subagent's tool calls to its Task call, as aide does,
+// and their inputs to its SubagentCalls; its text stays out of the
+// transcript.
 func (s *stream) subagent(parent string, blocks []block) []session.Event {
-	t, ok := s.tools[parent]
+	t, ok := s.call(parent)
 	n := len(t.SubagentTools)
-	// why: an emitted event still holds the old slice.
-	t.SubagentTools = slices.Clone(t.SubagentTools)
+	// why: an emitted event still holds the old slices.
+	t.SubagentTools, t.SubagentCalls = slices.Clone(t.SubagentTools), slices.Clone(t.SubagentCalls)
 	for _, b := range blocks {
 		if b.Type == "tool_use" && b.Name != "" {
 			t.SubagentTools = append(t.SubagentTools, b.Name)
+			t.SubagentCalls = append(t.SubagentCalls, session.ToolCall{CallID: b.ID, ToolName: b.Name, Input: b.Input, Status: "running"})
 		}
 	}
 	if !ok || len(t.SubagentTools) == n {
 		return nil
 	}
-	s.tools[parent] = t
-	return []session.Event{{Type: session.EventContent, ItemID: parent, Kind: session.KindToolCall, Tool: &t}}
+	return s.put(t)
 }
 
-// todos is TodoWrite's input as the call's tasks.
-func todos(input json.RawMessage) []session.Task {
+// subagentDone ends the subagent calls that blocks give results for.
+func (s *stream) subagentDone(parent string, blocks []block) []session.Event {
+	t, ok := s.call(parent)
+	if !ok {
+		return nil
+	}
+	t.SubagentCalls = slices.Clone(t.SubagentCalls)
+	done := false
+	for _, b := range blocks {
+		i := slices.IndexFunc(t.SubagentCalls, func(c session.ToolCall) bool { return c.CallID == b.ToolUseID })
+		if b.Type != "tool_result" || i < 0 {
+			continue
+		}
+		t.SubagentCalls[i].Status = "completed"
+		// Enough of its output for its row's result: a count of matches,
+		// of lines read.
+		if out := resultText(b.Content); len(out) <= 8<<10 {
+			t.SubagentCalls[i].Output = out
+		}
+		if b.IsError {
+			t.SubagentCalls[i].Status = "failed"
+		}
+		done = true
+	}
+	if !done {
+		return nil
+	}
+	return s.put(t)
+}
+
+// call is tool call id of this turn or a background subagent.
+func (s *stream) call(id string) (session.ToolCall, bool) {
+	if t, ok := s.bg[id]; ok {
+		return t, true
+	}
+	t, ok := s.tools[id]
+	return t, ok
+}
+
+// put stores t where call finds it and reports it.
+func (s *stream) put(t session.ToolCall) []session.Event {
+	if _, ok := s.bg[t.CallID]; ok {
+		s.bg[t.CallID] = t
+	} else {
+		s.tools[t.CallID] = t
+	}
+	return []session.Event{{Type: session.EventContent, ItemID: t.CallID, Kind: session.KindToolCall, Tool: &t}}
+}
+
+// taskDone is a task's notification: a background subagent's card ends
+// with its report; a task started in the background gets a row saying it
+// ended; a foreground task's says nothing its call does not.
+func (s *stream) taskDone(task, callID, status, summary, result string, report bool, id string) []session.Event {
+	if t, ok := s.call(callID); ok && subagentTool(t.ToolName) {
+		delete(s.bg, callID)
+		t.Status, t.Progress = "completed", ""
+		if status == "failed" || status == "killed" || status == "stopped" {
+			t.Status = "failed"
+		}
+		if report || result != "" {
+			t.Output = cmp.Or(result, summary)
+		}
+		s.tools[callID] = t
+		return []session.Event{{Type: session.EventContent, ItemID: callID, Kind: session.KindToolCall, Tool: &t}}
+	}
+	if !s.background[task] {
+		return nil
+	}
+	delete(s.background, task)
+	return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(id, "task:"+task), Kind: session.KindSystem,
+		Phase: session.PhaseNotice, Text: taskLine(status, summary)}}
+}
+
+// taskList is the task list after a TodoWrite, TaskCreate or TaskUpdate
+// call with input, false for any other call. TodoWrite's input is the
+// whole list; the others change the session's list one task at a time.
+func (s *stream) taskList(name string, input json.RawMessage) ([]session.Task, bool) {
 	var in struct {
-		Todos []struct{ Content, Status string } `json:"todos"`
+		Todos []struct {
+			Content, Status string
+			ActiveForm      string `json:"activeForm"`
+		} `json:"todos"`
+		TaskID     string `json:"taskId"`
+		Subject    string `json:"subject"`
+		Status     string `json:"status"`
+		ActiveForm string `json:"activeForm"`
 	}
 	json.Unmarshal(input, &in)
-	tasks := []session.Task{}
-	for _, t := range in.Todos {
-		tasks = append(tasks, session.Task{Status: t.Status, Subject: t.Content})
+	switch name {
+	case "TodoWrite":
+		tasks := []session.Task{}
+		for _, t := range in.Todos {
+			tasks = append(tasks, session.Task{Status: t.Status, Subject: t.Content, ActiveForm: t.ActiveForm})
+		}
+		return tasks, true
+	case "TaskCreate":
+		n := 0
+		for _, t := range s.tasks {
+			n = max(n, atoi(t.ID))
+		}
+		s.tasks = append(slices.Clip(s.tasks), session.Task{ID: strconv.Itoa(n + 1), Status: "pending", Subject: in.Subject, ActiveForm: in.ActiveForm})
+	case "TaskUpdate":
+		s.tasks = slices.Clone(s.tasks)
+		i := slices.IndexFunc(s.tasks, func(t session.Task) bool { return t.ID == in.TaskID })
+		switch {
+		case i < 0:
+		case in.Status == "deleted":
+			s.tasks = slices.Delete(s.tasks, i, i+1)
+		default:
+			t := &s.tasks[i]
+			t.Status, t.Subject, t.ActiveForm = cmp.Or(in.Status, t.Status), cmp.Or(in.Subject, t.Subject), cmp.Or(in.ActiveForm, t.ActiveForm)
+		}
+	default:
+		return nil, false
 	}
-	return tasks
+	return append([]session.Task{}, s.tasks...), true
+}
+
+func atoi(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 // user is a tool's result ending its call. Prompts the CLI echoes and its
@@ -353,23 +547,77 @@ func todos(input json.RawMessage) []session.Task {
 func (s *stream) user(l line) []session.Event {
 	var m apiMessage
 	var blocks []block
-	if json.Unmarshal(l.Message, &m) != nil || json.Unmarshal(m.Content, &blocks) != nil {
+	if json.Unmarshal(l.Message, &m) != nil {
 		return nil
+	}
+	if json.Unmarshal(m.Content, &blocks) != nil {
+		var text string
+		if json.Unmarshal(m.Content, &text) != nil {
+			return nil
+		}
+		return s.harness(l.UUID, text)
+	}
+	if l.ParentToolUseID != "" {
+		return s.subagentDone(l.ParentToolUseID, blocks)
+	}
+	var result struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(l.ToolUseResult, &result) != nil {
+		json.Unmarshal(l.ToolUseResultT, &result)
 	}
 	var out []session.Event
 	for _, b := range blocks {
-		t, ok := s.tools[b.ToolUseID]
+		t, ok := s.call(b.ToolUseID)
 		if b.Type != "tool_result" || !ok {
 			continue
 		}
 		t.Status, t.Output = "completed", resultText(b.Content)
-		if b.IsError {
+		switch {
+		case b.IsError:
 			t.Status = "failed"
+		case subagentTool(t.ToolName) && result.Status == "async_launched":
+			// It runs on; its notification ends it, maybe turns later.
+			t.Status, t.Output, t.Progress = "running", "", "Running in the background"
+			s.bg[b.ToolUseID] = t
+		case t.ToolName == "TaskCreate":
+			s.renumber(t.Output)
 		}
-		s.tools[b.ToolUseID] = t
-		out = append(out, session.Event{Type: session.EventContent, ItemID: b.ToolUseID, Kind: session.KindToolCall, Tool: &t})
+		out = append(out, s.put(t)...)
 	}
 	return out
+}
+
+var taskCreated = regexp.MustCompile(`^Task #(\d+) created`)
+
+// renumber gives the task TaskCreate just added the number Claude Code
+// says it has.
+func (s *stream) renumber(output string) {
+	m := taskCreated.FindStringSubmatch(output)
+	if n := len(s.tasks); m != nil && n > 0 {
+		s.tasks = slices.Clone(s.tasks)
+		s.tasks[n-1].ID = m[1]
+	}
+}
+
+// harness is a user line of text the user did not type: in stream-json
+// only a local command's output, and the summary a compaction leaves.
+// The CLI's system lines say the rest.
+func (s *stream) harness(id, text string) []session.Event {
+	n := harness(text)
+	switch {
+	case n.phase == session.PhaseCompact && s.compact != "":
+		c := s.compact
+		s.compact = ""
+		return []session.Event{{Type: session.EventContent, ItemID: c, Kind: session.KindSystem, Text: "\n\n" + n.text}}
+	case n.phase == session.PhaseOutput && n.text != "" && !compacted(n.text):
+		phase, text := n.phase, n.text
+		if t, ok := settingNote(text); ok {
+			phase, text = session.PhaseSetting, t
+		}
+		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(id, "out:"+n.text), Kind: session.KindSystem, Phase: phase, Text: text}}
+	}
+	return nil
 }
 
 // resultText is a tool_result's content as text: the string, or its text
@@ -437,6 +685,11 @@ func (s *stream) result(l line) []session.Event {
 	out = append(out, u)
 
 	s.turn, s.point = "", ""
+	for id, t := range s.tools { // a subagent still running in the background stays
+		if _, ok := s.bg[id]; ok {
+			s.bg[id] = t
+		}
+	}
 	clear(s.streamed)
 	clear(s.blocks)
 	clear(s.tools)
@@ -483,7 +736,8 @@ func (s *stream) canUseTool(l line) []session.Event {
 		FilePath  string `json:"file_path"`
 		Questions []struct {
 			Question, Header string
-			Options          []struct{ Label, Description string }
+			MultiSelect      bool `json:"multiSelect"`
+			Options          []struct{ Label, Description, Preview string }
 		} `json:"questions"`
 	}
 	json.Unmarshal(r.Input, &in)
@@ -492,9 +746,9 @@ func (s *stream) canUseTool(l line) []session.Event {
 		e := session.Event{Type: session.EventInputRequested, RequestID: l.RequestID, Questions: []session.Question{}}
 		for _, q := range in.Questions {
 			// The question text is its id: Claude takes answers keyed by it.
-			sq := session.Question{ID: q.Question, Prompt: q.Question, Header: q.Header, Options: []session.PromptOption{}}
+			sq := session.Question{ID: q.Question, Prompt: q.Question, Header: q.Header, Multi: q.MultiSelect, Options: []session.PromptOption{}}
 			for _, o := range q.Options {
-				sq.Options = append(sq.Options, session.PromptOption{ID: o.Label, Label: o.Label, Description: o.Description})
+				sq.Options = append(sq.Options, session.PromptOption{ID: o.Label, Label: o.Label, Description: o.Description, Preview: o.Preview})
 			}
 			e.Questions = append(e.Questions, sq)
 		}
@@ -546,4 +800,59 @@ func (s *stream) withdraw(id string) []session.Event {
 		return []session.Event{{Type: session.EventInputResolved, RequestID: id}}
 	}
 	return []session.Event{{Type: session.EventRequestResolved, RequestID: id}}
+}
+
+// hookLine is a hook that blocked or failed, as its row says it.
+func hookLine(name string, code *int, msg string) string {
+	verb := "failed"
+	if code != nil && *code == 2 {
+		verb = "blocked"
+	} else if code != nil {
+		verb = "failed (exit " + strconv.Itoa(*code) + ")"
+	}
+	line := cmp.Or(name, "A") + " hook " + verb
+	if msg = strings.TrimSpace(msg); msg != "" {
+		line += ": " + msg
+	}
+	return line
+}
+
+// retryLine is an API retry as its row says it: API error 529:
+// Overloaded · retrying in 4s (attempt 2 of 10).
+func retryLine(status *int, msg string, delay int64, attempt, of int) string {
+	line := "API error"
+	if status != nil {
+		line += " " + strconv.Itoa(*status)
+	}
+	if msg != "" {
+		line += ": " + msg
+	}
+	line += " · retrying"
+	if delay > 0 {
+		line += " in " + strconv.FormatInt((delay+999)/1000, 10) + "s"
+	}
+	if attempt > 0 && of > 0 {
+		line += " (attempt " + strconv.Itoa(attempt) + " of " + strconv.Itoa(of) + ")"
+	}
+	return line
+}
+
+// errText is an error field as text: a string, or an object's message.
+func errText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var o struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Error   *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	json.Unmarshal(raw, &o)
+	if o.Error != nil && o.Error.Message != "" {
+		return o.Error.Message
+	}
+	return cmp.Or(o.Message, o.Type)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 )
 
 // paneRead reads pane chat id after seq after and applies it to snap.
@@ -159,5 +160,46 @@ func TestPaneChat(t *testing.T) {
 	d.mu.Unlock()
 	if kept {
 		t.Error("the pane chat outlived its claude")
+	}
+}
+
+// TestPaneChatSubagents: a running subagent's calls come from its own
+// transcript, which its meta file ties to the Agent call.
+func TestPaneChatSubagents(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.jsonl")
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	for _, l := range []string{
+		`{"type":"user","uuid":"p1","timestamp":"2026-11-19T20:40:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count lines"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T20:40:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"ag","name":"Agent","input":{"description":"Count lines","subagent_type":"general-purpose"}}]}}`,
+		`{"type":"user","uuid":"u1","timestamp":"2026-11-19T20:40:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"ag","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"x1"}}`,
+	} {
+		pc.reduce(pc.tr.Line([]byte(l)))
+	}
+	sub := filepath.Join(dir, "s", "subagents")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(sub, "agent-x1.meta.json"), []byte(`{"agentType":"general-purpose","toolUseId":"ag"}`), 0o600)
+	os.WriteFile(filepath.Join(sub, "agent-x1.jsonl"), []byte(
+		`{"type":"user","isSidechain":true,"agentId":"x1","timestamp":"2026-11-19T20:40:02Z","message":{"role":"user","content":"Run wc -l notes.txt"}}
+{"type":"assistant","isSidechain":true,"agentId":"x1","timestamp":"2026-11-19T20:40:03Z","message":{"id":"s1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"wc -l notes.txt"}}]}}
+{"type":"user","isSidechain":true,"agentId":"x1","timestamp":"2026-11-19T20:40:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","content":"2 notes.txt"}]}}
+`), 0o600)
+	pc.subagents()
+	var calls []session.ToolCall
+	for _, it := range pc.snap.Content {
+		if it.Tool != nil && it.Tool.ToolName == "Agent" {
+			calls = it.Tool.SubagentCalls
+		}
+	}
+	if len(calls) != 1 || calls[0].ToolName != "Bash" || calls[0].Status != "completed" {
+		t.Fatalf("subagent calls %+v: want its Bash call, done", calls)
+	}
+	pc.subagents() // read again: nothing new, nothing twice
+	for _, it := range pc.snap.Content {
+		if it.Tool != nil && it.Tool.ToolName == "Agent" && len(it.Tool.SubagentCalls) != 1 {
+			t.Fatalf("a second read added calls: %+v", it.Tool.SubagentCalls)
+		}
 	}
 }
