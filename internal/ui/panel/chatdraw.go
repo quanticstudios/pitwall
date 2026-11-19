@@ -365,6 +365,9 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 // thumbnail is image attachment a, 96 dp tall, with its number.
 func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment, n int) layout.Dimensions {
 	th := d.th
+	if a.Data == "" { // a snapshot's copy, until the item comes whole (Transcript.Full)
+		return d.fileChip(gtx, "image", a.Name)
+	}
 	tb := d.t.thumbs.snapshot(d.t.thumbs.get(item+"/"+a.ID, a, nil))
 	if tb.ready && tb.size == (image.Point{}) {
 		return d.fileChip(gtx, "image", a.Name)
