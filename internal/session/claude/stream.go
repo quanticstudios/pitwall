@@ -685,11 +685,6 @@ func (s *stream) result(l line) []session.Event {
 	out = append(out, u)
 
 	s.turn, s.point = "", ""
-	for id, t := range s.tools { // a subagent still running in the background stays
-		if _, ok := s.bg[id]; ok {
-			s.bg[id] = t
-		}
-	}
 	clear(s.streamed)
 	clear(s.blocks)
 	clear(s.tools)

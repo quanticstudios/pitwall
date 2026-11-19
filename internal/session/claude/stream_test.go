@@ -91,8 +91,9 @@ func TestStreamHarness(t *testing.T) {
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"bg","content":"Command running in background with ID: bt1."}]}}`,
 		`{"type":"system","subtype":"hook_response","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","stderr":"Blocked: forbidden commands are not allowed here","exit_code":2,"outcome":"error"}`,
 		`{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"retry_delay_ms":3500,"error_status":529,"error":"overloaded_error"}`,
-		`{"type":"result","subtype":"success","is_error":false,"modelUsage":{}}`,
+		// Live order: the subagent's call comes before the turn's result, its end after.
 		`{"type":"assistant","parent_tool_use_id":"ag","message":{"id":"s1","content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"notes.txt"}}]}}`,
+		`{"type":"result","subtype":"success","is_error":false,"modelUsage":{}}`,
 		`{"type":"user","parent_tool_use_id":"ag","message":{"content":[{"type":"tool_result","tool_use_id":"r1","content":"1\talpha"}]}}`,
 		`{"type":"system","subtype":"task_notification","task_id":"a1","tool_use_id":"ag","status":"completed","summary":"The first line is alpha","summary_is_report":true}`,
 		`{"type":"system","subtype":"task_notification","task_id":"bt1","tool_use_id":"bg","status":"completed","summary":"Background command \"Background sleep then print\" completed (exit code 0)"}`,
