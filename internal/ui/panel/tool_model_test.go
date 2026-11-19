@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"image"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -144,6 +145,25 @@ func TestReadRange(t *testing.T) {
 
 // TestShells: a call that reads or stops a background shell draws on the
 // shell's row, which takes its state and output.
+// TestOpenTarget: a relative path opens under the chat's folder; a rooted
+// path, a Windows drive path or a URL opens as given.
+func TestOpenTarget(t *testing.T) {
+	var got string
+	tr := &Transcript{Dir: filepath.FromSlash("/repo"), Open: func(s string) { got = s }}
+	for in, want := range map[string]string{
+		"a/main.go":              filepath.Join(filepath.FromSlash("/repo"), "a", "main.go"),
+		"/etc/hosts":             "/etc/hosts",
+		`\\srv\share\x.txt`:      `\\srv\share\x.txt`,
+		"https://example.com/a":  "https://example.com/a",
+		"file:///repo/README.md": "file:///repo/README.md",
+	} {
+		tr.openTarget(in)
+		if got != want {
+			t.Errorf("%q opened %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestShells(t *testing.T) {
 	in := func(s string) json.RawMessage { return json.RawMessage(s) }
 	content := []session.Item{

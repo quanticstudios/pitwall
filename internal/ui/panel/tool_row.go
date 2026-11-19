@@ -76,7 +76,9 @@ func (t *Transcript) openTarget(target string) {
 	if t.Open == nil || target == "" {
 		return
 	}
-	if !strings.Contains(target, "://") && !filepath.IsAbs(target) && t.Dir != "" {
+	// A rooted path, /x on Windows too, is never under the chat's folder.
+	rooted := filepath.IsAbs(target) || strings.HasPrefix(target, "/") || strings.HasPrefix(target, `\`)
+	if !strings.Contains(target, "://") && !rooted && t.Dir != "" {
 		target = filepath.Join(t.Dir, target)
 	}
 	t.Open(target)
