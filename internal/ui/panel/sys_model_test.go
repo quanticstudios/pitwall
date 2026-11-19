@@ -220,3 +220,33 @@ func TestMultiKeys(t *testing.T) {
 		t.Error("keyFor")
 	}
 }
+
+// TestQuietSettings: each change has its own divider with the model's
+// name; a repeat of the same change, or one naming what the chat already
+// runs, shows none.
+func TestQuietSettings(t *testing.T) {
+	sonnet, opus := "claude-sonnet-5-5", "claude-opus-5-5"
+	set := func(text string) session.Item {
+		return session.Item{Kind: session.KindSystem, Phase: session.PhaseSetting, Text: text}
+	}
+	c := []session.Item{
+		{Kind: session.KindAssistantText, Model: &sonnet},
+		set("Switched to claude-sonnet-5-5"), // 1: what it runs already
+		set("Switched to claude-opus-5-5"),   // 2: a change
+		set("Switched to Opus 5.5"),          // 3: the echo of the same change
+		set("Plan mode"),                     // 4
+		set("Plan mode"),                     // 5: again
+		{Kind: session.KindAssistantText, Model: &opus},
+		set("Switched to opus-5-5Switched to claude-opus-5-5"), // 7: glued, and no change
+		set("Effort set to high"),                              // 8
+	}
+	q := quietSettings(c)
+	for i, want := range map[int]bool{1: true, 2: false, 3: true, 4: false, 5: true, 7: true, 8: false} {
+		if q[i] != want {
+			t.Errorf("item %d %q: quiet %v, want %v", i, c[i].Text, q[i], want)
+		}
+	}
+	if got := settingLabel("Switched to opus-5-5Switched to claude-opus-5-5"); got != "Switched to Opus 5.5" {
+		t.Errorf("glued label %q", got)
+	}
+}

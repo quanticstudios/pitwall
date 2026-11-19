@@ -103,10 +103,53 @@ func slashCommand(text string) bool {
 // settingLabel is a setting divider's text with a model id named as the
 // composer names it: Switched to claude-opus-5-5 reads Switched to Opus 5.5.
 func settingLabel(text string) string {
-	if m, ok := strings.CutPrefix(text, "Switched to "); ok {
-		return "Switched to " + chatin.ModelName(m)
+	// An item an older build glued two changes into says the last.
+	for _, p := range []string{"Switched to ", "Effort set to "} {
+		if i := strings.LastIndex(text, p); i > 0 {
+			text = text[i:]
+		}
 	}
-	return text
+	if m, ok := strings.CutPrefix(text, "Switched to "); ok {
+		return "Switched to " + chatin.ModelName(strings.TrimSpace(m))
+	}
+	return strings.TrimSpace(text)
+}
+
+// settingKind is what a setting divider changes: model, effort or mode.
+func settingKind(label string) string {
+	switch {
+	case strings.HasPrefix(label, "Switched to "):
+		return "model"
+	case strings.HasPrefix(label, "Effort set to "):
+		return "effort"
+	}
+	return "mode"
+}
+
+// quietSettings are the setting dividers that change nothing: each names
+// the model, effort or mode the chat already showed, the model being the
+// one its last reply or call ran.
+func quietSettings(content []session.Item) map[int]bool {
+	var quiet map[int]bool
+	shown := map[string]string{}
+	for i := range content {
+		it := &content[i]
+		switch {
+		case it.Kind == session.KindSystem && it.Phase == session.PhaseSetting:
+			label := settingLabel(it.Text)
+			kind := settingKind(label)
+			if shown[kind] == label {
+				if quiet == nil {
+					quiet = map[int]bool{}
+				}
+				quiet[i] = true
+			}
+			shown[kind] = label
+		case it.Model != nil && *it.Model != "" && (it.Kind == session.KindAssistantText || it.Kind == session.KindToolCall):
+			shown["model"] = "Switched to " + chatin.ModelName(*it.Model)
+		}
+	}
+	return quiet
 }
 
 // compactParts is a compaction item's divider line and its summary.

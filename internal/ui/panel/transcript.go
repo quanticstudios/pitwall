@@ -685,6 +685,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	t.rows = t.rows[:0]
 	running := runningTurns(d.s)
 	stopped := interruptedTurns(d.s)
+	quiet := quietSettings(d.s.Content)
 	t.tool.shells.index(d.s.Content)
 	k := 0
 	for bi, b := range t.blocks {
@@ -696,7 +697,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			t.rows = append(t.rows, trow{res: &t.done[k]})
 		}
 		if b.kind != blockTurn {
-			t.rows = append(t.rows, trow{b: b})
+			if !quiet[b.lo] {
+				t.rows = append(t.rows, trow{b: b})
+			}
 			continue
 		}
 		run := running(b, b.hi == len(d.s.Content))
@@ -710,7 +713,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			open := t.toggled(gtx, logID(d.s, b), false)
 			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
 			for i := b.lo; open && i < b.hi; i++ {
-				if i != b.reply && !isTodo(d.s.Content[i].Tool) && !t.tool.shells.isAttached(i) {
+				if i != b.reply && !isTodo(d.s.Content[i].Tool) && !t.tool.shells.isAttached(i) && !quiet[i] {
 					t.rows[len(t.rows)-1].last = false
 					t.rows = append(t.rows, trow{b: b, seg: segItem, i: i, last: true})
 				}
