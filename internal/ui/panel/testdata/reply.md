@@ -61,6 +61,18 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 | `go test ./...`                                                                                    | ✗ failed |  48.9s |
 | A cell with much wider content that makes the table wider than the reply column on a narrow window |    ✓     |   0.1s |
 
+## Diagrams and images
+
+```mermaid
+flowchart LR
+  A[Parse] --> B(Heal)
+  B --> C{Streaming?}
+  C -->|yes| D[Draw]
+  C -->|no| D
+```
+
+![The chat window](docs/chat.png)
+
 ---
 
 <details>

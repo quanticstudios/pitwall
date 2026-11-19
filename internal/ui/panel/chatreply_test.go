@@ -107,7 +107,7 @@ func TestReplyLists(t *testing.T) {
 	}
 	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
 	for i, g := range map[int]unit.Dp{1: gapItem, 2: gapItem, 3: gapItem, 4: gapPara, 5: gapItem, 6: gapPara} {
-		if got := gapBefore(gtx, b, i); got != int(g) {
+		if got := gapBefore(gtx, &b[i-1], &b[i]); got != int(g) {
 			t.Errorf("gap before block %d: %d, want %v", i, got, g)
 		}
 	}
@@ -223,5 +223,37 @@ func TestReplyLinkOpens(t *testing.T) {
 	transcriptFrame(&tr, th, s, &ops, time.Now())
 	if len(opened) != 1 || opened[0] != "https://x.dev/docs" {
 		t.Fatalf("opened %q", opened)
+	}
+}
+
+// TestReplyDetails: a <details> body is hidden until its summary is
+// clicked, and a click again hides it.
+func TestReplyDetails(t *testing.T) {
+	th := theme.Dark()
+	var tr Transcript
+	s := &session.Snapshot{SessionID: "0123456789abcdef", Content: []session.Item{
+		{ID: "r", Kind: session.KindAssistantText, Text: "<details>\n<summary>More</summary>\n\nhidden body\n\n</details>\n\nafter"},
+	}}
+	var ops op.Ops
+	shown := func() []int {
+		ops.Reset()
+		gtx := layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 800)), Now: time.Now()}
+		tr.Layout(gtx, th, s, false)
+		d := cdraw{t: &tr, th: th}
+		got, _ := d.shownBlocks(gtx, "r", tr.docs["r"])
+		return got
+	}
+	if got := shown(); len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Fatalf("closed: blocks %v", got)
+	}
+	tr.clicks["r/fold/1"].Click()
+	shown()
+	if got := shown(); len(got) != 3 {
+		t.Fatalf("opened: blocks %v", got)
+	}
+	tr.clicks["r/fold/1"].Click()
+	shown()
+	if got := shown(); len(got) != 2 {
+		t.Fatalf("closed again: blocks %v", got)
 	}
 }

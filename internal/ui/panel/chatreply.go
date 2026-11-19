@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -21,7 +22,6 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
-	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -212,13 +212,16 @@ func (d *cdraw) reply(gtx layout.Context, i int, running bool, start, end time.T
 const inlineMono = 12.5 / 14
 
 // quoteIndent is how far each block quote level moves its text right.
-const quoteIndent = theme.SpaceM + theme.Space2XS
+const quoteIndent = theme.SpaceL
 
-// gapBefore is the space above block i of blocks: 10 between paragraphs,
-// 4 between items of one list, 20 above a heading and 6 below it, 12
-// around code, tables and rules.
-func gapBefore(gtx layout.Context, blocks []mdview.Block, i int) int {
-	b, prev := &blocks[i], &blocks[i-1]
+// foldIndent is how far a <details> body moves right, under its
+// summary's text: the chevron's 14 and a gap, as a tool row's body.
+const foldIndent = 14 + theme.SpaceS
+
+// gapBefore is the space between blocks prev and b: 10 between
+// paragraphs, 4 between items of one list, 20 above a heading and 6
+// below it, 12 around code, tables and rules.
+func gapBefore(gtx layout.Context, prev, b *mdview.Block) int {
 	switch {
 	case b.Kind == mdview.Heading:
 		return gtx.Dp(gapHeadTop)
@@ -236,63 +239,146 @@ func gapBefore(gtx layout.Context, blocks []mdview.Block, i int) int {
 
 func isText(b *mdview.Block) bool { return b.Kind == mdview.Para || b.Kind == mdview.Heading }
 
-// markdown draws r's blocks top to bottom, a block quote's bar beside
-// each block in it and across the gaps between them.
+// shownBlocks are r's blocks outside closed <details>, and how deep in
+// open ones each is, by index.
+func (d *cdraw) shownBlocks(gtx layout.Context, id string, r *reply) (shown []int, depth map[int]int) {
+	open := map[int]bool{0: true} // folds whose bodies show
+	deep := map[int]int{}         // folds' depth, by number
+	depth = map[int]int{}
+	for i := range r.blocks {
+		b := &r.blocks[i]
+		if b.Summary {
+			if !open[b.Parent] {
+				continue
+			}
+			deep[b.Fold] = deep[b.Parent] + 1
+			open[b.Fold] = d.t.toggled(gtx, id+"/fold/"+strconv.Itoa(b.Fold), b.Open)
+			depth[i] = deep[b.Parent]
+			shown = append(shown, i)
+			continue
+		}
+		if !open[b.Fold] {
+			continue
+		}
+		depth[i] = deep[b.Fold]
+		shown = append(shown, i)
+	}
+	return shown, depth
+}
+
+// markdown draws r's blocks top to bottom, those in a closed <details>
+// left out, and each run of a block quote with one bar beside it.
 func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensions {
 	th := d.th
 	r.doc.Size = th.Sp(theme.Large)
-	r.doc.Code = th.Fg
+	r.doc.Code, r.doc.CodeFill = th.Fg, th.SurfaceSecondary
 	y, w := 0, gtx.Constraints.Max.X
-	for i := range r.blocks {
+	shown, depth := d.shownBlocks(gtx, id, r)
+	var runs []int // where each quote level's open run started
+	for n, i := range shown {
 		b := &r.blocks[i]
-		if i > 0 {
-			g := gapBefore(gtx, r.blocks, i)
-			for q := range min(b.Quote, r.blocks[i-1].Quote) {
-				d.quoteBar(gtx, q, y, y+g)
-			}
-			y += g
+		if n > 0 {
+			y += gapBefore(gtx, &r.blocks[shown[n-1]], b)
+		}
+		for len(runs) < b.Quote {
+			runs = append(runs, y)
 		}
 		key := id + "/" + strconv.Itoa(i)
+		fx := depth[i] * gtx.Dp(foldIndent)
 		x := b.Quote*gtx.Dp(quoteIndent) + b.Indent*gtx.Dp(listIndent)
+		g := gtx
+		g.Constraints = layout.Constraints{Max: image.Pt(w-fx, 1<<20)}
 		var dims layout.Dimensions
 		switch b.Kind {
 		case mdview.Para, mdview.Heading:
-			dims = at(gtx, image.Pt(0, y), func(gtx layout.Context) layout.Dimensions { return d.para(gtx, key, b, r.paras[i]) })
+			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions {
+				if b.Summary {
+					return d.summary(gtx, id, key, b, r.paras[i])
+				}
+				return d.para(gtx, key, b, r.paras[i])
+			})
 		case mdview.Code:
-			dims = at(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Max.X = w - x
+			dims = at(g, image.Pt(fx+x, y), func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Max.X -= x
 				return d.codeBlock(gtx, r, key, b.Lang, b.Text)
 			})
 		case mdview.Rule:
-			paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(x, y), Max: image.Pt(w, y+max(1, gtx.Dp(1)))}.Op())
+			paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(fx+x, y), Max: image.Pt(w, y+max(1, gtx.Dp(1)))}.Op())
 			dims.Size.Y = max(1, gtx.Dp(1))
 		case mdview.Mermaid:
 			if b.Graph == nil {
-				dims = at(gtx, image.Pt(x, y), func(gtx layout.Context) layout.Dimensions {
-					gtx.Constraints.Max.X = w - x
+				dims = at(g, image.Pt(fx+x, y), func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Max.X -= x
 					return d.codeBlock(gtx, r, key, "mermaid", b.Text)
 				})
 				break
 			}
 			fallthrough
 		default:
-			dims = at(gtx, image.Pt(0, y), func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints = layout.Constraints{Max: image.Pt(w, 1<<20)}
-				return r.doc.Block(gtx, th, i)
-			})
-		}
-		for q := range b.Quote {
-			d.quoteBar(gtx, q, y, y+dims.Size.Y)
+			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
 		}
 		y += dims.Size.Y
+		next := 0
+		if n+1 < len(shown) {
+			next = r.blocks[shown[n+1]].Quote
+		}
+		for len(runs) > next {
+			q := len(runs) - 1
+			d.quoteBar(gtx, fx+q*gtx.Dp(quoteIndent), runs[q], y)
+			runs = runs[:q]
+		}
 	}
 	return layout.Dimensions{Size: image.Pt(w, y)}
 }
 
-// quoteBar is block quote level q's bar from y0 to y1.
-func (d *cdraw) quoteBar(gtx layout.Context, q, y0, y1 int) {
-	x := q * gtx.Dp(quoteIndent)
-	paint.FillShape(gtx.Ops, d.th.BorderStrong, clip.Rect{Min: image.Pt(x, y0), Max: image.Pt(x+gtx.Dp(2), y1)}.Op())
+// quoteBar is a block quote's bar at x from y0 to y1, its ends round.
+func (d *cdraw) quoteBar(gtx layout.Context, x, y0, y1 int) {
+	bw := gtx.Dp(theme.Space2XS)
+	paint.FillShape(gtx.Ops, d.th.BorderStrong, clip.UniformRRect(image.Rect(x, y0, x+bw, y1), bw/2).Op(gtx.Ops))
+}
+
+// summary is a <details> block's summary: a row like a tool row's, its
+// chevron, then the summary in the label weight; a click opens or closes
+// the body under it.
+func (d *cdraw) summary(gtx layout.Context, id, key string, b *mdview.Block, p para) layout.Dimensions {
+	th := d.th
+	ck := d.t.click(id + "/fold/" + strconv.Itoa(b.Fold))
+	open := isOpen(d.t.open, id+"/fold/"+strconv.Itoa(b.Fold), b.Open)
+	x := b.Quote*gtx.Dp(quoteIndent) + b.Indent*gtx.Dp(listIndent)
+	st := d.prose()
+	st.f, st.c = medium(st.f), th.Fg
+	tw := min(d.proseW, gtx.Constraints.Max.X) - x - gtx.Dp(foldIndent)
+	if tw <= 0 {
+		return layout.Dimensions{}
+	}
+	g := gtx
+	g.Constraints = layout.Constraints{Max: image.Pt(tw, gtx.Constraints.Max.Y)}
+	tc, td := measure(g, func(gtx layout.Context) layout.Dimensions {
+		return widget.Label{LineHeightScale: st.lh}.Layout(gtx, th.Shaper, st.f, st.size, p.plain, material(gtx, st.c))
+	})
+	pad := gtx.Dp(theme.SpaceS)
+	h := max(gtx.Dp(hit), td.Size.Y)
+	row := image.Pt(pad+gtx.Dp(foldIndent)+td.Size.X+pad, h)
+	return at(gtx, image.Pt(x-pad, 0), func(gtx layout.Context) layout.Dimensions {
+		return clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
+			r := gtx.Dp(theme.RadiusControl)
+			switch {
+			case ck.Pressed():
+				paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(image.Rectangle{Max: row}, r).Op(gtx.Ops))
+			case ck.Hovered():
+				paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rectangle{Max: row}, r).Op(gtx.Ops))
+			}
+			chev := "chevron-right"
+			if open {
+				chev = "chevron-down"
+			}
+			ty := (h - td.Size.Y) / 2
+			base := ty + td.Size.Y - td.Baseline
+			icon(gtx, image.Pt(pad+gtx.Dp(1), base-gtx.Sp(st.size)*36/100-gtx.Dp(6)), chev, 12, th.Muted)
+			at(gtx, image.Pt(pad+gtx.Dp(foldIndent), ty), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
+			return layout.Dimensions{Size: row}
+		})
+	})
 }
 
 // linkColor is a link's text: the accent, readable on the page.
@@ -344,8 +430,9 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 		rg = sl.Regions(r[0], r[1], rg[:0])
 		for _, g := range rg {
 			base := g.Bounds.Max.Y - g.Baseline
-			box := image.Rect(g.Bounds.Min.X-gtx.Dp(4), base-em*78/100-gtx.Dp(2), g.Bounds.Max.X+gtx.Dp(4), base+em*22/100+gtx.Dp(2))
-			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(box, gtx.Dp(4)).Op(gtx.Ops))
+			px, py := gtx.Dp(theme.SpaceXS), gtx.Dp(theme.Space2XS)
+			box := image.Rect(g.Bounds.Min.X-px, base-em*78/100-py, g.Bounds.Max.X+px, base+em*22/100+py)
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(box, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
 	}
 	call.Add(gtx.Ops)
@@ -364,7 +451,7 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 		rg = sl.Regions(r[0], r[1], rg[:0])
 		for j, g := range rg {
 			line := theme.Mix(link, th.Bg, 0.5)
-			y := g.Bounds.Max.Y - g.Baseline + gtx.Dp(2)
+			y := g.Bounds.Max.Y - g.Baseline + gtx.Dp(theme.Space2XS)
 			under := clip.Rect{Min: image.Pt(g.Bounds.Min.X, y), Max: image.Pt(g.Bounds.Max.X, y+thin)}
 			if p.hrefs[i] == "" {
 				paint.FillShape(gtx.Ops, line, under.Op())
@@ -394,31 +481,37 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 // marker draws a list item's marker in the gutter left of x, on the
 // item's first line: a number right-aligned on its baseline, a bullet
 // (a disc, then a ring, then a square, by depth) on its x-height, or a
-// task box.
+// task box drawn as pitwall's checkbox.
 func (d *cdraw) marker(gtx layout.Context, b *mdview.Block, x int, st tstyle, td layout.Dimensions) {
 	th := d.th
 	c := theme.Mix(st.c, th.Bg, 0.3)
 	base := td.Size.Y - td.Baseline // the first line's baseline
 	em := gtx.Sp(st.size)
+	mid := base - em*27/100 // the x-height's middle
 	if b.Task != 0 {
-		s := gtx.Dp(14)
-		top := base - em*36/100 - s/2
-		r := image.Rect(x-gtx.Dp(20), top, x-gtx.Dp(20)+s, top+s)
-		rr := clip.UniformRRect(r, gtx.Dp(3))
+		s := gtx.Dp(theme.SpaceL)
+		r := image.Rect(x-gtx.Dp(theme.SpaceXS)-s, mid-s/2, x-gtx.Dp(theme.SpaceXS), mid-s/2+s)
+		rad := gtx.Dp(theme.RadiusControl)
 		if b.Task == 2 {
-			paint.FillShape(gtx.Ops, th.Primary, rr.Op(gtx.Ops))
-			at(gtx, r.Min.Add(image.Pt(gtx.Dp(1), gtx.Dp(1))), func(gtx layout.Context) layout.Dimensions {
-				return sidebar.Icon(gtx, "check", s-gtx.Dp(2), th.OnPrimary)
-			})
+			paint.FillShape(gtx.Ops, th.Primary, clip.UniformRRect(r, rad).Op(gtx.Ops))
+			k := float32(s) / 16
+			o := f32.Pt(float32(r.Min.X), float32(r.Min.Y))
+			var p clip.Path
+			p.Begin(gtx.Ops)
+			p.MoveTo(o.Add(f32.Pt(4*k, 8.5*k)))
+			p.LineTo(o.Add(f32.Pt(7*k, 11.5*k)))
+			p.LineTo(o.Add(f32.Pt(12*k, 5*k)))
+			paint.FillShape(gtx.Ops, th.OnPrimary, clip.Stroke{Path: p.End(), Width: 2 * k}.Op())
 		} else {
-			paint.FillShape(gtx.Ops, th.Muted, clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
+			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.25), clip.UniformRRect(r, rad).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(r.Inset(1), rad-1).Op(gtx.Ops))
 		}
 		return
 	}
 	if b.Marker == "•" {
-		r := gtx.Dp(2.5)
-		cx, cy := x-gtx.Dp(10), base-em*27/100
-		box := image.Rect(cx-r, cy-r, cx+r, cy+r)
+		r := gtx.Dp(2.5) // a 5 dp bullet, a glyph's size rather than a space
+		cx := x - gtx.Dp(listIndent)/2
+		box := image.Rect(cx-r, mid-r, cx+r, mid+r)
 		switch {
 		case b.Indent <= 1:
 			paint.FillShape(gtx.Ops, c, clip.Ellipse(box).Op(gtx.Ops))
@@ -434,7 +527,7 @@ func (d *cdraw) marker(gtx layout.Context, b *mdview.Block, x int, st tstyle, td
 		gtx.Constraints = layout.Constraints{Min: image.Pt(mw, 0), Max: image.Pt(mw, 1<<20)}
 		return widget.Label{Alignment: text.End, MaxLines: 1}.Layout(gtx, th.Shaper, st.f, st.size, b.Marker, material(gtx, c))
 	})
-	at(gtx, image.Pt(x-mw-gtx.Dp(6), base-(ld.Size.Y-ld.Baseline)), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return ld })
+	at(gtx, image.Pt(x-mw-gtx.Dp(theme.SpaceS), base-(ld.Size.Y-ld.Baseline)), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return ld })
 }
 
 // codeBlock is a fenced block: a 30 dp header bar with its language and
@@ -446,7 +539,8 @@ func (d *cdraw) codeBlock(gtx layout.Context, r *reply, key, lang, code string) 
 	code = mdview.Detab(strings.TrimRight(code, "\n"))
 	w := gtx.Constraints.Max.X
 	hh := gtx.Dp(rowH)
-	px, py := gtx.Dp(14), gtx.Dp(12)
+	px, py := gtx.Dp(theme.SpaceM+theme.Space2XS), gtx.Dp(theme.SpaceM)
+	rad := gtx.Dp(theme.RadiusPopover)
 	sl := d.t.sel(key)
 	sl.Colors = sl.Colors[:0]
 	if lang == "diff" || lang == "patch" {
@@ -465,11 +559,10 @@ func (d *cdraw) codeBlock(gtx layout.Context, r *reply, key, lang, code string) 
 		at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return td })
 		content := inner.Stop()
 		h := td.Size.Y + 2*py
-		extra := sw.Layout(gtx, th, w-2, h, td.Size.X+2*px, content)
+		extra := sw.Layout(gtx, th, w-2, h, td.Size.X+2*px, rad-1, content)
 		return layout.Dimensions{Size: image.Pt(w, h+extra)}
 	})
 	h := hh + bar.Size.Y
-	rad := gtx.Dp(theme.RadiusPopover)
 	rrect(gtx, image.Rect(0, 0, w, h), rad, th.Surface, th.BorderSubtle)
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(1, hh-1), Max: image.Pt(w-1, hh)}.Op())
 	if lang != "" {
@@ -485,7 +578,7 @@ func (d *cdraw) codeBlock(gtx layout.Context, r *reply, key, lang, code string) 
 	bc, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.ghost(gtx, ck, "clipboard", "Copy", d.t.isCopied(key))
 	})
-	at(gtx, image.Pt(w-gtx.Dp(2)-bd.Size.X, (hh-bd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { bc.Add(gtx.Ops); return bd })
+	at(gtx, image.Pt(w-gtx.Dp(theme.Space2XS)-bd.Size.X, (hh-bd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { bc.Add(gtx.Ops); return bd })
 	at(gtx, image.Pt(1, hh), func(gtx layout.Context) layout.Dimensions { body.Add(gtx.Ops); return bar })
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }

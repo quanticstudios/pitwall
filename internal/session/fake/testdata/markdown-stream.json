@@ -630,7 +630,56 @@
    "type": "content.delta",
    "itemId": "reply",
    "kind": "assistant-text",
-   "text": "     |   0.1s |\n\n---\n\n<d"
+   "text": "     |   0.1s |\n\n## Diag"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "rams and images\n\n```merm"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "aid\nflowchart LR\n  A[Par"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "se] --> B(Heal)\n  B --> "
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "C{Streaming?}\n  C -->|ye"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "s| D[Draw]\n  C -->|no| D"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "\n```\n\n![The chat window]"
+  },
+  {
+   "delayMs": 40,
+   "type": "content.delta",
+   "itemId": "reply",
+   "kind": "assistant-text",
+   "text": "(docs/chat.png)\n\n---\n\n<d"
   },
   {
    "delayMs": 40,
