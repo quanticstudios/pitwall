@@ -119,6 +119,11 @@ func heading(th *theme.Theme, s string) layout.Widget {
 
 // menuRow is a popover row: a name and a check on the current one.
 func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name string, on bool) layout.Dimensions {
+	return iconMenuRow(gtx, th, b, "", name, th.Fg, on)
+}
+
+// iconMenuRow is menuRow with a 14dp icon before the name, in col with it.
+func iconMenuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, name string, col color.NRGBA, on bool) layout.Dimensions {
 	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(28)
 		w := gtx.Constraints.Max.X
@@ -134,9 +139,14 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 		o := op.Offset(image.Pt(gtx.Dp(theme.SpaceS), 0)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints.Max.X = w - gtx.Dp(36)
-		row(g, 0, h, func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, name)
+		var ws []layout.Widget
+		if icon != "" {
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, icon, gtx.Dp(14), col) })
+		}
+		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+			return text(gtx, th, th.UIFont, th.Sp(theme.Body), col, name)
 		})
+		row(g, gtx.Dp(theme.SpaceS), h, ws...)
 		o.Pop()
 		if on {
 			is := gtx.Dp(14)
@@ -159,6 +169,14 @@ const (
 // rested on it for tipDelay: centered, but never starting left of b, or
 // ending at its right edge for a control at the right end of the row.
 func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point, label string, right bool) {
+	c.hoverCard(gtx, th, b, size, right, func(gtx layout.Context) layout.Dimensions {
+		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, label)
+	})
+}
+
+// hoverCard shows body in a floating card above b as tip places a label,
+// after the same rest.
+func (c *Composer) hoverCard(gtx layout.Context, th *theme.Theme, b *widget.Clickable, size image.Point, right bool, body layout.Widget) {
 	if c.hover == nil {
 		c.hover = map[*widget.Clickable]time.Time{}
 	}
@@ -181,19 +199,17 @@ func (c *Composer) tip(gtx layout.Context, th *theme.Theme, b *widget.Clickable,
 	c.tipSeen = gtx.Now
 	m := op.Record(gtx.Ops)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(480), gtx.Dp(40))}
+	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(480), gtx.Dp(200))}
 	rec := op.Record(gtx.Ops)
-	d := layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Top: theme.SpaceXS + theme.Space2XS, Bottom: theme.SpaceXS + theme.Space2XS}.Layout(g, func(gtx layout.Context) layout.Dimensions {
-		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, label)
-	})
-	body := rec.Stop()
+	d := layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Top: theme.SpaceXS + theme.Space2XS, Bottom: theme.SpaceXS + theme.Space2XS}.Layout(g, body)
+	call := rec.Stop()
 	x := max(0, (size.X-d.Size.X)/2)
 	if right {
 		x = size.X - d.Size.X
 	}
 	o := op.Offset(image.Pt(x, -d.Size.Y-gtx.Dp(6))).Push(gtx.Ops)
 	kit.Surface(gtx, image.Rectangle{Max: d.Size}, gtx.Dp(theme.RadiusControl), kit.Floating, th.BorderStrong, th.SurfaceElevated)
-	body.Add(gtx.Ops)
+	call.Add(gtx.Ops)
 	o.Pop()
 	op.Defer(gtx.Ops, m.Stop())
 }

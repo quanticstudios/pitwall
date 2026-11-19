@@ -415,6 +415,15 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
 	if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.Paste(text, m)}); err != nil {
 		return err
 	}
+	if strings.HasPrefix(text, "/") {
+		// why: Enter in Claude Code's slash menu runs its highlighted match, so "/ux" ran the first command starting with it; Esc closes the menu and keeps the text.
+		time.Sleep(replyDelay.get())
+		if agent.SlashMenu(p.Snapshot()) {
+			if err := d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameEscape, m)}); err != nil {
+				return err
+			}
+		}
+	}
 	return d.pressEnter(pane, p, text)
 }
 

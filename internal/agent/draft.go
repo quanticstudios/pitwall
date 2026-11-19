@@ -97,6 +97,23 @@ func claudeDraft(raw, shown []string) bool {
 	return strings.TrimSpace(strings.TrimPrefix(text, "❯")) != ""
 }
 
+// SlashMenu reports whether Claude Code shows its slash command menu over
+// the input box, where Enter runs the highlighted command instead of what
+// was typed: the row right above the box is a "/name  description" row.
+// The prompt echo of a sent command has no description column.
+func SlashMenu(g vt.Grid) bool {
+	raw, _ := boxRows(g)
+	for i := len(raw) - 2; i > 0; i-- {
+		if !isRule(raw[i]) || !strings.HasPrefix(strings.TrimSpace(raw[i+1]), "❯") {
+			continue
+		}
+		row := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw[i-1]), "❯"))
+		name, desc, ok := strings.Cut(row, "  ")
+		return ok && strings.HasPrefix(name, "/") && !strings.Contains(name, " ") && strings.TrimSpace(desc) != ""
+	}
+	return false
+}
+
 // isRule reports whether a row is the box's border: dashes from the left edge
 // to the row's end, with at most a session's name between them. Claude indents
 // a draft's later rows, so a rule-like line typed in a draft is no border.

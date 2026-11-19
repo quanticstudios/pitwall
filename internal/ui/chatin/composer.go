@@ -6,11 +6,14 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/font"
+	"gioui.org/gesture"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -35,7 +38,8 @@ import (
 
 // Composer is a desktop chat's send box: a card under the transcript with
 // the draft, its pasted images, and a row with the permission mode, the
-// model and effort, the context meter and Send or Stop. Enter sends,
+// model and effort, the context meter and Send or Stop. Enter sends, or
+// queues while Claude works, Ctrl+Enter sends into the running turn,
 // Shift+Enter adds a line, Shift+Tab cycles the mode, Escape stops the
 // turn. Keep one per chat and its draft survives tab switches.
 type Composer struct {
@@ -45,14 +49,19 @@ type Composer struct {
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
 	modeBtn, modelBtn widget.Clickable
 	effortBtn         widget.Clickable
+	meterBtn          widget.Clickable          // the context meter, for its hover card
 	gone              map[string]bool           // queued messages removed here that the chat still lists
 	rm                map[int]*widget.Clickable // per image, its remove x
+	hov               map[int]*gesture.Hover    // per image, the pointer on its thumbnail
+	side              int                       // a thumbnail's side in pixels, as the last frame drew it
 	items             map[string]*widget.Clickable
-	menu              bool              // a popover is open
-	which             *widget.Clickable // the control whose popover is open or fading out
-	popT              anim.Value        // its fade and scale in, 0 to 1
-	scrim, pop        int               // the popover's click-outside and own tags
-	modelX, effortX   int               // the model and effort controls' left edges in the card
+	menu              bool                                  // a popover is open
+	which             *widget.Clickable                     // the control whose popover is open or fading out
+	popT              anim.Value                            // its fade and scale in, 0 to 1
+	scrim, pop        int                                   // the popover's click-outside and own tags
+	anchors           map[*widget.Clickable]image.Rectangle // each picker chip's rect in the card
+	barY              int                                   // the control row's top in the card
+	cardSize          image.Point
 	hover             map[*widget.Clickable]time.Time
 	tipSeen           time.Time // the last frame a tooltip showed
 
@@ -130,23 +139,23 @@ func (c *Composer) Messages() []any {
 }
 
 // Text is the draft's text, tokens included.
-func (c *Composer) Text() string { return c.ed.Text() }
+func (c *Composer) Text() string { return unglue(c.ed.Text()) }
 
 // SetText replaces the draft's text, the caret at its end.
 func (c *Composer) SetText(s string) {
-	c.ed.SetText(s)
+	c.ed.SetText(glue(s))
 	c.ed.SetCaret(c.ed.Len(), c.ed.Len())
 	c.draft.Sync(s)
 }
 
 // Images is the draft's images in token order.
-func (c *Composer) Images() []Image { return c.draft.Ordered(c.ed.Text()) }
+func (c *Composer) Images() []Image { return c.draft.Ordered(c.Text()) }
 
 // Slash is the command word the draft starts with while the caret is in
 // it, for a slash-command menu.
 func (c *Composer) Slash() (string, bool) {
 	_, end := c.ed.Selection()
-	return Slash(c.ed.Text(), end)
+	return Slash(c.Text(), end)
 }
 
 // Result is the daemon's answer to one of the window's Chat* requests:
@@ -185,7 +194,7 @@ func (c *Composer) AddImage(b []byte) {
 		c.note = "A message takes 8 images at most"
 		return
 	}
-	c.ed.Insert(c.draft.Add(Image{}) + " ")
+	c.ed.Insert(glue(c.draft.Add(Image{})) + " ")
 	c.fill(c.draft.last, b, nil)
 }
 
@@ -202,16 +211,17 @@ func (c *Composer) fill(n int, b []byte, err error) {
 	if err == nil {
 		data, mime, err = Fit(b)
 	}
+	side := c.thumbSide()
 	if err == nil {
-		thumb, err = Thumb(data, 96, 128)
+		thumb, err = Cover(data, side)
 	}
 	if err != nil {
 		c.RemoveImage(n)
-		c.note, c.noteAt = "Can't attach the image: "+err.Error(), c.ed.Text()
+		c.note, c.noteAt = "Can't attach the image: "+err.Error(), c.Text()
 		return
 	}
 	c.note = ""
-	c.draft.Images[i] = Image{N: n, Data: data, Mime: mime, Thumb: paint.NewImageOp(thumb)}
+	c.draft.Images[i] = Image{N: n, Data: data, Mime: mime, Thumb: paint.NewImageOp(thumb), side: side}
 }
 
 // waiting reports whether an image in the draft is still on its way.
@@ -234,7 +244,7 @@ func (c *Composer) Reading(env Env, read func(context.Context) ([]byte, error)) 
 		c.note = "A message takes 8 images at most"
 		return
 	}
-	c.ed.Insert(c.draft.Add(Image{}) + " ")
+	c.ed.Insert(glue(c.draft.Add(Image{})) + " ")
 	n := c.draft.last
 	c.reading++
 	inval := env.Invalidate
@@ -251,7 +261,7 @@ func (c *Composer) Reading(env Env, read func(context.Context) ([]byte, error)) 
 
 // RemoveImage drops image n and its token from the draft.
 func (c *Composer) RemoveImage(n int) {
-	if s, e := TokenSpan(c.ed.Text(), n); s >= 0 {
+	if s, e := TokenSpan(c.Text(), n); s >= 0 {
 		c.ed.SetCaret(s, e)
 		c.ed.Insert("")
 	}
@@ -284,7 +294,7 @@ func ButtonOf(s *session.Snapshot, draft bool) Button {
 }
 
 func (c *Composer) hasDraft() bool {
-	return strings.TrimSpace(c.ed.Text()) != "" || len(c.draft.Images) > 0
+	return strings.TrimSpace(c.Text()) != "" || len(c.draft.Images) > 0
 }
 
 // PullBack puts queued message q back in the box, after any draft, its
@@ -298,11 +308,11 @@ func (c *Composer) PullBack(q session.QueuedInput) {
 		if a.Kind != "image" || err != nil {
 			continue
 		}
-		thumb, err := Thumb(data, 96, 128)
+		thumb, err := Cover(data, c.thumbSide())
 		if err != nil {
 			continue
 		}
-		tok := c.draft.Add(Image{Data: data, Mime: a.MimeType, Thumb: paint.NewImageOp(thumb)})
+		tok := c.draft.Add(Image{Data: data, Mime: a.MimeType, Thumb: paint.NewImageOp(thumb), side: c.thumbSide()})
 		old := ""
 		if n, ok := strings.CutPrefix(a.ID, "image-"); ok {
 			old = "[Image #" + n + "]"
@@ -319,7 +329,7 @@ func (c *Composer) PullBack(q session.QueuedInput) {
 	for _, sw := range swaps {
 		text = strings.Replace(text, sw.mark, sw.tok, 1)
 	}
-	if cur := c.ed.Text(); strings.TrimSpace(cur) != "" {
+	if cur := c.Text(); strings.TrimSpace(cur) != "" {
 		text = strings.TrimRight(cur, "\n") + "\n" + text
 	}
 	c.SetText(text)
@@ -342,9 +352,10 @@ func (c *Composer) setMenu(now time.Time, open bool) {
 	}
 }
 
-// submit sends the draft, or queues it behind the running turn.
-func (c *Composer) submit(env Env, now time.Time) {
-	text := c.ed.Text()
+// submit sends the draft, or queues it behind the running turn; now sends
+// it into the running turn instead, as Ctrl+Enter does.
+func (c *Composer) submit(env Env, at time.Time, now bool) {
+	text := c.Text()
 	imgs := c.draft.Ordered(text)
 	if strings.TrimSpace(text) == "" && len(imgs) == 0 {
 		return
@@ -356,9 +367,12 @@ func (c *Composer) submit(env Env, now time.Time) {
 	m := proto.ChatSend{Chat: env.Chat, Text: text, Attachments: Attachments(imgs)}
 	if env.Snap.Busy() || Pending(env.Snap) {
 		m.How = "queue"
+		if now {
+			m.How = "now"
+		}
 	}
 	c.out = append(c.out, m)
-	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: now}
+	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: at}
 	c.note = ""
 	c.ed.SetText("")
 	c.draft.Clear()
@@ -430,13 +444,26 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		fs := []event.Filter{
 			key.Filter{Focus: ed, Name: key.NameEscape},
 			key.Filter{Focus: ed, Name: key.NameTab, Required: key.ModShift},
+			key.Filter{Focus: ed, Name: key.NameReturn, Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: key.NameEnter, Required: key.ModShortcut},
 		}
-		tok := -1
-		if start == end {
-			tok = c.draft.TokenBefore(ed.Text(), end)
+		// A token right before the caret goes whole on Backspace, and on a
+		// word delete with only spaces after it.
+		tok, word := -1, -1
+		if t := []rune(c.Text()); start == end && end <= len(t) {
+			tok = c.draft.TokenBefore(string(t), end)
+			k := end
+			for k > 0 && t[k-1] == ' ' {
+				k--
+			}
+			word = c.draft.TokenBefore(string(t), k)
 		}
 		if tok >= 0 {
 			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward})
+		}
+		if word >= 0 {
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModCtrl},
+				key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModAlt})
 		}
 		ev, ok := gtx.Event(fs...)
 		if !ok {
@@ -455,10 +482,15 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			}
 		case key.NameTab:
 			c.cycleMode(env, gtx.Now)
+		case key.NameReturn, key.NameEnter:
+			c.submit(env, gtx.Now, true)
 		case key.NameDeleteBackward:
+			if e.Modifiers != 0 {
+				tok = word
+			}
 			ed.SetCaret(tok, end)
 			ed.Insert("")
-			c.draft.Sync(ed.Text())
+			c.draft.Sync(c.Text())
 		}
 	}
 	empty := ed.Len() == 0 && len(c.draft.Images) == 0
@@ -472,15 +504,15 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			if empty && env.Key != nil && env.Key(string(key.NameReturn)) {
 				break
 			}
-			c.submit(env, gtx.Now)
+			c.submit(env, gtx.Now, false)
 		case widget.ChangeEvent:
-			c.draft.Sync(ed.Text())
-			if !c.waiting() && ed.Text() != c.noteAt {
+			c.draft.Sync(c.Text())
+			if !c.waiting() && c.Text() != c.noteAt {
 				c.note, c.noteAt = "", ""
 			}
 		}
 	}
-	if t := ed.Text(); empty && env.Key != nil && len(t) == 1 && t >= "1" && t <= "9" && env.Key(t) {
+	if t := c.Text(); empty && env.Key != nil && len(t) == 1 && t >= "1" && t <= "9" && env.Key(t) {
 		ed.SetText("")
 	}
 	for n, b := range c.rm {
@@ -496,7 +528,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		case ButtonStop:
 			c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 		case ButtonSend, ButtonQueue:
-			c.submit(env, gtx.Now)
+			c.submit(env, gtx.Now, false)
 		}
 		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
@@ -525,8 +557,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 	}
 	if c.modeBtn.Clicked(gtx) {
-		c.cycleMode(env, gtx.Now)
-		gtx.Execute(key.FocusCmd{Tag: ed})
+		c.toggle(gtx.Now, &c.modeBtn)
 	}
 	if c.modelBtn.Clicked(gtx) {
 		c.toggle(gtx.Now, &c.modelBtn)
@@ -541,6 +572,17 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		if _, ok := ev.(pointer.Event); ok {
 			c.setMenu(gtx.Now, false)
+		}
+	}
+	if c.menu && c.which == &c.modeBtn {
+		cur := ModeOf(env.Snap)
+		for _, m := range ModeItems(c.bypass) {
+			if c.click("mode:" + m).Clicked(gtx) {
+				c.mode = held{m, cur, gtx.Now.Add(holdFor)}
+				c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: m})
+				c.setMenu(gtx.Now, false)
+				gtx.Execute(key.FocusCmd{Tag: ed})
+			}
 		}
 	}
 	if c.menu && c.which == &c.modelBtn {
@@ -608,11 +650,13 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 // card is the rounded box: chips, the editor, the control row.
 func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
 	m := op.Record(gtx.Ops)
+	c.barY = 0
 	d := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.chips(gtx, th) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.field(gtx, th, env) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.chips(gtx, th); c.barY += d.Size.Y; return d }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.field(gtx, th, env); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.bar(gtx, th, env) }),
 	)
+	c.cardSize = d.Size
 	call := m.Stop()
 	r := gtx.Dp(theme.RadiusCard)
 	rect := image.Rectangle{Max: d.Size}
@@ -636,14 +680,27 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 	return d
 }
 
-// chips are the draft's images, 48 by 64, each with its number and a
-// remove x; an image on its way is blank.
+// thumbDp is a draft thumbnail's side.
+const thumbDp unit.Dp = 64
+
+// thumbSide is a thumbnail's side in pixels at the last frame's scale.
+func (c *Composer) thumbSide() int {
+	if c.side == 0 {
+		return 2 * int(thumbDp)
+	}
+	return c.side
+}
+
+// chips are the draft's images as square thumbnails, each with a remove
+// x while the pointer is on it; an image on its way is a blank square.
+// The [Image #N] token in the text names each one.
 func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	c.side = gtx.Dp(thumbDp)
 	if len(c.draft.Images) == 0 {
 		return layout.Dimensions{}
 	}
 	if c.rm == nil {
-		c.rm = map[int]*widget.Clickable{}
+		c.rm, c.hov = map[int]*widget.Clickable{}, map[int]*gesture.Hover{}
 	}
 	var kids []layout.FlexChild
 	chip := func(im *Image) layout.FlexChild {
@@ -662,51 +719,55 @@ func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 }
 
 func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.Dimensions {
-	size := image.Pt(gtx.Dp(48), gtx.Dp(64))
-	r := gtx.Dp(theme.RadiusPopover)
-	rect := image.Rectangle{Max: size}
-	paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(rect, r).Op(gtx.Ops))
-	if im.Data != nil {
-		cl := clip.UniformRRect(rect, r).Push(gtx.Ops)
-		ig := gtx
-		ig.Constraints = layout.Exact(size)
-		widget.Image{Src: im.Thumb, Fit: widget.Cover, Scale: 1}.Layout(ig)
-		cl.Pop()
+	side := c.side
+	if im.Data != nil && im.side != side { // the UI size or the screen's scale changed
+		if t, err := Cover(im.Data, side); err == nil {
+			im.Thumb, im.side = paint.NewImageOp(t), side
+		}
 	}
-	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(rect, r).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
-	badge := withAlpha(th.Bg, 0xd9)
-	// The number, bottom left.
-	nm := op.Record(gtx.Ops)
-	nd := layout.Inset{Left: theme.SpaceXS, Right: theme.SpaceXS, Top: 3, Bottom: 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return text(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Fg, "#"+itoa(im.N))
-	})
-	ncall := nm.Stop()
-	at := op.Offset(image.Pt(gtx.Dp(4), size.Y-gtx.Dp(4)-nd.Size.Y)).Push(gtx.Ops)
-	paint.FillShape(gtx.Ops, badge, clip.UniformRRect(image.Rectangle{Max: nd.Size}, gtx.Dp(4)).Op(gtx.Ops))
-	ncall.Add(gtx.Ops)
-	at.Pop()
-	// The remove x, top right.
+	r := gtx.Dp(theme.RadiusPopover)
+	rect := image.Rectangle{Max: image.Pt(side, side)}
+	shape := clip.UniformRRect(rect, r)
+	h := c.hov[im.N]
+	if h == nil {
+		h = new(gesture.Hover)
+		c.hov[im.N] = h
+	}
+	cl := shape.Push(gtx.Ops)
+	h.Add(gtx.Ops)
+	if im.Data != nil && im.side == side {
+		// why: one thumbnail pixel to one screen pixel, so nothing rescales it.
+		im.Thumb.Add(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+	} else {
+		paint.Fill(gtx.Ops, th.SurfaceElevated)
+	}
+	cl.Pop()
+	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Stroke{Path: shape.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	b := c.rm[im.N]
 	if b == nil {
 		b = new(widget.Clickable)
 		c.rm[im.N] = b
 	}
+	if !h.Update(gtx.Source) && !b.Hovered() && !gtx.Focused(b) {
+		return layout.Dimensions{Size: rect.Max}
+	}
 	// An 18dp x, 3 in from the corner, in a 28dp hit target.
 	xs, hit := gtx.Dp(18), gtx.Dp(28)
 	in := (hit - xs) / 2
-	at = op.Offset(image.Pt(size.X-gtx.Dp(3)-xs-in, gtx.Dp(3)-in)).Push(gtx.Ops)
+	at := op.Offset(image.Pt(side-gtx.Dp(3)-xs-in, gtx.Dp(3)-in)).Push(gtx.Ops)
 	xg := gtx
 	xg.Constraints = layout.Exact(image.Pt(hit, hit))
 	b.Layout(xg, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Remove image #" + itoa(im.N)).Add(gtx.Ops)
-		fill := badge
+		fill := withAlpha(th.Bg, 0xd9)
 		switch {
 		case b.Pressed():
 			fill = th.Pressed
 		case b.Hovered():
 			fill = th.Hover
 		}
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(in, in, in+xs, in+xs), gtx.Dp(5)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(in, in, in+xs, in+xs), xs/2).Op(gtx.Ops))
 		is := gtx.Dp(12)
 		o := op.Offset(image.Pt((hit-is)/2, (hit-is)/2)).Push(gtx.Ops)
 		sidebar.Icon(gtx, "x", is, th.Fg)
@@ -714,7 +775,7 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 		return layout.Dimensions{Size: image.Pt(hit, hit)}
 	})
 	at.Pop()
-	return layout.Dimensions{Size: size}
+	return layout.Dimensions{Size: rect.Max}
 }
 
 // field is the editor: one line at rest, growing to ten, then scrolling;
@@ -739,7 +800,7 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 // tokens covers each image token in the editor with a small blue chip
 // whose label, at the text's size, sits on the line's baseline.
 func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
-	txt := c.ed.Text()
+	txt := c.Text()
 	bg, fg := th.Chip(th.Blue, th.Surface)
 	size := th.Sp(theme.Large)
 	var regions []widget.Region
@@ -749,8 +810,10 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 			continue
 		}
 		e := s + len([]rune(Token(im.N)))
+		// why: the no-break space keeps a token on one line; should it still
+		// split, on a line narrower than the token, the chip covers its start.
 		regions = c.ed.Regions(s, e, regions[:0])
-		for i, rg := range regions {
+		for _, rg := range regions[:min(1, len(regions))] {
 			lm := op.Record(gtx.Ops)
 			ld := text(gtx, th, th.UIFont, size, fg, "Image #"+itoa(im.N))
 			label := lm.Stop()
@@ -765,9 +828,6 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 			x := rg.Bounds.Min.X + (rg.Bounds.Dx()-w)/2
 			r := image.Rect(x, ly-padY, x+w, ly+ld.Size.Y+padY)
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(5)).Op(gtx.Ops))
-			if i > 0 {
-				continue
-			}
 			lx := x + padX
 			if withIcon {
 				// why: its center on the x-height's middle, about a quarter em above the baseline.
@@ -803,20 +863,31 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		label = ModelName(mdl)
 	}
 	used, total, metered := Meter(env.Snap.Usage)
+	if c.anchors == nil {
+		c.anchors = map[*widget.Clickable]image.Rectangle{}
+	}
+	rowH := gtx.Dp(36)
+	x := gtx.Dp(theme.SpaceS)
+	// anchor notes chip b, size big, at x along the row, and moves x past it and gap.
+	anchor := func(b *widget.Clickable, size image.Point, gap int) {
+		y := c.barY + (rowH-size.Y)/2
+		c.anchors[b] = image.Rectangle{Min: image.Pt(x, y), Max: image.Pt(x+size.X, y+size.Y)}
+		x += size.X + gap
+	}
 	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(36))
+		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, rowH)
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, false)
+				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, true)
 				c.tip(gtx, th, &c.modeBtn, d.Size, modeTip, false)
-				c.modelX = gtx.Dp(theme.SpaceS) + d.Size.X + gtx.Dp(theme.SpaceXS)
+				anchor(&c.modeBtn, d.Size, gtx.Dp(theme.SpaceXS))
 				return d
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				d := c.pick(gtx, th, &c.modelBtn, "", label, pickFg(th), true)
 				c.tip(gtx, th, &c.modelBtn, d.Size, "Model", false)
-				c.effortX = c.modelX + d.Size.X + gtx.Dp(theme.SpaceXS)
+				anchor(&c.modelBtn, d.Size, gtx.Dp(theme.SpaceXS))
 				return d
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -827,6 +898,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 				return layout.Inset{Left: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					d := c.pick(gtx, th, &c.effortBtn, "", eff, effCol, true)
 					c.tip(gtx, th, &c.effortBtn, d.Size, "Effort", false)
+					anchor(&c.effortBtn, d.Size, 0)
 					return d
 				})
 			}),
@@ -837,7 +909,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 				if !metered {
 					return layout.Dimensions{}
 				}
-				return meter(gtx, th, used, total)
+				return c.meter(gtx, th, used, total)
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -853,7 +925,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				b := ButtonOf(env.Snap, c.hasDraft())
 				d := c.send(gtx, th, b)
-				tip := map[Button]string{ButtonSendOff: "Send (Enter)", ButtonSend: "Send (Enter)", ButtonStop: "Stop (Esc)", ButtonQueue: "Queue: sends when Claude finishes (Enter)"}[b]
+				tip := map[Button]string{ButtonSendOff: "Send (Enter)", ButtonSend: "Send (Enter)", ButtonStop: "Stop (Esc)", ButtonQueue: "Queue: sends when Claude finishes (Enter). Send now: Ctrl+Enter"}[b]
 				c.tip(gtx, th, &c.sendBtn, d.Size, tip, true)
 				return d
 			}),
@@ -916,34 +988,36 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 	})
 }
 
-// meter is the context meter: a 46 by 4 bar, yellow from 75%, and the
-// numbers.
-func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimensions {
+// meter is the context meter: a ring that fills with the context used and
+// the percentage beside it, yellow from 75% and red near the auto-compact
+// point. Under the pointer it shows the tokens, the room left before
+// auto-compact and the window.
+func (c *Composer) meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimensions {
 	col := th.Muted
-	if MeterWarn(used, total) {
-		col = th.Yellow
+	switch Level(used, total) {
+	case MeterWarning:
+		col = th.Readable(th.Yellow, th.Surface)
+	case MeterDanger:
+		col = th.Readable(th.Red, th.Surface)
 	}
-	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return row(gtx, gtx.Dp(theme.SpaceS), gtx.Dp(28),
+	pct := Percent(used, total)
+	gtx.Constraints.Min = image.Point{}
+	d := c.meterBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		semantic.LabelOp("Context " + itoa(pct) + "% used").Add(gtx.Ops)
+		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
+		m := op.Record(gtx.Ops)
+		rd := row(gtx, gtx.Dp(6), h,
 			func(gtx layout.Context) layout.Dimensions {
-				sz := image.Pt(gtx.Dp(46), gtx.Dp(4))
-				r := gtx.Dp(2)
-				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: sz}, r).Op(gtx.Ops))
-				fill := int(int64(sz.X) * min(used, total) / total)
-				if fill > 0 {
-					paint.FillShape(gtx.Ops, col, clip.UniformRRect(image.Rect(0, 0, fill, sz.Y), r).Op(gtx.Ops))
-				}
-				return layout.Dimensions{Size: sz}
+				return ring(gtx, gtx.Dp(14), float32(min(used, total))/float32(total), th.BorderStrong, col)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				// shortcut: the shaper has no tabular figures, so the numbers sit
-				// right-aligned in a slot as wide as a wide reading.
+				// why: tabular figures keep each digit's width, but 8% to 80% adds one; a slot as wide as 100% keeps the ring still.
 				f, sz := medium(th.UIFont), th.Sp(theme.Small)
 				m := op.Record(gtx.Ops)
-				slot := text(gtx, th, f, sz, th.Muted, "888K / 888K").Size.X
+				slot := text(gtx, th, f, sz, col, "100%").Size.X
 				m.Stop()
 				m = op.Record(gtx.Ops)
-				d := text(gtx, th, f, sz, th.Muted, Tokens(used)+" / "+Tokens(total))
+				d := text(gtx, th, f, sz, col, itoa(pct)+"%")
 				call := m.Stop()
 				w := max(slot, d.Size.X)
 				o := op.Offset(image.Pt(w-d.Size.X, 0)).Push(gtx.Ops)
@@ -951,7 +1025,53 @@ func meter(gtx layout.Context, th *theme.Theme, used, total int64) layout.Dimens
 				o.Pop()
 				return layout.Dimensions{Size: image.Pt(w, d.Size.Y), Baseline: d.Baseline}
 			})
+		call := m.Stop()
+		size := image.Pt(rd.Size.X+2*pad, h)
+		ghostFill(gtx, th, &c.meterBtn, size)
+		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		return layout.Dimensions{Size: size}
 	})
+	c.hoverCard(gtx, th, &c.meterBtn, d.Size, true, func(gtx layout.Context) layout.Dimensions {
+		left := AutoCompactAt(total) - used
+		room := Tokens(left) + " left before auto-compact"
+		if left <= 0 {
+			room = "At the auto-compact point"
+		}
+		line := func(f font.Font, size unit.Sp, col color.NRGBA, s string) layout.FlexChild {
+			return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Bottom: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return text(gtx, th, f, size, col, s)
+				})
+			})
+		}
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			line(medium(th.UIFont), th.Sp(theme.Small), th.Muted, "Context"),
+			line(th.UIFont, th.Sp(theme.Body), th.Fg, Tokens(used)+" of "+Tokens(total)+" tokens, "+itoa(pct)+"%"),
+			line(th.UIFont, th.Sp(theme.Small), th.Muted, room),
+			line(th.UIFont, th.Sp(theme.Small), th.Muted, Tokens(total)+" window"),
+		)
+	})
+	return d
+}
+
+// ring is a size by size ring, track colored, with frac of it from the
+// top, clockwise, in col.
+func ring(gtx layout.Context, size int, frac float32, track, col color.NRGBA) layout.Dimensions {
+	w := float32(gtx.Dp(2))
+	in := gtx.Dp(1)
+	paint.FillShape(gtx.Ops, track, clip.Stroke{Path: clip.Ellipse(image.Rect(in, in, size-in, size-in)).Path(gtx.Ops), Width: w}.Op())
+	if frac = min(frac, 0.999); frac > 0 {
+		r := float32(size)/2 - float32(in)
+		ctr := f32.Pt(float32(size)/2, float32(size)/2)
+		var p clip.Path
+		p.Begin(gtx.Ops)
+		p.MoveTo(f32.Pt(ctr.X, ctr.Y-r))
+		p.ArcTo(ctr, ctr, 2*math.Pi*frac)
+		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p.End(), Width: w}.Op())
+	}
+	return layout.Dimensions{Size: image.Pt(size, size)}
 }
 
 // send is the 28dp main button for b: the arrow, dim while the box is
@@ -1102,9 +1222,13 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 	now := gtx.Now
 	curModel := ModelName(c.model.show(deref(env.Snap.Model), now))
 	curEffort := c.effort.show(deref(env.Snap.Effort), now)
-	pw, x := gtx.Dp(288), c.modelX
-	if c.which == &c.effortBtn {
-		pw, x = gtx.Dp(160), c.effortX
+	curMode := c.mode.show(ModeOf(env.Snap), now)
+	pw := gtx.Dp(288)
+	switch c.which {
+	case &c.effortBtn:
+		pw = gtx.Dp(160)
+	case &c.modeBtn:
+		pw = gtx.Dp(220)
 	}
 	pg := gtx
 	pg.Constraints = layout.Constraints{Min: image.Pt(pw, 0), Max: image.Pt(pw, gtx.Constraints.Max.Y)}
@@ -1112,6 +1236,18 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 	d := layout.UniformInset(theme.SpaceXS).Layout(pg, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		var kids []layout.FlexChild
+		if c.which == &c.modeBtn {
+			for _, m := range ModeItems(c.bypass) {
+				col, icon, _ := modeLook(th, m)
+				if m != ModeBypass {
+					col = th.Fg
+				}
+				kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return iconMenuRow(gtx, th, c.click("mode:"+m), icon, ModeName(m), col, m == curMode)
+				}))
+			}
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+		}
 		if c.which == &c.effortBtn {
 			for _, e := range remote.Efforts {
 				kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1130,8 +1266,9 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 	})
 	body := rec.Stop()
-	// Above the card, from its control's left edge.
-	p := image.Pt(x, -d.Size.Y-gtx.Dp(theme.SpaceS))
+	// Above its chip, left edges aligned, kept inside the card's width.
+	bounds := image.Rectangle{Min: image.Pt(0, -1<<20), Max: c.cardSize}
+	p := kit.Place(c.anchors[c.which], d.Size, bounds, kit.AboveStart, gtx.Dp(theme.SpaceXS), 0)
 	o := op.Offset(p).Push(gtx.Ops)
 	rect := image.Rectangle{Max: d.Size}
 	// Fade and scale from 0.97 out of its bottom left corner, by the trigger.

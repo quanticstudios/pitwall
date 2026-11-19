@@ -512,3 +512,31 @@ func TestQuoted(t *testing.T) {
 		t.Fatalf("no conversation: %q", q)
 	}
 }
+
+// Send now, as Ctrl+Enter does, with a provider that cannot steer: the
+// running turn stops and the message goes ahead of the queue.
+func TestChatSendNow(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	prov := &stubProvider{}
+	sock, stop := runWith(t, f, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderCodex: prov}
+	})
+	defer stop()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	gui.waitState("first tab", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderCodex, Dir: t.TempDir(), Prompt: "long job"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	id, drv := r.Chat, prov.driver(t)
+	waitChat(gui, "running", func(s model.State) bool { return chatOf(s).State == session.StateRunning })
+	chatCall[proto.ChatResult](gui, proto.ChatSend{Chat: id, Text: "queued one"})
+	if r := chatCall[proto.ChatResult](gui, proto.ChatSend{Chat: id, Text: "stop, do this", How: "now"}); r.Code != "" || r.Message != "interrupted" {
+		t.Fatalf("send now: %+v", r)
+	}
+	// The earlier message stays queued behind it.
+	waitChat(gui, "the now message's turn", func(s model.State) bool { c := chatOf(s); return c.Turns == 2 && c.Queued == 1 })
+	if got, want := drv.got(), []string{"send long job", "interrupt", "send stop, do this"}; !slices.Equal(got, want) {
+		t.Fatalf("driver calls %q, want %q", got, want)
+	}
+}
