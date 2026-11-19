@@ -230,6 +230,8 @@ type shaperImpl struct {
 	// has no italic.
 	oblique map[int]int
 	slanted map[int]bool
+	// pitwall: features are OpenType features every run shapes with.
+	features []shaping.FontFeature
 }
 
 // debugLogger only logs messages if debug.Text is true.
@@ -317,6 +319,7 @@ func (s *shaperImpl) shapeText(ppem fixed.Int26_6, lc system.Locale, txt []rune,
 	}
 	// Create an initial input.
 	input := toInput(nil, ppem, lcfg, txt)
+	input.FontFeatures = s.features
 	if input.RunStart == input.RunEnd && len(s.faces) > 0 {
 		// Give the empty string a face. This is a necessary special case because
 		// the face splitting process works by resolving faces for each rune, and

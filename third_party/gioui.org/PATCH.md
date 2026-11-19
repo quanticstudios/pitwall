@@ -80,6 +80,10 @@ Each change is marked `pitwall` in a comment:
   the glyph painter starts a new path where a `TextColor` range starts or
   ends, so a link or a diff line paints in its own color.
 
+- `text/shaper.go`, `WithTabularFigures` (new): a shaper option that shapes
+  every run with the OpenType `tnum` feature, so durations, counts and
+  table columns keep their width. pitwall's theme turns it on.
+
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would
 leave its present semaphore signalled, so the patch does not touch it.

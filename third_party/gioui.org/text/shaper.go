@@ -15,6 +15,8 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"github.com/go-text/typesetting/font"
+	ot "github.com/go-text/typesetting/font/opentype"
+	"github.com/go-text/typesetting/shaping"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -250,6 +252,7 @@ type Shaper struct {
 	config struct {
 		disableSystemFonts bool
 		collection         []FontFace
+		tabular            bool // pitwall: see WithTabularFigures
 	}
 	initialized      bool
 	shaper           shaperImpl
@@ -292,6 +295,14 @@ func WithCollection(collection []FontFace) ShaperOption {
 	}
 }
 
+// WithTabularFigures shapes digits with the fonts' tabular figures (the
+// OpenType tnum feature), so numbers that change keep their width. pitwall.
+func WithTabularFigures() ShaperOption {
+	return func(s *Shaper) {
+		s.config.tabular = true
+	}
+}
+
 // NewShaper constructs a shaper with the provided options.
 func NewShaper(options ...ShaperOption) *Shaper {
 	l := &Shaper{}
@@ -309,6 +320,9 @@ func (l *Shaper) init() {
 	l.initialized = true
 	l.reader = bufio.NewReader(nil)
 	l.shaper = *newShaperImpl(!l.config.disableSystemFonts, l.config.collection)
+	if l.config.tabular {
+		l.shaper.features = []shaping.FontFeature{{Tag: ot.MustNewTag("tnum"), Value: 1}}
+	}
 }
 
 // Layout text from an io.Reader according to a set of options. Results can be retrieved by
