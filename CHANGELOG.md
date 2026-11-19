@@ -22,6 +22,13 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
+- A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
+- A turn's work log, such as "Working for 2m · 14 tools", stays one line while the turn runs and after it ends, a failed call's too, and opens only when you click it. A log you opened stays open.
+- A Claude Code TUI pane's chat shows a reply as soon as Claude Code writes it to its transcript, where it could wait 10 s or more after the turn ended. Claude Code writes each block whole, so a long reply in a TUI pane still appears when its block is done, not word by word.
+
 ## v0.2.18
 
 - A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.
