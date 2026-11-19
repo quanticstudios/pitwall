@@ -88,6 +88,7 @@ type Transcript struct {
 	older  bool           // Older said there is history before the oldest item
 	head   string         // the oldest item's id in the last frame
 	anchor string         // the item of the first row in view in the last frame
+	topH   int            // the height of the space above the rows when last laid out
 	frame  int            // frames laid out
 	selAt  map[string]int // the frame each selectable was last drawn in
 }
@@ -394,12 +395,22 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		t.list.Position.BeforeEnd = false
 	}
 	t.list.ScrollToEnd = follow
+	if !follow {
+		defer func() {
+			if t.list.Position.Length > size.Y { // it overflows now: the next frame goes to its end
+				gtx.Execute(op.InvalidateCmd{})
+			}
+		}()
+	}
 	t.list.Layout(gtx, len(t.rows)+2, func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
-		case i < 0 && t.older:
-			return t.loadingOlder(gtx, th, size.X)
 		case i < 0:
-			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
+			d := layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
+			if t.older {
+				d = t.loadingOlder(gtx, th, size.X)
+			}
+			t.topH = d.Size.Y
+			return d
 		case i >= len(t.rows):
 			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
 		}

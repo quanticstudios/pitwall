@@ -42,7 +42,7 @@ func (t *Transcript) prepended(s *session.Snapshot) int {
 }
 
 // keepPlace puts the row of the item that was first in view first again,
-// after a page came before it.
+// after a page came before it, at the same offset.
 func (t *Transcript) keepPlace(s *session.Snapshot) {
 	a := slices.IndexFunc(s.Content, func(it session.Item) bool { return it.ID == t.anchor })
 	if a < 0 {
@@ -50,20 +50,21 @@ func (t *Transcript) keepPlace(s *session.Snapshot) {
 	}
 	at := -1
 	for i, r := range t.rows {
-		if r.tail != nil || r.res != nil {
-			continue
-		}
-		if r.seg == segItem && r.i == a {
+		if rowItem(r) == a {
 			at = i
 			break
 		}
-		if at < 0 && r.seg != segItem && r.b.lo <= a && a < r.b.hi {
-			at = i
+		if at < 0 && r.tail == nil && r.res == nil && r.seg != segItem && r.b.lo <= a && a < r.b.hi {
+			at = i // a turn the page made longer at its start
 		}
 	}
-	if at >= 0 {
-		t.list.Position.First = at + 1 // the list's first element is the space above the rows
+	if at < 0 {
+		return
 	}
+	if t.list.Position.First == 0 { // the space above the rows was in view: it is above the anchor now
+		t.list.Position.Offset -= t.topH
+	}
+	t.list.Position.First = at + 1 // the list's first element is the space above the rows
 }
 
 // atTop notes the item first in view, and reads the page before the
@@ -71,8 +72,8 @@ func (t *Transcript) keepPlace(s *session.Snapshot) {
 // (it lays out from the top before), or when it does not fill the view
 // of height h.
 func (t *Transcript) atTop(s *session.Snapshot, h int) {
-	f := t.list.Position.First - 1
-	if f >= 0 && f < len(t.rows) {
+	f := max(0, t.list.Position.First-1) // the space above the rows stands for the first
+	if f < len(t.rows) {
 		if i := rowItem(t.rows[f]); i >= 0 && i < len(s.Content) {
 			t.anchor = s.Content[i].ID
 		}
@@ -83,13 +84,16 @@ func (t *Transcript) atTop(s *session.Snapshot, h int) {
 	}
 }
 
-// rowItem is the item row r draws or starts with, -1 for none.
+// rowItem is the item row r draws, or starts with for a prompt or a work
+// log's header, -1 for none.
 func rowItem(r trow) int {
 	switch {
 	case r.tail != nil || r.res != nil:
 		return -1
 	case r.seg == segItem:
 		return r.i
+	case r.seg == segReply:
+		return r.b.reply
 	}
 	return r.b.lo
 }

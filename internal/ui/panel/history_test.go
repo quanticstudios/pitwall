@@ -2,6 +2,7 @@ package panel
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -44,6 +45,24 @@ func TestTranscriptHistory(t *testing.T) {
 	transcriptFrame(&tr, th, all, &ops, now) // the page landed
 	if tr.anchor != first || tr.list.Position.Offset != 5 || tr.done[0].at != 610 {
 		t.Fatalf("after the page: first in view %s, want %s; offset %d; answered line at %d", tr.anchor, first, tr.list.Position.Offset, tr.done[0].at)
+	}
+
+	// At the very top, the loading line in view: the page lands above the
+	// first row, which stays where it was, under where the line was.
+	var top Transcript
+	top.Older = func() bool { return true }
+	transcriptFrame(&top, th, &tail, &ops, now)
+	transcriptFrame(&top, th, &tail, &ops, now)
+	top.list.Position.First, top.list.Position.Offset, top.list.Position.BeforeEnd = 0, 0, true
+	transcriptFrame(&top, th, &tail, &ops, now)
+	transcriptFrame(&top, th, &tail, &ops, now)
+	if top.anchor != "h600" || top.topH == 0 {
+		t.Fatalf("at the top: first in view %s, line %d px", top.anchor, top.topH)
+	}
+	transcriptFrame(&top, th, all, &ops, now)
+	r := slices.IndexFunc(top.rows, func(r trow) bool { return rowItem(r) == 600 })
+	if f := top.list.Position.First - 1; f > r || f < r-3 { // the line's height above it, in the rows before
+		t.Fatalf("at the top: shows row %d first after the page, want just above row %d of h600", f, r)
 	}
 
 	all.Content[995].Cut = true // a reply, in view at the end
