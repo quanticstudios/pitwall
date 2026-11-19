@@ -39,6 +39,9 @@ type Transcript struct {
 	// Copy puts text on the clipboard: the window's clipboard path. Nil
 	// writes it directly.
 	Copy func(gtx layout.Context, text string)
+	// Open opens a link clicked in a reply: a URL, or a file URL for a
+	// path under Dir. Nil leaves links inert.
+	Open func(link string)
 
 	list   layout.List
 	blocks []block

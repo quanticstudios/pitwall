@@ -223,7 +223,7 @@ func fonts(uiFam, monoFam string, fallback []string) (*text.Shaper, font.Font, f
 		fontCache[k] = fs
 	}
 	fontMu.Unlock()
-	return text.NewShaper(text.NoSystemFonts(), text.WithCollection(fs.faces)), fs.ui, fs.mono, fs.err
+	return text.NewShaper(text.NoSystemFonts(), text.WithCollection(fs.faces), text.WithTabularFigures()), fs.ui, fs.mono, fs.err
 }
 
 var (

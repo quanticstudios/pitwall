@@ -72,6 +72,30 @@ Each change is marked `pitwall` in a comment:
   Ctrl, so off macOS they did nothing. The composer's test
   `TestComposerWordKeys` covers it.
 
+- `text/shaper.go` and `text/gotext.go`, `Parameters.Styles` (new): rune
+  ranges of one text shape in their own font and size, so a selectable
+  paragraph can hold semibold, italic and inline code. `shaperImpl.split`
+  splits the segmenter's runs where styles start and end and resolves each
+  range's faces with its own query. A range that asks for italic in a
+  family with no italic face, such as Geist, moves to a slanted copy of
+  the face (`obliqueOf`), which `Shape` skews about 12 degrees. The layout
+  cache key carries the styles. `text/styles_test.go` checks sizes across
+  paragraphs, a real italic face and a slanted copy.
+- `widget/label.go`, `widget/text.go`, `widget/selectable.go`: `Label.Styles`,
+  `Selectable.Styles` and `Selectable.Colors` pass the ranges through, and
+  the glyph painter starts a new path where a `TextColor` range starts or
+  ends, so a link or a diff line paints in its own color.
+
+- `text/shaper.go`, `WithTabularFigures` (new): a shaper option that shapes
+  every run with the OpenType `tnum` feature, so durations, counts and
+  table columns keep their width. pitwall's theme turns it on.
+
+- `text/gotext.go`, `shaperImpl.spaces` (new): spaces inside a run of a
+  fallback face shape in the query's first face. go-text keeps a space in
+  the run before it, and Noto Color Emoji's space is 1.25 em, so a space
+  after an emoji left a gap. `internal/ui/theme`'s `TestSpaceAfterEmoji`
+  checks it.
+
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would
 leave its present semaphore signalled, so the patch does not touch it.
