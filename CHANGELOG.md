@@ -24,6 +24,11 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
+- Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
+- A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
+- A turn's work log, such as "Working for 2m · 14 tools", stays one line while the turn runs and after it ends, a failed call's too, and opens only when you click it. A log you opened stays open.
+- A Claude Code TUI pane's chat shows a reply as soon as Claude Code writes it to its transcript, where it could wait 10 s or more after the turn ended. Claude Code writes each block whole, so a long reply in a TUI pane still appears when its block is done, not word by word.
 - Old and huge Claude Code chats open at once instead of hanging on "Reading the chat…". A pane chat reads its transcript from the end, back to the last compaction or the last 200 chat lines within 4 MB, and loads older history in pages as you scroll up, keeping your place. A 300 MB transcript showed after 5 minutes at best, and never when its snapshot passed the 64 MB frame limit; now it shows in 13 ms.
 - Every chat read stays small: long tool output, inputs and replies come as their head and tail with a line counting what is left out, and the whole item loads when you open it. Images come as references and load when shown.
 - A chat that does not load says why, with Try again and Open terminal view, instead of waiting forever. The daemon and the window log a dropped oversized message with its size.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/app"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 )
 
@@ -139,5 +140,75 @@ func TestChatCachePages(t *testing.T) {
 	b2.Chat("x")
 	if since, why := b2.ChatWait("x"); why == "" || since.IsZero() {
 		t.Fatalf("no reply in %v: %q", readWait, why)
+	}
+}
+
+// TestChatReadPace: a chat whose turn runs is read again chatStream
+// after the last read, an idle one only after app.ChatPoll; no read goes
+// out while one is out, for another chat, or once the window stopped
+// asking for it.
+func TestChatReadPace(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}, outWake: make(chan struct{}, 1)}
+	b.link.Level = proto.Level
+	reads := func() int {
+		n := 0
+		for _, m := range b.out {
+			if _, ok := m.(proto.ChatRead); ok {
+				n++
+			}
+		}
+		b.out = nil
+		return n
+	}
+	busy := &session.Snapshot{SessionID: "c", SessionState: session.StateRunning}
+	idle := &session.Snapshot{SessionID: "c", SessionState: session.StateReady}
+	now := time.Now()
+	for _, tc := range []struct {
+		what  string
+		snap  *session.Snapshot
+		id    string
+		ago   time.Duration // since the last read went out
+		shown time.Duration // since the window asked
+		out   bool
+		want  int
+	}{
+		{"streaming, due", busy, "c", chatStream, 0, false, 1},
+		{"streaming, read out", busy, "c", chatStream, 0, true, 0},
+		{"streaming, too soon", busy, "c", chatStream / 4, 0, false, 0},
+		{"idle, a frame later", idle, "c", chatStream, 0, false, 0},
+		{"idle, due", idle, "c", app.ChatPoll, 0, false, 1},
+		{"another chat", busy, "x", time.Second, 0, false, 0},
+		{"no longer shown", busy, "c", time.Second, 2 * time.Second, false, 0},
+	} {
+		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out, at: now.Add(-tc.ago), shown: now.Add(-tc.shown)}
+		b.chatRead(tc.id)
+		if got := reads(); got != tc.want {
+			t.Errorf("%s: %d reads, want %d", tc.what, got, tc.want)
+		}
+	}
+
+	// Without a frame, the reply schedules the next read: every reply
+	// while the turn runs, and one more after a reply that changed an
+	// idle chat, such as the one that ends the turn.
+	for _, tc := range []struct {
+		what    string
+		snap    *session.Snapshot
+		out     bool
+		changed bool
+		after   time.Duration
+		ok      bool
+	}{
+		{"streaming", busy, false, false, chatStream, true},
+		{"read out", busy, true, true, 0, false},
+		{"idle, changed", idle, false, true, app.ChatPoll, true},
+		{"idle, unchanged", idle, false, false, app.ChatPoll, false},
+	} {
+		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out}
+		if after, ok := b.chat.again("c", tc.changed); after != tc.after && tc.ok || ok != tc.ok {
+			t.Errorf("%s: again %v %v, want %v %v", tc.what, after, ok, tc.after, tc.ok)
+		}
+	}
+	if _, ok := b.chat.again("x", true); ok {
+		t.Error("read again for another chat")
 	}
 }

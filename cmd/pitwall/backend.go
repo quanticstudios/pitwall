@@ -545,7 +545,12 @@ func (b *backend) recvLoop() {
 			pane = m.Pane
 		case proto.ChatDeltas:
 			b.chatReply(m.Chat) // a ChatRead's
-			if !b.chat.take(m) {
+			changed := b.chat.take(m)
+			if after, ok := b.chat.again(m.Chat, changed); ok {
+				id := m.Chat
+				time.AfterFunc(after, func() { b.chatRead(id) })
+			}
+			if !changed {
 				b.mu.Unlock()
 				continue
 			}

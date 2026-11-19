@@ -113,7 +113,7 @@ func TestAgentTalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := startWait
-	startWait = 2 * time.Second
+	startWait = 500 * time.Millisecond
 	defer func() { startWait = old }()
 	run(0, "#1.3\n", "split", "--down", "lead", "--", codex)
 	if stderr := run(1, "", "prompt", "1.3", "--wait", "--timeout", "30s", "hello"); !strings.Contains(stderr, "did not start a turn") {
