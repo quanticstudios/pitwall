@@ -278,6 +278,8 @@ func addContent(s Snapshot, e Event, turnID *string) []Item {
 		Text:      e.Text,
 		TurnID:    turnID,
 		UpdatedAt: e.CreatedAt,
+
+		Attachments: e.Attachments,
 	}
 	if e.Model != "" {
 		it.Model = ptr(e.Model)

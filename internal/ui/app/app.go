@@ -367,6 +367,7 @@ type ui struct {
 	paneHeads   map[string]*chatHead         // the pane chats' headers, by pane id
 	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
+	drawn       map[string]bool              // the chats whose composer layoutPanes drew this frame
 	usage       usageWatch                   // token use for the tabs' hover cards
 	invalidate  func()                       // the window's Invalidate; nil in tests
 
@@ -1189,7 +1190,13 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	if p := u.nav.peek; p != "" {
 		live[p] = true // drawPeek draws it over the panes
 	}
+	clear(u.drawn)
 	defer func() { // a pane no longer drawn has lost focus
+		for id, c := range u.composers {
+			if !u.drawn[id] { // a tab switch or Alt+T hid it: its popover goes too
+				c.CloseMenu()
+			}
+		}
 		u.showPanes(live)
 		for id, p := range u.panes {
 			if live[id] {

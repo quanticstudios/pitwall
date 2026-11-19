@@ -114,6 +114,8 @@ type Event struct {
 	Text   string    `json:"text,omitempty"`  // text to append; "" with a Tool
 	Tool   *ToolCall `json:"tool,omitempty"`  // invariant: the whole call so far, never a delta
 
+	Attachments []Attachment `json:"attachments,omitempty"` // content.delta: a user prompt's pictures
+
 	Message string `json:"message,omitempty"`
 
 	InputTokens       int64        `json:"inputTokens,omitempty"`
