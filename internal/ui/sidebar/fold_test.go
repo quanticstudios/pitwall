@@ -79,7 +79,7 @@ func TestFold(t *testing.T) {
 }
 
 // TestFoldBubbles: a parent's row shows the most urgent state of it and
-// its workers and their unseen turns; it answers only its own prompt; a
+// its workers that ask, never a worker's finished turn; it answers only its own prompt; a
 // tie keeps its own state.
 func TestFoldBubbles(t *testing.T) {
 	h := newFoldHarness(t)
@@ -87,8 +87,11 @@ func TestFoldBubbles(t *testing.T) {
 	if a := v.activity["o"]; a == nil || a.State != model.StatePendingApproval || a.WorkspaceID != "w2" {
 		t.Fatalf("o shows %+v, want w2's approval", a)
 	}
-	if u := v.unseen["o"]; u == nil || u.WorkspaceID != "w3" {
-		t.Fatalf("o's unseen %+v, want w3's finished turn", u)
+	if u := v.unseen["o"]; u != nil && u.WorkspaceID == "w3" {
+		t.Fatalf("o's unseen %+v: w3's finished turn must stay on w3's row", u)
+	}
+	if u := v.unseen["w3"]; u == nil {
+		t.Fatal("w3 lost its own unseen finished turn")
 	}
 	if a := v.ownActivity("o"); a.State != model.StateWorking || h.s.answering(v, "o", false, a) {
 		t.Fatalf("o's own activity %+v, or it answers w2 on its row", a)

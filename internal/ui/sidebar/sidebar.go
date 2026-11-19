@@ -687,12 +687,17 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 			delete(v.unseen, r)
 		}
 		// Folded, the row then shows the most urgent of it and its
-		// workers, so a worker that asks shows on it folded or not; a tie
-		// stays its own. Separate, each worker's row shows its own.
+		// workers that ask, so a worker that asks shows on it folded or
+		// not; a tie stays its own. Separate, each worker's row shows its own.
 		if separate {
 			continue
 		}
+		// why: only a worker that asks for input marks the parent. A finished
+		// turn, a PR or plain work stays on the worker's own row.
 		for _, k := range kids {
+			if !asks(v.activity[k.ID]) {
+				continue
+			}
 			v.activity[r] = urgent(v.activity[r], v.activity[k.ID])
 			if u := urgent(v.unseen[r], v.unseen[k.ID]); u != nil {
 				v.unseen[r] = u
@@ -715,6 +720,12 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 		}
 	}
 	return v
+}
+
+// asks reports whether a waits on the user's input: a question, an
+// approval or a plan.
+func asks(a *model.Activity) bool {
+	return a != nil && (a.State == model.StateAwaitingInput || a.State == model.StatePendingApproval || a.State == model.StatePlanReady)
 }
 
 // urgent is b when its state ranks above a's (model.StateRank), else a.

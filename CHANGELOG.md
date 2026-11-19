@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Mark a parent tab's sidebar row only for a worker that asks for input: a question, an approval or a plan. A worker's finished turn, PR or work stays on the worker's own row, so the parent's accent bar no longer lingers.
 - Stop desktop and phone notifications when a worker tab finishes a turn, since the tab that started it reads the result. A worker that asks for approval, asks a question or fails still notifies.
 
 ## v0.2.17
