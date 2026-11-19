@@ -430,7 +430,7 @@ func (pc *paneChat) settings(l paneLive) {
 	eff := l.tui.effort
 	if eff == "" && l.conf != "" {
 		if pc.conf == nil {
-			e := claudeEffortFile(filepath.Join(l.conf, "settings.json"))
+			_, e := claudeSettingsFile(filepath.Join(l.conf, "settings.json"))
 			pc.conf = &e
 		}
 		eff = *pc.conf

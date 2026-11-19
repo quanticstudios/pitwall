@@ -98,6 +98,10 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		}
 		t.PRs, t.Open = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }
 		cmp := u.composer(st, id)
+		if u.drawn == nil {
+			u.drawn = map[string]bool{}
+		}
+		u.drawn[id] = true
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(id) {
 				cmp.Result(r, gtx.Now)
