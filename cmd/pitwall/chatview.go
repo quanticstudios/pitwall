@@ -16,46 +16,76 @@ import (
 // chatCache is the transcript of the one chat the window shows, kept up
 // to date with proto.ChatRead.
 //
-// shortcut: the window polls ChatRead every app.ChatPoll while it draws the
-// chat; a ChatSubscribe that pushes deltas would replace the polling.
+// shortcut: the window polls ChatRead while it draws the chat, every
+// app.ChatPoll, and every chatStream while a turn runs; a ChatSubscribe
+// that pushes deltas would replace the polling.
 type chatCache struct {
-	id   string
-	snap *session.Snapshot
-	seq  int64     // snap's seq; 0 asks for a new snapshot
-	out  bool      // a ChatRead is waiting for its reply
-	at   time.Time // when the last ChatRead went out
+	id    string
+	snap  *session.Snapshot
+	seq   int64     // snap's seq; 0 asks for a new snapshot
+	out   bool      // a ChatRead is waiting for its reply
+	at    time.Time // when the last ChatRead went out
+	shown time.Time // when the window last asked for the transcript
 }
 
+// chatStream is how often the window reads a chat while its turn runs:
+// once a frame, so a reply grows as it streams. A read goes out only
+// after the last one's reply, so a slow link reads as often as it
+// answers, and a reply that changes nothing draws no frame.
+const chatStream = time.Second / 60
+
 // Chat implements app.Chatter: the chat's transcript as last read, and a
-// ChatRead for what came since when none is out and the last is
-// app.ChatPoll old. Asking for another chat drops the one kept.
+// ChatRead for what came since (chatRead). Asking for another chat drops
+// the one kept.
 func (b *backend) Chat(id string) (session.Snapshot, bool) {
 	b.mu.Lock()
 	c := &b.chat
 	if c.id != id {
 		*c = chatCache{id: id}
 	}
-	var read *proto.ChatRead
-	if now := time.Now(); !c.out && now.Sub(c.at) >= app.ChatPoll {
-		c.out, c.at = true, now
-		read = &proto.ChatRead{Chat: id, After: c.seq}
-	}
+	c.shown = time.Now()
 	var s session.Snapshot
 	ok := c.snap != nil
 	if ok {
 		s = *c.snap
 	}
 	b.mu.Unlock()
-	if read != nil {
-		if err := b.Send(*read); err != nil {
-			b.mu.Lock()
-			if b.chat.id == id {
-				b.chat.out = false
-			}
-			b.mu.Unlock()
-		}
-	}
+	b.chatRead(id)
 	return s, ok
+}
+
+// chatRead sends a ChatRead for what chat id gained when the window still
+// shows it, none is out, and the last went out app.ChatPoll ago, or
+// chatStream while a turn runs.
+func (b *backend) chatRead(id string) {
+	b.mu.Lock()
+	c := &b.chat
+	now := time.Now()
+	every := app.ChatPoll
+	if c.snap != nil && c.snap.Busy() {
+		every = chatStream
+	}
+	if c.id != id || c.out || now.Sub(c.at) < every || now.Sub(c.shown) > time.Second {
+		b.mu.Unlock()
+		return
+	}
+	c.out, c.at = true, now
+	read := proto.ChatRead{Chat: id, After: c.seq}
+	b.mu.Unlock()
+	if err := b.Send(read); err != nil {
+		b.mu.Lock()
+		if b.chat.id == id {
+			b.chat.out = false
+		}
+		b.mu.Unlock()
+	}
+}
+
+// streaming is whether the chat's turn runs, so its next read goes out
+// chatStream after this reply, not on the window's next poll. Callers
+// hold b.mu.
+func (c *chatCache) streaming(id string) bool {
+	return c.id == id && !c.out && c.snap != nil && c.snap.Busy()
 }
 
 // ChatResults implements app.ChatResulter.
