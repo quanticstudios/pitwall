@@ -2,6 +2,7 @@ package app
 
 import (
 	"image"
+	"slices"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -81,10 +82,16 @@ func (u *ui) chatFrame(gtx gl.Context, size image.Point, lit, sole bool) (image.
 }
 
 // paneChatKey reports whether chat_terminal is the window's on the shown
-// tab: its focused pane is a pane chat.
+// tab: one of its panes is a pane chat. Not only the focused one: a click
+// that focuses a pane chat and a quick Alt+T can come in one batch, before
+// a frame registers filters for the new focus, and the key would be lost.
 func (u *ui) paneChatKey(st *model.State) bool {
 	ws := findWorkspace(st, u.nav.workspace)
-	return ws != nil && ws.Chat == "" && paneChatOf(st, u.nav.focused()) != nil && linkLevel(u.b) >= proto.PaneChatLevel
+	if ws == nil || ws.Chat != "" || linkLevel(u.b) < proto.PaneChatLevel {
+		return false
+	}
+	tab := shownTab(ws)
+	return tab != nil && slices.ContainsFunc(panesOf(tab.Layout), func(id string) bool { return paneChatOf(st, id) != nil })
 }
 
 // layoutPaneChat draws pane id as a chat in r, where layoutPanes put the
