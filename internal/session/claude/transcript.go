@@ -129,10 +129,32 @@ func promptText(l transcriptLine) (string, bool) {
 		text = strings.Join(parts, "\n")
 	}
 	t := strings.TrimSpace(text)
-	if t == "" || strings.HasPrefix(t, "<") {
+	if strings.HasPrefix(t, "<") {
+		return slashPrompt(t)
+	}
+	return text, t != ""
+}
+
+// slashPrompt is a skill's or custom command's line as the user typed it,
+// "/name args": Claude Code writes those with a <command-message> and runs
+// a turn for them. Built-ins such as /model, with no message, stay out.
+func slashPrompt(t string) (string, bool) {
+	tag := func(name string) string {
+		_, rest, ok := strings.Cut(t, "<"+name+">")
+		in, _, closed := strings.Cut(rest, "</"+name+">")
+		if !ok || !closed {
+			return ""
+		}
+		return strings.TrimSpace(in)
+	}
+	cmd := tag("command-name")
+	if !strings.HasPrefix(cmd, "/") || !strings.Contains(t, "<command-message>") {
 		return "", false
 	}
-	return text, true
+	if args := tag("command-args"); args != "" {
+		cmd += " " + args
+	}
+	return cmd, true
 }
 
 // Running reports whether a turn runs.

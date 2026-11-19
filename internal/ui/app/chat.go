@@ -7,6 +7,8 @@ import (
 
 	gl "gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
@@ -64,6 +66,15 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 		})
 		return
 	}
+	// The tab's frame sits pane_margin in, as a tab of one terminal's does.
+	m := gtx.Dp(unit.Dp(u.cfg.PaneMargin))
+	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	defer op.Offset(image.Pt(m, m)).Push(gtx.Ops).Pop()
+	size := image.Pt(max(0, gtx.Constraints.Max.X-2*m), max(0, gtx.Constraints.Max.Y-2*m))
+	in, cl := u.chatFrame(gtx, size, !u.keysHeld(st) && u.nav.peek == "", m == 0)
+	defer cl.Pop()
+	defer op.Offset(in.Min).Push(gtx.Ops).Pop()
+	gtx.Constraints = gl.Exact(in.Size())
 	head := u.layoutChatHead(gtx, st, ws)
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)

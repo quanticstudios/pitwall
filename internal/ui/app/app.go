@@ -608,8 +608,8 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.chatTerminal = false
 		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" {
 			u.toggleChatTerminal(st, ws)
-		} else if u.paneChatKey(st) {
-			u.flipPaneChat(u.nav.focused())
+		} else if id := u.nav.focused(); u.paneChatKey(st) && paneChatOf(st, id) != nil {
+			u.flipPaneChat(id)
 		}
 	}
 	if u.nav.sidebarKeys {

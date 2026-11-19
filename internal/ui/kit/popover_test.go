@@ -23,6 +23,8 @@ func TestPlace(t *testing.T) {
 		{"left edge clamps", btn(10, 100), BelowEnd, image.Pt(8, 128)},
 		{"right edge clamps", btn(980, 100), BelowStart, image.Pt(892, 128)},
 		{"top edge flips below", btn(500, 50), Above, image.Pt(462, 78)},
+		{"above start", btn(500, 500), AboveStart, image.Pt(500, 296)},
+		{"above start at the right edge clamps", btn(950, 500), AboveStart, image.Pt(892, 296)},
 		{"beside", btn(500, 100), Beside, image.Pt(528, 100)},
 		{"beside the right edge flips left", btn(950, 100), Beside, image.Pt(846, 100)},
 		{"beside the bottom edge clamps", btn(500, 750), Beside, image.Pt(528, 592)},

@@ -2,6 +2,7 @@ package app
 
 import (
 	"image"
+	"slices"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -70,11 +71,27 @@ func (u *ui) flipPaneChat(id string) {
 	}
 }
 
+// chatFrame draws a chat's frame in size as paneChrome draws a terminal
+// pane's, lit when it has the keys, filled with the chat's background, and
+// clips to its rounded corners; it returns the rect inside and that clip.
+func (u *ui) chatFrame(gtx gl.Context, size image.Point, lit, sole bool) (image.Rectangle, clip.Stack) {
+	in := paneChrome(gtx, u.th, image.Rectangle{Max: size}, paneBorder(u.th, lit), sole)
+	rr := clip.UniformRRect(in, roundedFor(gtx, sole))
+	paint.FillShape(gtx.Ops, u.th.Bg, rr.Op(gtx.Ops))
+	return in, rr.Push(gtx.Ops)
+}
+
 // paneChatKey reports whether chat_terminal is the window's on the shown
-// tab: its focused pane is a pane chat.
+// tab: one of its panes is a pane chat. Not only the focused one: a click
+// that focuses a pane chat and a quick Alt+T can come in one batch, before
+// a frame registers filters for the new focus, and the key would be lost.
 func (u *ui) paneChatKey(st *model.State) bool {
 	ws := findWorkspace(st, u.nav.workspace)
-	return ws != nil && ws.Chat == "" && paneChatOf(st, u.nav.focused()) != nil && linkLevel(u.b) >= proto.PaneChatLevel
+	if ws == nil || ws.Chat != "" || linkLevel(u.b) < proto.PaneChatLevel {
+		return false
+	}
+	tab := shownTab(ws)
+	return tab != nil && slices.ContainsFunc(panesOf(tab.Layout), func(id string) bool { return paneChatOf(st, id) != nil })
 }
 
 // layoutPaneChat draws pane id as a chat in r, where layoutPanes put the
@@ -88,13 +105,11 @@ func (u *ui) layoutPaneChat(gtx gl.Context, st *model.State, ws *model.Workspace
 
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
-	gtx.Constraints = gl.Exact(rect.Size())
-	frame := image.Rectangle{Max: rect.Size()}
-	defer clip.Rect(frame).Push(gtx.Ops).Pop()
-	paint.FillShape(gtx.Ops, u.th.Bg, clip.Rect(frame).Op())
-	if !sole {
-		paint.FillShape(gtx.Ops, paneBorder(u.th, focused), clip.Stroke{Path: clip.Rect(frame).Path(), Width: float32(gtx.Dp(1))}.Op())
-	}
+	lit := focused || (u.nav.paneMode || u.hints.on) && id == u.nav.focused()
+	in, cl := u.chatFrame(gtx, rect.Size(), lit, sole)
+	defer cl.Pop()
+	defer op.Offset(in.Min).Push(gtx.Ops).Pop()
+	gtx.Constraints = gl.Exact(in.Size())
 	// A press anywhere focuses the pane, as on the TUI; layoutPane reads it.
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &p.focusClick)
@@ -110,6 +125,6 @@ func (u *ui) layoutPaneChat(gtx gl.Context, st *model.State, ws *model.Workspace
 	}
 	head := u.chatStrip(gtx, h, ws, paneChatOf(st, id), func() { u.flipPaneChat(id) })
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
-	gtx.Constraints = gl.Exact(image.Pt(rect.Dx(), max(0, rect.Dy()-head)))
+	gtx.Constraints = gl.Exact(image.Pt(in.Dx(), max(0, in.Dy()-head)))
 	u.chatBody(gtx, st, u.b.(Chatter), id, ws.Path, focused, func() { u.flipPaneChat(id) })
 }

@@ -10,6 +10,7 @@ const (
 	BelowStart             // under the anchor, left edges aligned
 	Above                  // over the anchor, centred on it
 	Beside                 // right of the anchor, tops aligned: a submenu, a hover card
+	AboveStart             // over the anchor, left edges aligned: a composer chip's picker
 )
 
 // Place is the top-left of a popover of size opening on side of anchor,
@@ -31,8 +32,11 @@ func Place(anchor image.Rectangle, size image.Point, bounds image.Rectangle, sid
 				p.Y = up
 			}
 		}
-	case Above:
+	case Above, AboveStart:
 		p.X = anchor.Min.X + (anchor.Dx()-size.X)/2
+		if side == AboveStart {
+			p.X = anchor.Min.X
+		}
 		p.Y = anchor.Min.Y - gap - size.Y
 		if p.Y < lo.Y {
 			if down := anchor.Max.Y + gap; down+size.Y <= hi.Y {

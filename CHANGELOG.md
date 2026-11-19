@@ -23,6 +23,19 @@ the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
 ## Unreleased
+
+- A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
+- Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
+- The composer's model, effort and mode popovers open just above their chips, left edges aligned, instead of above the whole card.
+- Clicking the permission mode chip opens a picker of the modes: Default, Accept edits, Plan, and Bypass permissions in a chat that may enter it. Shift+Tab still cycles. In a Claude Code pane, a pick presses Shift+Tab until the TUI's footer shows that mode.
+- A Claude Code pane's chat shows the model and effort its TUI shows, as Claude Code 2.1.328 draws them in its header and over its input box. Before the TUI shows an effort, the `effortLevel` in Claude Code's user settings stands in, read only.
+- An image sent from a Claude Code pane's chat goes in as a pasted path that Claude Code numbers itself, without the composer's token or an evidence line, so the prompt no longer shows the image twice.
+- Ctrl+Backspace and Ctrl+Delete delete a word in every text field, and so do Alt+Backspace and Alt+Delete. Right after an image chip in the composer, a word delete removes the whole chip.
+- A chat draws inside the same rounded frame as a terminal pane, in a chat tab and in a Claude Code pane, splits included.
+- A slash command sent from a Claude Code pane's chat runs as typed. Claude Code's slash menu took the Enter and ran its first match, so `/ux` could run another command starting with ux. pitwall now closes that menu with Esc first, and only when the menu is on screen. The chat also shows a skill or custom command you ran, such as `/pwprobe twice`, as your prompt.
+- The chat composer's footer shows context use as a ring and a percentage, yellow from 75% and red near Claude Code's auto-compact point. Hovering shows the tokens used out of the window, such as 41.4k of 200k, the room left before auto-compact and the window size. A Claude Code pane's chat now has it too: pitwall reads the tokens from the transcript's last reply, with a 1M window for a model's 1M version.
+- Alt+T flips a Claude Code pane between its chat and the TUI on the first press after a click. Coming from another pane of the split, a quick Alt+T came in before the window had picked up the new focus, and Gio dropped it.
+- Ctrl+Enter sends a message while Claude works instead of queuing it, and Enter still queues. In a chat tab Claude can't take a message mid-turn, so Ctrl+Enter stops the turn and sends the message ahead of the queue. In a Claude Code pane it goes into the TUI at once, and Claude Code takes it into the running turn when it can. The send button's tooltip names the key.
 - Faster CI: tests run once each, with no fixed waits where a check can be exact, across parallel shards.
 - Sending from the chat composer, or a queued message going out, takes the transcript to the newest line and keeps it there, wherever you had scrolled.
 - A Claude chat's reply grows as Claude writes it, a few words at a time, instead of in jumps every 150 ms: the window reads a running chat about 60 times a second, and only redraws when something arrived.
