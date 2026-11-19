@@ -200,3 +200,28 @@ func TestReplyFixture(t *testing.T) {
 		t.Errorf("open fence: %+v", b)
 	}
 }
+
+// TestReplyLinkOpens: a click on a link in a reply opens its target, and
+// a link to a missing file has no click target at all.
+func TestReplyLinkOpens(t *testing.T) {
+	th := theme.Dark()
+	var opened []string
+	tr := Transcript{Open: func(link string) { opened = append(opened, link) }}
+	s := &session.Snapshot{SessionID: "0123456789abcdef", Content: []session.Item{
+		{ID: "r", Kind: session.KindAssistantText, Text: "See [the docs](https://x.dev/docs) and [gone](missing.md)."},
+	}}
+	var ops op.Ops
+	transcriptFrame(&tr, th, s, &ops, time.Now())
+	c := tr.clicks["r/0/a0/0"]
+	if c == nil {
+		t.Fatal("the link has no click target")
+	}
+	if tr.clicks["r/0/a1/0"] != nil {
+		t.Error("a link to a missing file is clickable")
+	}
+	c.Click()
+	transcriptFrame(&tr, th, s, &ops, time.Now())
+	if len(opened) != 1 || opened[0] != "https://x.dev/docs" {
+		t.Fatalf("opened %q", opened)
+	}
+}

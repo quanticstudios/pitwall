@@ -363,19 +363,21 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 	for i, r := range p.links {
 		rg = sl.Regions(r[0], r[1], rg[:0])
 		for j, g := range rg {
+			line := theme.Mix(link, th.Bg, 0.5)
+			y := g.Bounds.Max.Y - g.Baseline + gtx.Dp(2)
+			under := clip.Rect{Min: image.Pt(g.Bounds.Min.X, y), Max: image.Pt(g.Bounds.Max.X, y+thin)}
+			if p.hrefs[i] == "" {
+				paint.FillShape(gtx.Ops, line, under.Op())
+				continue
+			}
 			c := d.t.click(key + "/a" + strconv.Itoa(i) + "/" + strconv.Itoa(j))
-			if c.Clicked(gtx) && p.hrefs[i] != "" && d.t.Open != nil {
+			if c.Clicked(gtx) && d.t.Open != nil {
 				d.t.Open(p.hrefs[i])
 			}
-			line := theme.Mix(link, th.Bg, 0.5)
 			if c.Hovered() {
 				line = link
 			}
-			y := g.Bounds.Max.Y - g.Baseline + gtx.Dp(2)
-			paint.FillShape(gtx.Ops, line, clip.Rect{Min: image.Pt(g.Bounds.Min.X, y), Max: image.Pt(g.Bounds.Max.X, y+thin)}.Op())
-			if p.hrefs[i] == "" {
-				continue
-			}
+			paint.FillShape(gtx.Ops, line, under.Op())
 			at(gtx, g.Bounds.Min, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints = layout.Exact(g.Bounds.Size())
 				return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} })

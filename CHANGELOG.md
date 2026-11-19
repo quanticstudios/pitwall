@@ -22,6 +22,12 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+- Chat replies draw their markdown properly. Bold is semibold, italic slants, strikethrough has its line, and inline code is mono on a pill, inside bold and links too. Links are in the accent color and open on a click, as does inline code naming a file in the chat's folder, such as `src/main.go:47`. Lists hang their bullets and numbers outside the text, nest with a disc, a ring and a square, and leave a gap between two lists. A code block inside a list item sits under its text. Code blocks never wrap: a long line scrolls the block sideways. A diff colors its added, removed and hunk lines. Block quote bars run unbroken across their paragraphs, rules sit evenly between sections, and a `<details>` block shows its summary in bold. While a reply streams, a half-written bold, italic or code span already draws styled, with no markers flashing.
+- A notice's line shows its reply's bold, italic and code instead of the raw `**` and backticks.
+- Numbers in the UI font use tabular figures, so durations, counts and table columns keep their width. A space after an emoji is a normal space again, not a 1.25 em gap.
+- The markdown reader slants italic text and draws bold at 600.
+
 ## v0.2.18
 
 - A Claude chat's composer has its own effort chip next to the model, showing the effort, such as High, or a muted Effort while it is unset. Click it to pick from a small list. The model chip and its popover now show only the model.
