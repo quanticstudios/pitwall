@@ -69,3 +69,40 @@ func TestToolResults(t *testing.T) {
 		t.Fatalf("image %+v", r.Images)
 	}
 }
+
+// TestBackgroundStates: a background shell's end reaches its call as
+// stream-json says it, by tool use or by task id, and as Claude Code's
+// transcript file queues it.
+func TestBackgroundStates(t *testing.T) {
+	start := func(s *stream) {
+		s.line([]byte(use("bg", "Bash", `{"command":"sleep 4","run_in_background":true}`)))
+		s.line([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"bg","content":"Command running in background with ID: b96. Output is"}]},"tool_use_result":{"backgroundTaskId":"b96"}}`))
+	}
+	s := newStream("")
+	start(s)
+	if b := lastTool(t, s.line([]byte(`{"type":"system","subtype":"task_updated","task_id":"b96","patch":{"status":"completed","end_time":1}}`))); b.Background != "completed" {
+		t.Fatalf("task_updated %+v", b)
+	}
+	if evs := s.line([]byte(`{"type":"system","subtype":"task_notification","task_id":"b96","tool_use_id":"bg","status":"completed"}`)); len(evs) != 0 {
+		t.Fatalf("an ended shell took its notice again: %+v", evs)
+	}
+	s = newStream("")
+	start(s)
+	if b := lastTool(t, s.line([]byte(`{"type":"system","subtype":"task_notification","task_id":"b96","tool_use_id":"bg","status":"failed"}`))); b.Background != "failed" {
+		t.Fatalf("task_notification %+v", b)
+	}
+	if evs := s.line([]byte(`{"type":"system","subtype":"task_notification","tool_use_id":"agent-1","status":"completed"}`)); len(evs) != 0 {
+		t.Fatalf("a subagent's notice touched a call: %+v", evs)
+	}
+
+	tr := NewTranscript()
+	tr.Line([]byte(`{"type":"user","uuid":"p1","message":{"content":"go"},"origin":{"kind":"human"}}`))
+	tr.Line([]byte(use("bg", "Bash", `{"command":"sleep 4","run_in_background":true}`)))
+	tr.Line([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"bg","content":"Command running in background with ID: b96."}]},"toolUseResult":{"backgroundTaskId":"b96"}}`))
+	if b := lastTool(t, tr.Line([]byte(`{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>b96</task-id>\n<tool-use-id>bg</tool-use-id>\n<status>completed</status>\n</task-notification>"}`))); b.Background != "completed" {
+		t.Fatalf("queued notice %+v", b)
+	}
+	if evs := tr.Line([]byte(`{"type":"queue-operation","operation":"enqueue","content":[{"type":"text","text":"x"}]}`)); len(evs) != 0 {
+		t.Fatalf("a queued message that is not text: %+v", evs)
+	}
+}

@@ -54,9 +54,14 @@ func (s *stream) finish(t *session.ToolCall, b block, raw json.RawMessage) {
 		case r.BackgroundTaskID != "" || in.Background && backgroundID.MatchString(t.Output):
 			t.Background = "running"
 			if s.bg == nil {
-				s.bg = map[string]session.ToolCall{}
+				s.bg, s.tasks = map[string]session.ToolCall{}, map[string]string{}
 			}
 			s.bg[t.CallID] = *t
+			task := r.BackgroundTaskID
+			if m := backgroundID.FindStringSubmatch(t.Output); task == "" && m != nil {
+				task = m[1]
+			}
+			s.tasks[task] = t.CallID
 		case t.Status == "failed":
 			if m := exitCodeLine.FindStringSubmatch(t.Output); m != nil {
 				n, _ := strconv.Atoi(m[1])
@@ -105,25 +110,36 @@ func resultImages(c json.RawMessage) []session.Attachment {
 	return out
 }
 
-// notice is a task notification, a user line Claude Code adds when a
-// background shell ends: the shell's call with its state.
+// notice is a task notification's text, which Claude Code adds as a user
+// line or queues when a background shell ends: the shell's call with its
+// state.
 func (s *stream) notice(text string) []session.Event {
 	id, st := noticeTool.FindStringSubmatch(text), noticeStatus.FindStringSubmatch(text)
 	if id == nil || st == nil {
 		return nil
 	}
-	t, ok := s.bg[id[1]]
-	if !ok {
+	return s.background(id[1], st[1])
+}
+
+// background is background shell call id in state: running, completed,
+// failed or killed. A call that is not a background shell gives nothing.
+func (s *stream) background(id, state string) []session.Event {
+	t, ok := s.bg[id]
+	state = strings.TrimSpace(state)
+	if !ok || state == "" || state == t.Background {
 		return nil
 	}
-	t.Background = strings.TrimSpace(st[1])
-	if t.Background != "running" {
-		delete(s.bg, id[1])
+	t.Background = state
+	if state == "running" || state == "pending" {
+		t.Background = "running"
+		s.bg[id] = t
+	} else {
+		delete(s.bg, id)
 	}
-	if cur, ok := s.tools[id[1]]; ok {
+	if cur, ok := s.tools[id]; ok {
 		cur.Background = t.Background
-		s.tools[id[1]] = cur
+		s.tools[id] = cur
 		t = cur
 	}
-	return []session.Event{{Type: session.EventContent, ItemID: id[1], Kind: session.KindToolCall, Tool: &t}}
+	return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindToolCall, Tool: &t}}
 }

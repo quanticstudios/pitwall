@@ -24,6 +24,7 @@ type stream struct {
 	blocks   map[string]int              // message id: content blocks its assistant lines gave so far
 	tools    map[string]session.ToolCall // tool_use id: the call so far
 	bg       map[string]session.ToolCall // tool_use id: a call whose shell runs in the background
+	tasks    map[string]string           // a background shell's task id: its call's tool_use id
 
 	contextModel  string
 	contextTokens *int64
@@ -73,6 +74,13 @@ type line struct {
 	// spells it toolUseResult.
 	ToolUseResult  json.RawMessage `json:"tool_use_result"`
 	ToolUseResult2 json.RawMessage `json:"toolUseResult"`
+
+	// system/task_notification, system/task_updated: a background task's state
+	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+	Patch  struct {
+		Status string `json:"status"`
+	} `json:"patch"`
 
 	// stream_event
 	Event        *streamEvent `json:"event"`
@@ -224,6 +232,10 @@ func (s *stream) system(l line) []session.Event {
 			out = append(out, session.Event{Type: session.EventCommands, Commands: cmds})
 		}
 		return out
+	case "task_notification":
+		return s.background(l.ToolUseID, l.Status)
+	case "task_updated":
+		return s.background(s.tasks[l.TaskID], l.Patch.Status)
 	case "permission_denied":
 		var text string
 		json.Unmarshal(l.Message, &text)
@@ -232,7 +244,7 @@ func (s *stream) system(l line) []session.Event {
 			id = l.ToolUseID + ":denied"
 		}
 		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Text: text}}
-	case "status", "task_started", "task_progress", "task_notification", "thinking_tokens",
+	case "status", "task_started", "task_progress", "thinking_tokens",
 		"hook_started", "hook_progress", "hook_response":
 		// status's permissionMode echoes a set_permission_mode, which the
 		// chat loop patched when it called Set.
