@@ -195,3 +195,37 @@ func TestReduceUsageLimit(t *testing.T) {
 		}
 	}
 }
+
+// Commands and the provider's model and mode reach the snapshot as one
+// session.patch, survive Apply and a JSON round trip, and an empty list
+// removes the key.
+func TestReduceCommandsAndSettings(t *testing.T) {
+	cmds := []Command{{Name: "review", Description: "Review the diff", Hint: "[target]"}, {Name: "config", Terminal: true}}
+	s, types := step(t, base(model.ProviderClaude), Event{Type: EventCommands, CreatedAt: "t1", Commands: cmds})
+	if !slices.Equal(types, []DeltaType{DeltaSessionPatch}) || !reflect.DeepEqual(s.Commands, cmds) {
+		t.Fatalf("commands: %v %+v", types, s.Commands)
+	}
+	s, types = step(t, s, Event{Type: EventSettings, CreatedAt: "t2", Model: "acme-large", Mode: "plan"})
+	if !slices.Equal(types, []DeltaType{DeltaSessionPatch}) || s.Model == nil || *s.Model != "acme-large" ||
+		s.PermissionMode != "plan" || s.InteractionMode != "plan" || !reflect.DeepEqual(s.Commands, cmds) {
+		t.Fatalf("settings: %v %+v", types, s)
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Snapshot
+	if err = json.Unmarshal(b, &back); err != nil || !reflect.DeepEqual(back.Commands, cmds) {
+		t.Fatalf("round trip: %v %+v", err, back.Commands)
+	}
+	if _, types = step(t, s, Event{Type: EventCommands, CreatedAt: "t3", Commands: cmds}); !slices.Equal(types, []DeltaType{DeltaSessionPatch}) {
+		t.Fatalf("unchanged: %v", types)
+	}
+	if d := Reduce(s, Event{Type: EventCommands, CreatedAt: "t3", Commands: cmds}); len(d[0].Set) > 0 && string(d[0].Set) != "{}" || d[0].Unset != nil {
+		t.Fatalf("unchanged commands patch: %s %v", d[0].Set, d[0].Unset)
+	}
+	s, _ = step(t, s, Event{Type: EventCommands, CreatedAt: "t4"})
+	if s.Commands != nil || s.PermissionMode != "plan" {
+		t.Fatalf("cleared: %+v", s)
+	}
+}

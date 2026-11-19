@@ -215,7 +215,8 @@ driver ──Event──▶ chat loop: Reduce ──Delta (seq)──▶ eventlo
 package session
 
 // EventType values are aide's ManagedProviderRuntimeEvent types, plus
-// "limit" and "session.resume-id", which are pitwall's.
+// "limit", "session.resume-id", "session.commands" and
+// "session.settings", which are pitwall's.
 type EventType string
 
 const (
@@ -233,6 +234,8 @@ const (
 	EventUsage           EventType = "session.usage.updated" // token counts, Report
 	EventLimit           EventType = "limit"                 // Limit
 	EventResumeID        EventType = "session.resume-id"     // ResumeID, Version, Capabilities
+	EventCommands        EventType = "session.commands"      // Commands: the whole list, replacing the last
+	EventSettings        EventType = "session.settings"      // Model, Mode: what the provider now runs; "" unchanged
 )
 
 // Event is one thing a driver saw. JSON tags match aide's runtime events,
@@ -263,7 +266,8 @@ type Event struct {
 	ItemID string    `json:"itemId,omitempty"`
 	Kind   ItemKind  `json:"kind,omitempty"`
 	Phase  string    `json:"phase,omitempty"` // commentary, final_answer
-	Model  string    `json:"model,omitempty"`
+	Model  string    `json:"model,omitempty"` // content.delta, session.settings
+	Mode   string    `json:"mode,omitempty"`  // session.settings: the permission mode
 	Text   string    `json:"text,omitempty"` // text to append; "" with a Tool
 	Tool   *ToolCall `json:"tool,omitempty"` // invariant: the whole call so far, never a delta
 
@@ -281,6 +285,8 @@ type Event struct {
 	ResumeID     string   `json:"resumeId,omitempty"`
 	Version      string   `json:"version,omitempty"`      // the CLI's version
 	Capabilities []string `json:"capabilities,omitempty"` // Claude's system/init capabilities
+
+	Commands []Command `json:"commands,omitempty"`
 }
 
 // Limit is a plan limit the provider reported. The daemon turns it into a
@@ -411,8 +417,33 @@ type Snapshot struct {
 	Usage             *Usage         `json:"usage,omitempty"`
 	UsageReports      []UsageReport  `json:"usageReports,omitempty"`
 	UsageSummary      *UsageSummary  `json:"usageSummary,omitempty"`
+	Commands          []Command      `json:"commands,omitempty"` // pitwall's
+}
+
+// Command is a slash command the provider offers, without its slash.
+type Command struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Hint        string `json:"hint,omitempty"`     // what to type after the name
+	Source      string `json:"source,omitempty"`   // built-in, project, user, plugin; "" unknown
+	Terminal    bool   `json:"terminal,omitempty"` // needs the provider's TUI
 }
 ```
+
+`Commands` is pitwall's, not aide's. `Terminal` marks a command that opens
+a menu, editor or login flow in Claude Code's TUI: Claude's own
+`terminal_slash_commands` from `system/init`, plus the list behind
+`session.TerminalCommand` (`/config`, `/login`, `/mcp`, `/resume` and
+similar). The chat window sends those to the tab's terminal.
+
+`Usage.contextTokens` and `Usage.maxTokens` are the composer's context
+meter. The Claude driver sets `maxTokens` from the `result`'s
+`modelUsage[model].contextWindow`, and `contextTokens` from the last
+main-thread `assistant` line's usage (input, output, cache read and cache
+write). After the first `result`, each later API response sends a usage
+update with the new `contextTokens` and the last result's counts, so the
+meter moves during a turn. Before a process's first `result` the window is
+unknown.
 
 `Item`, `ToolCall`, `Task`, `TurnSummary`, `Approval`, `ToolRequest`,
 `InputRequest`, `Question`, `Usage`, `UsageReport` and `UsageSummary` are
@@ -462,6 +493,8 @@ builds directly, not events.
 | `session.exited` | ends an open turn failed, resolves pending requests, `status` error unless a close was asked for |
 | `limit` | nothing; the chat loop hands it to [limits](#attach) |
 | `session.resume-id` | nothing; the chat loop saves it in `Config.Resume` |
+| `session.commands` | `session.patch` setting `commands`, or unsetting it for an empty list |
+| `session.settings` | `session.patch` with `model`, or `permissionMode` and `interactionMode` |
 
 Tests (ENG-2679): copy aide's `fixtures/session-deltas/*.json` to
 `internal/session/testdata/session-deltas/`. For each fixture, `Apply` over
@@ -628,7 +661,8 @@ claude -p --input-format stream-json --output-format stream-json --verbose
   `session.state.changed` ready once the process is up, and
   `session.resume-id` with the `--session-id` it chose.
 - Every `system/init` is read for `session_id`, `model`,
-  `permissionMode`, `claude_code_version` and `capabilities`. A
+  `permissionMode`, `claude_code_version`, `capabilities`,
+  `slash_commands` and `terminal_slash_commands`. A
   `session_id` other than `Config.Resume` (after `--fork-session`) emits
   `session.resume-id`.
 
@@ -661,12 +695,14 @@ goes unreported.
 | `stream_event` text `content_block_delta` | `content.delta` assistant-text, item id `<message.id>:<block index>` |
 | `stream_event` thinking delta | `content.delta` reasoning-text, same id rule |
 | `assistant` text block | `content.delta` with only the text not yet streamed |
+| `assistant` `usage`, main thread, after a `result` | `session.usage.updated`: the last result's counts with the new `contextTokens`, when it changed |
 | `assistant` `tool_use` block | `content.delta` tool-call, item id the `tool_use` id, `Tool{status: running}`; `TodoWrite` fills `Tool.Tasks` |
 | `user` `tool_result` | that tool's `content.delta`: status completed, or failed when `is_error`, output the result text |
 | `result` | `turn.completed`: `success` completed; `error_during_execution` with `terminal_reason` `aborted_streaming` or `aborted_tools` (stopped during a tool, as in `interrupt-tool`) interrupted; any other error failed with `result` as the message. `Point` is the `uuid` of the turn's last `assistant` line. Then `session.usage.updated` from `usage` and `modelUsage`. |
 | `control_request` `can_use_tool` | `request.opened`, request id the `request_id`, type from the tool name as aide's `classifyToolRequestType`, detail `<tool>: <command or input>`; `ExitPlanMode` as `plan-approval` with the plan as detail; `AskUserQuestion` as `user-input.requested`, question ids the question texts, option ids the labels |
 | `control_cancel_request` | `request.resolved` or `user-input.resolved` for that id; the loop adds "Claude withdrew this request" |
 | `rate_limit_event` | `limit` from `rate_limit_info`: `Rejected` when `status` is `rejected`, windows from `unifiedWindows` |
+| `system/init` `slash_commands` | `session.commands` when the names differ from the last list: names only, since `system/init` has no descriptions or hints; `Terminal` from `terminal_slash_commands` and `session.TerminalCommand`. `skills` repeats names already in `slash_commands`, and `agents` are subagent types, not commands, so neither adds any |
 | `system/status` with `permissionMode` | the loop's `session.patch` for `permissionMode` |
 | `system/permission_denied` | a `system` item with the message (not expected with the stdio tool) |
 | `system/task_*`, `system/thinking_tokens`, `system/hook_*` | ignored |

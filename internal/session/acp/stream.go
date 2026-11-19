@@ -18,11 +18,17 @@ type stream struct {
 	tools            map[string]*session.ToolCall
 	kinds            map[string]string
 	permissions      map[string]permission
+	inputs           map[string]input // open form elicitations
 	unknown          map[string]bool
+
+	modes   bool              // the agent advertised modes: session/set_mode
+	mode    string            // the current mode id
+	options map[string]string // config option category: its id
+	values  map[string]string // select config option id: its current value
 }
 
 func newStream() *stream {
-	return &stream{tools: map[string]*session.ToolCall{}, kinds: map[string]string{}, permissions: map[string]permission{}, unknown: map[string]bool{}}
+	return &stream{tools: map[string]*session.ToolCall{}, kinds: map[string]string{}, permissions: map[string]permission{}, inputs: map[string]input{}, unknown: map[string]bool{}}
 }
 
 type permission struct {
@@ -92,7 +98,7 @@ func (d *driver) line(b []byte) []session.Event {
 				state, detail = session.TurnFailed, "Unsupported ACP stop reason: "+r.StopReason
 			}
 		}
-		d.cancelPermissions()
+		d.cancelRequests()
 		e := session.Event{Type: session.EventTurnCompleted, TurnID: d.s.turn, State: state, ErrorMessage: detail}
 		d.s.turn, d.s.prompt = "", ""
 		if r.StopReason == "max_tokens" || r.StopReason == "max_turn_requests" {
@@ -105,7 +111,15 @@ func (d *driver) line(b []byte) []session.Event {
 			SessionID string          `json:"sessionId"`
 			Update    json.RawMessage `json:"update"`
 		}
-		if json.Unmarshal(m.Params, &p) != nil || p.SessionID != d.s.id || d.s.turn == "" {
+		// shortcut: updates before session/new answers count for the one
+		// session this process runs.
+		if json.Unmarshal(m.Params, &p) != nil || p.SessionID != d.s.id && d.s.id != "" {
+			return nil
+		}
+		if e, ok := d.s.state(p.Update); ok {
+			return e
+		}
+		if p.SessionID != d.s.id || d.s.turn == "" {
 			return nil
 		}
 		return d.s.update(p.Update)
@@ -136,6 +150,9 @@ func (d *driver) line(b []byte) []session.Event {
 				rt = session.RequestFileRead
 			}
 			return []session.Event{e, {Type: session.EventRequestOpened, TurnID: d.s.turn, RequestID: key, RequestType: rt, Detail: t.Progress, Request: &session.ToolRequest{ToolName: t.ToolName, Input: t.Input}}}
+		}
+		if m.Method == "elicitation/create" {
+			return d.elicit(m)
 		}
 		d.write(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32601, Message: "Unsupported client method: " + m.Method}})
 	}
