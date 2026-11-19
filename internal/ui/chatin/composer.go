@@ -501,6 +501,11 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		switch ev.(type) {
 		case widget.SubmitEvent:
+			// A digit typed in the same frame goes first: 1 then Enter picks,
+			// then submits, in the order they were pressed.
+			if t := c.Text(); empty && env.Key != nil && len(t) == 1 && t >= "1" && t <= "9" && env.Key(t) {
+				ed.SetText("")
+			}
 			if empty && env.Key != nil && env.Key(string(key.NameReturn)) {
 				break
 			}
