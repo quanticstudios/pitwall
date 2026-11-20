@@ -370,7 +370,8 @@ func tailStart(r io.ReaderAt, end int64) (int64, error) {
 			case claude.MarkCompact:
 				if items > 0 {
 					if start < 0 {
-						start = from + int64(hi) + 1
+						// why: with no prompt after it, the boundary leads the tail, so its divider, summary and /compact read as one.
+						start = from + int64(lo)
 					}
 					return start, nil
 				}
