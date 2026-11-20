@@ -22,7 +22,9 @@ func TestChatAside(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(claude.CommandEnv, fake)
-	ask := func(q string) proto.ChatAsideResult { return d.chatAside(context.Background(), proto.ChatAside{Chat: "a", ID: "q1", Question: q}) }
+	ask := func(q string) proto.ChatAsideResult {
+		return d.chatAside(context.Background(), proto.ChatAside{Chat: "a", ID: "q1", Question: q})
+	}
 
 	if r := ask("why?"); r.Err == "" || r.ID != "q1" {
 		t.Errorf("before the transcript: %+v", r)

@@ -12,3 +12,13 @@ func (b *backend) SearchResults() []proto.SearchAllResult {
 	b.all = nil
 	return r
 }
+
+// ChatAsides implements app.ChatAsker: the answers to chat id's side
+// questions that came since the last call.
+func (b *backend) ChatAsides(id string) []proto.ChatAsideResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r := b.asides[id]
+	delete(b.asides, id)
+	return r
+}

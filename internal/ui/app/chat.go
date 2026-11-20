@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"gioui.org/io/key"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -97,6 +98,15 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			t.Full = func(item string) { p.ChatItem(id, item) }
 		}
 		t.PRs, t.Open = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }
+		aside := u.chatTools(st, id, t)
+		if focus {
+			for {
+				if _, ok := gtx.Event(key.Filter{Name: "F", Required: key.ModShortcut}); !ok {
+					break
+				}
+				t.OpenFind()
+			}
+		}
 		cmp := u.composer(st, id)
 		if u.drawn == nil {
 			u.drawn = map[string]bool{}
@@ -126,6 +136,10 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		for _, m := range cmp.Messages() {
+			if q, ok := asideOf(m); ok && aside {
+				u.send(proto.ChatAside{Chat: id, ID: t.Ask(q), Question: q})
+				continue
+			}
 			if _, ok := m.(proto.ChatSend); ok {
 				t.ToEnd()
 				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before this
@@ -138,6 +152,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
 		}
+		u.chatActions(id, t, cmp)
 	} else {
 		u.chatLoading(gtx, ch, id, term)
 	}

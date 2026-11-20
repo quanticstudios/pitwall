@@ -24,6 +24,10 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Hover a prompt in the desktop chat for Copy, Edit, Rewind to here and, in a New task chat, Fork from here. Edit puts the prompt back in the composer. Rewind asks first, then takes the chat back to before the prompt and puts it in the composer; the files stay as they are. A TUI pane chat rewinds through Claude Code's own rewind picker.
+- Ctrl+F, or the search button in the chat's header, finds text in the desktop chat's prompts and replies, with a count, Enter and Shift+Enter to step, and Esc to close. It reads the chat's older pages as it searches.
+- `/btw <question>` in the desktop chat's composer asks Claude a side question about the conversation. The answer shows in a card over the chat that you can copy or close; the chat's agent neither stops nor sees it.
+- A TUI pane chat drops the turns a rewind left behind, also after a rewind done in the terminal with Esc Esc.
 - Settings, Timing no longer counts an idle agent as model time. A turn that ended with a background shell still running stayed open until the next prompt, so 12 Claude turns put about 49 idle hours into "model". The timed turn now ends when the agent stops, background work or not.
 - A line a full disk cut short in `daemon.log` or `gui.log` no longer runs into the next one.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.

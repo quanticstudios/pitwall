@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"image"
 	"image/color"
 	"strings"
@@ -50,6 +51,8 @@ type chatHead struct {
 	tipOf    *widget.Clickable // the control hovered for a tooltip
 	tipSince time.Time         // since when
 	tipShown time.Time         // the last frame a tooltip showed, so a neighbor's shows at once
+
+	find widget.Clickable // Find in chat
 }
 
 // Tooltip timing: the first waits tipDelay, a neighbor hovered within
@@ -145,6 +148,11 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	for h.panel.Clicked(gtx) {
 		u.nav.panelOpen = !u.nav.panelOpen
 	}
+	for h.find.Clicked(gtx) {
+		if t := u.transcripts[cmp.Or(c, &model.Chat{}).ID]; t != nil {
+			t.OpenFind()
+		}
+	}
 	for h.more.Clicked(gtx) {
 		h.setMenu(!h.menu, gtx.Now)
 	}
@@ -178,7 +186,13 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
 			}))
 	}
-	kids = append(kids, gl.Flexed(1, fill))
+	kids = append(kids, gl.Flexed(1, fill), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+		return u.tipped(gtx, h, &h.find, withKey("Find in chat", "Ctrl+F"), func(gtx gl.Context) gl.Dimensions {
+			return kit.IconButton(gtx, th, &h.find, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
+				sidebar.Icon(gtx, "search", size, col)
+			})
+		})
+	}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
 	if claude {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, h, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
