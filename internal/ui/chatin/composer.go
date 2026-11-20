@@ -49,8 +49,8 @@ type Composer struct {
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
 	modeBtn, modelBtn widget.Clickable
 	effortBtn         widget.Clickable
-	meterBtn          widget.Clickable          // the context meter, for its hover card
-	gone              map[string]bool           // queued messages removed here that the chat still lists
+	meterBtn          widget.Clickable // the context meter, for its hover card
+	q                 queueState
 	rm                map[int]*widget.Clickable // per image, its remove x
 	hov               map[int]*gesture.Hover    // per image, the pointer on its thumbnail
 	side              int                       // a thumbnail's side in pixels, as the last frame drew it
@@ -95,6 +95,9 @@ type Env struct {
 	// Now is whether the daemon takes ChatSend How "now" (proto.ChatNowLevel);
 	// Ctrl+Enter sends "steer" to one that does not.
 	Now bool
+	// Queue is whether the daemon takes every queue action on this chat
+	// (proto.QueueLevel): without it a queued row has Edit and Remove only.
+	Queue bool
 }
 
 type imageRead struct {
@@ -185,7 +188,7 @@ func (c *Composer) Result(r Result, now time.Time) {
 		c.last = nil
 	case proto.ChatQueue:
 		if r.Message != "" {
-			delete(c.gone, m.ID)
+			delete(c.q.gone, m.ID)
 		}
 	}
 }
@@ -555,26 +558,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
-	for id := range c.gone {
-		if !slices.ContainsFunc(env.Snap.QueuedInputs, func(q session.QueuedInput) bool { return q.ID == id }) {
-			delete(c.gone, id)
-		}
-	}
-	for _, q := range env.Snap.QueuedInputs {
-		edit, rm := c.click("qedit:"+q.ID).Clicked(gtx), c.click("qrm:"+q.ID).Clicked(gtx)
-		if (!edit && !rm) || c.gone[q.ID] {
-			continue
-		}
-		if c.gone == nil {
-			c.gone = map[string]bool{}
-		}
-		c.gone[q.ID] = true
-		c.out = append(c.out, proto.ChatQueue{Chat: env.Chat, Action: "remove", ID: q.ID})
-		if edit {
-			c.PullBack(q)
-			gtx.Execute(key.FocusCmd{Tag: ed})
-		}
-	}
+	c.queueEvents(gtx, env)
 	if c.modeBtn.Clicked(gtx) {
 		c.toggle(gtx.Now, &c.modeBtn)
 	}
@@ -1167,69 +1151,6 @@ func (c *Composer) ghostStop(gtx layout.Context, th *theme.Theme) layout.Dimensi
 		o.Pop()
 		return layout.Dimensions{Size: image.Pt(s, s)}
 	})
-}
-
-// queued is the messages waiting for the turn to end, above the card: a
-// count when there are several, then a row each with the queue icon,
-// the first line, Edit and a remove x.
-func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
-	var qs []session.QueuedInput
-	for _, q := range env.Snap.QueuedInputs {
-		if !c.gone[q.ID] {
-			qs = append(qs, q)
-		}
-	}
-	if len(qs) == 0 {
-		return layout.Dimensions{}
-	}
-	var kids []layout.FlexChild
-	if len(qs) > 1 {
-		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Left: theme.SpaceM, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, itoa(len(qs))+" queued")
-			})
-		}))
-	}
-	for _, q := range qs {
-		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.queuedRow(gtx, th, q) }))
-	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
-}
-
-func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, q session.QueuedInput) layout.Dimensions {
-	h := gtx.Dp(30)
-	w := gtx.Constraints.Max.X
-	line, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
-	if line == "" && len(q.Attachments) > 0 {
-		line = "Image"
-	}
-	edit, rm := c.click("qedit:"+q.ID), c.click("qrm:"+q.ID)
-	// The buttons first, from the right, to know what the text may take.
-	m := op.Record(gtx.Ops)
-	bg := gtx
-	bg.Constraints = layout.Constraints{Max: image.Pt(w, h)}
-	bd := row(bg, gtx.Dp(theme.Space2XS), h,
-		func(gtx layout.Context) layout.Dimensions { return textButton(gtx, th, edit, "Edit") },
-		func(gtx layout.Context) layout.Dimensions {
-			d := iconButton(gtx, th, rm, "x", "Remove queued message")
-			return d
-		})
-	bcall := m.Stop()
-	o := op.Offset(image.Pt(w-bd.Size.X, 0)).Push(gtx.Ops)
-	bcall.Add(gtx.Ops)
-	o.Pop()
-	tg := gtx
-	tg.Constraints = layout.Constraints{Max: image.Pt(max(0, w-bd.Size.X-gtx.Dp(theme.SpaceS)-gtx.Dp(theme.SpaceM)), h)}
-	o = op.Offset(image.Pt(gtx.Dp(theme.SpaceM), 0)).Push(gtx.Ops)
-	row(tg, gtx.Dp(theme.SpaceS), h,
-		func(gtx layout.Context) layout.Dimensions {
-			return sidebar.Icon(gtx, "list-plus", gtx.Dp(14), th.Muted)
-		},
-		func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, th.UIFont, th.Sp(theme.Body), theme.Mix(th.Fg, th.Bg, 0.2), line)
-		})
-	o.Pop()
-	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
 // popover is the model or effort picker over the transcript, above its

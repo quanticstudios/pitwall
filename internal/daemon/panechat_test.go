@@ -444,4 +444,3 @@ func TestPaneChatNotifiedTurn(t *testing.T) {
 		t.Fatalf("last item %+v in turns %+v: want done in the notified turn, completed", last, pc.snap.Turns)
 	}
 }
-

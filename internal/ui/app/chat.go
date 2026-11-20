@@ -157,7 +157,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 	env := chatin.Env{Chat: id, Snap: s, Width: width,
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
-		Now: u.link().Level >= proto.ChatNowLevel}
+		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel}
 	env.Key = t.Key
 	return env
 }

@@ -238,7 +238,7 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old,
 		ReadImage: func(context.Context) ([]byte, error) {
 			if h.gate != nil {
 				<-h.gate
@@ -440,17 +440,17 @@ func TestQueuedRows(t *testing.T) {
 	if m := h.frame(); len(m) != 1 || !reflect.DeepEqual(m[0], proto.ChatQueue{Chat: "c1", Action: "remove", ID: "q2"}) {
 		t.Fatalf("remove sent %+v", m)
 	}
-	if !h.c.gone["q1"] || !h.c.gone["q2"] {
+	if !h.c.q.gone["q1"] || !h.c.q.gone["q2"] {
 		t.Fatal("removed rows still show")
 	}
 	// A refused removal brings its row back.
 	h.c.Result(Result{Req: proto.ChatQueue{Chat: "c1", Action: "remove", ID: "q2"}, Message: "no queued message q2"}, h.now)
-	if !h.c.gone["q1"] || h.c.gone["q2"] {
-		t.Fatalf("after a refused removal: %v", h.c.gone)
+	if !h.c.q.gone["q1"] || h.c.q.gone["q2"] {
+		t.Fatalf("after a refused removal: %v", h.c.q.gone)
 	}
 	h.snap.QueuedInputs = nil
 	h.frame()
-	if len(h.c.gone) != 0 {
+	if len(h.c.q.gone) != 0 {
 		t.Fatal("rows the chat dropped are still remembered")
 	}
 	// Enter with a draft while running queues and never interrupts.

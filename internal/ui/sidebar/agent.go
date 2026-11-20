@@ -195,7 +195,8 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
 // and for the phone app "chevron-left", "chevrons-up-down", "settings",
 // "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", "panel-right", "ellipsis", and "skillshare", its mark in its own colors, and for
-// the chat composer "circle", "image", "map" and "list-plus") in a size box, for lists
+// the chat composer "circle", "image", "map", "list-plus", "chevron-up",
+// "folder" and "rotate-ccw") in a size box, for lists
 // outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
@@ -203,7 +204,9 @@ func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dim
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
 		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare,
-		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "ask": icAsk, "map": icMap, "list-plus": "M11 12H3M16 6H3M16 18H3M18 9v6M21 12h-6", "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
+		"circle": "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "image": icImage, "ask": icAsk, "map": icMap, "list-plus": "M11 12H3M16 6H3M16 18H3M18 9v6M21 12h-6", "panel-right": "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18", "ellipsis": "M12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM5 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2z", "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48",
+		"chevron-up": "m18 15-6-6-6 6", "folder": "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+		"rotate-ccw": "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5"}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}
