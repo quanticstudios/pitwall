@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strings"
 	"time"
 
 	"gioui.org/io/key"
@@ -39,9 +38,14 @@ func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) error {
 	pc.mu.Lock()
 	k := rewindTarget(pc.snap.Content, m.Turn)
 	var text, id string
-	n := 0
+	var prompts []string // the target's text and the later prompts'
 	if k >= 0 {
-		text, id, n = pc.snap.Content[k].Text, pc.snap.Content[k].ID, rewindRank(pc.snap.Content, k)
+		text, id = pc.snap.Content[k].Text, pc.snap.Content[k].ID
+		for _, it := range pc.snap.Content[k:] {
+			if it.Kind == session.KindUserPrompt {
+				prompts = append(prompts, it.Text)
+			}
+		}
 	}
 	pc.mu.Unlock()
 	if k < 0 {
@@ -63,10 +67,15 @@ func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) error {
 	}
 	lost := errors.New("Claude Code's rewind list does not show that message, so nothing changed")
 	for step := 0; ; step++ {
+		// The newest row that reads as the target's is the target's only
+		// when no later prompt reads the same: a label cut with "…", a
+		// repeated prompt, or one sent mid-turn, which the picker may not
+		// list. Rather than guess, the user picks in the terminal.
 		if agent.RewindMatch(label, text) {
-			if n--; n == 0 {
-				break
+			if rewindRank(prompts, label) != 1 {
+				return keys.cancelWith(picker, chatError{"conflict", "Claude Code's rewind list shows this message like a later one, so nothing changed; rewind in the terminal (Alt+T) to pick it yourself"})
 			}
+			break
 		}
 		if step == maxRewindSteps {
 			return keys.cancelWith(picker, lost)
@@ -168,18 +177,17 @@ func rewindTarget(content []session.Item, turn string) int {
 	})
 }
 
-// rewindRank is which match of prompt k the picker's walk up from its end
-// stops at: 1 for the newest prompt that reads as k's, and one more for
-// each later prompt that reads the same.
-func rewindRank(content []session.Item, k int) int {
-	first, _, _ := strings.Cut(strings.TrimSpace(content[k].Text), "\n")
+// rewindRank is how many of prompts, the target's text and those of the
+// prompts after it, read as picker row label: 1 when the newest row with
+// that label is the target's.
+func rewindRank(prompts []string, label string) int {
 	n := 0
-	for _, it := range content[k:] {
-		if it.Kind == session.KindUserPrompt && agent.RewindMatch(first, it.Text) {
+	for _, p := range prompts {
+		if agent.RewindMatch(label, p) {
 			n++
 		}
 	}
-	return max(n, 1)
+	return n
 }
 
 // cut drops item k and every item after it, and the turns they were in.
