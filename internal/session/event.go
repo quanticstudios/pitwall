@@ -80,6 +80,11 @@ const (
 	PhaseWarning = "warning" // an API retry: the request failed and Claude tries again
 	PhaseError   = "error"   // an API error that ended the turn
 	PhaseHook    = "hook"    // a hook blocked a step or gave feedback
+	PhaseRecap   = "recap"   // Claude Code's recap of the session, for someone coming back to it
+	// PhaseSummary marks a reasoning item that is no reasoning: the
+	// server's summary of Claude's words between tool calls, which Claude
+	// Code shows as a line tagged "summary".
+	PhaseSummary = "summary"
 )
 
 // SettingText is a PhaseSetting item's text for a change of model, effort

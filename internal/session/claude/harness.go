@@ -29,6 +29,8 @@ type note struct {
 	text  string
 	// notified is a <task-notification>'s tool call, "" for none.
 	notified, status, summary, result string
+	// task and event are a Monitor watch's task id and the event it saw.
+	task, event string
 }
 
 var compactLead = "This session is being continued from a previous conversation"
@@ -70,6 +72,8 @@ func harness(text string) note {
 		n.status, _ = tag(in, "status")
 		n.summary, _ = tag(in, "summary")
 		n.result, _ = tag(in, "result")
+		n.task, _ = tag(in, "task-id")
+		n.event, _ = tag(in, "event")
 		return n
 	}
 	if strings.HasPrefix(t, compactLead) {
@@ -151,4 +155,30 @@ var localCommands = map[string]bool{
 func localCommand(cmd string) bool {
 	name, _, _ := strings.Cut(strings.TrimPrefix(cmd, "/"), " ")
 	return localCommands[name]
+}
+
+// recap is a recap item: Claude Code's summary of the session for someone
+// coming back to it, without the hint it adds on how to turn recaps off.
+func recap(id, text string) []session.Event {
+	text = strings.TrimSpace(text)
+	if i := strings.LastIndex(text, " (turn off recaps in "); i >= 0 && strings.HasSuffix(text, ")") {
+		text = strings.TrimSpace(text[:i])
+	}
+	if text == "" {
+		return nil
+	}
+	return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Phase: session.PhaseRecap, Text: text}}
+}
+
+// informational is Claude Code's informational line, a notice or, at
+// level warning, a warning.
+func informational(id, text, level string) []session.Event {
+	if text == "" {
+		return nil
+	}
+	phase := session.PhaseNotice
+	if level == "warning" {
+		phase = session.PhaseWarning
+	}
+	return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Phase: phase, Text: text}}
 }

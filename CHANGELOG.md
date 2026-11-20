@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The desktop chat reads more of what Claude Code's TUI prints: its recaps, from coming back to a session and from `/recap`; the server's short summaries between calls; each Monitor event and a watch's end; and a hook's `systemMessage`, which a New task chat dropped and a TUI pane chat never showed.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
 - A TUI pane chat's snapshot and pages stay under 4 MB, as a New task chat's do, with older items a scroll up, and an item opened whole stays under 16 MB. A pane chat that grew large could send a reply so big that the window lost its connection to the daemon.
 - A chat whose newest item is over 4 MB even once cut, such as a call with a huge nested input, shows that item instead of an empty transcript that pages forever.
