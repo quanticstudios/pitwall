@@ -56,6 +56,9 @@ type Transcript struct {
 	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
 	// whose output names one shows its live state.
 	PRs map[string]model.PR
+	// CanRewind and CanFork show the prompts' Rewind and Fork buttons,
+	// for a chat whose daemon and agent take them.
+	CanRewind, CanFork bool
 	// Invalidate asks for a frame from another goroutine: the side panel's
 	// markdown file and its pictures, read in the background.
 	Invalidate func()
@@ -113,6 +116,7 @@ type Transcript struct {
 	topH   int            // the height of the space above the rows when last laid out
 	frame  int            // frames laid out
 	selAt  map[string]int // the frame each selectable was last drawn in
+	msg    msgState       // the prompts' hover buttons, the find bar and side questions
 }
 
 // Answer is an approval answered with its buttons or keys.
@@ -336,6 +340,7 @@ func (t *Transcript) sel(id string) *widget.Selectable {
 	}
 	t.selAt[id] = t.frame
 	t.drawn = append(t.drawn, s)
+	t.msg.keyOf(s, id)
 	return s
 }
 
@@ -480,6 +485,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	t.now, t.live, t.laid, t.drawn = gtx.Now, false, 0, t.drawn[:0]
 	t.frame++
 	t.settle(gtx, s)
+	t.findUpdate(gtx, s)
 	if t.aideBtn.Clicked(gtx) && aide {
 		t.aide, t.menu = true, false
 	}
@@ -499,7 +505,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
 			gtx.Execute(key.FocusCmd{Tag: &t.focus})
-			t.menu = false
+			t.menu, t.msg.confirm = false, ""
 		}
 	}
 	bg := clip.Rect{Max: size}.Push(gtx.Ops)
@@ -546,7 +552,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			}
 		}()
 	}
-	t.list.Layout(gtx, len(t.rows)+2, func(gtx layout.Context, i int) layout.Dimensions {
+	t.findJump(gtx, s, size.Y)
+	t.list.Layout(gtx, len(t.rows)+2, t.msg.record(func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
 			d := layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
@@ -561,6 +568,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		r := &t.rows[i]
 		t.wantWhole(s, r)
 		gap := gtx.Dp(r.gap)
+		t.msg.dy = gap
 		gtx.Constraints = layout.Constraints{Max: image.Pt(col, gtx.Constraints.Max.Y)}
 		off := op.Offset(image.Pt(x0, gap)).Push(gtx.Ops)
 		var dims layout.Dimensions
@@ -599,11 +607,16 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			return layout.Dimensions{Size: image.Pt(size.X, 0)}
 		}
 		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gap)}
-	})
+	}))
+	t.msg.spans(t.list.Position)
 	t.pickSelection(gtx)
 	t.atTop(s, size.Y)
 	t.forget(s)
 	t.newOutput(gtx, d, s, size)
+	t.drawAside(gtx, d, size)
+	t.drawFind(gtx, d, size)
+	t.drawConfirm(gtx, d, x0, size)
+	t.drawTip(gtx, d, x0, size)
 	t.zoomLayer(gtx, d, size)
 	if aide {
 		d.moreMenu(gtx, size)

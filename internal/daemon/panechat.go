@@ -77,6 +77,11 @@ type paneChat struct {
 	// and how far each was read.
 	agents  map[string]*agentFile
 	scanned time.Time // when subagents last looked for transcripts it lacked
+	// lineAt is the offset of each line of the conversation read, by its
+	// uuid, and tip the last one's: a prompt whose parent is not the tip
+	// branches off, as after a rewind (branched).
+	lineAt map[string]int64
+	tip    string
 	// limit is the pane's Claude plan limit, which /usage shows; nil for none.
 	limit func() (flow.Limit, bool)
 }
@@ -216,6 +221,8 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		id = m.Chat
 	case proto.ChatQueue:
 		id = m.Chat
+	case proto.ChatRewind:
+		id = m.Chat
 	default:
 		return nil, false
 	}
@@ -268,6 +275,8 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		// The window flips a pane chat's view itself; claude runs either way.
 	case proto.ChatQueue:
 		err = d.paneQueue(id, m)
+	case proto.ChatRewind:
+		err = d.paneRewind(pc, m)
 	}
 	return chatResult(id, "", note, err), true
 }
@@ -383,7 +392,7 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 		pc.tr, pc.snap = pc.transcript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
-		pc.start, pc.off, pc.pages, pc.agents, pc.at = start, start, nil, nil, nil
+		pc.start, pc.off, pc.pages, pc.agents, pc.at, pc.lineAt, pc.tip = start, start, nil, nil, nil, nil, ""
 		defer func() { pc.recent, pc.recentSize = nil, 0 }() // no reader holds what this replays: each gets a snapshot
 	}
 	b := make([]byte, end-pc.off)
@@ -413,6 +422,7 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			pc.ctx, pc.model = t, m
 		}
 		es := pc.tr.Line(line)
+		pc.branched(line, es)
 		for i := range es {
 			switch {
 			case es[i].Type == session.EventTurnStarted:

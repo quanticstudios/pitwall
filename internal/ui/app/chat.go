@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"gioui.org/io/key"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -103,6 +104,15 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		}
 		t.PRs, t.Open, t.Invalidate = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }, u.invalidate
 		t.Run = func(cmd string) { u.runCode(st, id, cmd) }
+		aside := u.chatTools(st, id, t)
+		if focus {
+			for {
+				if _, ok := gtx.Event(key.Filter{Name: "F", Required: key.ModShortcut}); !ok {
+					break
+				}
+				t.OpenFind()
+			}
+		}
 		cmp := u.composer(st, id)
 		if u.drawn == nil {
 			u.drawn = map[string]bool{}
@@ -123,7 +133,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
-		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing()
+		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing() && !t.FindOpen()
 		// A pane chat's Claude reads @ paths from its pane's folder.
 		cwd := dir
 		if p := findPane(st, id); p != nil && p.Cwd != "" {
@@ -139,6 +149,11 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		for _, m := range cmp.Messages() {
+			if q, ok := asideOf(m); ok && aside {
+				u.send(proto.ChatAside{Chat: id, ID: t.Ask(q), Question: q})
+				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before its card
+				continue
+			}
 			// A TUI-only command opens its dialog; a chat tab's goes to the
 			// TUI the dialog opens, not to the chat's driver.
 			if s, ok := m.(proto.ChatSend); ok && s.Skill == nil && len(s.Attachments) == 0 {
@@ -157,6 +172,9 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		}
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
+		}
+		if u.chatActions(id, t, cmp) {
+			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the prompt came back
 		}
 	} else {
 		u.chatLoading(gtx, ch, id, term)

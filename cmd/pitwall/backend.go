@@ -54,6 +54,8 @@ type backend struct {
 	chats   map[string]*chatCache             // the transcripts of the chats on screen, by id
 	chatReq map[string][]any                  // per chat, the Chat* requests waiting for their replies, oldest first
 	chatOut map[string][]chatin.Result        // per chat, the answers to the window's requests, not yet taken
+	// asides are, per chat, the side questions answered and not yet taken.
+	asides map[string][]proto.ChatAsideResult
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
 	// stays across a reconnect, for the view's stale state.
 	mon     proto.MonitorSample
@@ -556,6 +558,11 @@ func (b *backend) recvLoop() {
 				c.out = false
 			}
 			b.chatAnswered(m)
+		case proto.ChatAsideResult:
+			if b.asides == nil {
+				b.asides = map[string][]proto.ChatAsideResult{}
+			}
+			b.asides[m.Chat] = append(b.asides[m.Chat], m)
 		case proto.FaviconResult:
 			b.icons[m.Dir] = &m
 			if m.Root != "" {

@@ -24,6 +24,10 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Hover a prompt in the desktop chat for Copy, Edit, Rewind to here and, in a New task chat, Fork from here. Edit puts the prompt back in the composer. Rewind asks first, then takes the chat back to before the prompt and puts it in the composer; the files stay as they are. A TUI pane chat rewinds through Claude Code's own rewind picker.
+- Ctrl+F, or the search button in the chat's header, finds text in the desktop chat's prompts and replies, with a count, Enter and Shift+Enter to step, and Esc to close. It reads the chat's older pages as it searches.
+- `/btw <question>` in the desktop chat's composer asks Claude a side question about the conversation. The answer shows in a card over the chat that you can copy or close; the chat's agent neither stops nor sees it.
+- A TUI pane chat drops the turns a rewind left behind, also after a rewind done in the terminal with Esc Esc.
 - A queued chat message has Send now, Edit, Move up, Move down and Remove under the pointer, in TUI pane chats and New task chats. More than two fold into a count, a message that could not be sent stays with Retry, and Stop holds the queue until Resume or the next send. A TUI pane chat now holds what you queue mid-turn and types it when the turn ends, instead of typing it into Claude Code at once. Needs the daemon from this release; an older one keeps Edit and Remove.
 - Typing `@` in the chat composer lists the project's files and folders, fuzzy matched, and puts the one you pick in as an `@path` chip that Claude Code reads.
 - The chat composer shows the repo's branch, following switches made anywhere; a click copies it.

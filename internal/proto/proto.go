@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 89 added ChatAside and ChatAsideResult: a side question about a
+// chat that its agent never sees. A daemon at that level also answers
+// ChatRewind for a pane chat (PaneRewindLevel).
 // Level 88 added QueuedMessage.Error and ChatQueue Action "now", and a
 // pane chat holds what is queued mid-turn and takes queue actions
 // (QueueLevel).
@@ -230,12 +233,19 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 88
+const Level = 89
 
 // QueueLevel is the first daemon that takes ChatQueue Action "now" and
 // queue actions on a pane chat, whose mid-turn messages it holds until
 // the turn ends.
 const QueueLevel = 88
+
+// ChatAsideLevel added ChatAside and ChatAsideResult.
+const ChatAsideLevel = 89
+
+// PaneRewindLevel is the first daemon that rewinds a pane chat through
+// Claude Code's own rewind picker.
+const PaneRewindLevel = 89
 
 // ChatPageLevel added ChatRead.Before and Item and ChatDeltas.Older, Page
 // and Item: a chat's history comes as its tail, then in pages, with long
@@ -482,6 +492,8 @@ func Since(msg any) int {
 		return InboxLevel
 	case Image, ImageResult:
 		return ImageLevel
+	case ChatAside, ChatAsideResult:
+		return ChatAsideLevel
 	case ChatTerminal:
 		return ChatTerminalLevel
 	case ChatUnarchive:
@@ -1303,6 +1315,7 @@ var Messages = []any{
 	ChatFork{}, ChatRewind{},
 	ChatRename{}, ChatPin{},
 	ChatUnarchive{},
+	ChatAside{}, ChatAsideResult{},
 	AgentExplain{}, AgentExplanation{},
 	Image{}, ImageResult{},
 	OpenForm{}, FormAnswer{},
@@ -1448,6 +1461,15 @@ type ChatRewind struct {
 	Chat, Turn string
 	KeepFiles  bool
 }
+
+// ChatAside asks a side question about Chat: a one-off agent reads the
+// conversation through a fork of its session that is never saved, so the
+// chat's own agent neither stops nor sees it. The daemon answers with
+// ChatAsideResult ID once the agent is done.
+type ChatAside struct{ Chat, ID, Question string }
+
+// ChatAsideResult answers ChatAside ID: Answer, or Err when there is none.
+type ChatAsideResult struct{ Chat, ID, Answer, Err string }
 
 // ChatResult answers a Chat* request.
 type ChatResult struct {

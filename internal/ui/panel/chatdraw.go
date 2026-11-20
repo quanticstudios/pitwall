@@ -49,7 +49,12 @@ func (d *cdraw) selectable(gtx layout.Context, sl *widget.Selectable, st tstyle,
 	sl.SetText(txt)
 	sl.LineHeightScale = st.lh
 	gtx.Constraints.Min = image.Point{}
-	return sl.Layout(gtx, d.th.Shaper, st.f, st.size, material(gtx, st.c), material(gtx, d.selColor()))
+	m := op.Record(gtx.Ops)
+	dims := sl.Layout(gtx, d.th.Shaper, st.f, st.size, material(gtx, st.c), material(gtx, d.selColor()))
+	call := m.Stop()
+	d.t.marks(gtx, d, sl, txt) // under the text
+	call.Add(gtx.Ops)
+	return dims
 }
 
 // lbl draws one line of txt, cut with an ellipsis.
@@ -293,6 +298,7 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	o := op.Offset(image.Pt(x+px, py)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	o.Pop()
+	d.promptTools(gtx, it, x, bh)
 	return layout.Dimensions{Size: image.Pt(d.col, bh)}
 }
 

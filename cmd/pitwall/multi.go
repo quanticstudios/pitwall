@@ -1260,6 +1260,14 @@ func (m *multi) Chat(id string) (session.Snapshot, bool) {
 	return session.Snapshot{}, false
 }
 
+// ChatAsides answers from the backend of the host that owns chat id.
+func (m *multi) ChatAsides(id string) []proto.ChatAsideResult {
+	if h := m.of(id); h != nil {
+		return h.b.ChatAsides(id)
+	}
+	return nil
+}
+
 // ChatResults answers from the backend of the host that owns chat id.
 func (m *multi) ChatResults(id string) []chatin.Result {
 	if h := m.of(id); h != nil {
