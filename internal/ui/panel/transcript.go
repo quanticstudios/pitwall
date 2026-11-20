@@ -560,6 +560,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		case r.seg == segItem:
 			t.laid++
 			dims = d.logItem(gtx, r.i, r.last)
+		case r.seg == segChanges:
+			dims = d.changeCard(gtx, r.b)
 		case r.seg == segTodo:
 			t.laid++
 			dims = d.todoCard(gtx, &s.Content[r.i])
@@ -782,6 +784,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 				t.rows = append(t.rows, trow{res: &t.done[k]})
 			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
+		}
+		if !run && len(t.changesOf(d, b)) > 0 {
+			t.rows = append(t.rows, trow{b: b, seg: segChanges})
 		}
 	}
 	if n := len(t.blocks); n > 0 && stopped[t.blocks[n-1].turn] {
