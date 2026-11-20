@@ -47,7 +47,7 @@ type stream struct {
 	contextTokens *int64
 	usage         *session.Event // the last usage event, which a new context size updates
 
-	commands []string // the slash_commands system/init last listed
+	commands []string   // the slash_commands system/init last listed
 	info     statusInfo // what system/init said, for /status
 
 	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
