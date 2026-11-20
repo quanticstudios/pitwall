@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.1
 
 - A running turn's folded work log says what the turn is doing now after its counts: Claude's newest summary, else the running call, such as "Bash · go test ./...".
 - A New task chat no longer shows a summary's text in a Thinking row while it streams. The text now arrives whole, as a Summary row.
