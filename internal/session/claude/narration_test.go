@@ -1,8 +1,10 @@
 package claude
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"os"
 	"strings"
 	"testing"
 
@@ -42,7 +44,7 @@ func TestNarration(t *testing.T) {
 
 // TestSummaryBlock: a thinking block the server marked as narration is a
 // summary item, whole in the transcript and after streaming in
-// stream-json; plain thinking stays thinking.
+// stream-json, where its deltas show nothing; plain thinking stays thinking.
 func TestSummaryBlock(t *testing.T) {
 	line := func(sig, text string) string {
 		return `{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T17:23:00Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"thinking","thinking":"` + text + `","signature":"` + sig + `"}]}}`
@@ -69,8 +71,35 @@ func TestSummaryBlock(t *testing.T) {
 		`{"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"thinking","thinking":"Ran the tests.","signature":"` + signature("narration") + `"}]}}`,
 	} {
 		snap = apply(t, snap, s.line([]byte(l)))
+		// Claude Code streams a summary's text as thinking deltas before
+		// the line that says it is a summary: the row shows none of it.
+		if len(snap.Content) == 1 && snap.Content[0].Phase == "" && snap.Content[0].Text != "" {
+			t.Fatalf("summary text %q streamed into a thinking row", snap.Content[0].Text)
+		}
 	}
 	if len(snap.Content) != 1 || snap.Content[0].Phase != session.PhaseSummary || snap.Content[0].Text != "Ran the tests." {
 		t.Fatalf("streamed summary %+v", snap.Content)
+	}
+}
+
+// TestNarrationPaneLine: a narration line as Claude Code 2.1.329 wrote it
+// to a TUI pane's transcript, its real signature kept and its text
+// shortened, is a summary item, not thinking.
+func TestNarrationPaneLine(t *testing.T) {
+	line, err := os.ReadFile("testdata/narration-pane.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranscript()
+	snap := apply(t, base(), tr.Line([]byte(`{"type":"user","uuid":"p1","timestamp":"2026-11-20T21:30:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"go"}}`)))
+	snap = apply(t, snap, tr.Line(bytes.TrimSpace(line)))
+	var got []string
+	for _, it := range snap.Content {
+		if it.Kind == session.KindReasoningText {
+			got = append(got, it.Phase+":"+it.Text)
+		}
+	}
+	if want := "summary:Checking whether stored snapshots keep the stale classification."; len(got) != 1 || got[0] != want {
+		t.Fatalf("reasoning items %q, want %q", got, want)
 	}
 }

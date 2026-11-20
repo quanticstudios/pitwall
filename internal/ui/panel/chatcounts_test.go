@@ -30,3 +30,33 @@ func TestToolKinds(t *testing.T) {
 		}
 	}
 }
+
+// TestLogStatus: a running log's header says the turn's newest summary,
+// else its newest running call as its row says it.
+func TestLogStatus(t *testing.T) {
+	bash := func(cmd, status string) session.Item {
+		return session.Item{Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: cmd, Status: status}}
+	}
+	sum := func(text string) session.Item {
+		return session.Item{Kind: session.KindReasoningText, Phase: session.PhaseSummary, Text: text}
+	}
+	read := session.Item{Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Read", Status: "running", Input: []byte(`{"file_path":"/repo/internal/vt/vt.go"}`)}}
+	todo := bash("", "running")
+	todo.Tool.ToolName, todo.Tool.Tasks = "TodoWrite", []session.Task{{Subject: "x"}}
+	for _, c := range []struct {
+		items []session.Item
+		want  string
+	}{
+		{nil, ""},
+		{[]session.Item{bash("go build ./...", "completed")}, ""},
+		{[]session.Item{bash("go test ./...\necho done", "running")}, "Bash · go test ./..."},
+		{[]session.Item{bash("make", "running"), read}, "Read · internal/vt/vt.go"},
+		{[]session.Item{bash("make", "running"), todo}, "Bash · make"},
+		{[]session.Item{sum("Found it.\nMore."), bash("go test ./...", "running")}, "Found it."},
+		{[]session.Item{sum("Old."), {Kind: session.KindReasoningText, Text: "plain thinking"}, sum("New.")}, "New."},
+	} {
+		if got := logStatus(c.items, 0, len(c.items), "/repo"); got != c.want {
+			t.Errorf("logStatus = %q, want %q", got, c.want)
+		}
+	}
+}

@@ -80,6 +80,16 @@ func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) l
 			tc, td = title(logTitle(took, b.tools, running))
 		}
 		at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
+		// A running log, folded, still says what the turn is doing now.
+		x += td.Size.X + gtx.Dp(theme.SpaceS)
+		if st := logStatus(d.s.Content, b.lo, b.hi, d.t.Dir); running && st != "" && room-td.Size.X > gtx.Dp(48) {
+			g := gtx
+			g.Constraints.Max.X = room - td.Size.X - gtx.Dp(theme.SpaceS)
+			sc, sd := measure(g, func(gtx layout.Context) layout.Dimensions {
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.TextQuiet, st)
+			})
+			at(gtx, image.Pt(x, (hh-sd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { sc.Add(gtx.Ops); return sd })
+		}
 		return layout.Dimensions{Size: image.Pt(w, hh)}
 	})
 	return layout.Dimensions{Size: image.Pt(w, h)}
