@@ -157,31 +157,33 @@ func TestProseCap(t *testing.T) {
 	}
 }
 
-// TestKeyActions: 1, 2 and 3 answer an approval; a question takes its
-// option numbers, one more for its typed row, and Enter.
+// TestKeyActions: 1, 2 and 3 answer an approval, 1 and 2 one with no
+// Allow for session; a question takes its option numbers, one more for
+// its typed row, and Enter.
 func TestKeyActions(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		approval bool
-		options  int
-		want     keyAction
-		ok       bool
+		name      string
+		approval  bool
+		noSession bool
+		options   int
+		want      keyAction
+		ok        bool
 	}{
-		{"1", true, 0, keyAction{decision: "allow", option: -1}, true},
-		{"2", true, 3, keyAction{decision: "allow-session", option: -1}, true},
-		{"3", true, 0, keyAction{decision: "deny", option: -1}, true},
-		{"4", true, 0, keyAction{option: -1}, false},
-		{string(key.NameReturn), true, 0, keyAction{option: -1}, false},
-		{"1", false, 3, keyAction{option: 0}, true},
-		{"4", false, 3, keyAction{option: 3}, true}, // the typed row
-		{"5", false, 3, keyAction{option: -1}, false},
-		{string(key.NameReturn), false, 3, keyAction{option: -1, submit: true}, true},
-		{string(key.NameEnter), false, 1, keyAction{option: -1, submit: true}, true},
-		{"1", false, 0, keyAction{option: -1}, false}, // nothing waits
+		{"1", true, false, 0, keyAction{decision: "allow", option: -1}, true},
+		{"2", true, false, 3, keyAction{decision: "allow-session", option: -1}, true},
+		{"3", true, false, 0, keyAction{decision: "deny", option: -1}, true},
+		{"4", true, false, 0, keyAction{option: -1}, false},
+		{string(key.NameReturn), true, false, 0, keyAction{option: -1}, false},
+		{"1", false, false, 3, keyAction{option: 0}, true},
+		{"4", false, false, 3, keyAction{option: 3}, true}, // the typed row
+		{"5", false, false, 3, keyAction{option: -1}, false},
+		{string(key.NameReturn), false, false, 3, keyAction{option: -1, submit: true}, true},
+		{string(key.NameEnter), false, false, 1, keyAction{option: -1, submit: true}, true},
+		{"1", false, false, 0, keyAction{option: -1}, false}, // nothing waits
 	} {
-		got, ok := actionFor(tc.name, tc.approval, tc.options)
+		got, ok := actionFor(tc.name, tc.approval, tc.noSession, tc.options)
 		if got != tc.want || ok != tc.ok {
-			t.Errorf("%q approval=%v options=%d: %+v %v", tc.name, tc.approval, tc.options, got, ok)
+			t.Errorf("%q approval=%v noSession=%v options=%d: %+v %v", tc.name, tc.approval, tc.noSession, tc.options, got, ok)
 		}
 	}
 }

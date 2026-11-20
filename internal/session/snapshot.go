@@ -208,6 +208,10 @@ type Approval struct {
 	ID          string       `json:"id"`
 	Request     *ToolRequest `json:"request,omitempty"`
 	RequestType RequestType  `json:"requestType"`
+	// NoSession is pitwall's: the prompt offers no Allow for this session,
+	// as a TUI's prompt from a hook that asks does not, so allow-session
+	// would fail.
+	NoSession bool `json:"noSession,omitempty"`
 }
 
 // PlanApproval is aide's ManagedSessionPlanApproval.

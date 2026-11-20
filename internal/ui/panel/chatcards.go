@@ -265,13 +265,16 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 				return hrow(gtx, gtx.Dp(theme.SpaceS),
 					func(gtx layout.Context) layout.Dimensions { return d.keyButton(gtx, &bs[0], true, "Allow", "1", true) },
 					func(gtx layout.Context) layout.Dimensions {
+						if a.NoSession { // the prompt has no such answer
+							return layout.Dimensions{}
+						}
 						return d.keyButton(gtx, &bs[1], false, "Allow for session", "2", true)
 					},
 					func(gtx layout.Context) layout.Dimensions {
 						if e != nil {
 							return layout.Dimensions{}
 						}
-						return d.keyButton(gtx, &bs[2], false, "Deny", "3", true)
+						return d.keyButton(gtx, &bs[2], false, "Deny", denyKey(a), true)
 					},
 				)
 			},
@@ -283,6 +286,15 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 			},
 		)
 	})
+}
+
+// denyKey is the key that denies a's card: 3, or 2 when it has no Allow
+// for session.
+func denyKey(a session.Approval) string {
+	if a.NoSession {
+		return "2"
+	}
+	return "3"
 }
 
 // monoBox is a command in mono on the page's background.

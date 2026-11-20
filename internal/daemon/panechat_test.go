@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -516,5 +517,30 @@ func TestPaneChatBackgroundNoticeIsNoReply(t *testing.T) {
 	last := pc.snap.Content[len(pc.snap.Content)-1]
 	if last.Text != "A" || last.TurnID == nil || *last.TurnID != pc.snap.Turns[1].ID {
 		t.Fatalf("last item %+v: want A in the second turn %+v", last, pc.snap.Turns)
+	}
+}
+
+// A pane chat's approval says when its prompt offers no Allow for this
+// session, as Claude Code's prompt for a hook that asks does not, and
+// stops saying so once the screen shows that answer.
+func TestPaneChatApprovalOffers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"touch a"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"touch a"}}]}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 20, 10, 0, 2, 0, time.UTC)
+	act := model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Detail: "Bash\ntouch a", UpdatedAt: at}
+	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}, act: act})
+	if n := len(pc.snap.PendingApprovals); n != 1 || !pc.snap.PendingApprovals[0].NoSession {
+		t.Fatalf("approvals %+v: want one with no Allow for session, the screen showing none", pc.snap.PendingApprovals)
+	}
+	act.Buttons = []string{agent.AllowAlways}
+	pc.catchUp(paneLive{p: &fakePane{}, act: act})
+	if n := len(pc.snap.PendingApprovals); n != 1 || pc.snap.PendingApprovals[0].NoSession {
+		t.Errorf("approvals %+v: want Allow for session once the screen offers it", pc.snap.PendingApprovals)
 	}
 }
