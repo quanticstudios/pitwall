@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The /usage, /cost and /status cards name models as the composer does, Sonnet 5.5 rather than claude-sonnet-5-5.
 - A TUI pane chat on Sonnet 5.5 meters its context out of 1M, as Claude Code's /context does, not 200K.
 - The chat's Changes panel and File view highlight code as the chat's own diffs and code blocks do.
 - When a background shell ends while a TUI pane chat answers the next prompt, that answer stays its turn's reply instead of folding into the work log under the notification's reply.
