@@ -355,6 +355,13 @@ type ui struct {
 	updates    updater    // the sidebar's update button
 	limits     limitWatch // plan limits for Settings, the sidebar's meter and their notice
 	relaunched bool       // a new window took over after an update; close this one
+	// stale is the notice that the daemon runs a newer release than this
+	// window: Restart reopens the window on it, Later hides the notice.
+	stale struct {
+		restart, later widget.Clickable
+		box, hidden    bool
+		shownAt        time.Time
+	}
 
 	// The connection dialog, see layoutLink. epoch is the Link.Epoch the
 	// panes' sizes were sent for; quit is Later: close, leaving the daemon.
@@ -913,6 +920,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	u.applyDone(&st)
 	u.drawNotice(pgtx)
+	u.drawStaleNotice(pgtx, &st)
 	u.drawDone(pgtx)
 	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
 	off.Pop()
@@ -1066,6 +1074,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.ToggleSkillshare:
 		u.toggleSkillshare(st)
 	case sidebar.RunUpdate:
+		if u.updates.label() == "" && u.windowBehind() {
+			u.relaunchWindow(st)
+			break
+		}
 		if u.updates.label() == "" && u.daemonBehind() {
 			u.modal.open(modalRestart, "")
 			break

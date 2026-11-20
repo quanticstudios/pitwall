@@ -26,6 +26,10 @@ takes `--dry-run`.
 
 - A running turn's folded work log says what the turn is doing now after its counts: Claude's newest summary, else the running call, such as "Bash · go test ./...".
 - A New task chat no longer shows a summary's text in a Thinking row while it streams. The text now arrives whole, as a Summary row.
+- `pitwall report-agent --name` with a built-in agent's program name, such as `antigravity`, `agy`, `claude` or `codex`, no longer turns the pane into a self-reported agent with a plain dot for a mark. The pane stays that built-in agent, so its hooks, chat, mark and resume apply, including when the report comes before the agent is the pane's foreground. A pane saved as `agent:antigravity` loads as Antigravity.
+- A window older than its daemon says so. After an update moves the daemon onto the new binary, a window still running the old one, including a window other than the one that ran the update, shows "Restart the window to finish updating" with Restart and Later. Restart, or the sidebar's Restart to finish, reopens the window on the new binary, on the same session and tab, and leaves the daemon and every pane running. Until then the window lacks the update's fixes, such as Antigravity's mark and Ctrl+Backspace in the chat composer in v0.3.0.
+- Antigravity's mark is its own logo, the arch in blurred Google colors, from lobe-icons, in place of the plain blue arch drawn for pitwall. It shows wherever an agent's mark does: tab rows, tab search, the chat header, usage and limits.
+- Ctrl+Backspace or Alt+Backspace right after a picked `@` mention in the chat composer deletes the whole mention, as it does an `[Image #N]` token. A quoted path with a space, such as `@"my file.txt"`, used to lose only its last word.
 
 ## v0.3.0
 

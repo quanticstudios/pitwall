@@ -504,6 +504,9 @@ func NewWith(o Options) (*Daemon, error) {
 			gone = append(gone, p.ID) // saved by an older daemon, which kept exited panes
 			continue
 		}
+		if b := agent.Identify(model.ReportedName(p.Provider), ""); b != "" {
+			p.Provider, p.ResumeCmd = b, nil // saved when a report named a built-in agent
+		}
 		// why: argv cannot tell, since `claude --resume s` restores to the same argv.
 		resumes := store.Resumes(*p)
 		if model.ReportedName(p.Provider) != "" && !resumes {
@@ -1875,6 +1878,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if err != nil {
 			d.mu.Unlock()
 			return err
+		}
+		// A report naming a built-in agent's program, as "antigravity" or
+		// "claude", is that agent: its hooks and the poll name the pane.
+		if agent.Identify(r.Name, "") != "" {
+			if model.ReportedName(p.Provider) != "" {
+				d.clearReported(p)
+			}
+			d.mu.Unlock()
+			return nil
 		}
 		// Built-in hooks and detection keep authority over built-in agents.
 		known := model.IsAgent(p.Provider) && model.ReportedName(p.Provider) == ""

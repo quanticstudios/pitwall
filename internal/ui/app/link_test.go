@@ -19,14 +19,15 @@ import (
 // linked is the fake with a connection whose Link the test sets.
 type linked struct {
 	*FakeBackend
-	link    Link
-	shows   int
-	resizes map[string]int // per pane
+	link     Link
+	shows    int
+	resizes  map[string]int // per pane
+	restarts int            // daemon restarts asked for
 }
 
 func (l *linked) Link() Link { return l.link }
 func (l *linked) Reconnect() {}
-func (l *linked) Restart()   {}
+func (l *linked) Restart()   { l.restarts++ }
 
 func (l *linked) Send(msg any) error {
 	if _, ok := msg.(proto.SessionShow); ok {

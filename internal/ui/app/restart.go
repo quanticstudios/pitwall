@@ -1,8 +1,12 @@
 package app
 
 import (
+	"log"
+
 	gl "gioui.org/layout"
 
+	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -31,10 +35,62 @@ func (u *ui) daemonBehind() bool {
 	return lk.State == LinkUp && Behind(lk.Level, lk.Build)
 }
 
+// windowBehind reports whether this window's local daemon runs a newer
+// release than the window: an update installed a new binary and moved the
+// daemon onto it, while this window kept running the old one. Only
+// Relaunch can fix that, so without it the answer is false.
+func (u *ui) windowBehind() bool {
+	l, ok := u.b.(Linker)
+	if !ok || curHost() != "" || Relaunch == nil {
+		return false
+	}
+	lk := l.Link()
+	return lk.State == LinkUp && update.Newer(lk.Build, Version)
+}
+
+// relaunchWindow opens a new window on the installed binary, on this
+// session and tab, and closes this one. The daemon keeps running.
+func (u *ui) relaunchWindow(st *model.State) {
+	name := ""
+	if s := st.Session(u.nav.session); s != nil {
+		name = s.Name
+	}
+	if name == "" || u.nav.workspace == "" {
+		return
+	}
+	if err := Relaunch(name, u.nav.workspace); err != nil {
+		log.Printf("relaunch on a newer daemon: %q", err)
+		u.sendFailed("Could not reopen the window: " + err.Error())
+		return
+	}
+	log.Printf("the daemon runs a newer release than this window; reopened it")
+	u.relaunched = true
+}
+
+// drawStaleNotice asks, at the top of the panes, for a window restart
+// while windowBehind, until Later.
+func (u *ui) drawStaleNotice(gtx gl.Context, st *model.State) {
+	n := &u.stale
+	for n.restart.Clicked(gtx) {
+		u.relaunchWindow(st)
+	}
+	for n.later.Clicked(gtx) {
+		n.hidden = true
+	}
+	if n.hidden || !u.windowBehind() {
+		return
+	}
+	if n.shownAt.IsZero() {
+		n.shownAt = gtx.Now
+	}
+	r := layout.Rect{W: gtx.Constraints.Max.X, H: gtx.Constraints.Max.Y}
+	u.actionPill(gtx, r, true, "Restart the window to finish updating", &n.restart, "Restart", &n.later, "Later", &n.box, n.shownAt)
+}
+
 // updateLabel is the update button's text: the updater's, else "Restart
-// to finish" while the daemon is behind.
+// to finish" while the window or the daemon is behind.
 func (u *ui) updateLabel() string {
-	if s := u.updates.label(); s != "" || !u.daemonBehind() {
+	if s := u.updates.label(); s != "" || !u.windowBehind() && !u.daemonBehind() {
 		return s
 	}
 	return updated
