@@ -1,0 +1,15 @@
+────────────────────────────────────────────────────────────
+> Run exactly this shell command: rm -rf ./junk
+● Ran (rm -rf ./junk) (ctrl+o to expand)
+  The command rm -rf ./junk was executed successfully with exit code 0.
+────────────────────────────────────────────────────────────
+> Use your ask_question tool to ask me which color I like, with options red and blue.
+? Which color do you like?
+Question
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Question 1/1: Which color do you like?
+> 1. (Recommended) Red
+  2. Blue
+  3. Write-in...
+  ↑/↓ Navigate · enter Select · esc Skip
+esc to cancel                                                                              auto · Ge

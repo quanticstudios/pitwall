@@ -725,6 +725,48 @@ func TestHooksCursor(t *testing.T) {
 	}
 }
 
+// TestHooksAntigravity: pitwall's hook is one named entry of agy's
+// hooks.json, beside the user's own; uninstall takes only it, and an
+// edited one stays.
+func TestHooksAntigravity(t *testing.T) {
+	home := hooksHome(t)
+	path := filepath.Join(home, ".gemini", "config", "hooks.json")
+	original := `{"lint":{"PostToolUse":[{"matcher":"run_command","hooks":[{"command":"./lint.sh"}]}]}}`
+	writeHooksTestFile(t, path, original)
+	var out bytes.Buffer
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(readHooksTestFile(t, path), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	ours := cfg["pitwall"]
+	if len(cfg) != 2 || cfg["lint"] == nil || len(ours) != 4 || ours["PreToolUse"] != nil ||
+		!strings.Contains(string(ours["Stop"]), testCmd+" hook antigravity") || !strings.Contains(string(ours["PostToolUse"]), `"matcher": "*"`) {
+		t.Fatalf("hooks.json: %s", readHooksTestFile(t, path))
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || !strings.Contains(out.String(), path+": unchanged") {
+		t.Fatalf("second install: %v %s", err, out.String())
+	}
+	if err := runHooks([]string{"uninstall"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	equalHookJSON(t, readHooksTestFile(t, path), []byte(original))
+
+	edited := `{"pitwall":{"Stop":[{"command":"mine"}]}}`
+	writeHooksTestFile(t, path, edited)
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || !strings.Contains(out.String(), "edited") {
+		t.Fatalf("install over an edited hook: %v %s", err, out.String())
+	}
+	if err := runHooks([]string{"uninstall"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	equalHookJSON(t, readHooksTestFile(t, path), []byte(edited))
+}
+
 func TestHomebrewOpt(t *testing.T) {
 	for bin, want := range map[string]string{
 		"/opt/homebrew/Cellar/pitwall/0.1.0-alpha.24/bin/pitwall":              "/opt/homebrew/opt/pitwall/bin/pitwall",

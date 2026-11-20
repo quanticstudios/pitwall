@@ -244,11 +244,13 @@ func Clean(s string) string {
 
 // answers are the keys each agent's permission prompt takes: Allow picks
 // its first option, "Yes", and Deny is Esc, which both read as no. Claude
-// Code picks an option by its number; Codex by the letter after it, "Yes,
-// proceed (y)", since its numbers are not shortcuts.
+// Code and Antigravity pick an option by its number; Codex by the letter
+// after it, "Yes, proceed (y)", since its numbers are not shortcuts.
+// Antigravity's Esc interrupts the turn, as Claude Code's does.
 var answers = map[model.Provider]struct{ allow, deny key.Name }{
-	model.ProviderClaude: {"1", key.NameEscape},
-	model.ProviderCodex:  {"Y", key.NameEscape},
+	model.ProviderClaude:      {"1", key.NameEscape},
+	model.ProviderCodex:       {"Y", key.NameEscape},
+	model.ProviderAntigravity: {"1", key.NameEscape},
 }
 
 // Answerable reports whether a is a permission prompt that Allow and Deny

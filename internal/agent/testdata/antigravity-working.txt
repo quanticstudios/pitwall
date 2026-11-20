@@ -1,0 +1,9 @@
+────────────────────────────────────────────────────────────
+> Run the shell command: curl -s -o /dev/null https://example.com/ then tell me it ran
+● Ran (curl -s -o /dev/null https://example.com/) failed
+● Running (curl -s -o /dev/null https://example.com/) (ctrl+o to expand)
+⡿  Running command...
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                                                              auto · Ge

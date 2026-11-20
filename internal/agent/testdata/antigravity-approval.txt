@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────
+> Run exactly this shell command: rm -rf ./junk
+● Ran (rm -rf ./junk) (ctrl+o to expand)
+Command
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Requesting permission for:
+   rm -rf ./junk
+Run this command?
+> 1. Yes, run command
+  2. Yes, and always allow in this conversation for commands that start with 'rm -rf ./junk'
+  3. Yes, and always allow for commands that start with 'rm -rf ./junk' (Persist to settings.json)
+  4. No, cancel
+  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command
+esc to cancel                                                                                     Ge

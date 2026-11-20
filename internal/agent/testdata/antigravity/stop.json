@@ -1,0 +1,17 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/11111111-2222-3333-4444-555555555555",
+  "continuationActive": false,
+  "conversationId": "11111111-2222-3333-4444-555555555555",
+  "cwd": "/home/user/project",
+  "error": "",
+  "executionNum": 0,
+  "fullyIdle": true,
+  "hookEventName": "Stop",
+  "lastUserInput": "Run exactly this shell command: mkdir -p ./junk2 && rmdir ./junk2 . Then say OK.",
+  "modelName": "gemini-4-neon-high",
+  "terminationReason": "NO_TOOL_CALL",
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/11111111-2222-3333-4444-555555555555/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/home/user/project"
+  ]
+}
