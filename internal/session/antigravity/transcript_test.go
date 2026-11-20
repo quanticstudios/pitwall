@@ -50,7 +50,7 @@ func TestTranscript(t *testing.T) {
 			tools[e.Tool.ToolName] = e.Tool
 		}
 	}
-	if started != 1 || completed != 1 || model != "gemini-3.8-flash-low" {
+	if started != 1 || completed != 1 || model != "gemini-3.8-flash" || tr.effort != "low" {
 		t.Errorf("turns %d started, %d completed; model %q", started, completed, model)
 	}
 	if !strings.HasPrefix(prompt, "Do these steps in order:") || strings.Contains(prompt, "USER_REQUEST") || strings.Contains(prompt, "local time") {
@@ -142,5 +142,43 @@ func TestTranscriptTasks(t *testing.T) {
 	// A task.md outside agy's conversation folders is a file of the project.
 	if tr.taskList("write_file", map[string]json.RawMessage{"Path": json.RawMessage(`"/home/user/project/task.md"`), "Content": json.RawMessage(`"- [ ] x"`)}) != nil {
 		t.Error("a project's task.md read as agy's list")
+	}
+}
+
+// TestTranscriptTaskList: testdata/task_list.jsonl is agy 1.5.13 on a job
+// it tracked in its own task.md unasked: written, then ticked through
+// "[/]" to "[x]". The card shows each state, and the file's writes show
+// as no tool rows of their own.
+func TestTranscriptTaskList(t *testing.T) {
+	data, err := os.ReadFile("testdata/task_list.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranscript()
+	var cards [][]session.Task
+	tools := 0
+	for line := range bytes.SplitSeq(bytes.TrimSpace(data), []byte("\n")) {
+		for _, e := range tr.Line(line) {
+			switch {
+			case e.Tool != nil && e.Tool.ToolName == "Plan":
+				cards = append(cards, e.Tool.Tasks)
+			case e.Tool != nil:
+				tools++
+				if strings.Contains(string(e.Tool.Input), "task.md") {
+					t.Errorf("task.md showed as a %s row", e.Tool.ToolName)
+				}
+			}
+		}
+	}
+	if len(cards) < 2 || len(cards[0]) != 4 || cards[0][0].Status != "pending" {
+		t.Fatalf("cards %+v", cards)
+	}
+	sawProgress := false
+	for _, c := range cards {
+		sawProgress = sawProgress || slices.ContainsFunc(c, func(t session.Task) bool { return t.Status == "in_progress" })
+	}
+	last := cards[len(cards)-1]
+	if !sawProgress || slices.ContainsFunc(last, func(t session.Task) bool { return t.Status != "completed" }) || tools == 0 {
+		t.Errorf("progress %v, last card %+v, %d other tool rows", sawProgress, last, tools)
 	}
 }

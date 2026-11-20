@@ -24,7 +24,8 @@ import (
 type Transcript struct {
 	turn    string     // the running turn's id; "" while idle
 	asked   string     // the open request's id, "" for none
-	model   string     // the model of the last response
+	model   string     // the model of the last response, without its effort
+	effort  string     // that response's effort
 	pending []*pending // the calls whose results have not come, oldest first
 	tasks   string     // the task list's text as agy last wrote it
 }
@@ -87,9 +88,9 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		out = append(out, session.Event{Type: session.EventTurnStarted, TurnID: id},
 			session.Event{Type: session.EventContent, ItemID: id, Kind: session.KindUserPrompt, Text: text})
 	case "PLANNER_RESPONSE":
-		if s.Model != "" && s.Model != t.model {
-			t.model = s.Model
-			out = append(out, session.Event{Type: session.EventSettings, Model: s.Model})
+		if mdl, eff := splitModel(s.Model); mdl != "" && (mdl != t.model || eff != t.effort) {
+			t.model, t.effort = mdl, eff
+			out = append(out, session.Event{Type: session.EventSettings, Model: mdl})
 		}
 		if th := strings.TrimSpace(s.Thinking); th != "" {
 			out = append(out, session.Event{Type: session.EventContent, ItemID: id + "-thinking", Kind: session.KindReasoningText, Model: t.model, Text: th})
@@ -218,9 +219,21 @@ func (t *Transcript) taskList(name string, args map[string]json.RawMessage) *ses
 // Running reports whether a turn runs.
 func (t *Transcript) Running() bool { return t.turn != "" }
 
-// Settings are the model the session last ran with and no effort, which
-// the transcript does not record.
-func (t *Transcript) Settings() (model, effort string) { return t.model, "" }
+// Settings are the model and effort the session last ran with.
+func (t *Transcript) Settings() (model, effort string) { return t.model, t.effort }
+
+// splitModel splits agy's id of a model at an effort, as
+// "gemini-3.8-flash-low" or "claude-opus-5-5-high", into the model its
+// /model command and ACP option take and the effort; an id with no effort
+// suffix is the model alone.
+func splitModel(id string) (model, effort string) {
+	for _, e := range []string{"low", "medium", "high", "xhigh", "max"} {
+		if m, ok := strings.CutSuffix(id, "-"+e); ok && m != "" {
+			return m, e
+		}
+	}
+	return id, ""
+}
 
 // End completes the running turn as state, with the calls still waiting
 // for a result shown as they were asked; nothing while idle. It withdraws
