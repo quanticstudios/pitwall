@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -168,6 +169,10 @@ func (t *Transcript) localFile(target string) string {
 			return ""
 		}
 		p = u.Path
+		if runtime.GOOS == "windows" && len(p) > 2 && p[0] == '/' && p[2] == ':' {
+			p = p[1:] // file:///C:/x.go
+		}
+		p = filepath.FromSlash(p)
 	} else if strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") {
 		return ""
 	}

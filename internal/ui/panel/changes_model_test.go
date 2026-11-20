@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 )
 
 func editItem(id, tool, status string, in map[string]any, diff string, files ...session.ToolFile) session.Item {
@@ -23,21 +24,23 @@ func changesOf(items []session.Item, dir string) []fileChange {
 }
 
 func TestTurnChangesAggregatesPerFile(t *testing.T) {
+	root := t.TempDir()
+	a, c := filepath.Join(root, "a.go"), filepath.Join(root, "b", "c.go")
 	items := []session.Item{
-		editItem("1", "Edit", "completed", map[string]any{"file_path": "/repo/a.go"}, "@@ -1,2 +1,2 @@\n-x\n+y\n z\n"),
+		editItem("1", "Edit", "completed", map[string]any{"file_path": a}, "@@ -1,2 +1,2 @@\n-x\n+y\n z\n"),
 		{ID: "t", Kind: session.KindAssistantText, Text: "and again"},
-		editItem("2", "MultiEdit", "completed", map[string]any{"file_path": "/repo/a.go", "edits": []map[string]string{
+		editItem("2", "MultiEdit", "completed", map[string]any{"file_path": a, "edits": []map[string]string{
 			{"old_string": "q", "new_string": "r\ns"}}}, ""),
-		editItem("3", "Edit", "completed", map[string]any{"file_path": "/repo/b/c.go"}, "@@ -4 +4 @@\n-old\n+new\n"),
+		editItem("3", "Edit", "completed", map[string]any{"file_path": c}, "@@ -4 +4 @@\n-old\n+new\n"),
 	}
-	got := changesOf(items, "/repo")
+	got := changesOf(items, root)
 	if len(got) != 2 {
 		t.Fatalf("files = %d, want 2: %+v", len(got), got)
 	}
 	if a := got[0]; a.path != "a.go" || a.add != 3 || a.del != 2 || len(a.diffs) != 2 || a.created {
 		t.Errorf("a.go = %+v, want +3 -2 over 2 edits", a)
 	}
-	if c := got[1]; c.path != "b/c.go" || c.add != 1 || c.del != 1 {
+	if c := got[1]; c.path != filepath.Join("b", "c.go") || c.add != 1 || c.del != 1 {
 		t.Errorf("c.go = %+v, want +1 -1", c)
 	}
 	add, del := changeTotals(got)
@@ -61,11 +64,13 @@ func TestTurnChangesAggregatesPerFile(t *testing.T) {
 }
 
 func TestTurnChangesNewFile(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "new.md")
 	items := []session.Item{
-		editItem("1", "Write", "completed", map[string]any{"file_path": "/repo/new.md", "content": "# Hi\n\nthere\n"}, "",
-			session.ToolFile{Path: "/repo/new.md", Status: "add"}),
+		editItem("1", "Write", "completed", map[string]any{"file_path": p, "content": "# Hi\n\nthere\n"}, "",
+			session.ToolFile{Path: p, Status: "add"}),
 	}
-	got := changesOf(items, "/repo")
+	got := changesOf(items, root)
 	if len(got) != 1 || !got[0].created || got[0].add != 3 || got[0].del != 0 || got[0].path != "new.md" {
 		t.Fatalf("got %+v, want new.md created +3", got)
 	}
@@ -185,11 +190,11 @@ func TestLocalFileRoutesToPanel(t *testing.T) {
 	cases := map[string]string{
 		"a.go":                      filepath.Join(root, "a.go"),
 		filepath.Join(root, "a.go"): filepath.Join(root, "a.go"),
-		"file://" + root + "/a.go":  filepath.Join(root, "a.go"),
-		filepath.Join(out, "b.go"):  "", // outside: opens outside pitwall
-		"https://example.com/a.go":  "",
-		"gone.go":                   "",
-		root:                        "", // a folder
+		mdview.FileURL(filepath.Join(root, "a.go")): filepath.Join(root, "a.go"),
+		filepath.Join(out, "b.go"):                  "", // outside: opens outside pitwall
+		"https://example.com/a.go":                  "",
+		"gone.go":                                   "",
+		root:                                        "", // a folder
 	}
 	for in, want := range cases {
 		if got := tr.localFile(in); got != want {
