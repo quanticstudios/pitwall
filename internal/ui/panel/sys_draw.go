@@ -118,9 +118,13 @@ func (d *cdraw) commandChip(gtx layout.Context, cmd string, right bool) layout.D
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// commandOutput is a local command's output under its chip: quiet mono,
-// its colors dropped, the last lines first.
+// commandOutput is a local command's output under its chip: its card
+// (cmdcard_draw.go) when one reads it, else quiet mono, its colors
+// dropped, the last lines first.
 func (d *cdraw) commandOutput(gtx layout.Context, id, out string, right bool) layout.Dimensions {
+	if card := d.outCard(id, out); card != nil {
+		return d.cmdCard(gtx, id, card)
+	}
 	w := gtx.Constraints.Max.X
 	bw := w
 	if right {

@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The chat draws `/usage`, `/cost`, `/context` and `/status` as cards. `/usage` and `/cost` show the plan, each model's tokens in and out, a bar per plan limit window with what is left and when it resets, and the cost, with the token breakdown folded. `/context` shows the window as one bar by category with the tokens and share of each, and Claude's lists folded under it. `/status` is a short list of fields. In a TUI pane chat, where Claude Code opens a dialog for `/usage`, `/cost` and `/status` and writes nothing, the chat answers them itself. Output a card cannot read still shows as text.
 - A work log's header counts its calls by kind where they fit, as Claude Code's TUI does: "Worked for 8s · Read 2 files, ran 4 commands", else "8 tools".
 - A Monitor call's row tracks its watch as a background shell's row does: Running in background, then Finished or Stopped, and opened, the events it saw.
 - A summary Claude Code tags "· summary", the server's short summary of Claude's words between calls, draws as a muted row with a Summary tag in the work log, where it came among the calls, not as a thinking row.

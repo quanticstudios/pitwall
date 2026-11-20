@@ -1,0 +1,8 @@
+You are currently using your subscription to power your Claude Code usage
+
+Current week (all models): 52% used · resets Nov 24, 9pm (Europe/Berlin)
+Current week (Fable): 6% used · resets Nov 24, 9pm (Europe/Berlin)
+
+Estimated cost:  $0.0179
+Usage by model:
+claude-sonnet-5-5:  2 input, 7 output, 13.6k cache read, 4.1k cache write ($0.0179)

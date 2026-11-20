@@ -32,6 +32,15 @@ type Transcript struct {
 	compacted  bool              // a compaction since the last prompt: its /compact needs no chip
 	used       map[string]msgUse // the running turn's API messages' usage, by message id
 	usedOrder  []string
+	total      map[string]flow.Tokens // the ended turns' tokens, by model
+	info       statusInfo             // what the lines so far said, for /status
+	// synthed is a /usage, /cost or /status whose output the transcript
+	// wrote itself: what Claude Code writes after it, its dialog's
+	// "dismissed" say, shows nothing.
+	synthed bool
+	// Limit is Claude's plan limit as last reported, for /usage; nil or
+	// false for none.
+	Limit func() (flow.Limit, bool)
 }
 
 // msgUse is one API message's usage, which each of its lines repeats.
@@ -40,7 +49,9 @@ type msgUse struct {
 	t     flow.Tokens
 }
 
-func NewTranscript() *Transcript { return &Transcript{s: newStream(""), used: map[string]msgUse{}} }
+func NewTranscript() *Transcript {
+	return &Transcript{s: newStream(""), used: map[string]msgUse{}, total: map[string]flow.Tokens{}}
+}
 
 // transcriptLine is the fields of a transcript line Transcript reads on
 // top of the stream's.
@@ -70,6 +81,12 @@ type transcriptLine struct {
 			CacheCreation int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
+	Version        string `json:"version"`
+	SessionID      string `json:"sessionId"`
+	Cwd            string `json:"cwd"`
+	GitBranch      string `json:"gitBranch"`
+	PermissionMode string `json:"permissionMode"`
+
 	IsAPIError bool  `json:"isApiErrorMessage"`
 	ThinkingMS int64 `json:"thinkingDurationMs"`
 
@@ -107,6 +124,7 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		return nil
 	}
 	cmd := t.cmd
+	t.note(l)
 	var out []session.Event
 	switch l.Type {
 	case "user":
@@ -143,6 +161,9 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		out = t.s.notice(text) // a background shell ended
 	default:
 		return nil // summaries, snapshots, queue operations: nothing a chat shows
+	}
+	if l.Type == "user" || l.Type == "assistant" {
+		t.synthed = false
 	}
 	// A command whose output did not follow it shows as itself; attachment
 	// and system lines may come between the two.
@@ -264,8 +285,23 @@ func (t *Transcript) harness(l transcriptLine, text string) []session.Event {
 		case strings.HasPrefix(n.text, "/compact") && t.compacted:
 			return nil
 		}
-		return []session.Event{t.command(l.UUID, n.text)}
+		out := []session.Event{t.command(l.UUID, n.text)}
+		t.synthed = false
+		at, err := time.Parse(time.RFC3339Nano, l.Timestamp)
+		if err != nil {
+			at = time.Now()
+		}
+		if text := t.local(n.text, at); text != "" {
+			t.synthed = true
+			out = append(out, item(session.PhaseOutput, text))
+			out[1].ItemID += ":out"
+		}
+		return out
 	case session.PhaseOutput:
+		if t.synthed {
+			t.synthed = false
+			return nil
+		}
 		cmd := t.cmd
 		t.cmd = ""
 		if s, ok := settingNote(n.text); ok && cmd != "" {
@@ -465,6 +501,9 @@ func (t *Transcript) usage() (session.Event, bool) {
 		k := by[m.model]
 		k.Input, k.Output, k.CacheRead, k.CacheWrite = k.Input+m.t.Input, k.Output+m.t.Output, k.CacheRead+m.t.CacheRead, k.CacheWrite+m.t.CacheWrite
 		by[m.model] = k
+	}
+	for name, k := range by {
+		t.total[name] = addTokens(t.total[name], k)
 	}
 	clear(t.used)
 	t.usedOrder = t.usedOrder[:0]
