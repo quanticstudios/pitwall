@@ -542,6 +542,8 @@ func (pc *paneChat) reduceRange(f io.ReaderAt, from, to int64) (session.Snapshot
 	}
 	p := &paneChat{id: pc.id, off: from, prov: pc.prov, tr: pc.transcript(), snap: session.Snapshot{SessionID: pc.id, Provider: pc.prov}}
 	p.lines(b[:n], "") // a transcript that shrank since gives fewer
+	// The turns a rewind left, when the prompt that branched off comes after to.
+	p.cutAfter(pc.nextParent(f, to))
 	p.reduce(p.tr.End(session.TurnCompleted))
 	return p.snap, p.at, nil
 }

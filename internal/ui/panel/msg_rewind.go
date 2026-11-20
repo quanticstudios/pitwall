@@ -38,7 +38,7 @@ func (t *Transcript) drawConfirm(gtx layout.Context, d *cdraw, x0 int, size imag
 		m.confirm = ""
 	}
 	for m.ok.Clicked(gtx) {
-		m.acts = append(m.acts, MessageAction{Kind: ActRewind, Turn: m.confirmTurn, Text: m.confirmText})
+		m.acts = append(m.acts, MessageAction{Kind: ActRewind, Turn: m.confirmTurn, Item: m.confirmItem, Text: m.confirmText})
 		m.confirm = ""
 	}
 	for {

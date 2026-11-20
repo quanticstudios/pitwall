@@ -34,6 +34,7 @@ const (
 type MessageAction struct {
 	Kind MessageKind
 	Turn string // the prompt's turn
+	Item string // the prompt's own id: one sent mid-turn shares its turn's
 	Text string // the prompt's text, without its image tokens
 }
 
@@ -61,7 +62,8 @@ type msgState struct {
 
 	confirm     string // the prompt whose Rewind asks to confirm
 	confirmAt   anchor // its Rewind button
-	confirmTurn string // the prompt's turn and text
+	confirmTurn string // the prompt's turn, id and text
+	confirmItem string
 	confirmText string
 	ok, no      widget.Clickable // the confirm's buttons
 	confirmBg   int              // the confirm's own area, so a press in it does not close it
@@ -168,6 +170,17 @@ func (m *msgState) at(a anchor, x0 int) (image.Rectangle, bool) {
 	return a.r.Add(image.Pt(x0, s.y)), true
 }
 
+// opensTurn reports whether prompt it opened its turn: the first prompt
+// with its turn id, not one sent into the turn mid-way.
+func opensTurn(content []session.Item, it *session.Item) bool {
+	turn := deref(it.TurnID)
+	if turn == "" {
+		return false
+	}
+	i := slices.IndexFunc(content, func(c session.Item) bool { return c.Kind == session.KindUserPrompt && deref(c.TurnID) == turn })
+	return i >= 0 && content[i].ID == it.ID
+}
+
 // promptText is what a prompt's Copy and Edit take: its text as shown,
 // without the sender line or its image tokens.
 func promptText(it *session.Item) string {
@@ -186,6 +199,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 	on := hv.Update(gtx.Source)
 	turn := deref(it.TurnID)
 	idle := !d.s.Busy()
+	whole := !t.TurnRewind || opensTurn(d.s.Content, it)
 	type tool struct {
 		key, icon, tip string
 		show           bool
@@ -193,8 +207,8 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 	tools := []tool{
 		{"copy", icClip, "Copy", true},
 		{"edit", icPencil, "Edit", true},
-		{"rewind", icRewind, "Rewind to here", t.CanRewind && turn != "" && idle},
-		{"fork", icFork, "Fork from here", t.CanFork && turn != "" && idle},
+		{"rewind", icRewind, "Rewind to here", t.CanRewind && turn != "" && idle && whole},
+		{"fork", icFork, "Fork from here", t.CanFork && turn != "" && idle && whole},
 	}
 	tools = slices.DeleteFunc(tools, func(b tool) bool { return !b.show })
 	clicks := make([]*widget.Clickable, len(tools))
@@ -220,7 +234,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 		}
 	}
 	if m.confirm == it.ID {
-		m.confirmTurn, m.confirmText = turn, promptText(it)
+		m.confirmTurn, m.confirmItem, m.confirmText = turn, it.ID, promptText(it)
 	}
 	if on {
 		bs, gap := gtx.Dp(hit), gtx.Dp(theme.Space2XS)

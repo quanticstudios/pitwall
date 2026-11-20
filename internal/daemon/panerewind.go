@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"math"
 	"slices"
-	"strings"
 	"time"
 
 	"gioui.org/io/key"
@@ -39,9 +42,14 @@ func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) error {
 	pc.mu.Lock()
 	k := rewindTarget(pc.snap.Content, m.Turn)
 	var text, id string
-	n := 0
+	var prompts []string // the target's text and the later prompts'
 	if k >= 0 {
-		text, id, n = pc.snap.Content[k].Text, pc.snap.Content[k].ID, rewindRank(pc.snap.Content, k)
+		text, id = pc.snap.Content[k].Text, pc.snap.Content[k].ID
+		for _, it := range pc.snap.Content[k:] {
+			if it.Kind == session.KindUserPrompt {
+				prompts = append(prompts, it.Text)
+			}
+		}
 	}
 	pc.mu.Unlock()
 	if k < 0 {
@@ -63,10 +71,15 @@ func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) error {
 	}
 	lost := errors.New("Claude Code's rewind list does not show that message, so nothing changed")
 	for step := 0; ; step++ {
+		// The newest row that reads as the target's is the target's only
+		// when no later prompt reads the same: a label cut with "…", a
+		// repeated prompt, or one sent mid-turn, which the picker may not
+		// list. Rather than guess, the user picks in the terminal.
 		if agent.RewindMatch(label, text) {
-			if n--; n == 0 {
-				break
+			if rewindRank(prompts, label) != 1 {
+				return keys.cancelWith(picker, chatError{"conflict", "Claude Code's rewind list shows this message like a later one, so nothing changed; rewind in the terminal (Alt+T) to pick it yourself"})
 			}
+			break
 		}
 		if step == maxRewindSteps {
 			return keys.cancelWith(picker, lost)
@@ -168,18 +181,17 @@ func rewindTarget(content []session.Item, turn string) int {
 	})
 }
 
-// rewindRank is which match of prompt k the picker's walk up from its end
-// stops at: 1 for the newest prompt that reads as k's, and one more for
-// each later prompt that reads the same.
-func rewindRank(content []session.Item, k int) int {
-	first, _, _ := strings.Cut(strings.TrimSpace(content[k].Text), "\n")
+// rewindRank is how many of prompts, the target's text and those of the
+// prompts after it, read as picker row label: 1 when the newest row with
+// that label is the target's.
+func rewindRank(prompts []string, label string) int {
 	n := 0
-	for _, it := range content[k:] {
-		if it.Kind == session.KindUserPrompt && agent.RewindMatch(first, it.Text) {
+	for _, p := range prompts {
+		if agent.RewindMatch(label, p) {
 			n++
 		}
 	}
-	return max(n, 1)
+	return n
 }
 
 // cut drops item k and every item after it, and the turns they were in.
@@ -217,16 +229,54 @@ func (pc *paneChat) branched(line []byte, es []session.Event) {
 	prompt := slices.ContainsFunc(es, func(e session.Event) bool {
 		return e.Type == session.EventContent && e.Kind == session.KindUserPrompt
 	})
-	if off, ok := pc.lineAt[l.Parent]; ok && prompt && l.Parent != pc.tip {
-		k := slices.IndexFunc(pc.at, func(at int64) bool { return at > off })
-		if k >= 0 && k < len(pc.snap.Content) && slices.ContainsFunc(pc.snap.Content[k:], func(it session.Item) bool {
-			return it.Kind == session.KindUserPrompt
-		}) {
-			pc.cut(k)
-		}
+	if prompt {
+		pc.cutAfter(l.Parent)
 	}
 	if pc.lineAt == nil {
 		pc.lineAt = map[string]int64{}
 	}
 	pc.lineAt[l.UUID], pc.tip = pc.cur, l.UUID
+}
+
+// cutAfter drops what was read after line parent, which the conversation
+// goes on from, when that is not the last line read and a prompt is among
+// what goes: the turns a rewind left in the file. A parent from before
+// everything read leaves nothing read on the conversation, as when the
+// tail starts after it. Callers hold pc.mu.
+func (pc *paneChat) cutAfter(parent string) {
+	if parent == "" || parent == pc.tip || pc.tip == "" {
+		return
+	}
+	k := 0
+	if off, ok := pc.lineAt[parent]; ok {
+		k = slices.IndexFunc(pc.at, func(at int64) bool { return at > off })
+	}
+	if k >= 0 && k < len(pc.snap.Content) && slices.ContainsFunc(pc.snap.Content[k:], func(it session.Item) bool {
+		return it.Kind == session.KindUserPrompt
+	}) {
+		pc.cut(k)
+	}
+}
+
+// nextParent is the parent of the first conversation line at or after
+// offset at in f when that line is a prompt, as one that branched off is;
+// "" for any other line, or none within a few whole lines.
+func (pc *paneChat) nextParent(f io.ReaderAt, at int64) string {
+	r := bufio.NewReader(io.NewSectionReader(f, at, math.MaxInt64-at))
+	for range 64 {
+		line, err := r.ReadBytes('\n')
+		var l chainLine
+		if bytes.HasSuffix(line, []byte("\n")) && json.Unmarshal(line, &l) == nil && l.UUID != "" && !l.Sidechain {
+			if slices.ContainsFunc(pc.transcript().Line(line), func(e session.Event) bool {
+				return e.Type == session.EventContent && e.Kind == session.KindUserPrompt
+			}) {
+				return l.Parent
+			}
+			return ""
+		}
+		if err != nil {
+			return ""
+		}
+	}
+	return ""
 }

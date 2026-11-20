@@ -6,6 +6,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 )
 
@@ -43,6 +44,28 @@ func TestAsideOf(t *testing.T) {
 	} {
 		if q, ok := asideOf(tc.m); ok != tc.want || q != tc.q {
 			t.Errorf("asideOf(%+v) = %q, %v", tc.m, q, ok)
+		}
+	}
+}
+
+// A prompt sent mid-turn shares its turn's id: a pane chat rewinds to the
+// prompt itself, by its own id, and a chat tab by its turn, the only way
+// it rewinds.
+func TestChatActionsRewind(t *testing.T) {
+	acts := []panel.MessageAction{{Kind: panel.ActRewind, Turn: "t1", Item: "p2", Text: "and also this"}}
+	for _, tc := range []struct {
+		pane bool
+		turn string
+	}{{true, "p2"}, {false, "t1"}} {
+		b := NewFakeBackend()
+		u := &ui{b: b}
+		var cmp chatin.Composer
+		u.chatActions("c", acts, tc.pane, &cmp)
+		if got := b.Sent(); len(got) != 1 || got[0] != (proto.ChatRewind{Chat: "c", Turn: tc.turn, KeepFiles: true}) {
+			t.Errorf("pane %v: sent %v, want a rewind of %s", tc.pane, got, tc.turn)
+		}
+		if cmp.Text() != "and also this" {
+			t.Errorf("pane %v: composer %q", tc.pane, cmp.Text())
 		}
 	}
 }
