@@ -33,6 +33,8 @@ func TestTUICommand(t *testing.T) {
 		"/effort high":       "",
 		"/usage":             "",
 		"/context":           "",
+		"/cost":              "",
+		"/status":            "",
 		"/configure the app": "",
 		"config":             "",
 		"fix /config":        "",

@@ -34,10 +34,10 @@ import (
 // the chat when the dialog closes.
 
 // tuiCommands are Claude Code's slash commands that open a screen of their
-// own. /model and /effort are the composer's chips, and /usage, /context and
-// /cost the chat's cards, so they stay out.
+// own. /model and /effort are the composer's chips, and /usage, /context,
+// /cost and /status the chat's cards, so they stay out.
 var tuiCommands = map[string]bool{
-	"login": true, "config": true, "settings": true, "status": true, "permissions": true, "allowed-tools": true,
+	"login": true, "config": true, "settings": true, "permissions": true, "allowed-tools": true,
 	"mcp": true, "agents": true, "hooks": true, "memory": true, "theme": true, "resume": true, "plugin": true,
 	"plugins": true, "ide": true, "export": true, "rewind": true, "tasks": true, "bashes": true, "doctor": true,
 	"output-style": true, "privacy-settings": true, "add-dir": true, "install-github-app": true, "feedback": true,
