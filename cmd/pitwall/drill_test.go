@@ -308,7 +308,9 @@ func drill(t *testing.T, r drillRun) {
 	})
 
 	tui := `echo $$ > tui.pid; printf '\033[?1049h\033[H\033[1mClaude Code\033[0m drill\r\n'; i=0; while :; do i=$((i+1)); printf '\033[3;1Hturn %d ' $i; sleep 0.1; done`
-	loop := `echo $$ > loop.pid; i=0; while :; do i=$((i+1)); echo "test run $i ok"; sleep 0.05; done`
+	// Fill the scrollback immediately, then keep producing output so the
+	// checks after the update still prove that the same loop is running.
+	loop := `echo $$ > loop.pid; i=0; while :; do i=$((i+1)); echo "test run $i ok"; if [ "$i" -ge 80 ]; then sleep 0.05; fi; done`
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

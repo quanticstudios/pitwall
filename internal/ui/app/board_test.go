@@ -16,7 +16,8 @@ import (
 // has the focus and its ask has been up for board.Arming, it answers that
 // card's prompt; Esc goes back to the panes.
 func TestBoardKeys(t *testing.T) {
-	u, keys := keyWindow(t, conventional)
+	now := time.Now()
+	u, keys := keyWindowClock(t, conventional, func() time.Time { return now })
 	cs := key.ModCtrl | key.ModShift
 	answers := func() []proto.Answer {
 		var out []proto.Answer
@@ -38,7 +39,7 @@ func TestBoardKeys(t *testing.T) {
 		t.Fatalf("Ctrl+Shift+Y with no card focused sent %+v", got)
 	}
 	keys(press(key.NameDownArrow, 0))
-	time.Sleep(board.Arming + 50*time.Millisecond)
+	now = now.Add(board.Arming + 50*time.Millisecond)
 	keys(press("Y", cs))
 	got := answers()
 	st = u.b.State()
@@ -62,12 +63,13 @@ func TestBoardKeys(t *testing.T) {
 func TestBoardKeysOnlyWhileShown(t *testing.T) {
 	for _, cover := range []string{"settings", "review"} {
 		t.Run(cover, func(t *testing.T) {
-			u, keys := keyWindow(t, conventional)
+			now := time.Now()
+			u, keys := keyWindowClock(t, conventional, func() time.Time { return now })
 			st := u.b.State()
 			u.nav.selectWorkspace(&st, "w4", "g") // its Claude waits for approval behind the board
 			cs := key.ModCtrl | key.ModShift
 			keys(press("M", cs), press(key.NameDownArrow, 0))
-			time.Sleep(board.Arming + 50*time.Millisecond)
+			now = now.Add(board.Arming + 50*time.Millisecond)
 			if cover == "settings" {
 				u.openSettings()
 			} else {
@@ -120,12 +122,13 @@ func TestBoardHidesPanesFromSeen(t *testing.T) {
 // TestBoardAnswersSidebarHidden: a window that starts with the sidebar
 // hidden still answers from the board.
 func TestBoardAnswersSidebarHidden(t *testing.T) {
-	u, keys := keyWindow(t, conventional)
+	now := time.Now()
+	u, keys := keyWindowClock(t, conventional, func() time.Time { return now })
 	u.sidebar.Answers = false
 	u.nav.sidebarHidden, u.sidebarShown = true, true // restored hidden: no slide
 	cs := key.ModCtrl | key.ModShift
 	keys(press("M", cs), press(key.NameDownArrow, 0))
-	time.Sleep(board.Arming + 50*time.Millisecond)
+	now = now.Add(board.Arming + 50*time.Millisecond)
 	keys(press("Y", cs))
 	for _, m := range u.b.(*FakeBackend).Sent() {
 		if a, ok := m.(proto.Answer); ok && a.Allow {
