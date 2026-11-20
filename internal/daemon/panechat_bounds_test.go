@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -127,6 +129,74 @@ func TestChatRecentBytes(t *testing.T) {
 	}
 	if int64(len(c.recent)) < c.seq-c.published {
 		t.Fatalf("recent holds %d deltas, a publish owes %d", len(c.recent), c.seq-c.published)
+	}
+}
+
+// TestPaneChatBigTurnReadsOnce: a tail whose one turn holds more than
+// retailItems items, or more than retailBytes of lines that show nothing,
+// is read once; the next read answers with deltas.
+func TestPaneChatBigTurnReadsOnce(t *testing.T) {
+	nothing := `{"type":"file-history-snapshot","messageId":"x","snapshot":{"data":"` + strings.Repeat("n", 1<<20) + `"}}` + "\n"
+	for name, s := range map[string]string{
+		"items": bigTurn(retailItems+100, "ok"),
+		"bytes": bigTurn(1, "ok") + strings.Repeat(nothing, retailBytes>>20+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, read := paneTranscript(t, s)
+			first := read(proto.ChatRead{})
+			if first.Snapshot == nil {
+				t.Fatalf("first read: %+v", first)
+			}
+			if again := read(proto.ChatRead{After: first.Seq}); again.Snapshot != nil {
+				t.Fatalf("an unchanged transcript read its tail again: older %d", again.Older)
+			}
+		})
+	}
+}
+
+// TestChatReadOffTheLoop: a ChatRead that waits does not hold up what the
+// same connection sends after it.
+func TestChatReadOffTheLoop(t *testing.T) {
+	d, _, read := paneTranscript(t, turnLines(0, "ok"))
+	read(proto.ChatRead{})
+	pc, _, _ := d.paneChatOf("a")
+	pc.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			pc.mu.Unlock()
+		}
+	}()
+	server, client := net.Pipe()
+	defer client.Close()
+	client.SetDeadline(time.Now().Add(10 * time.Second))
+	go d.serveConn(context.Background(), server)
+	c := proto.NewConn(client)
+	for _, m := range []any{proto.Hello{Kind: "cli", Version: proto.Version, Level: proto.Level}, proto.ChatRead{Chat: "a"}, proto.Text{Pane: "a"}} {
+		if err := c.Send(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for got := false; !got; {
+		m, err := c.Recv()
+		if err != nil {
+			t.Fatalf("no reply to Text while a ChatRead waits: %v", err)
+		}
+		if _, ok := m.(proto.ChatDeltas); ok {
+			t.Fatal("the ChatRead answered while its chat was locked")
+		}
+		_, got = m.(proto.TextResult)
+	}
+	pc.mu.Unlock()
+	locked = false
+	for {
+		m, err := c.Recv()
+		if err != nil {
+			t.Fatalf("no reply to the ChatRead: %v", err)
+		}
+		if _, ok := m.(proto.ChatDeltas); ok {
+			return
+		}
 	}
 }
 

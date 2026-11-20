@@ -37,16 +37,20 @@ import (
 
 // paneChat is one pane chat's snapshot and how far it read the transcript.
 type paneChat struct {
-	mu     sync.Mutex
-	id     string
-	path   string              // the transcript
-	off    int64               // bytes of it read, up to the last whole line
-	start  int64               // where the chat's reading of it starts (tailStart); the history before is paged
-	pages  map[string][2]int64 // the byte range of the page each item paged in came from
-	tr     *claude.Transcript
-	snap   session.Snapshot
-	seq    int64
-	recent []session.Delta
+	mu    sync.Mutex
+	id    string
+	path  string              // the transcript
+	off   int64               // bytes of it read, up to the last whole line
+	start int64               // where the chat's reading of it starts (tailStart); the history before is paged
+	pages map[string][2]int64 // the byte range of the page each item paged in came from
+	// tailOff and tailLen are pc.off and the snapshot's items when the tail
+	// was last read: the chat reads it again only once it outgrows them.
+	tailOff int64
+	tailLen int
+	tr      *claude.Transcript
+	snap    session.Snapshot
+	seq     int64
+	recent  []session.Delta
 	// recentSize is the bytes of recent's JSON (keepRecent).
 	recentSize int
 	// queued are the messages the chat typed mid-turn, which Claude Code
@@ -261,9 +265,10 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 // prompt of the turn with the tailItems-th chat line from the end or to
 // the last compaction, and the history before that in pages of the same
 // reach as the window scrolls up to it. Once the transcript outgrows what
-// the chat read by retailBytes or retailItems, or gains more than
-// tailBytes unread, the chat reads its tail again, so neither the daemon's
-// memory nor a snapshot grows with the file.
+// the chat read of its tail by retailBytes or retailItems, or gains more
+// than tailBytes unread, the chat reads its tail again, so neither the
+// daemon's memory nor a snapshot grows with the file. A tail that is
+// bigger than these itself, one turn of thousands of calls, is read once.
 const (
 	tailBytes   = 4 << 20
 	tailItems   = 200
@@ -281,7 +286,8 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 	}
 	end := fi.Size()
 	// A transcript shorter than what was read was rewritten: a new chat.
-	if pc.off == 0 || end < pc.off || end-pc.off > tailBytes || pc.off-pc.start > retailBytes || len(pc.snap.Content) > retailItems {
+	retail := pc.off == 0 || end < pc.off || end-pc.off > tailBytes || pc.off-pc.tailOff > retailBytes || len(pc.snap.Content)-pc.tailLen > retailItems
+	if retail {
 		start, err := tailStart(f, end)
 		if err != nil {
 			return err
@@ -296,6 +302,9 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 	b := make([]byte, end-pc.off)
 	n, err := f.ReadAt(b, pc.off)
 	pc.off += int64(pc.lines(b[:n], tui))
+	if retail {
+		pc.tailOff, pc.tailLen = pc.off, len(pc.snap.Content)
+	}
 	if err == io.EOF {
 		err = nil
 	}
