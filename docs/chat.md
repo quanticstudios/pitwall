@@ -78,11 +78,30 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 - Long or old chats open at once: pitwall reads the transcript from its end
   and loads older turns as you scroll up.
 
+## Codex panes
+
+A pane running Codex's TUI shows as the chat too, once Codex's hooks name
+its session. pitwall never guesses the session from the newest log in
+`~/.codex/sessions`: until a hook names one, the pane stays the TUI. Run
+`pitwall hooks install`, then trust the hooks once with `/hooks` in Codex.
+A fresh Codex names its session with its first prompt, so a new pane turns
+into the chat after you send one.
+
+The chat reads Codex's rollout: your prompts, replies, reasoning summaries,
+commands with their output and exit code, file changes as diffs, web
+searches, MCP calls, the plan from `update_plan`, and the context meter.
+Codex logs a call when it finishes, so a running command shows once it
+ends. The composer types into the TUI, Esc stops the turn, and an approval
+shows as a card whose Allow and Deny press Codex's own keys. The model and
+effort show under the box; change them, the mode, and answer Codex's
+questions in the TUI (Alt+T).
+
 ## Settings
 
 ```toml
 [chat]
 claude = "chat"     # or "terminal": show Claude Code panes as the TUI, Alt+T away from the chat
+codex = "chat"      # or "terminal": the same for Codex panes
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's column
 ```
 

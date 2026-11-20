@@ -154,7 +154,8 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	}
 	aide := curHost() == "" && findAide() != nil
 	title := tabTitle(*ws)
-	claude := c != nil && c.Provider == model.ProviderClaude
+	// A pane chat's agent runs in its pane: Codex's has a terminal too.
+	claude := c != nil && (c.Provider == model.ProviderClaude || ws.Chat == "")
 	prov := model.ProviderClaude
 	if c != nil {
 		prov = c.Provider

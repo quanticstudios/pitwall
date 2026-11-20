@@ -16,20 +16,21 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
-// A pane chat is a pane running Claude Code's TUI, drawn as the desktop
-// chat in the pane's own rect (the daemon side is daemon/panechat.go).
-// Each pane of a split decides for itself; [chat] claude picks the view a
-// pane starts in, and chat_terminal flips the focused one. Claude keeps
-// running either way, and the pane keeps getting its real size.
+// A pane chat is a pane running Claude Code's or Codex's TUI, drawn as the
+// desktop chat in the pane's own rect (the daemon side is
+// daemon/panechat.go). Each pane of a split decides for itself; [chat]
+// claude and codex pick the view a pane starts in, and chat_terminal flips
+// the focused one. The agent keeps running either way, and the pane keeps
+// getting its real size.
 
 // paneChatOf is pane id as a chat, with a state from its activity, nil
-// when the pane runs no Claude Code with a transcript.
+// when the pane runs no Claude Code or Codex with a transcript.
 func paneChatOf(st *model.State, id string) *model.Chat {
 	p := findPane(st, id)
 	if p == nil || !model.PaneChat(*p) {
 		return nil
 	}
-	c := &model.Chat{ID: id, WorkspaceID: p.WorkspaceID, Provider: model.ProviderClaude, State: session.StateReady}
+	c := &model.Chat{ID: id, WorkspaceID: p.WorkspaceID, Provider: p.Provider, State: session.StateReady}
 	for _, a := range st.Activities {
 		if a.PaneID != id {
 			continue
@@ -46,17 +47,22 @@ func paneChatOf(st *model.State, id string) *model.Chat {
 
 // paneChatShown reports whether pane id of tab ws shows as a chat now: a
 // pane chat of a tab of panes, on a local daemon that answers for it,
-// in the view [chat] claude starts it in unless flipped since.
+// in the view [chat] claude or codex starts it in unless flipped since.
 func (u *ui) paneChatShown(st *model.State, ws *model.Workspace, id string) bool {
 	if ws == nil || ws.Chat != "" || curHost() != "" || u.hostOf(id) != "" || linkLevel(u.b) < proto.PaneChatLevel {
 		return false
 	}
-	if paneChatOf(st, id) == nil {
-		delete(u.paneFlip, id) // the next claude in the pane starts in the default view
+	c := paneChatOf(st, id)
+	if c == nil || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel {
+		delete(u.paneFlip, id) // the next agent in the pane starts in the default view
 		return false
 	}
 	_, ok := u.b.(Chatter)
-	return ok && u.cfg.Chat.Claude != u.paneFlip[id]
+	start := u.cfg.Chat.Claude
+	if c.Provider == model.ProviderCodex {
+		start = u.cfg.Chat.Codex
+	}
+	return ok && start != u.paneFlip[id]
 }
 
 // flipPaneChat flips pane id between its chat and the TUI.
@@ -86,7 +92,9 @@ func (u *ui) chatFrame(gtx gl.Context, size image.Point, lit, sole bool) (image.
 // the window asks for its keys, so the key is not lost.
 func (u *ui) paneChatKey(st *model.State) bool {
 	ws := findWorkspace(st, u.nav.workspace)
-	return ws != nil && ws.Chat == "" && linkLevel(u.b) >= proto.PaneChatLevel && paneChatOf(st, u.nav.focused()) != nil
+	c := paneChatOf(st, u.nav.focused())
+	return ws != nil && ws.Chat == "" && linkLevel(u.b) >= proto.PaneChatLevel && c != nil &&
+		(c.Provider != model.ProviderCodex || linkLevel(u.b) >= proto.CodexPaneChatLevel)
 }
 
 // layoutPaneChat draws pane id as a chat in r, where layoutPanes put the
