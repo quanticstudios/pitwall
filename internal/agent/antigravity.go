@@ -249,3 +249,10 @@ func AntigravityTranscript(home, conv string) string {
 	}
 	return filepath.Join(home, ".gemini", "antigravity-cli", "brain", conv, ".system_generated", "logs", "transcript_full.jsonl")
 }
+
+// AgyAlwaysOffered reports whether agy's prompt on g offers to allow a
+// command for the rest of the conversation, its option 2. Its folder-trust
+// question has no such row: there, 2 is "No, exit".
+func AgyAlwaysOffered(g vt.Grid) bool {
+	return strings.Contains(ScreenText(g, screenLines), "2. Yes, and always allow in this conversation")
+}

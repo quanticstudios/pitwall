@@ -194,3 +194,20 @@ func TestAntigravityTranscript(t *testing.T) {
 		}
 	}
 }
+
+// TestAgyAlwaysOffered: agy's command prompt offers option 2; its trust
+// question, whose second row exits, does not.
+func TestAgyAlwaysOffered(t *testing.T) {
+	read := func(name string) vt.Grid {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := vt.New(100, 30, nil)
+		e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+		return e.Snapshot()
+	}
+	if !AgyAlwaysOffered(read("antigravity-approval.txt")) || AgyAlwaysOffered(read("antigravity-trust.txt")) {
+		t.Error("option 2 read wrong")
+	}
+}

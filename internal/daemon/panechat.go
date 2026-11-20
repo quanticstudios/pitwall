@@ -387,6 +387,9 @@ func (pc *paneChat) offers(l paneLive) {
 		return
 	}
 	no := !slices.Contains(a.Buttons, agent.AllowAlways)
+	if pc.prov == model.ProviderAntigravity && l.p != nil {
+		no = !agent.AgyAlwaysOffered(l.p.Snapshot())
+	}
 	reason := ""
 	if pc.prov == model.ProviderClaude && l.p != nil {
 		reason = agent.HookReason(l.p.Snapshot())
@@ -955,8 +958,8 @@ func (d *Daemon) paneApprove(id string, l paneLive, m proto.ChatApprove) error {
 		if err != nil {
 			return err
 		}
-		if agent.StateOf(a.Provider, p.Snapshot()) != model.StatePendingApproval {
-			return errors.New("the pane shows no permission prompt to answer")
+		if g := p.Snapshot(); agent.StateOf(a.Provider, g) != model.StatePendingApproval || !agent.AgyAlwaysOffered(g) {
+			return errors.New("the pane's prompt offers no Allow for this conversation; answer it in its tab")
 		}
 		return d.paneKey(id, p, press("2", p.Modes()))
 	case m.Decision == "deny" && strings.TrimSpace(m.Reason) != "":
