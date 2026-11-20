@@ -47,6 +47,8 @@ type paneChat struct {
 	snap   session.Snapshot
 	seq    int64
 	recent []session.Delta
+	// recentSize is the bytes of recent's JSON (keepRecent).
+	recentSize int
 	// queued are the messages the chat typed mid-turn, which Claude Code
 	// holds until the turn ends; the next prompt line takes them.
 	queued []session.QueuedInput
@@ -288,7 +290,7 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
 		pc.start, pc.off, pc.pages, pc.agents = start, start, nil, nil
-		defer func() { pc.recent = nil }() // no reader holds what this replays: each gets a snapshot
+		defer func() { pc.recent, pc.recentSize = nil, 0 }() // no reader holds what this replays: each gets a snapshot
 	}
 	b := make([]byte, end-pc.off)
 	n, err := f.ReadAt(b, pc.off)
@@ -620,10 +622,7 @@ func (pc *paneChat) commit(ds []session.Delta, stamp string) {
 			continue
 		}
 		pc.snap, pc.seq = n, dl.Seq
-		pc.recent = append(pc.recent, dl)
-	}
-	if len(pc.recent) > 2*recentDeltas {
-		pc.recent = slices.Clone(pc.recent[len(pc.recent)-recentDeltas:])
+		pc.recent, pc.recentSize = keepRecent(pc.recent, pc.recentSize, dl, 0)
 	}
 }
 

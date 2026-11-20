@@ -10,10 +10,32 @@ import (
 // or page; ChatRead Item fetches the rest.
 const ClipBytes = 16 << 10
 
+// A Task carries its subagent's newest calls, up to SubagentCallsKept of
+// them and about subagentBytes of their inputs and outputs, since each
+// line of the subagent sends the Task whole; SubagentTools still names
+// every call.
+const (
+	SubagentCallsKept = 20
+	subagentBytes     = 64 << 10
+)
+
+// KeepSubagentCalls is the newest of calls a Task carries, at least one.
+func KeepSubagentCalls(calls []ToolCall) []ToolCall {
+	n, size := 0, 0
+	for i := len(calls) - 1; i >= 0 && n < SubagentCallsKept; i-- {
+		if size += len(calls[i].Input) + len(calls[i].Output); n > 0 && size > subagentBytes {
+			break
+		}
+		n++
+	}
+	return calls[len(calls)-n:]
+}
+
 // Clip is it with each text longer than limit bytes cut to its head and
 // tail around a line saying how many lines it left out, the long strings
 // of a tool's input cut alike, its images and its result's over limit
-// without their data, and its subagent's calls cut as it is. Cut
+// without their data, and its subagent's newest calls (KeepSubagentCalls)
+// cut as it is. Cut
 // reports what it left out. A tool's output keeps more of its tail, which
 // the transcript shows first.
 func Clip(it Item, limit int) Item {
@@ -53,8 +75,9 @@ func Clip(it Item, limit int) Item {
 			}
 		}
 		if len(t.SubagentCalls) > 0 {
-			calls := make([]ToolCall, len(t.SubagentCalls))
-			for i, c := range t.SubagentCalls {
+			kept := KeepSubagentCalls(t.SubagentCalls)
+			calls := make([]ToolCall, len(kept))
+			for i, c := range kept {
 				calls[i] = tool(c)
 			}
 			t.SubagentCalls = calls

@@ -44,8 +44,12 @@ import (
 // reads only config.json of each at start; the first command loads the
 // rest, and one that needs the provider resumes its session (Resume).
 
-// recentDeltas is how many deltas a chat keeps for ChatRead After.
-const recentDeltas = 1024
+// recentDeltas is how many deltas a chat keeps for ChatRead After, and
+// recentBytes how many bytes of them: a read past either gets a snapshot.
+const (
+	recentDeltas = 1024
+	recentBytes  = deltaBytes
+)
 
 // coalesce is how long an append delta takes more text for the same item
 // before the loop publishes it (managed-sessions.md, Delta).
@@ -72,7 +76,9 @@ type chat struct {
 	drv    session.Driver
 	starts int // Provider.Start calls; an event of an earlier one is dropped
 	recent []session.Delta
-	sum    model.Chat // the summary last put in State.Chats
+	// recentSize is the bytes of recent's JSON (keepRecent).
+	recentSize int
+	sum        model.Chat // the summary last put in State.Chats
 	// limit is a plan limit that refused the running turn; its end
 	// schedules the limit resume.
 	limit *session.Limit
@@ -1139,14 +1145,11 @@ func (c *chat) commit(ds []session.Delta, stamp string) {
 			m := &c.recent[last]
 			m.Text += dl.Text
 			m.Revision, m.UpdatedAt, m.ItemUpdatedAt = dl.Revision, dl.UpdatedAt, dl.ItemUpdatedAt
-			c.snap = n
+			c.snap, c.recentSize = n, c.recentSize+len(dl.Text)
 			continue
 		}
 		c.snap, c.seq = n, dl.Seq
-		c.recent = append(c.recent, dl)
-		if len(c.recent) > 2*recentDeltas {
-			c.recent = slices.Clone(c.recent[len(c.recent)-max(recentDeltas, int(c.seq-c.published)):])
-		}
+		c.recent, c.recentSize = keepRecent(c.recent, c.recentSize, dl, int(c.seq-c.published))
 		c.hold = time.Time{}
 		if appends {
 			c.hold = time.Now().Add(coalesce)
@@ -1272,6 +1275,26 @@ const (
 	snapBytes  = 4 << 20
 	itemBytes  = 16 << 20
 )
+
+// keepRecent is recent with dl, and the bytes of their JSON given size,
+// recent's: past twice recentDeltas or recentBytes, only the newest a read
+// can serve, but never fewer than owed, the deltas a publish still owes.
+func keepRecent(recent []session.Delta, size int, dl session.Delta, owed int) ([]session.Delta, int) {
+	b, _ := json.Marshal(dl)
+	recent, size = append(recent, dl), size+len(b)
+	if len(recent) <= 2*recentDeltas && size <= 2*recentBytes {
+		return recent, size
+	}
+	n, size := 0, 0
+	for i := len(recent) - 1; i >= 0; i-- {
+		b, _ := json.Marshal(recent[i])
+		if n >= owed && (n >= recentDeltas || size+len(b) > recentBytes) {
+			break
+		}
+		n, size = n+1, size+len(b)
+	}
+	return slices.Clone(recent[len(recent)-n:]), size
+}
 
 // deltaJSON is ds as JSON, false when they take more than deltaBytes.
 func deltaJSON(ds []session.Delta) ([][]byte, bool) {
