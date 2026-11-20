@@ -66,6 +66,7 @@ type Transcript struct {
 	clicks map[string]*widget.Clickable
 	sels   map[string]*widget.Selectable
 	docs   map[string]*reply    // parsed replies by item id
+	cards  map[string]cardCache // command outputs' cards by item id
 	copied map[string]time.Time // copy buttons, while they show Copied
 	thumbs thumbs
 	focus  int // the transcript's own key focus tag

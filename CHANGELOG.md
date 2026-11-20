@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The chat draws `/usage`, `/cost`, `/context` and `/status` as cards. `/usage` and `/cost` show the plan, each model's tokens in and out, a bar per plan limit window with what is left and when it resets, and the cost, with the token breakdown folded. `/context` shows the window as one bar by category with the tokens and share of each, and Claude's lists folded under it. `/status` is a short list of fields. In a TUI pane chat, where Claude Code opens a dialog for `/usage`, `/cost` and `/status` and writes nothing, the chat answers them itself. Output a card cannot read still shows as text.
 - Settings, Timing no longer counts an idle agent as model time. A turn that ended with a background shell still running stayed open until the next prompt, so 12 Claude turns put about 49 idle hours into "model". The timed turn now ends when the agent stops, background work or not.
 - A line a full disk cut short in `daemon.log` or `gui.log` no longer runs into the next one.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
