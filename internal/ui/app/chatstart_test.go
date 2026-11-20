@@ -35,12 +35,19 @@ func TestChatTask(t *testing.T) {
 	if !ok || !reflect.DeepEqual(c, want) {
 		t.Fatalf("chat %#v, %v\nwant %#v", c, ok, want)
 	}
+	c, ok = chatTask(with([]string{"/opt/bin/agy", "--model", "gemini-3.8-flash-low", "--mode", "plan", "-i", "Fix the login"}, nil))
+	want.Provider, want.Model, want.Effort, want.Mode = model.ProviderAntigravity, "gemini-3.8-flash", "low", "plan"
+	if !ok || !reflect.DeepEqual(c, want) {
+		t.Fatalf("agy chat %#v, %v\nwant %#v", c, ok, want)
+	}
 	for name, task := range map[string]model.Task{
-		"codex":   with([]string{"codex", "Fix it"}, nil),
-		"env":     with([]string{"claude", "Fix it"}, func(t *model.Task) { t.Env = []string{"PITWALL_GUARD=1"} }),
-		"profile": with([]string{"claude", "Fix it"}, func(t *model.Task) { t.Profile = "work" }),
-		"flag":    with([]string{"claude", "--add-dir", "/tmp", "Fix it"}, nil),
-		"fresh":   with([]string{"claude", "Fix it"}, func(t *model.Task) { t.FreshWorktree = true }),
+		"agy without -i": with([]string{"agy", "Fix it"}, nil),
+		"agy flag":       with([]string{"agy", "--sandbox", "-i", "Fix it"}, nil),
+		"codex":          with([]string{"codex", "Fix it"}, nil),
+		"env":            with([]string{"claude", "Fix it"}, func(t *model.Task) { t.Env = []string{"PITWALL_GUARD=1"} }),
+		"profile":        with([]string{"claude", "Fix it"}, func(t *model.Task) { t.Profile = "work" }),
+		"flag":           with([]string{"claude", "--add-dir", "/tmp", "Fix it"}, nil),
+		"fresh":          with([]string{"claude", "Fix it"}, func(t *model.Task) { t.FreshWorktree = true }),
 	} {
 		if _, ok := chatTask(task); ok {
 			t.Errorf("%s: started as a chat", name)
@@ -153,10 +160,10 @@ func TestChatStartWelcome(t *testing.T) {
 	}
 }
 
-// TestWithTerminalClaude: the TUI entry follows Claude Code, not presets.
-func TestWithTerminalClaude(t *testing.T) {
+// TestWithTerminal: the TUI entry follows Claude Code, not presets.
+func TestWithTerminal(t *testing.T) {
 	in := []foundAgent{{cmd: "codex", name: "Codex"}, {cmd: "claude", name: "Claude Code"}, {cmd: "claude", name: "Opus high", preset: true}}
-	out := withTerminalClaude(slices.Clone(in))
+	out := withTerminal(slices.Clone(in), "claude")
 	if len(out) != 4 || out[2].name != "Claude Code (terminal)" || !out[2].terminal || out[3].name != "Opus high" || in[2].name != "Opus high" {
 		t.Fatalf("agents %+v", out)
 	}

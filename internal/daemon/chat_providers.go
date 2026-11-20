@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"log"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -16,7 +17,9 @@ import (
 
 // configuredProviders reads once at daemon startup, keeping a provider id's
 // executable stable for the lifetime of its chats. No agent is spawned here.
-// PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for aide's e2e.
+// Antigravity chats run `agy acp` with pitwall's ACP driver when agy is on
+// PATH. PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for
+// aide's e2e.
 func configuredProviders() map[model.Provider]session.Provider {
 	s, problems := config.Load()
 	for _, p := range problems {
@@ -24,6 +27,9 @@ func configuredProviders() map[model.Provider]session.Provider {
 	}
 	real := acpProviders(s.ACPAgents)
 	real[model.ProviderClaude] = claude.Provider{} // [chat] claude starts Claude Code on it
+	if path, err := exec.LookPath("agy"); err == nil {
+		real[model.ProviderAntigravity] = acp.Provider{Command: path, Args: []string{"acp"}}
+	}
 	return fake.ProvidersFromEnv(real, nil)
 }
 

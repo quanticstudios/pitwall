@@ -47,20 +47,25 @@ func paneChatOf(st *model.State, id string) *model.Chat {
 
 // paneChatShown reports whether pane id of tab ws shows as a chat now: a
 // pane chat of a tab of panes, on a local daemon that answers for it,
-// in the view [chat] claude or codex starts it in unless flipped since.
+// in the view [chat] claude, codex or antigravity starts it in unless
+// flipped since.
 func (u *ui) paneChatShown(st *model.State, ws *model.Workspace, id string) bool {
 	if ws == nil || ws.Chat != "" || curHost() != "" || u.hostOf(id) != "" || linkLevel(u.b) < proto.PaneChatLevel {
 		return false
 	}
 	c := paneChatOf(st, id)
-	if c == nil || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel {
+	if c == nil || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel ||
+		c.Provider == model.ProviderAntigravity && linkLevel(u.b) < proto.AntigravityLevel {
 		delete(u.paneFlip, id) // the next agent in the pane starts in the default view
 		return false
 	}
 	_, ok := u.b.(Chatter)
 	start := u.cfg.Chat.Claude
-	if c.Provider == model.ProviderCodex {
+	switch c.Provider {
+	case model.ProviderCodex:
 		start = u.cfg.Chat.Codex
+	case model.ProviderAntigravity:
+		start = u.cfg.Chat.Antigravity
 	}
 	return ok && start != u.paneFlip[id]
 }

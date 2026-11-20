@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 90 added no message: a daemon at AntigravityLevel answers the
+// Chat* messages for a pane running Antigravity CLI's TUI, and starts
+// chats with Provider "antigravity" when agy is on its PATH.
 // Level 89 added ChatAside and ChatAsideResult: a side question about a
 // chat that its agent never sees. A daemon at that level also answers
 // ChatRewind for a pane chat (PaneRewindLevel).
@@ -233,7 +236,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 89
+const Level = 90
 
 // QueueLevel is the first daemon that takes ChatQueue Action "now" and
 // queue actions on a pane chat, whose mid-turn messages it holds until
@@ -255,6 +258,12 @@ const ChatPageLevel = 86
 // ChatNowLevel is the first daemon sure to take ChatSend How "now": level
 // 85 daemons came both before and after it, and the older ones refuse it.
 const ChatNowLevel = 86
+
+// AntigravityLevel is the first daemon that answers Chat* messages for a
+// pane running Antigravity CLI's TUI and knows the antigravity chat
+// provider; a window shows such a pane as a chat, and starts agy as one,
+// only then.
+const AntigravityLevel = 90
 
 // CodexPaneChatLevel is the first daemon that answers Chat* messages for a
 // pane running Codex's TUI; a window shows such a pane as a chat only then.

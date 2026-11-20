@@ -27,6 +27,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/antigravity"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"github.com/quanticstudios/pitwall/internal/session/codex"
 )
@@ -88,8 +89,11 @@ type paneChat struct {
 
 // transcript is a new reader of pc's transcript.
 func (pc *paneChat) transcript() paneReader {
-	if pc.prov == model.ProviderCodex {
+	switch pc.prov {
+	case model.ProviderCodex:
 		return codex.NewRollout()
+	case model.ProviderAntigravity:
+		return antigravity.NewTranscript()
 	}
 	t := claude.NewTranscript()
 	t.Limit = pc.limit
@@ -114,7 +118,8 @@ func (d *Daemon) claudeLimit(profile string) func() (flow.Limit, bool) {
 }
 
 // paneReader turns a pane chat's transcript lines into events:
-// claude.Transcript for Claude Code, codex.Rollout for Codex.
+// claude.Transcript for Claude Code, codex.Rollout for Codex,
+// antigravity.Transcript for Antigravity.
 type paneReader interface {
 	Line([]byte) []session.Event
 	Running() bool
@@ -127,8 +132,11 @@ type paneReader interface {
 
 // markOf is prov's claude.MarkOf, which tailStart pages by.
 func markOf(prov model.Provider) func([]byte) claude.Mark {
-	if prov == model.ProviderCodex {
+	switch prov {
+	case model.ProviderCodex:
 		return codex.MarkOf
+	case model.ProviderAntigravity:
+		return antigravity.MarkOf
 	}
 	return claude.MarkOf
 }
@@ -179,7 +187,7 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	}
 	l.queued, l.held = d.chatQueued(id)
 	pc := d.paneChats[id]
-	if p.Provider == model.ProviderCodex {
+	if p.Provider != model.ProviderClaude {
 		l.conf = ""
 	}
 	if pc == nil || pc.path != l.path || pc.prov != p.Provider { // a new session (claude again, /clear, /resume) starts over
@@ -309,12 +317,12 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		rerr = err
 	}
 	a := l.act
-	isCodex := pc.prov == model.ProviderCodex
+	isClaude := pc.prov == model.ProviderClaude
 	switch {
-	case isCodex && a.State == model.StatePendingApproval:
-		// shortcut: Codex's questions and plans stay in the terminal; only its approvals reach the chat.
+	case !isClaude && a.State == model.StatePendingApproval:
+		// shortcut: Codex's and Antigravity's questions and plans stay in the terminal; only their approvals reach the chat.
 		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
-	case !isCodex && waits(a.State) && (a.State != model.StateAwaitingInput || agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot()) != nil):
+	case isClaude && waits(a.State) && (a.State != model.StateAwaitingInput || agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot()) != nil):
 		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
 	default:
 		pc.reduce(pc.tr.Resolve())
@@ -328,12 +336,12 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	// The footer says the mode the TUI runs in now; the hooks' mode stands
 	// in only until it does, as AgentMode keeps bypass across Shift+Tab.
 	mode := ""
-	if !isCodex {
+	if isClaude {
 		mode = agent.ClaudeMode(l.p.Snapshot())
 	}
 	if mode != "" {
 		pc.footer = true
-	} else if !pc.footer && !isCodex {
+	} else if !pc.footer && isClaude {
 		mode = l.mode
 	}
 	if mode != "" && mode != pc.snap.PermissionMode {
@@ -344,7 +352,7 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		}
 	}
 	pc.moded = pc.moded || mode != ""
-	if r, ok := pc.tr.(*codex.Rollout); ok {
+	if r, ok := pc.tr.(interface{ Settings() (string, string) }); ok {
 		l.tui.model, l.tui.effort = r.Settings()
 	}
 	pc.settings(l)
@@ -893,7 +901,20 @@ func (d *Daemon) paneApprove(id string, l paneLive, m proto.ChatApprove) error {
 	if err != nil {
 		return errResolved
 	}
+	agy := l.prov == model.ProviderAntigravity
 	switch {
+	case agy && m.Decision == "deny" && strings.TrimSpace(m.Reason) != "":
+		return chatError{"unsupported", "Antigravity's prompt takes no reason; deny it, then send the reason as a message"}
+	case agy && m.Decision == "allow-session":
+		// why: agy's second option allows the command's prefix for this conversation.
+		p, a, _, err := d.waiting(id, at)
+		if err != nil {
+			return err
+		}
+		if agent.StateOf(a.Provider, p.Snapshot()) != model.StatePendingApproval {
+			return errors.New("the pane shows no permission prompt to answer")
+		}
+		return d.paneKey(id, p, press("2", p.Modes()))
 	case m.Decision == "deny" && strings.TrimSpace(m.Reason) != "":
 		return d.pressFeedback(id, at, m.Reason)
 	case m.Decision == "deny":
@@ -963,8 +984,11 @@ func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
 // paneSet sets the model or effort through Claude Code's own pickers, for
 // this session only, and the mode through Shift+Tab (paneMode).
 func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
-	if l.prov == model.ProviderCodex {
+	switch l.prov {
+	case model.ProviderCodex:
 		return chatError{"unsupported", "set Codex's model, effort and mode in its terminal (Alt+T)"}
+	case model.ProviderAntigravity:
+		return chatError{"unsupported", "set Antigravity's model, effort and mode in its terminal (Alt+T)"}
 	}
 	if m.Provider != "" && m.Provider != model.ProviderClaude {
 		return chatError{"unsupported", "this chat is Claude Code in a pane; it cannot switch provider"}
