@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Shift+Tab through the modes, or a model picked and picked again, leaves one divider in the desktop chat for where it ended, not one per step.
 - A TUI pane chat's model and effort chips follow a /model or /effort change again with Claude Code 2.1.329, which draws its acknowledgement with a no-break space; the chip no longer falls back to the last reply's model mid-turn.
 - A TUI pane chat's model chip keeps the model through the first prompt instead of reading "Model" until Claude replies.
 - Rewind on a prompt sent mid-turn rewinds to that prompt in a TUI pane chat, not to the turn's first prompt. A New task chat rewinds and forks whole turns, so it offers both only on the prompt that opened a turn.
