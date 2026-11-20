@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.0
 
 - Antigravity CLI (`agy`) joins the agents: its mark in the sidebar and chat header, its states through `pitwall hooks install` (a `pitwall` hook in `~/.gemini/config/hooks.json`) and the status agy reports to its terminal, Allow, Always and Deny on its permission prompts, resume with `agy --conversation` after a restart, workers whose brief goes in with `-i`, New task chats over `agy acp`, and its TUI panes as the desktop chat. `[chat] antigravity = "terminal"` keeps the TUI.
 - The phone app and the phone web page leave out Allow for this session on an approval whose prompt doesn't offer it, as the desktop chat does.
