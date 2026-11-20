@@ -15,7 +15,7 @@ tab, notifies you, and takes you there with one key.
 - Shows Claude Code as a desktop chat, with its TUI one key away.
 - Installs with one command.
 
-<img src="docs/media/pitwall-hero.webp" alt="The pitwall window with the desktop chat beside the sidebar. The sidebar lists five demo tabs: Retry failed webhooks done, with its branch and lines changed, Failed deliveries page working, Add rate limits waiting for approval with Allow and Deny, Queue for invoice PDFs asking a question with Reply, and npm run dev. The chat shows the prompt in a bubble on the right, the turn's open work log with a thinking row, a four-task checklist, Read, Search, Write, an Edit diff of deliver.ts with line numbers and the test run in color, then Claude's reply with a table of the retry schedule. The composer under it shows Bypass permissions in red, Opus 5.5, High effort and the context meter" width="800">
+<img src="docs/media/pitwall-hero.webp" alt="Three views of pitwall split by blue lines. On the left, the window: the sidebar of session acme lists five demo tabs, Retry failed webhooks done with its branch webhook-retry and +11 −4, Failed deliveries page working, Add rate limits waiting for approval with Allow and Deny, Queue for invoice PDFs asking a question with Reply, and npm run dev. Beside it, the Retry failed webhooks chat ends with Claude's reply: a sentence on retrying with exponential backoff and full jitter, a table of six attempts with their base delay, when each is sent and the total so far, a ts code block with a Copy button holding nextDelay, three bullets and a line about the migration, then Copy reply, Copy as Markdown and the turn's time, tokens and cost. The composer under it shows Bypass permissions in red, Opus 5.5, High and the context meter at 27%. Top right, the Failed deliveries page chat mid-turn: its open work log holds Thought for 4s, Start the dev server running npm run dev, and two Explore subagent cards, Find the dashboard's delivery queries with its answer and Find how the API could requeue a delivery with 4 calls, above a Tasks checklist with Start the dev server crossed off and Finding how the dashboard reads deliveries in progress. Bottom right, an Edit row of src/webhooks/deliver.ts, +11 −5, open to its diff with old and new line numbers, removed lines in red and added lines in green" width="800">
 
 ## Install
 
@@ -55,7 +55,7 @@ views of the same running claude, so nothing restarts and its flags stay in
 effect, bypass permissions included. Alt+T flips the pane between them, even
 mid-turn.
 
-<img src="docs/media/chat.webp" alt="A Claude Code chat mid-turn: after a /effort high chip and a Switched to High effort divider, the prompt asks for a Failed deliveries page. Under a Thought for 4s row, a checklist card reads 1 of 5 with Finding how the dashboard reads deliveries in progress, npm run dev runs in the background, and two Explore subagent cards sit side by side, one done and one still running with its Grep and Read calls inside. Above the composer, a strip shows the task in progress and a queued message waits with Edit and its x" width="800">
+<img src="docs/media/chat.webp" alt="The pitwall window with a Claude Code chat mid-turn in the Failed deliveries page tab. An Effort set to high divider sits above the prompt, which asks for a Failed deliveries page with the dead-lettered webhooks, their last error and a Retry button. The open work log, Working for 3m 05s · 3 tools, holds Thought for 4s, Start the dev server running npm run dev in the background, and two Explore subagent cards: Find the dashboard's delivery queries, done in 22s with its answer, and Find how the API could requeue a delivery, running for 2m 54s with its 4 calls folded inside. Below it, a Tasks card reads 1 of 5, with Start the dev server crossed off and Finding how the dashboard reads deliveries in progress, then Claude's note that useDeliveries(status) already filters by status. Above the composer, a strip shows the task in progress, 1 of 5. The composer reads Type to queue a follow-up, with Bypass permissions in red, Opus 5.5, High, the context meter at 23% and a Stop button" width="800">
 
 - **The composer** has chips for the model, the effort and the permission
   mode, Bypass in red, and a meter of how full the context is. A pasted
@@ -75,7 +75,7 @@ mid-turn.
 - **Huge old chats open at once.** pitwall reads the transcript from its end
   and loads older turns as you scroll up.
 
-<img src="docs/media/chat-tools.webp" alt="An open work log in the chat: an Edit row of src/webhooks/deliver.ts with +10 −4 opens to its diff with line numbers, removed lines in red and added lines in green, and a Bash row for npm test -- webhooks shows vitest's colored output, 2 test files and 9 tests passed, with its time and exit code" width="800">
+<img src="docs/media/chat-tools.webp" alt="An open work log in the chat: rows for Thought for 6s, Read src/webhooks/deliver.ts with 26 lines, Grep deliverWebhook|markFailed with 3 files, and Created src/webhooks/backoff.ts with +9. The Edit row of src/webhooks/deliver.ts, +11 −5, opens to its diff under a Copy diff button, with old and new line numbers, removed lines in red and added lines in green. Run the webhook tests, 4.0s with a green check, opens to $ npm test -- webhooks and vitest's colored output: two test files with their times, 2 passed, 9 tests passed, Duration 612ms" width="800">
 
 Use the TUI for `/config`, `/login` and plugin menus, then Alt+T back.
 `[chat] claude = "terminal"` shows Claude Code panes as the TUI instead, still
@@ -394,7 +394,7 @@ sent CI failures and Reply wait while Claude Code's or Codex's input box holds
 your text or you typed in the pane in the last 3 seconds. The row reads "Waits:
 your draft". Send or clear the draft and they go in by themselves.
 
-<img src="docs/media/agents-talk.webp" alt="Claude Code and Codex in split panes of one pinned tab. Claude Code wrote plan.md and asked Codex to critique it with pitwall send; Codex's reply arrives under a pitwall header naming the sender and how to reply, raising three points. Claude Code accepts two, revises the plan, and Codex answers AGREE." width="800">
+<img src="docs/media/agents-talk.webp" alt="Claude Code and Codex in split panes of the Multi-currency invoices tab, which the sidebar shows with 2 agents · 1 working. On the left, Claude Code as a desktop chat: it wrote plan.md and asked Codex to critique it with pitwall send. Codex's points arrive as a message under a pitwall header naming the sender and the reply command: step 1 backfills before the column has a default, 0007 has no down migration, totals.ts sums floats. Claude's reply says plan.md now sets the default before the backfill and gives both migrations a down step, and that rounding is its own ticket. Codex answers AGREE. Ship it., and the open work log shows Codex agrees. Writing migration 0007 now. with a Write of migrations/0007_invoice_lines.sql running. On the right, Codex's TUI shows the same exchange from its side and ends with its pitwall send of AGREE. Ship it" width="800">
 
 ```sh
 tab=$(pitwall new -n "review auth" -- codex "review origin/main..HEAD")

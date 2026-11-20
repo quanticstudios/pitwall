@@ -5,7 +5,7 @@ import os
 import sys
 import uuid
 
-USAGE = "usage: python3 -I chat.py <out dir> <webhook-retry worktree> <failed-deliveries-page worktree>"
+USAGE = "usage: python3 -I chat.py <out dir> <webhook-retry worktree> <failed-deliveries-page worktree> <currencies worktree>"
 MODEL = "claude-opus-5-5"
 VERSION = "2.1.328"
 
@@ -296,16 +296,108 @@ def failed_page(cwd, start):
     sub.tool(sm, su, "Grep", {"pattern": "router\\.(post|get)\\('/api/deliveries", "path": p("src/server")}, 2)
     return t, sub, a2
 
+PLAN_MD = """# Multi-currency invoices
+
+## Goal
+Invoices carry a currency. Totals, PDFs and exports use it.
+
+## Steps
+1. Migration 0006: add `currency` to `invoices` and backfill `USD`.
+2. Migration 0007: add `invoice_lines.currency`, copied from the invoice.
+3. `totals.ts`: sum per currency; reject mixed lines.
+4. `pdf.ts`: format amounts with `Intl.NumberFormat`.
+5. CSV export: add a `currency` column after `amount`.
+
+## Out of scope
+- Converting between currencies.
+- Changing a sent invoice's currency.
+
+## Tests
+- A EUR invoice renders `€1.234,50` in the de-DE locale.
+- Mixed-currency lines fail with 422.
+- Old invoices read back as USD.
+
+## Rollout
+Ship behind `invoices.multi_currency`, on for new accounts first.
+"""
+
+PLAN_PATCH = [
+    {"oldStart": 6, "oldLines": 7, "newStart": 6, "newLines": 10, "lines": [
+        " ## Steps",
+        "-1. Migration 0006: add `currency` to `invoices` and backfill `USD`.",
+        "-2. Migration 0007: add `invoice_lines.currency`, copied from the invoice.",
+        "-3. `totals.ts`: sum per currency; reject mixed lines.",
+        "+1. Migration 0006: add `currency` to `invoices` with default `USD`, then",
+        "+   backfill, so old rows never fail NOT NULL.",
+        "+2. Migration 0007: add `invoice_lines.currency`, copied from the invoice.",
+        "+3. Both migrations get a down step: `npm run migrate:down 0006`.",
+        "+4. `totals.ts`: sum per currency; reject mixed lines. Integer cents are",
+        "+   a separate ticket, #212.",
+        "-4. `pdf.ts`: format amounts with `Intl.NumberFormat`.",
+        "-5. CSV export: add a `currency` column after `amount`.",
+        "+5. `pdf.ts`: format amounts with `Intl.NumberFormat`.",
+        "+6. CSV export: add a `currency` column after `amount`.",
+        " ",
+    ]},
+]
+
+CODEX_PANE = "41d2e7c06a9f3b28"
+
+
+def talk(cwd, start):
+    t = Transcript("talk", cwd, "currencies", start)
+    p = lambda f: os.path.join(cwd, f)
+    header = lambda: f'[pitwall: message from codex in #6.2; reply with: pitwall send @{CODEX_PANE} "..."]\n'
+    t.prompt("Plan multi-currency invoices in plan.md, then have Codex critique it until you both agree.")
+    m = "msg_01DemoTalk0000000001"
+    u = usage(6, 900, 30100, 3800)
+    tid = t.tool(m, u, "Write", {"file_path": p("plan.md"), "content": PLAN_MD}, 16)
+    t.result(tid, "File created successfully at: " + p("plan.md"), {
+        "type": "create", "filePath": p("plan.md"), "content": PLAN_MD, "structuredPatch": []}, 1)
+    tid = t.tool(m, u, "Bash", {"command": "pitwall split -- codex", "description": "Open Codex beside this pane"}, 3)
+    t.result(tid, "#6.2", {"stdout": "#6.2", "stderr": "", "interrupted": False, "isImage": False}, 1)
+    ask = "Critique plan.md. Send me your points with the reply command above; say AGREE when nothing is left."
+    tid = t.tool(m, u, "Bash", {"command": f"pitwall send '#6.2' -- \"{ask}\"", "description": "Ask Codex for a critique"}, 2)
+    t.result(tid, "queued for codex", {"stdout": "queued for codex", "stderr": "", "interrupted": False, "isImage": False}, 1)
+    t.assistant("msg_01DemoTalk0000000002", [{"type": "text", "text": "plan.md is written and Codex has it. I'll wait for its points."}], 2, usage(2, 40, 34000, 300))
+    t.lines[-1]["message"]["stop_reason"] = "end_turn"
+    t.done(31000, 1)
+    t.prompt(header() + "1. Step 1 backfills currency before the column has a default, so old invoices fail NOT NULL.\n"
+             "2. No down migration for 0007_invoice_lines.\n3. totals.ts still sums floats; rounding drifts.", 64)
+    m = "msg_01DemoTalk0000000003"
+    u = usage(4, 610, 36200, 1400)
+    t.assistant(m, [{"type": "text", "text": "1 and 2 are right. 3 is real but its own ticket."}], 4, u)
+    old = "\n".join(l[1:] for l in PLAN_PATCH[0]["lines"] if l[0] in " -")
+    new = "\n".join(l[1:] for l in PLAN_PATCH[0]["lines"] if l[0] in " +")
+    tid = t.tool(m, u, "Edit", {"file_path": p("plan.md"), "old_string": old, "new_string": new}, 6)
+    t.result(tid, "The file " + p("plan.md") + " has been updated successfully.", {
+        "filePath": p("plan.md"), "oldString": old, "newString": new,
+        "structuredPatch": PLAN_PATCH, "userModified": False, "replaceAll": False}, 1)
+    msg = "Revised: default first, down migration added, rounding split out. Left?"
+    tid = t.tool(m, u, "Bash", {"command": f"pitwall send @{CODEX_PANE} -- \"{msg}\"", "description": "Send the revision to Codex"}, 2)
+    t.result(tid, "queued for codex", {"stdout": "queued for codex", "stderr": "", "interrupted": False, "isImage": False}, 1)
+    t.assistant("msg_01DemoTalk0000000004", [{"type": "text", "text": "plan.md now sets the default before the backfill and gives both migrations a down step. Rounding is real but its own ticket, #212. Codex has the revision."}], 1, usage(2, 12, 38100, 200))
+    t.lines[-1]["message"]["stop_reason"] = "end_turn"
+    t.done(16000, 1)
+    t.prompt(header() + "AGREE. Ship it.", 40)
+    m = "msg_01DemoTalk0000000005"
+    u = usage(4, 300, 39000, 900)
+    t.assistant(m, [{"type": "text", "text": "Codex agrees. Writing migration 0007 now."}], 3, u)
+    t.tool(m, u, "Write", {"file_path": p("migrations/0007_invoice_lines.sql"),
+                           "content": "ALTER TABLE invoice_lines ADD COLUMN currency text;\n"}, 2)
+    return t
+
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         sys.exit(USAGE)
-    out, retry, page = sys.argv[1:]
+    out, retry, page, cur = sys.argv[1:]
     old = "\n".join(l[1:] for l in DELIVER_PATCH[0]["lines"] if l[0] in " -")
     edited = "\n".join(l[1:] for l in DELIVER_PATCH[0]["lines"] if l[0] in " +")
     files = {"repo/src/webhooks/deliver.ts": DELIVER_TS,
              "retry/src/webhooks/deliver.ts": "import { MAX_ATTEMPTS, nextDelay } from './backoff'\n" + DELIVER_TS.replace(old, edited),
-             "retry/src/webhooks/backoff.ts": BACKOFF_TS}
+             "retry/src/webhooks/backoff.ts": BACKOFF_TS,
+             "cur/plan.md": PLAN_MD.replace(*("\n".join(l[1:] for l in PLAN_PATCH[0]["lines"] if l[0] in k) for k in (" -", " +")))}
     for name, body in files.items():
         os.makedirs(os.path.dirname(os.path.join(out, name)), exist_ok=True)
         with open(os.path.join(out, name), "w") as f:
@@ -318,6 +410,7 @@ def main():
     sub.write(os.path.join(agents, "agent-a2demo.jsonl"))
     with open(os.path.join(agents, "agent-a2demo.meta.json"), "w") as f:
         json.dump({"agentType": "Explore", "toolUseId": tool, "description": "Find how the API could requeue a delivery"}, f)
+    talk(cur, now - datetime.timedelta(minutes=3)).write(os.path.join(out, "talk.jsonl"))
 
 
 if __name__ == "__main__":

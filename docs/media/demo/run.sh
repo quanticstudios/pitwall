@@ -9,6 +9,7 @@ mkdir -p "$R/home" "$R/run" "$R/bin" "$R/config" "$R/data" "$R/state" "$R/cache"
 chmod 700 "$R/run"
 cp "$pitwall" "$R/bin/pitwall"
 cp "$demo/claude" "$R/bin/claude"
+cp "$demo/codex" "$R/bin/codex"
 
 export HOME="$R/home" XDG_RUNTIME_DIR="$R/run" XDG_CONFIG_HOME="$R/config" XDG_DATA_HOME="$R/data"
 export XDG_STATE_HOME="$R/state" XDG_CACHE_HOME="$R/cache" CLAUDE_CONFIG_DIR="$R/home/.claude"
@@ -18,10 +19,10 @@ unset PITWALL_SOCKET PITWALL_PANE PITWALL_ATTACH
 mkdir -p "$CLAUDE_CONFIG_DIR"
 printf 'PS1="%%1~ %%# "\n' >"$HOME/.zshrc"
 printf '{"effortLevel":"high"}\n' >"$CLAUDE_CONFIG_DIR/settings.json"
-mkdir -p "$XDG_CONFIG_HOME/pitwall" && : >"$XDG_CONFIG_HOME/pitwall/config.toml"
+mkdir -p "$XDG_CONFIG_HOME/pitwall" && printf '[dev_proxy]\nenabled = false\n' >"$XDG_CONFIG_HOME/pitwall/config.toml"
 
 repo="$HOME/src/api"
-python3 -I "$demo/chat.py" "$R/transcripts" "$HOME/src/api-webhook-retry" "$HOME/src/api-failed-deliveries-page"
+python3 -I "$demo/chat.py" "$R/transcripts" "$HOME/src/api-webhook-retry" "$HOME/src/api-failed-deliveries-page" "$HOME/src/api-currencies"
 mkdir -p "$repo/src/server" "$repo/web/src/pages"
 cp -r "$R/transcripts/repo/." "$repo/"
 cd "$repo"
@@ -35,7 +36,9 @@ wt webhook-retry
 wt failed-deliveries-page
 wt rate-limits
 wt invoice-pdf
+wt currencies
 cp -r "$R/transcripts/retry/." "$HOME/src/api-webhook-retry/"
+cp -r "$R/transcripts/cur/." "$HOME/src/api-currencies/"
 printf 'export function FailedDeliveries() {}\n' >"$HOME/src/api-failed-deliveries-page/web/src/pages/Failed.tsx"
 printf 'export const limit = 100\n%.0s' 1 2 3 4 5 6 7 8 >"$HOME/src/api-rate-limits/src/server/rateLimit.ts"
 
@@ -61,6 +64,10 @@ new "Failed deliveries page" "$HOME/src/api-failed-deliveries-page" DEMO_STATE=w
 new "Add rate limits" "$HOME/src/api-rate-limits" DEMO_STATE=approval DEMO_PROMPT="Add rate limits to the API"
 new "Queue for invoice PDFs" "$HOME/src/api-invoice-pdf" DEMO_STATE=input DEMO_PROMPT="Render invoices as PDFs"
 "$R/bin/pitwall" new -n "npm run dev" "$repo" -- sh -c 'printf "  VITE v6.2.0  ready in 412 ms\n\n  Local:   http://localhost:3010/\n"; exec cat' >/dev/null
+new "Multi-currency invoices" "$HOME/src/api-currencies" DEMO_STATE=working \
+	DEMO_TRANSCRIPT="$R/transcripts/talk.jsonl" DEMO_PROMPT="Plan multi-currency invoices in plan.md"
+(cd "$HOME/src/api-currencies" && "$R/bin/pitwall" split "Multi-currency invoices" -- codex >/dev/null)
+"$R/bin/pitwall" session rename acme
 echo "daemon pid $(cat "$R/daemon.pid"); stop it with: kill \$(cat $R/daemon.pid)"
 echo "open the window from a clean shell, never one with these XDG variables:"
-echo "  cd $repo && agent-ws run pwmedia -- env HOME=$HOME XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR XDG_CONFIG_HOME=$XDG_CONFIG_HOME XDG_DATA_HOME=$XDG_DATA_HOME XDG_STATE_HOME=$XDG_STATE_HOME XDG_CACHE_HOME=$XDG_CACHE_HOME CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR PATH=$PATH PITWALL_TEST_MAIN=1 PITWALL_TEST_SIZE=1600x800 <pitwall.test>"
+echo "  cd $repo && agent-ws run pwmedia -- env -u PITWALL_SOCKET -u PITWALL_PANE -u PITWALL_ATTACH HOME=$HOME XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR XDG_CONFIG_HOME=$XDG_CONFIG_HOME XDG_DATA_HOME=$XDG_DATA_HOME XDG_STATE_HOME=$XDG_STATE_HOME XDG_CACHE_HOME=$XDG_CACHE_HOME CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR PATH=$PATH PITWALL_TEST_MAIN=1 PITWALL_TEST_SIZE=1600x800 <pitwall.test>"

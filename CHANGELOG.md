@@ -24,7 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
-- The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
+- The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
 - The desktop chat draws everything in a Claude Code conversation natively, in New task chats and TUI pane chats alike, and no markup shows as text:
   - A task list (TodoWrite, TaskCreate and TaskUpdate, Codex's plan) is a checklist card with "3 of 7" and the running task's active form. It updates in place. While a turn runs, a strip above the composer shows the task in progress; click it to see the whole list.
   - A subagent (Task, Agent, Workflow) is a card with its description, type, state, time and tool count. Its calls fold inside it, and its result shows its first lines with Show all. A background subagent stays running until it reports, and parallel ones stack.
