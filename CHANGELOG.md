@@ -44,6 +44,7 @@ takes `--dry-run`.
 - A Claude Code pane's chat shows a question as its question card, with each option on its key, when the hook that it waits comes before Claude Code writes the AskUserQuestion call. It stayed a generic approval card with Allow and Deny.
 - Allow for session answers Claude Code's file edit prompt, whose second option now reads "Yes, and switch to accept edits … for this session". It failed with "the pane no longer offers Allow always".
 - When the daemon refuses an answer to an approval or a question in the desktop chat, its card comes back instead of an "Allowed" line that said it went through.
+- A background subagent's result shows `<` and `>` and `&` as themselves, not as `&lt;`, `&gt;` and `&amp;`.
 - A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
