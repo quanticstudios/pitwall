@@ -12,14 +12,18 @@ import (
 // what code changed, and "(current)" last, where its cursor starts:
 //
 //	Rewind
+//
 //	Restore the code and/or conversation to the point before…
+//
 //	  Reply with just the word ALPHA.
 //	  No code changes
+//
 //	❯ (current)
+//
 //	Enter to continue · Esc to cancel
 //
-// Enter on a prompt asks how to rewind, with numbered options such as
-// "Restore conversation" (measured on 2.1.329).
+// under a ─ or ▔ rule. Enter on a prompt asks how to rewind, with numbered
+// options such as "Restore conversation" (measured on 2.1.329).
 
 // RewindCurrent is the picker's last row, the conversation as it is.
 const RewindCurrent = "(current)"
@@ -64,12 +68,17 @@ func RewindConfirm(g vt.Grid) (opts []string, at int, ok bool) {
 	return opts, at, len(opts) > 0 && at >= 0
 }
 
-// rewindTitle reports whether rows are the rewind dialog whose line under
-// its title starts with sub.
+// rewindTitle reports whether rows are the rewind dialog whose first line
+// under its title, blank lines aside, starts with sub.
 func rewindTitle(rows []string, sub string) bool {
-	for i, r := range rows {
-		if strings.TrimSpace(r) == "Rewind" && i+1 < len(rows) && strings.HasPrefix(strings.TrimSpace(rows[i+1]), sub) {
-			return true
+	title := false
+	for _, r := range rows {
+		switch r = strings.TrimSpace(r); {
+		case r == "":
+		case title:
+			return strings.HasPrefix(r, sub)
+		default:
+			title = r == "Rewind"
 		}
 	}
 	return false

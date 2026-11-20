@@ -10,14 +10,19 @@ func TestRewindScreens(t *testing.T) {
 	picker := gridOf(
 		"❯ Reply with just the word CHARLIE.",
 		"● CHARLIE",
-		"▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔",
+		"────────────────────",
 		"  Rewind",
+		"",
 		"  Restore the code and/or conversation to the point before…",
+		"",
 		"    Reply with just the word ALPHA.",
 		"    No code changes",
+		"",
 		"  ❯ Reply with just the word BRAVO.",
 		"    2 files changed +4 -1",
+		"",
 		"    (current)",
+		"",
 		"  Enter to continue · Esc to cancel")
 	if l, ok := RewindPick(picker); !ok || l != "Reply with just the word BRAVO." {
 		t.Errorf("pick %q %v", l, ok)
@@ -32,6 +37,7 @@ func TestRewindScreens(t *testing.T) {
 	confirm := gridOf(
 		"▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔",
 		"  Rewind",
+		"",
 		"  Restore to the point before you sent this message:",
 		"  │ Reply with just the word CHARLIE.",
 		"  │ (21s ago)",
