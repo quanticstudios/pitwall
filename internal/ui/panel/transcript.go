@@ -75,6 +75,7 @@ type Transcript struct {
 	answer  map[string]*[3]widget.Clickable // per pending approval, one per decisions entry
 	sent    map[string]bool                 // requests answered here that the chat has not resolved yet
 	answers []Answer                        // not taken by Answers yet
+	reasons map[string]*widget.Editor       // approvals whose Deny or Refine opened the reason field
 	inputs  []InputAnswer                   // not taken by Inputs yet
 	asks    map[string]*ask                 // per pending question request
 	done    []resolved                      // requests answered here, as one line each
@@ -109,6 +110,7 @@ type Transcript struct {
 type Answer struct {
 	Request  string
 	Decision string // allow, allow-session, deny
+	Reason   string // what a denial tells the agent to do instead, "" for none
 }
 
 // InputAnswer is a question answered on its card: question id to the
@@ -204,7 +206,11 @@ func (t *Transcript) OpenAide() bool {
 func (t *Transcript) Key(name string) bool {
 	if t.keyPlan {
 		if dec, ok := planKey(name); ok {
-			t.decide(t.keyReq, dec)
+			if dec == "deny" {
+				t.openReason(t.keyReq)
+			} else {
+				t.decide(t.keyReq, dec)
+			}
 			return true
 		}
 		return false
@@ -218,6 +224,8 @@ func (t *Transcript) Key(name string) bool {
 		return false
 	}
 	switch {
+	case act.decision == "deny":
+		t.openReason(t.keyReq)
 	case act.decision != "":
 		t.decide(t.keyReq, act.decision)
 	case act.submit:
@@ -297,6 +305,7 @@ func (t *Transcript) init() {
 	t.open, t.clicks, t.sels, t.selAt = map[string]bool{}, map[string]*widget.Clickable{}, map[string]*widget.Selectable{}, map[string]int{}
 	t.docs, t.copied = map[string]*reply{}, map[string]time.Time{}
 	t.answer, t.sent, t.asks = map[string]*[3]widget.Clickable{}, map[string]bool{}, map[string]*ask{}
+	t.reasons = map[string]*widget.Editor{}
 	t.list.Axis = layout.Vertical
 }
 
@@ -355,12 +364,15 @@ func (t *Transcript) isCopied(key string) bool {
 }
 
 // decide answers approval id once.
-func (t *Transcript) decide(id, decision string) {
+func (t *Transcript) decide(id, decision string) { t.decideWhy(id, decision, "") }
+
+// decideWhy answers approval id once, a denial with reason.
+func (t *Transcript) decideWhy(id, decision, reason string) {
 	if id == "" || t.sent[id] {
 		return
 	}
 	t.sent[id] = true
-	t.answers = append(t.answers, Answer{Request: id, Decision: decision})
+	t.answers = append(t.answers, Answer{Request: id, Decision: decision, Reason: reason})
 	if t.keyReq == id {
 		t.keyReq = ""
 	}
@@ -368,7 +380,11 @@ func (t *Transcript) decide(id, decision string) {
 	if t.plans[id] {
 		line = planLine[decision]
 	}
-	t.done = append(t.done, resolved{id: id, line: line, what: t.what[id], prose: t.plans[id], at: t.items, when: t.now})
+	what, prose := t.what[id], t.plans[id]
+	if reason != "" {
+		what, prose = reason, true
+	}
+	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, at: t.items, when: t.now})
 }
 
 // Refused takes back the answer to request id that the daemon refused:
@@ -630,7 +646,11 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	}
 	for id, bs := range t.answer {
 		for i := range bs {
-			if bs[i].Clicked(gtx) && pending[id] {
+			switch {
+			case !bs[i].Clicked(gtx) || !pending[id]:
+			case decisions[i] == "deny":
+				t.openReason(id)
+			default:
 				t.decide(id, decisions[i])
 			}
 		}
@@ -638,6 +658,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 			delete(t.answer, id)
 		}
 	}
+	t.reasonEvents(gtx, pending)
 	for id, a := range t.asks {
 		for qi := range a.opts {
 			for oi := range a.opts[qi] {

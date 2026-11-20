@@ -768,13 +768,16 @@ func (d *Daemon) paneKey(id string, p Pane, data []byte) error {
 
 // paneApprove answers the permission prompt or plan on screen: Allow is
 // its first Yes, Allow for the session its don't-ask-again, a plan's
-// Allow its manual-approve Yes, and Deny Esc.
+// Allow its manual-approve Yes, and Deny Esc, or with a reason the
+// prompt's own field for one (pressFeedback).
 func (d *Daemon) paneApprove(id string, l paneLive, m proto.ChatApprove) error {
 	at, err := strconv.ParseInt(m.Request, 10, 64)
 	if err != nil {
 		return errResolved
 	}
 	switch {
+	case m.Decision == "deny" && strings.TrimSpace(m.Reason) != "":
+		return d.pressFeedback(id, at, m.Reason)
 	case m.Decision == "deny":
 		p, _, _, err := d.waiting(id, at)
 		if err != nil {

@@ -133,7 +133,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			u.send(m)
 		}
 		for _, a := range t.Answers() {
-			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision})
+			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision, Reason: a.Reason})
 		}
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
