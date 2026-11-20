@@ -30,6 +30,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session/antigravity"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"github.com/quanticstudios/pitwall/internal/session/codex"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // A pane chat is the desktop chat of a Claude Code or Codex TUI running in
@@ -336,8 +337,11 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	// The footer says the mode the TUI runs in now; the hooks' mode stands
 	// in only until it does, as AgentMode keeps bypass across Shift+Tab.
 	mode := ""
-	if isClaude {
+	switch {
+	case isClaude:
 		mode = agent.ClaudeMode(l.p.Snapshot())
+	case pc.prov == model.ProviderAntigravity:
+		mode = agyMode(l.p.Snapshot())
 	}
 	if mode != "" {
 		pc.footer = true
@@ -354,6 +358,10 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	pc.moded = pc.moded || mode != ""
 	if r, ok := pc.tr.(interface{ Settings() (string, string) }); ok {
 		l.tui.model, l.tui.effort = r.Settings()
+	}
+	// why: agy's footer says the model and effort the next turn takes; its transcript says only the last turn's.
+	if _, mdl, eff, ok := agent.AgyFooter(l.p.Snapshot()); ok && pc.prov == model.ProviderAntigravity {
+		l.tui.model, l.tui.effort = mdl, eff
 	}
 	pc.settings(l)
 	if !slices.EqualFunc(l.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
@@ -988,7 +996,7 @@ func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
 	case model.ProviderCodex:
 		return chatError{"unsupported", "set Codex's model, effort and mode in its terminal (Alt+T)"}
 	case model.ProviderAntigravity:
-		return chatError{"unsupported", "set Antigravity's model, effort and mode in its terminal (Alt+T)"}
+		return d.agySet(id, l.p, m)
 	}
 	if m.Provider != "" && m.Provider != model.ProviderClaude {
 		return chatError{"unsupported", "this chat is Claude Code in a pane; it cannot switch provider"}
@@ -1004,7 +1012,7 @@ func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
 		}
 	}
 	if m.Mode != "" {
-		return d.paneMode(id, l.p, m.Mode)
+		return d.paneMode(id, l.p, m.Mode, agent.ClaudeMode)
 	}
 	return nil
 }
@@ -1013,10 +1021,10 @@ func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
 // each press waiting for the footer to move: the TUI's own cycle decides
 // the order, bypass included when the session opted in. With no footer to
 // read, as while a prompt covers it, it presses once.
-func (d *Daemon) paneMode(id string, p Pane, mode string) error {
+func (d *Daemon) paneMode(id string, p Pane, mode string, read func(vt.Grid) string) error {
 	defer d.paneCommandLock(id)()
 	shiftTab := input.Key(key.Event{Name: key.NameTab, Modifiers: key.ModShift, State: key.Press}, p.Modes())
-	cur := agent.ClaudeMode(p.Snapshot())
+	cur := read(p.Snapshot())
 	if cur == "" {
 		return d.paneKey(id, p, shiftTab)
 	}
@@ -1031,12 +1039,12 @@ func (d *Daemon) paneMode(id string, p Pane, mode string) error {
 		prev := cur
 		for deadline := time.Now().Add(menuWait.get()); cur == prev && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
-			if cur = agent.ClaudeMode(p.Snapshot()); cur == "" {
+			if cur = read(p.Snapshot()); cur == "" {
 				cur = prev
 			}
 		}
 		if cur == prev {
-			return errors.New("Claude Code's mode did not change")
+			return errors.New("the agent's mode did not change")
 		}
 	}
 	return nil

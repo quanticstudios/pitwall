@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // Google's Antigravity CLI (agy) runs command hooks from hooks.json files:
@@ -198,4 +200,40 @@ func agyLastReply(path string) string {
 		}
 	}
 	return ""
+}
+
+// agyFooterModes and agyFooterEfforts are what agy 1.5.13's footer can
+// say: no mode word in its default mode.
+var (
+	agyFooterModes   = map[string]bool{"auto": true, "plan": true, "accept-edits": true}
+	agyFooterEfforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+)
+
+// AgyFooter reads the right end of agy's footer, "auto · Gemini 3.8 Flash
+// · low": the mode ("default" when it names none), the model's name and the
+// effort. ok is false for a screen without that footer, as while a picker
+// covers it.
+func AgyFooter(g vt.Grid) (mode, model, effort string, ok bool) {
+	for _, l := range bottomLines(g, 2) {
+		i := strings.LastIndex(l, "  ")
+		if i < 0 {
+			continue
+		}
+		parts := strings.Split(strings.TrimSpace(l[i:]), " · ")
+		switch len(parts) {
+		case 2:
+			mode, model, effort = "default", parts[0], parts[1]
+		case 3:
+			mode, model, effort = parts[0], parts[1], parts[2]
+			if !agyFooterModes[mode] {
+				continue
+			}
+		default:
+			continue
+		}
+		if model != "" && agyFooterEfforts[effort] {
+			return mode, model, effort, true
+		}
+	}
+	return "", "", "", false
 }

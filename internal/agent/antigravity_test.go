@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // The payloads in testdata/antigravity are agy 1.5.13's own, from a run
@@ -148,5 +149,35 @@ func TestIdentifyAntigravity(t *testing.T) {
 	}
 	if Command(model.ProviderAntigravity) != "agy" || !HooksFor(model.ProviderAntigravity) {
 		t.Error("agy's command or hooks")
+	}
+}
+
+// TestAgyFooter reads the footers agy 1.5.13 drew: with a mode word, in
+// its default mode without one, and none while a picker covers it.
+func TestAgyFooter(t *testing.T) {
+	screen := func(rows ...string) vt.Grid {
+		e := vt.New(100, 6, nil)
+		e.Write([]byte(strings.Join(rows, "\r\n")))
+		return e.Snapshot()
+	}
+	pad := func(left, right string) string {
+		return left + strings.Repeat(" ", 100-len([]rune(left))-len([]rune(right))) + right
+	}
+	for _, c := range []struct {
+		name                string
+		g                   vt.Grid
+		mode, model, effort string
+		ok                  bool
+	}{
+		{"auto", screen("> ", pad("? for shortcuts", "auto · Gemini 3.8 Flash · low")), "auto", "Gemini 3.8 Flash", "low", true},
+		{"busy, accept edits", screen(pad("esc to cancel", "accept-edits · Claude Sonnet 5.5 · medium")), "accept-edits", "Claude Sonnet 5.5", "medium", true},
+		{"default mode", screen(pad("? for shortcuts", "Gemini 4 Neon · xhigh")), "default", "Gemini 4 Neon", "xhigh", true},
+		{"picker", screen("Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back"), "", "", "", false},
+		{"prose with dots", screen(pad("", "a · b · c")), "", "", "", false},
+	} {
+		mode, mdl, eff, ok := AgyFooter(c.g)
+		if mode != c.mode || mdl != c.model || eff != c.effort || ok != c.ok {
+			t.Errorf("%s: %q %q %q %v", c.name, mode, mdl, eff, ok)
+		}
 	}
 }

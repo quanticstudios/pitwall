@@ -28,7 +28,6 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
-	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
@@ -414,7 +413,7 @@ func (c *Composer) cycleMode(env Env, now time.Time) {
 		return
 	}
 	cur := ModeOf(env.Snap)
-	next := NextMode(c.mode.show(cur, now), c.bypass)
+	next := NextModeOf(env.Snap.Provider, c.mode.show(cur, now), c.bypass)
 	c.mode = held{next, cur, now.Add(holdFor)}
 	c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: next})
 }
@@ -619,7 +618,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 	}
 	if c.menu && c.which == &c.modeBtn {
 		cur := ModeOf(env.Snap)
-		for _, m := range ModeItems(c.bypass) {
+		for _, m := range ModeItemsOf(env.Snap.Provider, c.bypass) {
 			if c.click("mode:" + m).Clicked(gtx) {
 				c.mode = held{m, cur, gtx.Now.Add(holdFor)}
 				c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: m})
@@ -629,7 +628,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 	}
 	if c.menu && c.which == &c.modelBtn {
-		for _, m := range remote.Models {
+		for _, m := range ModelsOf(env.Snap.Provider) {
 			if c.click("model:" + m).Clicked(gtx) {
 				c.model = held{m, deref(env.Snap.Model), gtx.Now.Add(holdFor)}
 				c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Model: m})
@@ -638,7 +637,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 	}
 	if c.menu && c.which == &c.effortBtn {
-		for _, e := range remote.Efforts {
+		for _, e := range EffortsOf(env.Snap.Provider) {
 			if c.click("effort:" + e).Clicked(gtx) {
 				c.effort = held{e, deref(env.Snap.Effort), gtx.Now.Add(holdFor)}
 				c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Effort: e})
@@ -959,8 +958,8 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 				return d
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				// shortcut: only Claude's efforts are known (remote.Efforts); the snapshot says nothing of other providers'.
-				if env.Snap.Provider != model.ProviderClaude {
+				// shortcut: only Claude's and Antigravity's efforts are known (EffortsOf); the snapshot says nothing of other providers'.
+				if EffortsOf(env.Snap.Provider) == nil {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Left: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1008,7 +1007,7 @@ func pickFg(th *theme.Theme) color.NRGBA { return theme.Mix(th.Fg, th.Muted, 0.3
 // is red with a shield, as Claude Code's TUI shows it in red.
 func modeLook(th *theme.Theme, m string) (color.NRGBA, string, string) {
 	switch m {
-	case ModeAccept:
+	case ModeAccept, "accept-edits":
 		return th.Purple, "pencil", "Permission mode (Shift+Tab)"
 	case ModePlan:
 		return th.Green, "map", "Permission mode (Shift+Tab)"
@@ -1246,7 +1245,7 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		var kids []layout.FlexChild
 		if c.which == &c.modeBtn {
-			for _, m := range ModeItems(c.bypass) {
+			for _, m := range ModeItemsOf(env.Snap.Provider, c.bypass) {
 				col, icon, _ := modeLook(th, m)
 				if m != ModeBypass {
 					col = th.Fg
@@ -1258,7 +1257,7 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 		}
 		if c.which == &c.effortBtn {
-			for _, e := range remote.Efforts {
+			for _, e := range EffortsOf(env.Snap.Provider) {
 				kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return menuRow(gtx, th, c.click("effort:"+e), EffortName(e), e == curEffort)
 				}))
@@ -1266,7 +1265,7 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 		}
 		kids = append(kids, layout.Rigid(heading(th, "Model")))
-		for _, v := range remote.Models {
+		for _, v := range ModelsOf(env.Snap.Provider) {
 			on := v != "default" && ModelName(v) == curModel
 			kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return menuRow(gtx, th, c.click("model:"+v), ModelName(v), on)
