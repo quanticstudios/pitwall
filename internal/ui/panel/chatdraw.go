@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"gioui.org/font"
+	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -366,9 +368,9 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 	return hrow(gtx, gtx.Dp(theme.SpaceS), ws...)
 }
 
-// thumbnail is image attachment a, 96 dp tall, with its number.
+// thumbnail is image attachment a, 96 dp tall, with its number; a click
+// shows it large.
 func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment, n int) layout.Dimensions {
-	th := d.th
 	if a.Data == "" { // a snapshot's copy, until the item comes whole (Transcript.Full)
 		return d.fileChip(gtx, "image", a.Name)
 	}
@@ -383,16 +385,37 @@ func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment
 	} else {
 		d.t.live = true
 	}
+	k := item + "/" + a.ID
+	ck := d.t.click("img:" + k)
+	for ck.Clicked(gtx) {
+		d.t.tool.zoom = zoomed{key: k, a: *a}
+		gtx.Execute(key.FocusCmd{Tag: &d.t.focus})
+	}
+	return clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
+		return d.thumbFace(gtx, tb, w, h, n, ck.Hovered())
+	})
+}
+
+// thumbFace draws a prompt's thumbnail tb, w by h, with its number n;
+// hover lightens it.
+func (d *cdraw) thumbFace(gtx layout.Context, tb thumb, w, h, n int, hover bool) layout.Dimensions {
+	th := d.th
 	r := image.Rect(0, 0, w, h)
 	rad := gtx.Dp(theme.RadiusPopover)
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(r, rad).Op(gtx.Ops))
+	cl := clip.UniformRRect(r, rad).Push(gtx.Ops)
 	if tb.ready {
-		cl := clip.UniformRRect(r, rad).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = layout.Exact(r.Size())
 		widget.Image{Src: tb.img, Fit: widget.Cover, Position: layout.Center}.Layout(g)
-		cl.Pop()
 	}
+	if hover {
+		veil := th.Fg
+		veil.A = 0x14
+		paint.FillShape(gtx.Ops, veil, clip.Rect(r).Op())
+	}
+	pointer.CursorPointer.Add(gtx.Ops)
+	cl.Pop()
 	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(r, rad).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), th.Fg, "#"+strconv.Itoa(n))
