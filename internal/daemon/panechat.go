@@ -701,11 +701,14 @@ func contextUsage(line []byte) (int64, string, bool) {
 	return t, l.Message.Model, t > 0
 }
 
-// contextWindow is a Claude model's context window: 1M for a [1m] model id
-// or one the TUI names "… 1M", else 200K.
-// shortcut: 200K is Claude Code's window for every other model today; read the TUI's own total if a model's differs.
+// contextWindow is a Claude model's context window: 1M for a [1m] model id,
+// one the TUI names "… 1M", or Sonnet 5.5, which Claude Code 2.1.329's
+// /context gives 1M; else 200K.
+// shortcut: a table of what Claude Code shows today; read the TUI's own total if a model's differs.
 func contextWindow(model, tui string) int64 {
-	if strings.HasSuffix(strings.ToLower(model), "[1m]") || strings.HasSuffix(tui, " 1M") {
+	m := strings.ToLower(model)
+	if strings.HasSuffix(m, "[1m]") || strings.HasSuffix(tui, " 1M") ||
+		strings.HasPrefix(m, "claude-sonnet-5-5") || strings.HasPrefix(tui, "Sonnet 5.5") {
 		return 1_000_000
 	}
 	return 200_000

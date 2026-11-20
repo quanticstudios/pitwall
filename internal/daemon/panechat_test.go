@@ -402,6 +402,9 @@ func TestPaneChatContext(t *testing.T) {
 	if u := pc.snap.Usage; *u.MaxTokens != 1_000_000 {
 		t.Errorf("window %d with the TUI on Opus 5.5 1M: want 1M", *u.MaxTokens)
 	}
+	if w := contextWindow("claude-sonnet-5-5", ""); w != 1_000_000 {
+		t.Errorf("window of Sonnet 5.5: %d, want 1M as its /context says", w)
+	}
 	if w := contextWindow("claude-opus-5-5[1m]", ""); w != 1_000_000 {
 		t.Errorf("window of a [1m] id: %d", w)
 	}
