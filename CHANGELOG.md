@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A Codex tab's title drops the status Codex puts first, such as "[ . ] Action Required | ", and the folder it puts last; the sidebar shows both already.
 - A resumed TUI pane chat no longer shows Claude Code's "No response requested." placeholder as a reply.
 - The desktop and phone chats keep a reply's single line breaks, as Claude Code's TUI does, so text written one item per line no longer runs together into one paragraph.
 - A Ctrl+F match in the desktop chat lands just under the find bar instead of behind it.
