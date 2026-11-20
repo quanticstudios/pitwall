@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
 
 // What a transcript holds besides prompts, replies and tool calls: task
@@ -105,6 +107,39 @@ func promptParts(text string) (shown string, pastes []paste) {
 		pastes = append(pastes, paste{text: b, lines: strings.Count(strings.TrimRight(b, "\n"), "\n") + 1})
 	}
 	return outside, pastes
+}
+
+// pitwallHeader is the line pitwall types above a message from another
+// pane or a script: who sent it, its tab, and how to answer.
+var pitwallHeader = regexp.MustCompile(`^\[pitwall: message from ([^;\]\n]+?)(?: in (#[^;\]\s]+))?(?:;[^\]\n]*)?\]\n?`)
+
+// sender is who sent a message pitwall typed, as its bubble names them.
+type sender struct {
+	prov  model.Provider // "" for a script, a pane or another machine
+	label string         // as "Codex · #6.2"
+	line  string         // the header as typed, which a copy gives back
+}
+
+// promptSender splits pitwall's header off a prompt's shown text: the
+// sender, and the text after the header.
+func promptSender(shown string) (sender, string) {
+	m := pitwallHeader.FindStringSubmatchIndex(shown)
+	if m == nil {
+		return sender{}, shown
+	}
+	who := shown[m[2]:m[3]]
+	s := sender{prov: model.Provider(who), line: strings.TrimSuffix(shown[m[0]:m[1]], "\n")}
+	name := sidebar.AgentName(s.prov)
+	if name == "" { // a script, a pane, an agent on another machine
+		s.prov = ""
+		name = strings.TrimPrefix(strings.TrimPrefix(who, "an "), "a ")
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	s.label = name
+	if m[4] >= 0 {
+		s.label += " · " + shown[m[4]:m[5]]
+	}
+	return s, shown[m[1]:]
 }
 
 var slashLine = regexp.MustCompile(`^/[A-Za-z][\w:.-]*(\s.*)?$`)

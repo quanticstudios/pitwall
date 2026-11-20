@@ -147,6 +147,21 @@ func drawSnap(t *testing.T, th *theme.Theme, s session.Snapshot, w, h int, frame
 	return img
 }
 
+// sendersSnap is prompts pitwall typed from other agents and a script,
+// one of them the way Claude Code 2.1 recorded it, as pasted content.
+func sendersSnap() session.Snapshot {
+	at := session.Stamp(time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC))
+	s := session.Snapshot{SessionID: "s", Provider: "claude", SessionState: session.StateReady}
+	for i, text := range []string{
+		"[pitwall: message from codex in #6.2; reply with: pitwall send @41d2e7c06a9f3b28 \"...\"]\nRebased onto main, the tests pass. Can you review the diff?",
+		"\n\n<pasted_content id=\"44ff\">\n[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff\nCI is green\nmerge when ready\n</pasted_content id=\"44ff\">\n",
+		"[pitwall: message from a script]\nThe nightly build is green.",
+	} {
+		s.Content = append(s.Content, session.Item{ID: "p" + strconv.Itoa(i), Kind: session.KindUserPrompt, CreatedAt: at, UpdatedAt: at, Text: text})
+	}
+	return s
+}
+
 // TestDrawHarnessItems lays out live transcripts and a turn holding every
 // item this package draws, without a panic. With PITWALL_RENDER_DIR set
 // it saves each frame there as a PNG to look at.
@@ -156,7 +171,7 @@ func TestDrawHarnessItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snaps := map[string]session.Snapshot{"rich": richSnap()}
+	snaps := map[string]session.Snapshot{"rich": richSnap(), "senders": sendersSnap()}
 	for _, name := range []string{"tui-commands", "tui-tasks", "print-compact"} {
 		snaps[name] = renderSnap(t, filepath.Join("..", "..", "session", "claude", "testdata", "transcripts", name+".jsonl"))
 	}

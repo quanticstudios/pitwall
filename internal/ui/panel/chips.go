@@ -30,6 +30,9 @@ type ctext struct {
 	// lo and hi are, per rune of text, the typed runes it stands for:
 	// all of a token for each rune of its chip.
 	lo, hi []int
+	// head is a line typed above the text that the bubble draws apart,
+	// pitwall's sender header: a copy of the whole text gives it back.
+	head string
 }
 
 // chipText widens each [Image #N] in s to lead no-break spaces, the
@@ -76,6 +79,11 @@ func chipText(s string, lead, trail int) ctext {
 
 // typed is the typed text that drawn runes [a, b) stand for.
 func (ct ctext) typed(a, b int) string {
+	if ct.head != "" && a <= 0 && b >= len([]rune(ct.text)) {
+		body := ct
+		body.head = ""
+		return ct.head + "\n" + body.typed(a, b)
+	}
 	if ct.orig == nil {
 		r := []rune(ct.text)
 		return string(r[max(0, a):min(b, len(r))])
@@ -107,7 +115,7 @@ func (d *cdraw) chipPad(gtx layout.Context, st tstyle) (lead, trail int) {
 // copyAs takes Ctrl+C on sl before the selectable does, and copies the
 // typed text the selection stands for, so a chip copies as its token.
 func (d *cdraw) copyAs(gtx layout.Context, sl *widget.Selectable, ct ctext) {
-	if ct.orig == nil {
+	if ct.orig == nil && ct.head == "" {
 		return
 	}
 	for {

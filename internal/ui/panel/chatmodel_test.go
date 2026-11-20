@@ -10,6 +10,7 @@ import (
 
 	"gioui.org/io/key"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -297,5 +298,44 @@ func TestPromptParts(t *testing.T) {
 	}
 	if got, cut := summaryCut("The output was:\n\n```\n2 notes.txt\n```", 3, 280); got != "The output was:\n2 notes.txt" || !cut {
 		t.Fatalf("summaryCut = %q, %v", got, cut)
+	}
+}
+
+// A message pitwall typed names its sender above the text: mark, name and
+// tab, without the reply command; a copy of the whole text gives the
+// header back, and what Claude read is the transcript's, unchanged.
+func TestPromptSender(t *testing.T) {
+	for _, c := range []struct {
+		text, label, rest string
+		prov              model.Provider
+	}{
+		{"[pitwall: message from codex in #6.2; reply with: pitwall send @41d2e7c06a9f3b28 \"...\"]\nrebased, tests pass", "Codex · #6.2", "rebased, tests pass", model.ProviderCodex},
+		{"[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff", "Claude · #3.1", "chat-system pushed 7a504cff", model.ProviderClaude},
+		{"[pitwall: message from codex; reply with: pitwall send @41d2 \"...\"]\nhi", "Codex", "hi", model.ProviderCodex},
+		{"[pitwall: message from a pane in #2.1; reply with: pitwall send @ab \"...\"]\nhi", "Pane · #2.1", "hi", ""},
+		{"[pitwall: message from a script]\nbuild is green", "Script", "build is green", ""},
+		{"[pitwall: message from an agent on another machine; answer in your reply, which it reads with pitwall read]\nhi", "Agent on another machine", "hi", ""},
+		{"please read [pitwall: message from codex in #6.2] below", "", "please read [pitwall: message from codex in #6.2] below", ""},
+	} {
+		s, rest := promptSender(c.text)
+		if s.label != c.label || rest != c.rest || s.prov != c.prov {
+			t.Errorf("promptSender(%q) = %+v, %q; want %q, %q, %q", c.text, s, rest, c.label, c.rest, c.prov)
+		}
+	}
+	// A transcript's pasted pitwall message gets its sender line too.
+	shown, _ := promptParts("\n\n<pasted_content id=\"44ff\">\n[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nline one\nline two\nline three\n</pasted_content id=\"44ff\">\n")
+	if s, rest := promptSender(shown); s.label != "Claude · #3.1" || rest != "line one\nline two\nline three" {
+		t.Errorf("pasted pitwall message: %+v, %q", s, rest)
+	}
+	text := "[pitwall: message from codex in #6.2; reply with: pitwall send @41d2e7c06a9f3b28 \"...\"]\nsee [Image #1] now"
+	s, rest := promptSender(text)
+	ct := chipText(rest, 2, 1)
+	ct.head = s.line
+	n := len([]rune(ct.text))
+	if got := ct.typed(0, n); got != text {
+		t.Errorf("copy all = %q, want the typed text", got)
+	}
+	if got := ct.typed(0, 3); got != "see" {
+		t.Errorf("copy a part = %q, want it without the header", got)
 	}
 }
