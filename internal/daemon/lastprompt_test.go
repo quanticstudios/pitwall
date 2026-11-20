@@ -89,6 +89,8 @@ func TestLastPromptWindowSubmission(t *testing.T) {
 }
 
 func TestLastPromptCLISubmission(t *testing.T) {
+	oldSettle := sendSettle.set(10 * time.Millisecond)
+	t.Cleanup(func() { sendSettle.set(oldSettle) })
 	for _, from := range []string{"", "b"} {
 		t.Run("sender="+from, func(t *testing.T) {
 			d, f := talkDaemon(t)
@@ -118,6 +120,8 @@ func TestLastPromptCLISubmission(t *testing.T) {
 }
 
 func TestLastPromptAutomatedSubmission(t *testing.T) {
+	oldSettle := sendSettle.set(10 * time.Millisecond)
+	t.Cleanup(func() { sendSettle.set(oldSettle) })
 	for _, tc := range []struct {
 		name string
 		send func(*testing.T, *Daemon)

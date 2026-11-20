@@ -36,6 +36,8 @@ func autoSendDaemon(t *testing.T) (*Daemon, *fakes) {
 // head than the one checked out, and queues only one message while the
 // agent works. Ordinary tabs can receive more than two failing commits.
 func TestAutoSendFailures(t *testing.T) {
+	oldSettle := sendSettle.set(10 * time.Millisecond)
+	t.Cleanup(func() { sendSettle.set(oldSettle) })
 	d, f := autoSendDaemon(t)
 	failing := []model.Check{{Name: "test", State: model.CheckFail}}
 	answer := model.PR{Number: 7, State: model.PROpen, Checks: failing, Head: "h1"}
