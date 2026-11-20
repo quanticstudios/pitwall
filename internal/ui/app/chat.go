@@ -96,7 +96,8 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			t.Older = func() bool { return p.ChatOlder(id) }
 			t.Full = func(item string) { p.ChatItem(id, item) }
 		}
-		t.PRs, t.Open = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }
+		t.PRs, t.Open, t.Invalidate = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }, u.invalidate
+		t.Run = func(cmd string) { u.runCode(st, id, cmd) }
 		cmp := u.composer(st, id)
 		if u.drawn == nil {
 			u.drawn = map[string]bool{}
@@ -158,7 +159,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
 		Now: u.link().Level >= proto.ChatNowLevel}
-	env.Key = t.Key
+	env.Key, env.Esc = t.Key, t.CloseFiles
 	return env
 }
 

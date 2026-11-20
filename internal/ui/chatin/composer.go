@@ -92,6 +92,9 @@ type Env struct {
 	// Key, when set, offers a digit typed into the empty box, or Enter on
 	// it, to the transcript's pending request; true when it took the key.
 	Key func(name string) bool
+	// Esc, when set, takes Escape before it stops the turn; true when it
+	// closed something, as the transcript's side panel.
+	Esc func() bool
 	// Now is whether the daemon takes ChatSend How "now" (proto.ChatNowLevel);
 	// Ctrl+Enter sends "steer" to one that does not.
 	Now bool
@@ -489,9 +492,11 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		switch e.Name {
 		case key.NameEscape:
-			if c.menu {
+			switch {
+			case c.menu:
 				c.setMenu(gtx.Now, false)
-			} else if env.Snap.Busy() {
+			case env.Esc != nil && env.Esc(): // the transcript closed its side panel
+			case env.Snap.Busy():
 				c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 			}
 		case key.NameTab:

@@ -463,8 +463,13 @@ func readLines(out string) []monoLine {
 		}
 		ml = append(ml, monoLine{text: l})
 	}
+	if n := len(ml); n > 1 && ml[n-2].new > 0 && bareNumber.MatchString(ml[n-1].text) {
+		ml = ml[:n-1] // the empty line after the file's last newline, its tab trimmed
+	}
 	return ml
 }
+
+var bareNumber = regexp.MustCompile(`^\s*\d+$`)
 
 // prettyJSON is s indented when it is JSON, else s.
 func prettyJSON(s string) string {
