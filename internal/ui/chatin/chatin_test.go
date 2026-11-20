@@ -224,6 +224,7 @@ type harness struct {
 	gate chan struct{} // when set, a clipboard read waits for it
 	now  time.Time
 	key  func(string) bool // the transcript's, nil when it takes no keys
+	old  bool              // the daemon predates ChatSend How "now"
 }
 
 func newHarness(t *testing.T) *harness {
@@ -237,7 +238,7 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old,
 		ReadImage: func(context.Context) ([]byte, error) {
 			if h.gate != nil {
 				<-h.gate

@@ -157,6 +157,12 @@ func TestComposerSendNow(t *testing.T) {
 	if m := h.press(key.NameReturn, key.ModShortcut); len(m) != 1 || m[0].(proto.ChatSend).How != "now" || m[0].(proto.ChatSend).Text != "now" {
 		t.Fatalf("busy Ctrl+Enter sent %v", m)
 	}
+	// A daemon below proto.ChatNowLevel refuses "now"; it gets "steer".
+	h.old = true
+	h.typ("old")
+	if m := h.press(key.NameReturn, key.ModShortcut); len(m) != 1 || m[0].(proto.ChatSend).How != "steer" {
+		t.Fatalf("busy Ctrl+Enter to an old daemon sent %v", m)
+	}
 }
 
 // An open popover closes when the composer loses the keys, as when
