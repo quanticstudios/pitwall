@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A TUI pane chat's permission card for a call Claude Code has not written yet, as a Write often is, says what it runs or touches ("Claude wants to edit a file" and the path) instead of a generic "asks for approval" with the tool name twice.
 - A denied permission's line in the desktop chat starts with an x, not a check.
 - The /usage, /cost and /status cards name models as the composer does, Sonnet 5.5 rather than claude-sonnet-5-5.
 - A TUI pane chat on Sonnet 5.5 meters its context out of 1M, as Claude Code's /context does, not 200K.
