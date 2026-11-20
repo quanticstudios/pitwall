@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -74,6 +75,9 @@ func TestConfiguredFakeProviders(t *testing.T) {
 	}
 	// Antigravity's chats run agy acp, found on PATH.
 	agy := filepath.Join(bin, "agy")
+	if runtime.GOOS == "windows" {
+		agy += ".exe" // LookPath finds only a name with an executable extension
+	}
 	if err := os.WriteFile(agy, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

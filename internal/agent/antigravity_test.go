@@ -27,8 +27,14 @@ func TestFromAntigravity(t *testing.T) {
 	const sid = "11111111-2222-3333-4444-555555555555"
 	now := time.Unix(1_800_000_000, 0)
 
-	start := FromAntigravity(agyFixture(t, "session_start.json"))
-	if SessionID(model.ProviderAntigravity, start) != sid || !strings.HasSuffix(Transcript(start), "/"+sid+"/.system_generated/logs/transcript_full.jsonl") {
+	// The fixture's own paths are Unix ones; a path of this system stands in, so it is absolute everywhere.
+	var raw map[string]any
+	json.Unmarshal(agyFixture(t, "session_start.json"), &raw)
+	path := filepath.Join(t.TempDir(), sid, ".system_generated", "logs", "transcript_full.jsonl")
+	raw["transcriptPath"] = path
+	b, _ := json.Marshal(raw)
+	start := FromAntigravity(b)
+	if SessionID(model.ProviderAntigravity, start) != sid || Transcript(start) != path {
 		t.Fatalf("SessionStart: session %q, transcript %q", SessionID(model.ProviderAntigravity, start), Transcript(start))
 	}
 	if _, ok := Derive(nil, model.ProviderAntigravity, start, now); ok {
@@ -62,10 +68,10 @@ func TestFromAntigravity(t *testing.T) {
 	}
 
 	// A command the user stopped: the same payload with the error agy gives it.
-	var raw map[string]any
+	raw = nil
 	json.Unmarshal(agyFixture(t, "post_tool_use.json"), &raw)
 	raw["error"] = "command was terminated by a signal: context canceled"
-	b, _ := json.Marshal(raw)
+	b, _ = json.Marshal(raw)
 	f, failed := ToolFailure(model.ProviderAntigravity, FromAntigravity(b))
 	if !failed || !f.Interrupted || !f.Shell || f.Command != "mkdir -p ./junk2 && rmdir ./junk2" || f.Output != "command was terminated by a signal: context canceled" {
 		t.Errorf("stopped command: %+v, %v", f, failed)
