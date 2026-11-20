@@ -209,3 +209,23 @@ func TestLocalFileRoutesToPanel(t *testing.T) {
 		t.Error("CloseFiles: want true once, then false")
 	}
 }
+
+// The File view lexes code in a language the lexers know, and leaves
+// other text plain.
+func TestFileViewHighlights(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"a.go": "package a\n\nfunc F() int { return 1 }\n", "notes.txt": "plain words\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr := &Transcript{Dir: dir}
+	tr.showFile("a.go")
+	if len(tr.side.spans) != 3 || len(tr.side.spans[0]) == 0 {
+		t.Fatalf("a.go spans %v: want tokens on its lines", tr.side.spans)
+	}
+	tr.showFile("notes.txt")
+	if tr.side.spans != nil {
+		t.Errorf("notes.txt spans %v: want none", tr.side.spans)
+	}
+}

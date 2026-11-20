@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The chat's Changes panel and File view highlight code as the chat's own diffs and code blocks do.
 - When a background shell ends while a TUI pane chat answers the next prompt, that answer stays its turn's reply instead of folding into the work log under the notification's reply.
 - Claude Code's warnings in the desktop chat, such as an unknown slash command, no longer carry an API retry's "Retrying" title.
 - Shift+Tab through the modes, or a model picked and picked again, leaves one divider in the desktop chat for where it ended, not one per step.
