@@ -34,6 +34,7 @@ type reply struct {
 	doc    mdview.Doc                  // tables, flowcharts and images
 	plain  string                      // the reply without its markdown, for Copy reply
 	wide   map[string]*mdview.Sideways // code blocks' sideways scroll, by key
+	code   map[string]*hlBlock         // code blocks' highlighting, by key
 }
 
 // para is a text block as one selectable string: its styled runs as rune
@@ -65,9 +66,9 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 		src = mdview.Heal(src)
 	}
 	old := r
-	r = &reply{text: it.Text, live: live, blocks: mdview.Parse([]byte(src)), paras: map[int]para{}, wide: map[string]*mdview.Sideways{}}
+	r = &reply{text: it.Text, live: live, blocks: mdview.Parse([]byte(src)), paras: map[int]para{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
 	if old != nil {
-		r.wide = old.wide // a code block keeps its scroll as the reply grows
+		r.wide, r.code = old.wide, old.code // a code block keeps its scroll and tokens as the reply grows
 	}
 	r.doc.Set(r.blocks)
 	var plain []string
@@ -529,85 +530,6 @@ func (d *cdraw) marker(gtx layout.Context, b *mdview.Block, x int, st tstyle, td
 		return widget.Label{Alignment: text.End, MaxLines: 1}.Layout(gtx, th.Shaper, st.f, st.size, b.Marker, material(gtx, c))
 	})
 	at(gtx, image.Pt(x-mw-gtx.Dp(theme.SpaceS), base-(ld.Size.Y-ld.Baseline)), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return ld })
-}
-
-// codeBlock is a fenced block: a 30 dp header bar with its language and
-// Copy, the code in mono under it, selectable and never wrapped; a line
-// wider than the block scrolls it sideways. A diff colors its added and
-// removed lines.
-func (d *cdraw) codeBlock(gtx layout.Context, r *reply, key, lang, code string) layout.Dimensions {
-	th := d.th
-	code = mdview.Detab(strings.TrimRight(code, "\n"))
-	w := gtx.Constraints.Max.X
-	hh := gtx.Dp(rowH)
-	px, py := gtx.Dp(theme.SpaceM+theme.Space2XS), gtx.Dp(theme.SpaceM)
-	rad := gtx.Dp(theme.RadiusPopover)
-	sl := d.t.sel(key)
-	sl.Colors = sl.Colors[:0]
-	if lang == "diff" || lang == "patch" {
-		sl.Colors = d.diffColors(sl.Colors, code)
-	}
-	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(1<<20, gtx.Constraints.Max.Y)}
-	call, td := measure(g, func(gtx layout.Context) layout.Dimensions { return d.selectable(gtx, sl, d.mono(), code) })
-	sw := r.wide[key]
-	if sw == nil {
-		sw = new(mdview.Sideways)
-		r.wide[key] = sw
-	}
-	body, bar := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		inner := op.Record(gtx.Ops)
-		at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return td })
-		content := inner.Stop()
-		h := td.Size.Y + 2*py
-		extra := sw.Layout(gtx, th, w-2, h, td.Size.X+2*px, rad-1, content)
-		return layout.Dimensions{Size: image.Pt(w, h+extra)}
-	})
-	h := hh + bar.Size.Y
-	rrect(gtx, image.Rect(0, 0, w, h), rad, th.Surface, th.BorderSubtle)
-	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(1, hh-1), Max: image.Pt(w-1, hh)}.Op())
-	if lang != "" {
-		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, lang)
-		})
-		at(gtx, image.Pt(px, (hh-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
-	}
-	ck := d.t.click("copy:" + key)
-	if ck.Clicked(gtx) {
-		d.t.copy(gtx, key, code)
-	}
-	bc, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.ghost(gtx, ck, "clipboard", "Copy", d.t.isCopied(key))
-	})
-	at(gtx, image.Pt(w-gtx.Dp(theme.Space2XS)-bd.Size.X, (hh-bd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { bc.Add(gtx.Ops); return bd })
-	at(gtx, image.Pt(1, hh), func(gtx layout.Context) layout.Dimensions { body.Add(gtx.Ops); return bar })
-	return layout.Dimensions{Size: image.Pt(w, h)}
-}
-
-// diffColors appends a diff's line colors to out: added lines green,
-// removed red, hunk heads blue, file heads muted.
-func (d *cdraw) diffColors(out []widget.TextColor, code string) []widget.TextColor {
-	th := d.th
-	n := 0
-	for line := range strings.SplitSeq(code, "\n") {
-		k := utf8.RuneCountInString(line)
-		var c color.NRGBA
-		switch {
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
-			c = th.Muted
-		case strings.HasPrefix(line, "+"):
-			c = th.Readable(th.Green, th.Surface)
-		case strings.HasPrefix(line, "-"):
-			c = th.Readable(th.Red, th.Surface)
-		case strings.HasPrefix(line, "@@"):
-			c = th.Readable(th.Blue, th.Surface)
-		}
-		if c != (color.NRGBA{}) {
-			out = append(out, widget.TextColor{Start: n, End: n + k, Color: c})
-		}
-		n += k + 1
-	}
-	return out
 }
 
 // replyFoot is a finished reply's row: Copy reply, Copy as Markdown, the
