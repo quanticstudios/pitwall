@@ -51,7 +51,7 @@ type backend struct {
 	moves   []proto.FocusDir                  // not yet taken by the window
 	ssID    uint64                            // the last Skillshare's ID
 	ssWaits map[uint64]*ssWait                // Skillshare calls waiting for their replies
-	chat    chatCache                         // the transcript of the chat on screen
+	chats   map[string]*chatCache             // the transcripts of the chats on screen, by id
 	chatReq map[string][]any                  // per chat, the Chat* requests waiting for their replies, oldest first
 	chatOut map[string][]chatin.Result        // per chat, the answers to the window's requests, not yet taken
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
@@ -359,7 +359,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.outMu.Unlock()
 	b.mu.Lock()
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
-	b.all, b.chat = nil, chatCache{}
+	b.all, b.chats = nil, nil
 	clear(b.chatReq) // the new connection answers none of them
 	b.cmds = nil
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
@@ -545,20 +545,15 @@ func (b *backend) recvLoop() {
 			pane = m.Pane
 		case proto.ChatDeltas:
 			b.chatReply(m.Chat) // a ChatRead's
-			changed := b.chat.take(m)
-			if after, ok := b.chat.again(m.Chat, changed); ok {
-				id := m.Chat
-				time.AfterFunc(after, func() { b.chatRead(id) })
-			}
-			if !changed {
+			if !b.chatTook(m) {
 				b.mu.Unlock()
 				continue
 			}
 		case proto.MonitorSample:
 			b.mon, b.monAt = m, time.Now()
 		case proto.ChatResult:
-			if m.Chat == b.chat.id && m.Code == "not-found" {
-				b.chat.out = false
+			if c := b.chats[m.Chat]; c != nil && m.Code == "not-found" {
+				c.out = false
 			}
 			b.chatAnswered(m)
 		case proto.FaviconResult:
@@ -721,8 +716,8 @@ func chatOf(msg any) (string, bool) {
 func (b *backend) chatAnswered(m proto.ChatResult) {
 	req := b.chatReply(m.Chat)
 	if r, ok := req.(proto.ChatRead); ok && m.Code != "" && m.Code != "not-found" {
-		if m.Chat == b.chat.id {
-			b.chat.refused(r, m.Message)
+		if c := b.chats[m.Chat]; c != nil {
+			c.refused(r, m.Message)
 		}
 		return
 	}

@@ -72,6 +72,7 @@ takes `--dry-run`.
 - Every chat read stays small: long tool output, inputs and replies come as their head and tail with a line counting what is left out, and the whole item loads when you open it. Images come as references and load when shown.
 - A chat that does not load says why, with Try again and Open terminal view, instead of waiting forever. The daemon and the window log a dropped oversized message with its size.
 - Scrolling through a long chat keeps memory flat: the window drops parsed text far off screen.
+- Alt+T reaches a shell or Codex pane again, so Meta-T transposes words. Since chat tabs came, the window kept Alt+T in every pane; it now takes it only in a chat tab or a Claude Code pane chat with the keys.
 
 ## v0.2.18
 

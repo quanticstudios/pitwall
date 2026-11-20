@@ -609,8 +609,8 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.chatTerminal = false
 		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" {
 			u.toggleChatTerminal(st, ws)
-		} else if id := u.nav.focused(); u.paneChatKey(st) && paneChatOf(st, id) != nil {
-			u.flipPaneChat(id)
+		} else if u.paneChatKey(st) {
+			u.flipPaneChat(u.nav.focused())
 		}
 	}
 	if u.nav.sidebarKeys {
@@ -735,6 +735,9 @@ func (u *ui) layout(gtx gl.Context) {
 			u.reader.Keys(gtx)
 		}
 		u.reviewKeys(gtx, &st)
+	}
+	for id, p := range u.panes {
+		u.focusClicks(gtx, p, id)
 	}
 	for u.modal.kind == modalNone {
 		u.nav.paneChatKey = u.paneChatKey(&st)
@@ -1385,16 +1388,14 @@ func roundedFor(gtx gl.Context, sole bool) int {
 	return gtx.Dp(10) - 1
 }
 
-func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r layout.Rect, focused, findFocus, sole bool, att *model.Activity) {
-	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
-	p.rect = rect.Add(u.contentOrigin)
-	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
-	gtx.Constraints = gl.Exact(rect.Size())
-
+// focusClicks moves the keys to pane id on a press in it. The window
+// takes the presses before it asks for its keys, since the keys queued
+// behind a click are the newly focused pane's.
+func (u *ui) focusClicks(gtx gl.Context, p *paneUI, id string) {
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &p.focusClick, Kinds: pointer.Press})
 		if !ok {
-			break
+			return
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
 			if id != u.nav.peek { // a peek's pane is not the shown tab's
@@ -1403,6 +1404,15 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 			u.leaveSidebar()
 		}
 	}
+}
+
+func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r layout.Rect, focused, findFocus, sole bool, att *model.Activity) {
+	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
+	p.rect = rect.Add(u.contentOrigin)
+	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
+	gtx.Constraints = gl.Exact(rect.Size())
+
+	u.focusClicks(gtx, p, id)
 
 	g, m, ok := u.b.Frame(id)
 	u.searchAllJump(id)

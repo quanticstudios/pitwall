@@ -90,7 +90,7 @@ func TestChatCachePages(t *testing.T) {
 		return out
 	}
 	b.Chat("c")
-	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("c", "d"), Seq: 1, Older: 40})
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("c", "d"), Seq: 1, Older: 40})
 	if !b.ChatOlder("c") || !b.ChatOlder("c") {
 		t.Fatal("no older history")
 	}
@@ -103,24 +103,24 @@ func TestChatCachePages(t *testing.T) {
 	if reads != 1 {
 		t.Fatalf("%d page reads, want 1: %+v", reads, b.out)
 	}
-	if b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("x"), Page: 99, Older: 1}) {
+	if b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("x"), Page: 99, Older: 1}) {
 		t.Fatal("took a page of another snapshot")
 	}
-	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("a", "b"), Page: 40, Older: 0})
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("a", "b"), Page: 40, Older: 0})
 	s, _ := b.Chat("c")
 	if got := ids(s); !reflect.DeepEqual(got, []string{"a=a cut", "b=b cut", "c=c cut", "d=d cut"}) || len(s.Turns) != 2 || b.ChatOlder("c") {
-		t.Fatalf("after the page: %v, %d turns, more %v", got, len(s.Turns), b.chat.more)
+		t.Fatalf("after the page: %v, %d turns, more %v", got, len(s.Turns), b.chats["c"].more)
 	}
 	whole, _ := json.Marshal(session.Item{ID: "b", Text: "b whole"})
 	b.ChatItem("c", "b")
 	b.ChatItem("c", "b")
-	b.chat.take(proto.ChatDeltas{Chat: "c", Item: whole})
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Item: whole})
 	if s, _ := b.Chat("c"); ids(s)[1] != "b=b whole" || len(b.chatReq["c"]) > 4 {
 		t.Fatalf("whole item: %v, %d reads out", ids(s), len(b.chatReq["c"]))
 	}
-	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("e"), Seq: 9, Older: 70})
-	if s, _ := b.Chat("c"); len(s.Content) != 1 || b.chat.more != 70 {
-		t.Fatalf("new cursor: %v, more %d", ids(s), b.chat.more)
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("e"), Seq: 9, Older: 70})
+	if s, _ := b.Chat("c"); len(s.Content) != 1 || b.chats["c"].more != 70 {
+		t.Fatalf("new cursor: %v, more %d", ids(s), b.chats["c"].more)
 	}
 
 	b2 := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
@@ -131,12 +131,12 @@ func TestChatCachePages(t *testing.T) {
 		t.Fatalf("refused read: %q, results %v", why, b2.chatOut)
 	}
 	b2.ChatRetry("x")
-	b2.chat.at = time.Time{}
+	b2.chats["x"].at = time.Time{}
 	b2.Chat("x")
-	if !b2.chat.out {
+	if !b2.chats["x"].out {
 		t.Fatal("Try again sent no read")
 	}
-	b2.chat.at = time.Now().Add(-readWait)
+	b2.chats["x"].at = time.Now().Add(-readWait)
 	b2.Chat("x")
 	if since, why := b2.ChatWait("x"); why == "" || since.IsZero() {
 		t.Fatalf("no reply in %v: %q", readWait, why)
@@ -180,7 +180,7 @@ func TestChatReadPace(t *testing.T) {
 		{"another chat", busy, "x", time.Second, 0, false, 0},
 		{"no longer shown", busy, "c", time.Second, 2 * time.Second, false, 0},
 	} {
-		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out, at: now.Add(-tc.ago), shown: now.Add(-tc.shown)}
+		b.chats = map[string]*chatCache{"c": {id: "c", snap: tc.snap, out: tc.out, at: now.Add(-tc.ago), shown: now.Add(-tc.shown)}}
 		b.chatRead(tc.id)
 		if got := reads(); got != tc.want {
 			t.Errorf("%s: %d reads, want %d", tc.what, got, tc.want)
@@ -203,12 +203,169 @@ func TestChatReadPace(t *testing.T) {
 		{"idle, changed", idle, false, true, app.ChatPoll, true},
 		{"idle, unchanged", idle, false, false, app.ChatPoll, false},
 	} {
-		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out}
-		if after, ok := b.chat.again("c", tc.changed); after != tc.after && tc.ok || ok != tc.ok {
+		b.chats = map[string]*chatCache{"c": {id: "c", snap: tc.snap, out: tc.out}}
+		if after, ok := b.chats["c"].again("c", tc.changed); after != tc.after && tc.ok || ok != tc.ok {
 			t.Errorf("%s: again %v %v, want %v %v", tc.what, after, ok, tc.after, tc.ok)
 		}
 	}
-	if _, ok := b.chat.again("x", true); ok {
+	if _, ok := b.chats["c"].again("x", true); ok {
 		t.Error("read again for another chat")
+	}
+}
+
+// TestChatCacheSideBySide: two chats drawn in one frame, as two pane
+// chats of a split, each keep their transcript and read a snapshot once;
+// a chat new to the window drops the ones no longer shown.
+func TestChatCacheSideBySide(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	snaps := 0
+	for range 3 {
+		b.Chat("a")
+		b.Chat("b")
+		for _, m := range b.out {
+			if r, ok := m.(proto.ChatRead); ok && r.After == 0 {
+				snaps++
+				s, _ := json.Marshal(session.Snapshot{SessionID: r.Chat, Content: []session.Item{{ID: r.Chat + "1"}}})
+				b.chatTook(proto.ChatDeltas{Chat: r.Chat, Snapshot: s, Seq: 1})
+			}
+		}
+		b.out = nil
+	}
+	for _, id := range []string{"a", "b"} {
+		if s, ok := b.Chat(id); !ok || len(s.Content) != 1 || s.Content[0].ID != id+"1" {
+			t.Fatalf("chat %s: %v %+v", id, ok, s.Content)
+		}
+	}
+	if snaps != 2 {
+		t.Fatalf("%d snapshot reads, want one per chat", snaps)
+	}
+	b.chats["b"].shown = time.Now().Add(-2 * chatShown)
+	b.Chat("c")
+	if _, kept := b.chats["b"]; kept || b.chats["a"] == nil {
+		t.Fatalf("kept %v", b.chats)
+	}
+}
+
+// TestChatItemUpdated: an item read whole that grows after, as a long
+// reply streams or a big Write lands, is read whole again at its new
+// UpdatedAt instead of going back to its cut copy for good.
+func TestChatItemUpdated(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	b.Chat("c")
+	s, _ := json.Marshal(session.Snapshot{SessionID: "c", Content: []session.Item{{ID: "r", Kind: session.KindAssistantText, Text: "cut", Cut: true, UpdatedAt: "1"}}})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: s, Seq: 1})
+	itemReads := func() (n int) {
+		for _, m := range b.out {
+			if r, ok := m.(proto.ChatRead); ok && r.Item == "r" {
+				n++
+			}
+		}
+		b.out = nil
+		return n
+	}
+	whole := func(text, at string) {
+		w, _ := json.Marshal(session.Item{ID: "r", Kind: session.KindAssistantText, Text: text, UpdatedAt: at})
+		b.chatTook(proto.ChatDeltas{Chat: "c", Item: w})
+	}
+	b.ChatItem("c", "r")
+	b.ChatItem("c", "r")
+	whole("whole", "1")
+	if s, _ := b.Chat("c"); s.Content[0].Text != "whole" || itemReads() != 1 {
+		t.Fatalf("first read: %q", s.Content[0].Text)
+	}
+	d, _ := json.Marshal(session.Delta{Version: session.DeltaVersion, SessionID: "c", Seq: 2, Revision: 2, Type: session.DeltaItemTextAppend,
+		ItemID: "r", Text: " more", ItemUpdatedAt: "2"})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 1, Deltas: [][]byte{d}})
+	b.ChatItem("c", "r")
+	b.ChatItem("c", "r")
+	if n := itemReads(); n != 1 {
+		t.Fatalf("%d reads of the grown item, want 1", n)
+	}
+	whole("whole more", "2")
+	if s, _ := b.Chat("c"); s.Content[0].Text != "whole more" {
+		t.Fatalf("after it grew: %q", s.Content[0].Text)
+	}
+}
+
+// TestChatRewindDelta: a rewind's snapshot delta holds the whole chat, so
+// the pages read before it go and no item shows twice, with all pages
+// read or some; when it does not line up with them, the next read asks
+// for a snapshot, whose cursor pages on.
+func TestChatRewindDelta(t *testing.T) {
+	items := func(ids ...string) []session.Item {
+		out := []session.Item{}
+		for _, id := range ids {
+			out = append(out, session.Item{ID: id, Kind: session.KindAssistantText, Text: id})
+		}
+		return out
+	}
+	wire := func(ids ...string) []byte {
+		b, _ := json.Marshal(session.Snapshot{SessionID: "c", Content: items(ids...)})
+		return b
+	}
+	for _, tc := range []struct {
+		what   string
+		page   []string
+		older  int64 // the page's cursor
+		reread bool
+	}{
+		{"every page read", []string{"a", "b"}, 0, false},
+		{"some pages read", []string{"b"}, 1, true},
+	} {
+		b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+		b.link.Level = proto.Level
+		b.Chat("c")
+		b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("c", "d"), Seq: 1, Older: 2})
+		b.ChatOlder("c")
+		b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire(tc.page...), Page: 2, Older: tc.older})
+		rewound := session.Snapshot{SessionID: "c", Content: items("a", "b", "c")}
+		d, _ := json.Marshal(session.Delta{Version: session.DeltaVersion, SessionID: "c", Seq: 2, Revision: 2, Type: session.DeltaSnapshot, Snapshot: &rewound})
+		b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 1, Deltas: [][]byte{d}})
+		s, _ := b.Chat("c")
+		var got []string
+		for _, it := range s.Content {
+			got = append(got, it.ID)
+		}
+		if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+			t.Errorf("%s: %v", tc.what, got)
+		}
+		if b.ChatOlder("c") {
+			t.Errorf("%s: pages on before the whole chat", tc.what)
+		}
+		if reread := b.chats["c"].seq == 0; reread != tc.reread {
+			t.Errorf("%s: asks for a snapshot %v, want %v", tc.what, reread, tc.reread)
+		}
+	}
+}
+
+// TestChatSnapshotKeepsPages: a managed chat's cursor is an index that
+// moves as items come, so a snapshot after a gap comes with another one;
+// the pages read stay when its first item lines up with them, and the
+// view keeps its history.
+func TestChatSnapshotKeepsPages(t *testing.T) {
+	wire := func(ids ...string) []byte {
+		s := session.Snapshot{SessionID: "c", Content: []session.Item{}}
+		for _, id := range ids {
+			s.Content = append(s.Content, session.Item{ID: id, Kind: session.KindAssistantText, Text: id})
+		}
+		b, _ := json.Marshal(s)
+		return b
+	}
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	b.Chat("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("c", "d"), Seq: 1, Older: 2})
+	b.ChatOlder("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("a", "b"), Page: 2, Older: 0})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("d", "e"), Seq: 9, Older: 3})
+	s, _ := b.Chat("c")
+	var got []string
+	for _, it := range s.Content {
+		got = append(got, it.ID)
+	}
+	if !reflect.DeepEqual(got, []string{"a", "b", "c", "d", "e"}) || b.ChatOlder("c") {
+		t.Fatalf("after the snapshot: %v, more %d", got, b.chats["c"].more)
 	}
 }
