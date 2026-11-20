@@ -26,7 +26,8 @@ var (
 type toolUseResult struct {
 	Interrupted      bool   `json:"interrupted"`
 	BackgroundTaskID string `json:"backgroundTaskId"`
-	Type             string `json:"type"` // Write: create or update
+	TaskID           string `json:"taskId"` // Monitor: the watch it started
+	Type             string `json:"type"`   // Write: create or update
 	FilePath         string `json:"filePath"`
 	StructuredPatch  []struct {
 		OldStart int      `json:"oldStart"`
@@ -69,6 +70,17 @@ func (s *stream) finish(t *session.ToolCall, b block, raw json.RawMessage) {
 			}
 		case !r.Interrupted:
 			t.ExitCode = new(int) // Claude Code fails a call that exits non-zero
+		}
+	case "Monitor":
+		// A watch runs on like a background shell: its notices end it, and
+		// its events go on its row.
+		if r.TaskID != "" && t.Status == "completed" {
+			t.Background = "running"
+			if s.bg == nil {
+				s.bg, s.tasks = map[string]session.ToolCall{}, map[string]string{}
+			}
+			s.bg[t.CallID] = *t
+			s.tasks[r.TaskID] = t.CallID
 		}
 	case "Edit", "MultiEdit", "Write":
 		var d strings.Builder
@@ -132,14 +144,39 @@ func (s *stream) background(id, state string) []session.Event {
 	t.Background = state
 	if state == "running" || state == "pending" {
 		t.Background = "running"
-		s.bg[id] = t
-	} else {
-		delete(s.bg, id)
 	}
 	if cur, ok := s.tools[id]; ok {
 		cur.Background = t.Background
 		s.tools[id] = cur
 		t = cur
+	}
+	switch {
+	case t.Background == "running", t.ToolName == "Monitor":
+		// A watch's last events can come after its end notice.
+		s.bg[id] = t
+	default:
+		delete(s.bg, id)
+	}
+	return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindToolCall, Tool: &t}}
+}
+
+// monitorEvent is a Monitor watch's event, which Claude Code notifies as
+// it happens: a line more of its call's output, after the line that
+// started it.
+func (s *stream) monitorEvent(task, event string) []session.Event {
+	id := s.tasks[task]
+	t, ok := s.bg[id]
+	event = strings.TrimSpace(event)
+	if !ok || event == "" {
+		return nil
+	}
+	if cur, ok := s.tools[id]; ok {
+		t = cur
+	}
+	t.Output = strings.TrimRight(t.Output, "\n") + "\n" + event
+	s.bg[id] = t
+	if _, ok := s.tools[id]; ok {
+		s.tools[id] = t
 	}
 	return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindToolCall, Tool: &t}}
 }

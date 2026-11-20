@@ -26,6 +26,8 @@ import (
 func (d *cdraw) logEntry(gtx layout.Context, i int) layout.Dimensions {
 	it := &d.s.Content[i]
 	switch {
+	case isSummary(it):
+		return d.summaryRow(gtx, it)
 	case it.Kind == session.KindReasoningText || it.Kind == session.KindReasoningSummaryText:
 		return d.thinkRow(gtx, i)
 	case it.Kind == session.KindSystem:
@@ -76,6 +78,8 @@ func (d *cdraw) sysItem(gtx layout.Context, it *session.Item, inLog bool) layout
 		})
 	case session.PhaseError:
 		return pad(func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, it.ID, th.Red, "", txt) })
+	case session.PhaseRecap:
+		return pad(func(gtx layout.Context) layout.Dimensions { return d.recapCard(gtx, it, txt) })
 	}
 	if txt == "" {
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}
@@ -114,9 +118,13 @@ func (d *cdraw) commandChip(gtx layout.Context, cmd string, right bool) layout.D
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// commandOutput is a local command's output under its chip: quiet mono,
-// its colors dropped, the last lines first.
+// commandOutput is a local command's output under its chip: its card
+// (cmdcard_draw.go) when one reads it, else quiet mono, its colors
+// dropped, the last lines first.
 func (d *cdraw) commandOutput(gtx layout.Context, id, out string, right bool) layout.Dimensions {
+	if card := d.outCard(id, out); card != nil {
+		return d.cmdCard(gtx, id, card)
+	}
 	w := gtx.Constraints.Max.X
 	bw := w
 	if right {

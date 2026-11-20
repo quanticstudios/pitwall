@@ -260,7 +260,7 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	if err := d.write(userLine(m)); err != nil {
 		return "", err
 	}
-	d.s.turn = m.ID
+	d.s.turn, d.s.recap = m.ID, strings.TrimSpace(m.Text) == "/recap"
 	d.post(session.Event{Type: session.EventTurnStarted, TurnID: m.ID})
 	return m.ID, nil
 }

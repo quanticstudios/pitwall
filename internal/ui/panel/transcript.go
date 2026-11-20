@@ -50,9 +50,15 @@ type Transcript struct {
 	// path under Dir, or a tool row's, a URL or a file's absolute path. Nil
 	// leaves links inert.
 	Open func(link string)
+	// Run, when set, takes the command of a shell code block's Run: it
+	// types it where the user presses Enter to run it, never runs it.
+	Run func(cmd string)
 	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
 	// whose output names one shows its live state.
 	PRs map[string]model.PR
+	// Invalidate asks for a frame from another goroutine: the side panel's
+	// markdown file and its pictures, read in the background.
+	Invalidate func()
 
 	list   layout.List
 	blocks []block
@@ -66,6 +72,7 @@ type Transcript struct {
 	clicks map[string]*widget.Clickable
 	sels   map[string]*widget.Selectable
 	docs   map[string]*reply    // parsed replies by item id
+	cards  map[string]cardCache // command outputs' cards by item id
 	copied map[string]time.Time // copy buttons, while they show Copied
 	thumbs thumbs
 	focus  int // the transcript's own key focus tag
@@ -89,6 +96,8 @@ type Transcript struct {
 	items   int                             // len(Content) this frame
 	diffs   map[string]diffCache            // edits' lines by item id
 	tool    toolState                       // the tool rows' scroll, shells and images
+	side    side                            // the Files and Changes panel
+	changes map[string]changeCache          // turns' changed files by their first item id
 
 	more    widget.Clickable
 	menu    bool
@@ -171,11 +180,12 @@ type trow struct {
 type rowSeg uint8
 
 const (
-	segBlock rowSeg = iota // a prompt or a system line
-	segHead                // a turn's work log header
-	segItem                // an item in an open work log
-	segReply               // a turn's reply
-	segTodo                // a turn's task list, its last task-list call i
+	segBlock   rowSeg = iota // a prompt or a system line
+	segHead                  // a turn's work log header
+	segItem                  // an item in an open work log
+	segReply                 // a turn's reply
+	segTodo                  // a turn's task list, its last task-list call i
+	segChanges               // a finished turn's change card
 )
 
 // Answers returns the approvals answered since the last call, once each.
@@ -454,8 +464,13 @@ func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 }
 
 // Layout draws s filling gtx's constraints, with Open in aide in a quiet
-// menu when aide is set.
+// menu when aide is set, and the Files and Changes panel at its right
+// while it is open.
 func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
+	return t.withSide(gtx, th, s, func(gtx layout.Context) layout.Dimensions { return t.layoutChat(gtx, th, s, aide) })
+}
+
+func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
 	if t.open == nil {
 		t.init()
 	}
@@ -565,6 +580,8 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		case r.seg == segItem:
 			t.laid++
 			dims = d.logItem(gtx, r.i, r.last)
+		case r.seg == segChanges:
+			dims = d.changeCard(gtx, r.b)
 		case r.seg == segTodo:
 			t.laid++
 			dims = d.todoCard(gtx, &s.Content[r.i])
@@ -792,6 +809,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 				t.rows = append(t.rows, trow{res: &t.done[k]})
 			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
+		}
+		if !run && len(t.changesOf(d, b)) > 0 {
+			t.rows = append(t.rows, trow{b: b, seg: segChanges})
 		}
 	}
 	if n := len(t.blocks); n > 0 && stopped[t.blocks[n-1].turn] {

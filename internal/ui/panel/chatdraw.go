@@ -19,6 +19,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
+	"github.com/quanticstudios/pitwall/internal/ui/syntax"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -27,8 +28,10 @@ type cdraw struct {
 	t           *Transcript
 	th          *theme.Theme
 	s           *session.Snapshot
-	sec         float64 // seconds since the transcript opened, for spinners
-	col, proseW int     // the column's width, and reply prose's
+	sec         float64                         // seconds since the transcript opened, for spinners
+	col, proseW int                             // the column's width, and reply prose's
+	syn         *[syntax.Header + 1]color.NRGBA // code's token colors, for synFor
+	synFor      *theme.Theme
 }
 
 // avgChar is the width per character that puts reply prose at about 96

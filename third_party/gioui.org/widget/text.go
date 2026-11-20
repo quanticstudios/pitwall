@@ -342,13 +342,8 @@ func (e *textView) PaintText(gtx layout.Context, material op.CallOp) {
 	it := textIterator{
 		viewport: viewport,
 		material: material,
-		colors:   e.Colors,
 	}
-	for _, c := range e.Colors {
-		cm := op.Record(gtx.Ops)
-		paint.ColorOp{Color: c.Color}.Add(gtx.Ops)
-		it.mats = append(it.mats, cm.Stop())
-	}
+	it.setColors(gtx, e.Colors)
 
 	startGlyph := 0
 	for _, line := range e.index.lines {
