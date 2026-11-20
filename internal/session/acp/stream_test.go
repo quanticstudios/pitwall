@@ -97,6 +97,10 @@ func TestExecuteCommand(t *testing.T) {
 	if len(ev) != 1 || ev[0].Tool.ToolName != "Bash" || ev[0].Tool.Command != "mkdir -p ./junk2" || string(ev[0].Tool.Input) != `{"command":"mkdir -p ./junk2"}` {
 		t.Fatalf("execute: %+v", ev)
 	}
+	upd := s.update([]byte(`{"sessionUpdate":"tool_call_update","toolCallId":"call_1","name":"run_command","status":"completed","kind":"execute","rawInput":{"CommandLine":"mkdir -p ./junk2","WaitMsBeforeAsync":5000}}`))
+	if len(upd) != 1 || upd[0].Tool.ToolName != "Bash" || upd[0].Tool.Status != "completed" || string(upd[0].Tool.Input) != `{"command":"mkdir -p ./junk2"}` {
+		t.Fatalf("update: %+v", upd)
+	}
 	other := s.update([]byte(`{"sessionUpdate":"tool_call","toolCallId":"call_2","name":"view_file","status":"in_progress","kind":"read","rawInput":{"CommandLine":"not a command"}}`))
 	if other[0].Tool.ToolName != "view_file" || other[0].Tool.Command != "" {
 		t.Fatalf("read: %+v", other)

@@ -260,15 +260,18 @@ func (s *stream) tool(u toolUpdate) session.Event {
 		t.Input = u.RawInput
 	}
 	// why: an execute call is a shell command; drawn as Bash, its card and row show the command, not the agent's tool name.
-	if s.kinds[u.ToolCallID] == "execute" && t.Command == "" {
+	if s.kinds[u.ToolCallID] == "execute" {
 		var in map[string]any
 		_ = json.Unmarshal(t.Input, &in)
 		for _, k := range []string{"command", "CommandLine"} { // Antigravity names it CommandLine
-			if c, _ := in[k].(string); c != "" {
-				t.ToolName, t.Command = "Bash", c
-				t.Input, _ = json.Marshal(map[string]string{"command": c})
-				break
+			if c, _ := in[k].(string); c != "" && t.Command == "" {
+				t.Command = c
 			}
+		}
+		// why: each update names the tool and its input again, so the call is drawn as Bash after every one.
+		if t.Command != "" {
+			t.ToolName = "Bash"
+			t.Input, _ = json.Marshal(map[string]string{"command": t.Command})
 		}
 	}
 	switch u.Status {
