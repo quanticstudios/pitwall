@@ -543,4 +543,12 @@ func TestPaneChatApprovalOffers(t *testing.T) {
 	if n := len(pc.snap.PendingApprovals); n != 1 || pc.snap.PendingApprovals[0].NoSession {
 		t.Errorf("approvals %+v: want Allow for session once the screen offers it", pc.snap.PendingApprovals)
 	}
+	// A hook that asked prints its reason over the prompt: the card says it.
+	act.Buttons = nil
+	screen := []string{" Bash command", " touch a", " │ Hook PreToolUse:Bash requires confirmation for this command:",
+		" │ Ask before touching files [settings]", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"}
+	pc.catchUp(paneLive{p: &fakePane{screen: screen}, act: act})
+	if ap := pc.snap.PendingApprovals[0]; ap.Detail == nil || *ap.Detail != "PreToolUse hook: Ask before touching files" || !ap.NoSession {
+		t.Errorf("approval %+v: want the hook's reason as its detail, and no Allow for session", ap)
+	}
 }

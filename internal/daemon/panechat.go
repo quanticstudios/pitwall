@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -319,7 +320,7 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	default:
 		pc.reduce(pc.tr.Resolve())
 	}
-	pc.offers(a)
+	pc.offers(l)
 	// Claude Code marks a turn's end in the transcript; a hook saying the
 	// agent stopped after the turn began ends one it did not mark.
 	// why: a background task's end marks the agent done just as the turn its notification wakes begins.
@@ -360,19 +361,27 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 
 // offers marks the approval the pane waits on with what its prompt
 // offers: one with no Allow for this session, as Claude Code's prompt for
-// a hook that asks, has the card leave that button out. a.Buttons are the
-// offers checkForms read off the screen. Callers hold pc.mu.
-func (pc *paneChat) offers(a model.Activity) {
+// a hook that asks, has the card leave that button out. l.act.Buttons are
+// the offers checkForms read off the screen. A hook's reason for asking,
+// which Claude Code prints over the prompt, becomes the approval's detail,
+// the card's line under the command. Callers hold pc.mu.
+func (pc *paneChat) offers(l paneLive) {
+	a := l.act
 	if a.State != model.StatePendingApproval {
 		return
 	}
 	no := !slices.Contains(a.Buttons, agent.AllowAlways)
+	reason := ""
+	if pc.prov == model.ProviderClaude && l.p != nil {
+		reason = agent.HookReason(l.p.Snapshot())
+	}
 	for _, ap := range pc.snap.PendingApprovals {
-		if ap.RequestType == session.RequestPlan || ap.NoSession == no {
+		detail := cmp.Or(reason, value(ap.Detail))
+		if ap.RequestType == session.RequestPlan || ap.NoSession == no && value(ap.Detail) == detail {
 			continue
 		}
 		pc.reduce([]session.Event{{Type: session.EventRequestOpened, RequestID: ap.ID, RequestType: ap.RequestType,
-			Request: ap.Request, Detail: value(ap.Detail), NoSession: no}})
+			Request: ap.Request, Detail: detail, NoSession: no}})
 	}
 }
 
