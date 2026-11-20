@@ -105,6 +105,15 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		if f, ok := u.b.(ChatResulter); ok {
 			for _, r := range f.ChatResults(id) {
 				cmp.Result(r, gtx.Now)
+				if r.Message == "" {
+					continue
+				}
+				switch m := r.Req.(type) {
+				case proto.ChatApprove:
+					t.Refused(m.Request)
+				case proto.ChatAnswer:
+					t.Refused(m.Request)
+				}
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
