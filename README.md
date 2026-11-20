@@ -475,7 +475,7 @@ corner while you work in another tab.
 | OpenCode    | Working, Input, Approval, Done and Error, resume; [managed driver](internal/session/opencode/README.md) |
 | pi          | Working, Done and Error, resume, side panel, cost                    |
 | Oh My Pi    | Working, Done and Error, resume, side panel                          |
-| Antigravity | Every state but Plan, Allow, Deny and Always, resume, desktop chat over `agy acp`, its TUI as a chat |
+| Antigravity | Every state but Plan, Allow, Deny and Always, resume, desktop chat over `agy acp`, its TUI as a chat with its model, effort and mode chips |
 | Cursor CLI  | Working, Done and Error, resume                                      |
 | Aider, Amp  | Aider's state read from its screen; Amp's logo, and its bell rings   |
 
