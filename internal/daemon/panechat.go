@@ -413,6 +413,9 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 	retail := pc.off == 0 || end < pc.off || end-pc.off > tailBytes || pc.off-pc.tailOff > retailBytes || len(pc.snap.Content)-pc.tailLen > retailItems
 	if retail {
 		start, err := tailStart(f, end, markOf(pc.prov))
+		if err == nil && pc.prov != model.ProviderCodex {
+			start, err = rewoundStart(f, start, end)
+		}
 		if err != nil {
 			return err
 		}

@@ -552,3 +552,38 @@ func TestPaneChatApprovalOffers(t *testing.T) {
 		t.Errorf("approval %+v: want the hook's reason as its detail, and no Allow for session", ap)
 	}
 }
+
+// A chat read afresh, as after a restart, drops the turns a rewind left
+// behind even when its tail starts after the line the rewind went back
+// to, as after a compaction on the abandoned branch with a turn after it:
+// the page before the tail would show them, since the prompt that
+// branched off is not the first line after it.
+func TestPaneChatRewindReadAfresh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","parentUuid":null,"timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"touch a"}}
+{"type":"assistant","uuid":"a1","parentUuid":"p1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"made a"}]}}
+{"type":"user","uuid":"p2","parentUuid":"a1","timestamp":"2026-11-20T10:00:10Z","origin":{"kind":"human"},"message":{"role":"user","content":"rm a"}}
+{"type":"assistant","uuid":"a2","parentUuid":"p2","timestamp":"2026-11-20T10:00:11Z","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"removed a"}]}}
+{"type":"system","subtype":"compact_boundary","uuid":"c1","parentUuid":null,"logicalParentUuid":"a2","timestamp":"2026-11-20T10:00:20Z","content":"Conversation compacted"}
+{"type":"user","uuid":"s1","parentUuid":"c1","isCompactSummary":true,"timestamp":"2026-11-20T10:00:21Z","message":{"role":"user","content":"Summary: touched and removed a."}}
+{"type":"user","uuid":"p4","parentUuid":"s1","timestamp":"2026-11-20T10:00:30Z","origin":{"kind":"human"},"message":{"role":"user","content":"remember cherry"}}
+{"type":"assistant","uuid":"a4","parentUuid":"p4","timestamp":"2026-11-20T10:00:31Z","message":{"id":"m4","model":"claude-sonnet-5-5","content":[{"type":"text","text":"noted cherry"}]}}
+{"type":"user","uuid":"p3","parentUuid":"a1","timestamp":"2026-11-20T10:01:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"list commands"}}
+{"type":"assistant","uuid":"a3","parentUuid":"p3","timestamp":"2026-11-20T10:01:01Z","message":{"id":"m3","model":"claude-sonnet-5-5","content":[{"type":"text","text":"only touch a"}]}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}})
+	var texts []string
+	for _, it := range pc.snap.Content {
+		if it.Text != "" {
+			texts = append(texts, it.Text)
+		}
+	}
+	got := strings.Join(texts, " | ")
+	if strings.Contains(got, "rm a") || strings.Contains(got, "removed a") || strings.Contains(got, "cherry") || !strings.Contains(got, "list commands") || !strings.Contains(got, "made a") {
+		t.Errorf("items %q: want the rewound branch's turns gone and the live ones kept", got)
+	}
+}
