@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A TUI pane chat shows the permission mode Claude Code runs in, Bypass included, while Claude works too: it read the footer only while Claude waited, so a chat opened mid-turn said Default. The mode picker cycles mid-turn too.
 - The desktop chat draws everything in a Claude Code conversation natively, in New task chats and TUI pane chats alike, and no markup shows as text:
   - A task list (TodoWrite, TaskCreate and TaskUpdate, Codex's plan) is a checklist card with "3 of 7" and the running task's active form. It updates in place. While a turn runs, a strip above the composer shows the task in progress; click it to see the whole list.
   - A subagent (Task, Agent, Workflow) is a card with its description, type, state, time and tool count. Its calls fold inside it, and its result shows its first lines with Show all. A background subagent stays running until it reports, and parallel ones stack.

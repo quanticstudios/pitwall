@@ -4,7 +4,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -133,9 +132,10 @@ func cleanClaudeSettings(model, effort string) (string, string) {
 
 // ClaudeMode reads the permission mode under Claude Code's input box:
 // acceptEdits, plan, bypassPermissions or auto from the footer, default when the
-// box shows none of them, "" when g shows no input box.
+// box shows none of them, "" when g shows no input box. It reads the
+// footer mid-turn too, where "esc to interrupt" joins it.
 func ClaudeMode(g vt.Grid) string {
-	if !InputReady(model.ProviderClaude, g) {
+	if raw, _ := boxRows(g); !claudeBox(raw) {
 		return ""
 	}
 	rows := screenRows(g)

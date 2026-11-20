@@ -76,6 +76,7 @@ func TestClaudeMode(t *testing.T) {
 		{"────────\n❯ \n────────\n  ⏵⏵ auto mode on (shift+tab to cycle)", "auto"},
 		{"⏺ plan mode on is a phrase\n────────\n❯ \n────────\n  ? for shortcuts", "default"},
 		{"⏺ Working…", ""},
+		{"✻ Working… (12s · esc to interrupt)\n────────\n❯ \n────────\n  Opus 5.5 · high · pitwall main · 16% 159k/1.0M\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← 1 agent", "bypassPermissions"},
 	} {
 		e := vt.New(100, 10, nil)
 		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))
