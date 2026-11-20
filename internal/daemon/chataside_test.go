@@ -43,4 +43,14 @@ func TestChatAside(t *testing.T) {
 	if r := d.chatAside(context.Background(), proto.ChatAside{Chat: "nope", ID: "q2", Question: "x"}); r.Err == "" || r.Chat != "nope" {
 		t.Errorf("no such chat: %+v", r)
 	}
+	// Pane b runs Codex: no side question, and no rewind typed into it.
+	d.mu.Lock()
+	d.st.Panes[1].Transcript = filepath.Join(t.TempDir(), "rollout.jsonl")
+	d.mu.Unlock()
+	if r := d.chatAside(context.Background(), proto.ChatAside{Chat: "b", ID: "q3", Question: "x"}); !strings.Contains(r.Err, "Claude chat") {
+		t.Errorf("codex side question: %+v", r)
+	}
+	if r, _ := d.chatRequest(context.Background(), proto.ChatRewind{Chat: "b", Turn: "t1", KeepFiles: true}); r.(proto.ChatResult).Code != "unsupported" {
+		t.Errorf("codex rewind: %+v", r)
+	}
 }

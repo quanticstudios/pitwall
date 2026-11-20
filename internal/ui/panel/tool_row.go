@@ -17,6 +17,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/syntax"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -72,8 +73,14 @@ func (d *cdraw) view(it *session.Item) (toolView, string) {
 	return v, out
 }
 
-// openTarget opens a row's link: a URL, or a path from the chat's folder.
+// openTarget opens a row's link: a file on this machine in the side
+// panel's File view, else a URL, or a path from the chat's folder, with
+// Open.
 func (t *Transcript) openTarget(target string) {
+	if p := t.localFile(target); p != "" {
+		t.showFile(p)
+		return
+	}
 	if t.Open == nil || target == "" {
 		return
 	}
@@ -131,6 +138,9 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 		v.bg, bgOut = d.shell(it)
 		if bgOut != "" {
 			out = bgOut
+		}
+		if c.ToolName == "Monitor" {
+			out = monitorEvents(out)
 		}
 	}
 	pr, hasPR := prIn(out, d.t.PRs)
@@ -547,6 +557,7 @@ func (d *cdraw) toolBody(it *session.Item, v toolView, out string) layout.Widget
 				plain = append(plain, l.text)
 			}
 			b := monoBox{id: id, lines: lines, nums: 1, head: readHead, copy: strings.Join(plain, "\n")}
+			d.highlight(id, syntax.FromPath(v.arg), b.lines, false)
 			return func(gtx layout.Context) layout.Dimensions { return d.box(gtx, b) }
 		}
 		return d.textBody(id, out)
@@ -646,6 +657,7 @@ func (d *cdraw) diffBox(gtx layout.Context, id string, v toolView, lines []diffL
 		b.title, b.titleMono = "New file · "+plural(len(lines), "line"), false
 		b.copyLabel, b.copy = "Copy", newText(lines)
 	}
+	d.highlight(id, syntax.FromPath(v.arg), b.lines, !v.created)
 	return d.box(gtx, b)
 }
 

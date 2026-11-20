@@ -86,6 +86,9 @@ func (d *Daemon) asideOf(id string) (asideRun, error) {
 	}
 	d.mu.Unlock()
 	if i >= 0 && model.PaneChat(p) {
+		if p.Provider != model.ProviderClaude {
+			return asideRun{}, chatError{"unsupported", "side questions need a Claude chat"}
+		}
 		sid := strings.TrimSuffix(filepath.Base(p.Transcript), ".jsonl")
 		if p.Transcript == "" || sid == "" {
 			return asideRun{}, errors.New("Claude has not written this conversation down yet; ask after its first reply")

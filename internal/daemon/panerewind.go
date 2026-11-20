@@ -30,7 +30,10 @@ const rewindRestore = "Restore conversation"
 // composer takes it instead. The chat drops the prompt and what came
 // after it at once; the transcript's next prompt branches off before it.
 func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) error {
-	if !m.KeepFiles {
+	switch {
+	case pc.prov != model.ProviderClaude:
+		return chatError{"unsupported", "only a Claude Code pane chat rewinds; rewind Codex in its terminal"}
+	case !m.KeepFiles:
 		return chatError{"unsupported", "a Claude Code pane rewinds the conversation only; its files stay as they are"}
 	}
 	pc.mu.Lock()

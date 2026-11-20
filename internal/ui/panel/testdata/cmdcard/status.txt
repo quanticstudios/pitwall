@@ -1,0 +1,6 @@
+Version:  2.1.329
+Session ID:  fa7b72c5-7bed-4937-8889-66310ecddb7d
+cwd:  /tmp/demo/repo
+Branch:  master
+Model:  claude-sonnet-5-5
+Permission mode:  bypassPermissions

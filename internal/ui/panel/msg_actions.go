@@ -238,7 +238,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 				ic, col = icCheck, d.th.Readable(d.th.Green, d.th.Bg)
 			}
 			at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
-				return d.iconButton(gtx, clicks[i], ic, col, b.key == "rewind" && m.confirm == it.ID)
+				return d.toolButton(gtx, clicks[i], ic, col, b.key == "rewind" && m.confirm == it.ID)
 			})
 			d.tipFor(gtx, clicks[i], b.tip, r)
 			if b.key == "rewind" {
@@ -253,9 +253,9 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 	area.Pop()
 }
 
-// iconButton is a ghost button of icon path ic, hit square, the Hover
+// toolButton is a ghost button of icon path ic, hit square, the Hover
 // fill under the pointer, Pressed while held or held open.
-func (d *cdraw) iconButton(gtx layout.Context, c *widget.Clickable, ic string, col color.NRGBA, held bool) layout.Dimensions {
+func (d *cdraw) toolButton(gtx layout.Context, c *widget.Clickable, ic string, col color.NRGBA, held bool) layout.Dimensions {
 	th := d.th
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		bs, isz := gtx.Dp(hit), gtx.Dp(theme.SpaceM+theme.Space2XS)
@@ -275,13 +275,6 @@ func (d *cdraw) iconButton(gtx layout.Context, c *widget.Clickable, ic string, c
 		return layout.Dimensions{Size: image.Pt(bs, bs)}
 	})
 }
-
-// Tooltip timing, as the chat header's: the first waits tipDelay, a
-// neighbor hovered within tipChain of the last one shows at once.
-const (
-	tipDelay = 500 * time.Millisecond
-	tipChain = 300 * time.Millisecond
-)
 
 // tipFor notes tip for button c at r, in the element being laid out,
 // while c is hovered; drawTip shows it once it is due.

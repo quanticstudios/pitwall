@@ -37,10 +37,22 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
-- While Claude works, **Enter** queues the message above the box, where Edit
-  takes it back and the x drops it. **Ctrl+Enter** (Cmd+Enter on macOS) sends
-  it now instead: Claude Code takes it into the running turn when it can.
-- **Esc** stops the turn.
+- While Claude works, **Enter** queues the message above the box. pitwall
+  holds it and types it when the turn ends, one per turn. **Ctrl+Enter**
+  (Cmd+Enter on macOS) sends it now instead: Claude Code takes it into the
+  running turn when it can.
+- Point at a queued message for **Send now**, **Edit** (back into the box),
+  **Move up**, **Move down** and **Remove**. More than two fold into a count
+  that opens on a click. A message that could not be sent stays with
+  **Retry**.
+- **Esc** stops the turn and holds the queue until you send again or press
+  **Resume**.
+- **@** and part of a name lists the project's files and folders: git's
+  tracked and untracked ones, not ignored. Up and Down pick, Enter or Tab
+  puts `@path` in as a chip, and a folder lists what is in it. Claude Code
+  reads the file, as an `@` typed in its TUI does.
+- The **branch** chip shows the repo's branch, switched anywhere, and copies
+  it on a click.
 - **Shift+Tab** cycles the permission mode, and the mode chip opens a picker:
   Default, Accept edits, Plan, and Bypass permissions in a chat that runs in
   bypass. Bypass shows in red with a shield.
@@ -78,11 +90,30 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 - Long or old chats open at once: pitwall reads the transcript from its end
   and loads older turns as you scroll up.
 
+## Codex panes
+
+A pane running Codex's TUI shows as the chat too, once Codex's hooks name
+its session. pitwall never guesses the session from the newest log in
+`~/.codex/sessions`: until a hook names one, the pane stays the TUI. Run
+`pitwall hooks install`, then trust the hooks once with `/hooks` in Codex.
+A fresh Codex names its session with its first prompt, so a new pane turns
+into the chat after you send one.
+
+The chat reads Codex's rollout: your prompts, replies, reasoning summaries,
+commands with their output and exit code, file changes as diffs, web
+searches, MCP calls, the plan from `update_plan`, and the context meter.
+Codex logs a call when it finishes, so a running command shows once it
+ends. The composer types into the TUI, Esc stops the turn, and an approval
+shows as a card whose Allow and Deny press Codex's own keys. The model and
+effort show under the box; change them, the mode, and answer Codex's
+questions in the TUI (Alt+T).
+
 ## Settings
 
 ```toml
 [chat]
 claude = "chat"     # or "terminal": show Claude Code panes as the TUI, Alt+T away from the chat
+codex = "chat"      # or "terminal": the same for Codex panes
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's column
 ```
 

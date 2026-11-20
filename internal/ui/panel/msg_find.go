@@ -367,7 +367,7 @@ func (t *Transcript) drawFind(gtx layout.Context, d *cdraw, size image.Point) {
 		x -= bs
 		r := image.Rect(x, y, x+bs, y+bs)
 		at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
-			return d.iconButton(gtx, b.c, b.ic, th.Muted, false)
+			return d.toolButton(gtx, b.c, b.ic, th.Muted, false)
 		})
 		if b.c.Hovered() {
 			defer d.tooltip(gtx, b.tip, r.Add(rect.Min), size)

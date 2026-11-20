@@ -1,7 +1,6 @@
 package app
 
 import (
-	"cmp"
 	"image"
 	"image/color"
 	"strings"
@@ -23,6 +22,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -44,9 +44,10 @@ const (
 // bar in the terminal view.
 type chatHead struct {
 	term, panel, more, back, aide widget.Clickable
-	menu                          bool      // the more menu is open
-	menuAt                        time.Time // when it last opened or closed, for its fade
-	backdrop                      int       // the click outside the menu that closes it
+	files                         widget.Clickable // the chat's Files and Changes panel
+	menu                          bool             // the more menu is open
+	menuAt                        time.Time        // when it last opened or closed, for its fade
+	backdrop                      int              // the click outside the menu that closes it
 
 	tipOf    *widget.Clickable // the control hovered for a tooltip
 	tipSince time.Time         // since when
@@ -148,9 +149,18 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	for h.panel.Clicked(gtx) {
 		u.nav.panelOpen = !u.nav.panelOpen
 	}
+	var tr *panel.Transcript
+	if c != nil {
+		tr = u.transcripts[c.ID]
+	}
+	for h.files.Clicked(gtx) {
+		if tr != nil {
+			tr.ToggleFiles()
+		}
+	}
 	for h.find.Clicked(gtx) {
-		if t := u.transcripts[cmp.Or(c, &model.Chat{}).ID]; t != nil {
-			t.OpenFind()
+		if tr != nil {
+			tr.OpenFind()
 		}
 	}
 	for h.more.Clicked(gtx) {
@@ -162,7 +172,8 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	}
 	aide := curHost() == "" && findAide() != nil
 	title := tabTitle(*ws)
-	claude := c != nil && c.Provider == model.ProviderClaude
+	// A pane chat's agent runs in its pane: Codex's has a terminal too.
+	claude := c != nil && (c.Provider == model.ProviderClaude || ws.Chat == "")
 	prov := model.ProviderClaude
 	if c != nil {
 		prov = c.Provider
@@ -197,6 +208,19 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, h, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
 				return ghostIconButton(gtx, th, &h.term, "terminal", "Terminal")
+			})
+		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+	}
+	if tr != nil {
+		kind := kit.Ghost
+		if tr.FilesOpen() {
+			kind = kit.Secondary
+		}
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.tipped(gtx, h, &h.files, "Files and changes", func(gtx gl.Context) gl.Dimensions {
+				return kit.IconButton(gtx, th, &h.files, kind, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
+					sidebar.IconPath(gtx, panel.IconFileDiff, size, col)
+				})
 			})
 		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}

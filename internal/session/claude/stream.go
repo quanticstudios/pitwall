@@ -21,6 +21,7 @@ type stream struct {
 	version string // claude_code_version, once system/init gave it
 	turn    string // the running turn's id, "" while idle
 	point   string // the uuid of the turn's last assistant line
+	recap   bool   // the running turn is /recap, whose output Claude Code sends as its own reply
 
 	streamed map[string]int              // text item id: bytes stream_event deltas gave it
 	blocks   map[string]int              // message id: content blocks its assistant lines gave so far
@@ -47,7 +48,8 @@ type stream struct {
 	contextTokens *int64
 	usage         *session.Event // the last usage event, which a new context size updates
 
-	commands []string // the slash_commands system/init last listed
+	commands []string   // the slash_commands system/init last listed
+	info     statusInfo // what system/init said, for /status
 
 	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
 
@@ -84,6 +86,8 @@ type line struct {
 	// SlashCommands are names without the slash; the terminal ones need the TUI.
 	SlashCommands         []string `json:"slash_commands"`
 	TerminalSlashCommands []string `json:"terminal_slash_commands"`
+	Cwd                   string   `json:"cwd"`
+	PermissionMode        string   `json:"permissionMode"`
 
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
@@ -117,6 +121,10 @@ type line struct {
 	ErrorStatus  *int            `json:"error_status"`
 	Error        json.RawMessage `json:"error"`
 
+	// system/away_summary, informational: the text; informational's level
+	Content json.RawMessage `json:"content"`
+	Level   string          `json:"level"`
+
 	// stream_event
 	Event        *streamEvent `json:"event"`
 	APIMessageID string       `json:"api_message_id"`
@@ -130,6 +138,11 @@ type line struct {
 	ModelUsage     map[string]modelUsage `json:"modelUsage"`
 
 	RateLimitInfo *rateLimitInfo `json:"rate_limit_info"`
+
+	// assistant: a local command's synthetic reply
+	LocalSource string          `json:"local_command_source"`
+	LocalRun    *localRun       `json:"local_command_run"`
+	UsageReport json.RawMessage `json:"usage_report"`
 
 	// control_request, control_cancel_request
 	RequestID string `json:"request_id"`
@@ -174,6 +187,7 @@ type block struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`
 	Thinking  string          `json:"thinking"`
+	Signature string          `json:"signature"` // thinking: says when the block is a summary, not reasoning
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
@@ -258,6 +272,7 @@ func (s *stream) system(l line) []session.Event {
 	switch l.Subtype {
 	case "init":
 		var out []session.Event
+		s.info = statusInfo{version: l.Version, session: l.SessionID, cwd: l.Cwd, mode: l.PermissionMode}
 		if l.SessionID != "" && (l.SessionID != s.resume || s.version == "") {
 			if s.version == "" {
 				log.Printf("claude: Claude Code %s", l.Version)
@@ -314,6 +329,14 @@ func (s *stream) system(l line) []session.Event {
 	case "api_retry":
 		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(l.UUID, "retry:"+strconv.Itoa(l.Attempt)), Kind: session.KindSystem,
 			Phase: session.PhaseWarning, Text: retryLine(l.ErrorStatus, errText(l.Error), l.RetryDelayMS, l.Attempt, l.MaxRetries)}}
+	case "informational": // a hook's systemMessage, a notice
+		var text string
+		json.Unmarshal(l.Content, &text)
+		return informational(cmp.Or(l.UUID, "info:"+text), text, l.Level)
+	case "away_summary":
+		var text string
+		json.Unmarshal(l.Content, &text)
+		return recap(cmp.Or(l.UUID, "recap:"+text), text)
 	case "status", "task_started", "thinking_tokens", "hook_started", "hook_progress", "background_tasks_changed":
 		// status's permissionMode echoes a set_permission_mode, which the
 		// chat loop patched when it called Set.
@@ -366,6 +389,19 @@ func (s *stream) assistant(l line) []session.Event {
 	if l.ParentToolUseID != "" {
 		return s.subagent(l.ParentToolUseID, blocks)
 	}
+	if s.recap && m.Model == "<synthetic>" {
+		s.recap = false
+		var text []string
+		for _, b := range blocks {
+			if b.Type == "text" {
+				text = append(text, b.Text)
+			}
+		}
+		return recap(cmp.Or(m.ID, "recap:"+s.turn), strings.Join(text, "\n"))
+	}
+	if l.LocalSource != "" {
+		return s.localOutput(l)
+	}
 	if m.Model != "" {
 		s.contextModel = m.Model
 	}
@@ -388,10 +424,13 @@ func (s *stream) assistant(l line) []session.Event {
 	for _, b := range blocks {
 		id := m.ID + ":" + strconv.Itoa(s.blocks[m.ID])
 		s.blocks[m.ID]++
-		kind, text := session.KindAssistantText, b.Text
+		kind, text, phase := session.KindAssistantText, b.Text, ""
 		switch b.Type {
 		case "thinking", "redacted_thinking":
 			kind, text = session.KindReasoningText, b.Thinking
+			if narration(b.Signature) {
+				phase = session.PhaseSummary
+			}
 		case "tool_use":
 			t := session.ToolCall{CallID: b.ID, ToolName: b.Name, Input: b.Input, Status: "running"}
 			if tasks, ok := s.taskList(b.Name, b.Input); ok {
@@ -410,8 +449,8 @@ func (s *stream) assistant(l line) []session.Event {
 		// Only what streaming did not give; an interrupted turn's line can
 		// hold less than was streamed. A thinking block whose text Claude
 		// hides still reports, so its row exists and ends now.
-		if n := s.streamed[id]; n < len(text) || kind == session.KindReasoningText && text == "" {
-			out = append(out, session.Event{Type: session.EventContent, ItemID: id, Kind: kind, Model: m.Model, Text: text[n:]})
+		if n := s.streamed[id]; n < len(text) || kind == session.KindReasoningText && text == "" || phase != "" {
+			out = append(out, session.Event{Type: session.EventContent, ItemID: id, Kind: kind, Phase: phase, Model: m.Model, Text: text[min(n, len(text)):]})
 		}
 	}
 	return out
@@ -658,6 +697,30 @@ func (s *stream) harness(id, text string) []session.Event {
 	return nil
 }
 
+// localOutput is a local command's synthetic reply as its output: /usage
+// and /cost with the session's tokens, a /status stream-json lacks as
+// what system/init said.
+func (s *stream) localOutput(l line) []session.Event {
+	text, ok := tag(l.LocalSource, "local-command-stdout")
+	if !ok {
+		text, _ = tag(l.LocalSource, "local-command-stderr")
+	}
+	text = strings.TrimSpace(text)
+	run := localRun{}
+	if l.LocalRun != nil {
+		run = *l.LocalRun
+	}
+	switch {
+	case run.Command == "usage" || run.Command == "cost":
+		text = joinParts(text, reportLines(l.UsageReport))
+	case strings.HasPrefix(text, "/status isn't available") && s.info.version != "":
+		st := s.info
+		st.model = s.contextModel
+		text = st.lines()
+	}
+	return s.harness(l.UUID, "<local-command-stdout>"+text+"</local-command-stdout>")
+}
+
 // resultText is a tool_result's content as text: the string, or its text
 // blocks one per line.
 func resultText(c json.RawMessage) string {
@@ -678,6 +741,7 @@ func resultText(c json.RawMessage) string {
 
 // result ends the turn, then reports its usage as aide does.
 func (s *stream) result(l line) []session.Event {
+	s.recap = false
 	var out []session.Event
 	turn := s.turn
 	if turn != "" {

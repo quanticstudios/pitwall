@@ -114,7 +114,7 @@ func (t *Transcript) drawAside(gtx layout.Context, d *cdraw, size image.Point) {
 		})
 		x := inner + gtx.Dp(theme.SpaceS) - bs
 		at(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions {
-			return d.iconButton(gtx, &a.shut, icClose, th.Muted, false)
+			return d.toolButton(gtx, &a.shut, icClose, th.Muted, false)
 		})
 		if a.answer != "" {
 			ic, col := icClip, th.Muted
@@ -122,7 +122,7 @@ func (t *Transcript) drawAside(gtx layout.Context, d *cdraw, size image.Point) {
 				ic, col = icCheck, th.Readable(th.Green, th.Bg)
 			}
 			at(gtx, image.Pt(x-bs, 0), func(gtx layout.Context) layout.Dimensions {
-				return d.iconButton(gtx, &a.copy, ic, col, false)
+				return d.toolButton(gtx, &a.copy, ic, col, false)
 			})
 		}
 		return layout.Dimensions{Size: image.Pt(inner, bs)}

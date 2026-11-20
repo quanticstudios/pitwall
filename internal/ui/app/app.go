@@ -329,6 +329,8 @@ type ui struct {
 
 	// paths is the path picker, drawn in the palette's card.
 	paths pathPick
+	// mentionLists are the composer's @ mention listings, by folder.
+	mentionLists map[string]*mentionList
 
 	sw       sessionSwitcher
 	pal      palette // the command palette
@@ -365,6 +367,7 @@ type ui struct {
 	transcripts map[string]*panel.Transcript // the chat tabs', by chat id, see chatTranscript
 	chatHead    chatHead                     // the chat tab's header, or its terminal view's bar
 	paneHeads   map[string]*chatHead         // the pane chats' headers, by pane id
+	tui         map[string]*tuiDialog        // TUI-only commands' dialogs, by chat id (tuidialog.go)
 	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
 	load        chatLoad                     // the buttons of a chat that did not load
@@ -607,7 +610,9 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	}
 	if u.nav.chatTerminal {
 		u.nav.chatTerminal = false
-		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" {
+		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" && u.tui[ws.Chat] != nil {
+			u.tuiFull(st, ws.Chat)
+		} else if ws != nil && ws.Chat != "" {
 			u.toggleChatTerminal(st, ws)
 		} else if u.paneChatKey(st) {
 			u.flipPaneChat(u.nav.focused())
@@ -1230,7 +1235,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	} else {
 		u.drag = nil
 	}
-	if c := findChat(st, ws.Chat); ws.Chat != "" && (c == nil || c.Terminal == "" || root == nil) {
+	if c := findChat(st, ws.Chat); ws.Chat != "" && (c == nil || c.Terminal == "" || root == nil || u.tui[ws.Chat] != nil) {
 		u.paneMenu.close()
 		u.layoutChat(gtx, st, ws)
 		return
