@@ -526,3 +526,12 @@ func TestTranscriptBareRequest(t *testing.T) {
 		t.Errorf("a notification's message read as a call: %+v", a)
 	}
 }
+
+// The placeholder reply Claude Code writes on a resume shows nothing.
+func TestTranscriptResumePlaceholder(t *testing.T) {
+	tr := NewTranscript()
+	l := `{"type":"assistant","uuid":"s1","timestamp":"2026-11-20T20:01:43Z","message":{"id":"x","model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"No response requested."}]}}`
+	if es := tr.Line([]byte(l)); len(es) != 0 {
+		t.Errorf("events %+v: want none for the resume placeholder", es)
+	}
+}

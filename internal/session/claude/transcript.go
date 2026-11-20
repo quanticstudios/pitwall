@@ -138,6 +138,10 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		}
 		out = t.s.line(b)
 	case "assistant":
+		// why: Claude Code writes this placeholder as the last reply when it resumes a session; Claude said nothing.
+		if l.Message.Model == "<synthetic>" && strings.TrimSpace(blocksText(l.Message.Content)) == "No response requested." {
+			return nil
+		}
 		if l.IsAPIError {
 			out = []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: session.PhaseError,
 				Text: apiError(blocksText(l.Message.Content), time.Now())}}
