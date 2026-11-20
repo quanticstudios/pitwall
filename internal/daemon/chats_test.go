@@ -50,6 +50,7 @@ type stubDriver struct {
 	cfg    session.Config // what Start got
 	emit   func(session.Event)
 	steer  error
+	send   error // Send's refusal
 	turn   string
 	turns  int
 	calls  []string
@@ -76,6 +77,10 @@ func (s *stubDriver) event(e session.Event) {
 
 func (s *stubDriver) Send(_ context.Context, m session.Message) (string, error) {
 	s.mu.Lock()
+	if s.send != nil {
+		s.mu.Unlock()
+		return "", s.send
+	}
 	if s.turn != "" {
 		s.mu.Unlock()
 		return "", session.ErrBusy
@@ -488,6 +493,31 @@ func TestChatQueueRefusedSteerPreservesQueue(t *testing.T) {
 	_, _, err := (&Daemon{}).chatQueue(context.Background(), c, proto.ChatQueue{Action: "steer", ID: "q1"})
 	if err != session.ErrClosed || !reflect.DeepEqual(c.cfg.Queue, before) || !c.cfg.Held {
 		t.Fatalf("refused steer: %v queue %+v held %v", err, c.cfg.Queue, c.cfg.Held)
+	}
+}
+
+// A queued message the driver refuses stays in the queue with why, and
+// the ones after it go on; Send now sends it, ahead of the rest.
+func TestChatQueueFailedRetry(t *testing.T) {
+	drv := &stubDriver{send: session.ErrClosed, emit: func(session.Event) {}}
+	c := &chat{cfg: session.Config{Queue: []session.QueuedMessage{{ID: "q1", Text: "first"}}}, drv: drv}
+	d := &Daemon{}
+	d.chatNext(context.Background(), c)
+	if len(c.cfg.Queue) != 1 || c.cfg.Queue[0].Error == "" {
+		t.Fatalf("failed send: queue %+v, want q1 with its error", c.cfg.Queue)
+	}
+	d.chatNext(context.Background(), c)
+	if got := drv.got(); len(got) != 0 {
+		t.Fatalf("a failed message was sent again on its own: %q", got)
+	}
+	drv.mu.Lock()
+	drv.send = nil
+	drv.mu.Unlock()
+	if _, _, err := d.chatQueue(context.Background(), c, proto.ChatQueue{Action: "now", ID: "q1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drv.got(); len(c.cfg.Queue) != 0 || !slices.Equal(got, []string{"send first"}) {
+		t.Fatalf("send now: queue %+v, driver %q", c.cfg.Queue, got)
 	}
 }
 

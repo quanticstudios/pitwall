@@ -37,10 +37,22 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
-- While Claude works, **Enter** queues the message above the box, where Edit
-  takes it back and the x drops it. **Ctrl+Enter** (Cmd+Enter on macOS) sends
-  it now instead: Claude Code takes it into the running turn when it can.
-- **Esc** stops the turn.
+- While Claude works, **Enter** queues the message above the box. pitwall
+  holds it and types it when the turn ends, one per turn. **Ctrl+Enter**
+  (Cmd+Enter on macOS) sends it now instead: Claude Code takes it into the
+  running turn when it can.
+- Point at a queued message for **Send now**, **Edit** (back into the box),
+  **Move up**, **Move down** and **Remove**. More than two fold into a count
+  that opens on a click. A message that could not be sent stays with
+  **Retry**.
+- **Esc** stops the turn and holds the queue until you send again or press
+  **Resume**.
+- **@** and part of a name lists the project's files and folders: git's
+  tracked and untracked ones, not ignored. Up and Down pick, Enter or Tab
+  puts `@path` in as a chip, and a folder lists what is in it. Claude Code
+  reads the file, as an `@` typed in its TUI does.
+- The **branch** chip shows the repo's branch, switched anywhere, and copies
+  it on a click.
 - **Shift+Tab** cycles the permission mode, and the mode chip opens a picker:
   Default, Accept edits, Plan, and Bypass permissions in a chat that runs in
   bypass. Bypass shows in red with a shield.

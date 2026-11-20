@@ -1510,13 +1510,17 @@ func (c *chat) prompt(m session.Message, steer bool) {
 // chatNext starts the next queued message once the chat is idle, unless an
 // interrupt holds the queue or the provider is not running.
 func (d *Daemon) chatNext(ctx context.Context, c *chat) {
-	if c.drv == nil || c.cfg.Held || len(c.cfg.Queue) == 0 || c.snap.Busy() {
+	// A message that failed waits for Send now; the ones after it go on.
+	i := slices.IndexFunc(c.cfg.Queue, func(q session.QueuedMessage) bool { return q.Error == "" })
+	if c.drv == nil || c.cfg.Held || i < 0 || c.snap.Busy() {
 		return
 	}
-	q := c.cfg.Queue[0]
-	c.cfg.Queue = c.cfg.Queue[1:]
+	q := c.cfg.Queue[i]
+	c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
 	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}); err != nil {
 		log.Printf("chat %s: queued message: %q", c.id, err)
+		q.Error = err.Error()
+		c.cfg.Queue = slices.Insert(c.cfg.Queue, i, q)
 	}
 }
 
@@ -1542,10 +1546,10 @@ func recentPrompt(text string) string {
 func (c *chat) syncQueue() {
 	inputs := make([]session.QueuedInput, 0, len(c.cfg.Queue))
 	for _, q := range c.cfg.Queue {
-		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: nonNil(q.Attachments), Recipients: []string{}})
+		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: nonNil(q.Attachments), Recipients: []string{}, Error: q.Error})
 	}
 	if slices.EqualFunc(inputs, c.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
-		return a.ID == b.ID && a.Text == b.Text && a.CreatedAt == b.CreatedAt
+		return a.ID == b.ID && a.Text == b.Text && a.CreatedAt == b.CreatedAt && a.Error == b.Error
 	}) && c.snap.QueuePaused == c.cfg.Held {
 		return
 	}
@@ -1579,11 +1583,17 @@ func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (str
 		c.cfg.Queue = slices.Insert(c.cfg.Queue, m.Index, q)
 	case "remove":
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
-	case "steer":
+	case "steer", "now":
 		// Keep the original queue on a refused steer.
 		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
-		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}, "steer")
+		if !c.snap.Busy() { // ahead of the rest, as Send now promises
+			q.Error, c.cfg.Held = "", false
+			c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, q)
+			d.chatNext(ctx, c)
+			return "", "", nil
+		}
+		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}, m.Action)
 		if err != nil {
 			c.cfg.Queue, c.cfg.Held = queue, held
 		}

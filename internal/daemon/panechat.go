@@ -25,6 +25,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"github.com/quanticstudios/pitwall/internal/session/codex"
@@ -63,15 +64,12 @@ type paneChat struct {
 	recent  []session.Delta
 	// recentSize is the bytes of recent's JSON (keepRecent).
 	recentSize int
-	// queued are the messages the chat typed mid-turn, which Claude Code
-	// holds until the turn ends; the next prompt line takes them.
-	queued []session.QueuedInput
-	footer bool          // the TUI's footer gave the mode at least once
-	tui    phoneSettings // the TUI's model and effort as last put in the snapshot
-	conf   *string       // the effort in Claude Code's user settings, read once
-	ctx    int64         // tokens in context at the last assistant message, 0 before one
-	model  string        // that message's model
-	moded  bool          // the chat showed a mode: a change after it gets a divider
+	footer     bool          // the TUI's footer gave the mode at least once
+	tui        phoneSettings // the TUI's model and effort as last put in the snapshot
+	conf       *string       // the effort in Claude Code's user settings, read once
+	ctx        int64         // tokens in context at the last assistant message, 0 before one
+	model      string        // that message's model
+	moded      bool          // the chat showed a mode: a change after it gets a divider
 	// replied: the running turn has Claude's own output, so a hook saying
 	// the agent stopped can end it.
 	replied bool
@@ -148,6 +146,10 @@ type paneLive struct {
 	tui  phoneSettings  // the model and effort its screen showed (keepClaudeSettings)
 	conf string         // Claude Code's config dir for it
 	prov model.Provider // the agent its hooks named
+	// queued is what the chat queued mid-turn (chatQueue), held whether
+	// an interrupt holds it.
+	queued []session.QueuedInput
+	held   bool
 }
 
 // paneChatOf is pane id's chat, made on first use, and its pane's state;
@@ -170,6 +172,7 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	if ai := d.activityIndex(id); ai >= 0 {
 		l.act = d.st.Activities[ai]
 	}
+	l.queued, l.held = d.chatQueued(id)
 	pc := d.paneChats[id]
 	if p.Provider == model.ProviderCodex {
 		l.conf = ""
@@ -250,6 +253,9 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		note, err = d.paneSend(pc, l, m)
 	case proto.ChatInterrupt:
 		if busy(l.act.State) {
+			d.mu.Lock()
+			d.chatHold(id, true)
+			d.mu.Unlock()
 			err = d.paneKey(id, l.p, press(key.NameEscape, l.p.Modes()))
 		}
 	case proto.ChatApprove:
@@ -261,7 +267,7 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatTerminal:
 		// The window flips a pane chat's view itself; claude runs either way.
 	case proto.ChatQueue:
-		err = chatError{"unsupported", "the agent holds a pane's queue; edit it in the terminal view"}
+		err = d.paneQueue(id, m)
 	}
 	return chatResult(id, "", note, err), true
 }
@@ -333,11 +339,10 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		l.tui.model, l.tui.effort = r.Settings()
 	}
 	pc.settings(l)
-	if a.State != "" && !busy(a.State) && !pc.tr.Running() {
-		pc.queued = nil // the agent stopped without taking them: an interrupt dropped them back in its box
-	}
-	if !slices.EqualFunc(pc.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool { return a.ID == b.ID }) {
-		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, pc.queued...)})
+	if !slices.EqualFunc(l.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
+		return a.ID == b.ID && a.Text == b.Text && a.Error == b.Error
+	}) || l.held != pc.snap.QueuePaused {
+		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, l.queued...), "queuePaused": l.held})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	}
 	return rerr
@@ -412,13 +417,6 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			switch {
 			case es[i].Type == session.EventTurnStarted:
 				pc.replied = false
-			case es[i].Type == session.EventContent && es[i].Kind == session.KindUserPrompt:
-				// The running turn took a message typed mid-turn: its queued row goes.
-				if k := slices.IndexFunc(pc.queued, func(q session.QueuedInput) bool {
-					return strings.TrimSpace(imageToken.ReplaceAllString(q.Text, "")) == strings.TrimSpace(es[i].Text)
-				}); k >= 0 {
-					pc.queued = slices.Delete(pc.queued, k, k+1)
-				}
 			case es[i].Type == session.EventContent && es[i].Kind != session.KindSystem:
 				pc.replied = true
 			}
@@ -427,9 +425,6 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 				ctx, w := pc.ctx, contextWindow(pc.model, tui)
 				es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
 			}
-		}
-		if slices.ContainsFunc(es, func(e session.Event) bool { return e.Type == session.EventTurnStarted }) {
-			pc.queued = nil
 		}
 		pc.reduce(es)
 	}
@@ -789,8 +784,9 @@ func paneWindow(items []session.Item, at []int64, start int64) (int, int64) {
 var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 
 // paneSend types m into pc's pane: pasted text and image paths, with
-// Enter, mid-turn too, where Claude Code queues it and so does the chat
-// until the next prompt line; one sent "now" shows no queued row.
+// Enter. Mid-turn, it waits in the chat's queue (chatQueue) for the turn
+// to end; one sent "now" goes in at once, and Claude Code takes it into
+// the running turn. A send lets a held queue go.
 func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
 	// why: Claude Code's dialog for these needs Esc and writes nothing the chat could show.
 	if dialogCommand(m) && pc.dialog(l, strings.TrimSpace(m.Text)) {
@@ -822,19 +818,24 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		}
 		paths = append(paths, r.Path)
 	}
-	if _, err := d.phoneSendPaths(pc.id, sm.Text, paths, texts); err != nil {
+	d.mu.Lock()
+	d.chatHold(pc.id, false)
+	d.mu.Unlock()
+	if !busy(l.act.State) || l.act.Background || m.How == "now" || m.How == "steer" {
+		_, err := d.phoneSendPaths(pc.id, sm.Text, paths, texts)
 		return "", err
 	}
-	if !busy(l.act.State) {
-		return "", nil
+	if remote.Clean(sm.Text) == "" && len(paths) == 0 {
+		return "", errors.New("the message is empty")
 	}
-	if m.How == "now" { // Claude Code takes it into the running turn itself
-		return "", nil
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.panes[pc.id] == nil {
+		return "", fmt.Errorf("no running pane %s", pc.id)
 	}
-	pc.mu.Lock()
-	pc.queued = append(pc.queued, session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
-		Attachments: nonNil(m.Attachments), Recipients: []string{}})
-	pc.mu.Unlock()
+	d.chatEnqueue(pc.id, session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
+		Attachments: nonNil(m.Attachments), Recipients: []string{}},
+		letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true})
 	return "queued", nil
 }
 

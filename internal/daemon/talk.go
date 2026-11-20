@@ -153,6 +153,7 @@ type mail struct {
 	drafting map[string]bool
 	returnAt map[string]time.Time
 	held     map[string]bool // pane: a draft holds its messages
+	chat     map[string]*chatQueue
 	// delivered is the highest proto.Deliver.Seq typed into a pane.
 	delivered map[string]uint64
 	// daemonPrompt keeps hooks for daemon-typed text from counting as user submissions.
@@ -160,7 +161,7 @@ type mail struct {
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}, daemonPrompt: map[string]bool{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, chat: map[string]*chatQueue{}, delivered: map[string]uint64{}, daemonPrompt: map[string]bool{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -177,6 +178,7 @@ type letter struct {
 	// it was for.
 	phone uint64
 	owner model.Provider
+	chat  string // a pane chat's queued message's id (chatQueue)
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -295,7 +297,8 @@ func (d *Daemon) readyWindow(pane string, phone bool) (Pane, error) {
 		return nil, fmt.Errorf("no running pane %s", pane)
 	case phone && (a.State == model.StatePendingApproval || a.State == model.StatePlanReady):
 		return nil, fmt.Errorf("%s waits on the user", prov)
-	case a.State != "" && !remote.Replies(a.State) && !(steer && a.State == model.StateWorking):
+	// why: a turn that ended with a background shell running reads Working, Background, with the agent at its prompt.
+	case a.State != "" && !remote.Replies(a.State) && !(steer && a.State == model.StateWorking) && !a.Background:
 		return nil, fmt.Errorf("%s is busy", prov)
 	case drafting && agent.Draft(prov, p.Snapshot()):
 		return nil, errDraft
@@ -402,6 +405,7 @@ func (d *Daemon) deliver(pane string) {
 		d.mail.queue[pane] = slices.Delete(q, i, i+1)
 		d.wake(pane, 0) // why: it waits for this turn, or sendStart if the turn never reports
 	}
+	row, isChat := d.chatTaken(pane, l)
 	d.mail.typed[pane] = time.Now()
 	delete(d.replies, pane)
 	text := l.text
@@ -414,7 +418,11 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.changed()
 	d.mu.Unlock()
-	if err := d.typeLetter(pane, p, l.images, text, l.quoted); err != nil {
+	if err := d.typeLetter(pane, p, l.images, text, l.quoted); err != nil && isChat {
+		d.mu.Lock()
+		d.chatFailed(pane, row, err)
+		d.mu.Unlock()
+	} else if err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
 	} else if l.notice != "" {
 		d.mu.Lock()

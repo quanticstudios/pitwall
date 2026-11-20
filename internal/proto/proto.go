@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 88 added QueuedMessage.Error and ChatQueue Action "now", and a
+// pane chat holds what is queued mid-turn and takes queue actions
+// (QueueLevel).
 // Level 87 added no message: a daemon at CodexPaneChatLevel answers the
 // Chat* messages for a pane running Codex's TUI too.
 // Level 85 added no message: a daemon at PaneChatLevel answers the Chat*
@@ -227,7 +230,12 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 87
+const Level = 88
+
+// QueueLevel is the first daemon that takes ChatQueue Action "now" and
+// queue actions on a pane chat, whose mid-turn messages it holds until
+// the turn ends.
+const QueueLevel = 88
 
 // ChatPageLevel added ChatRead.Before and Item and ChatDeltas.Older, Page
 // and Item: a chat's history comes as its tail, then in pages, with long
@@ -1385,7 +1393,7 @@ type ChatSet struct {
 type ChatQueue struct {
 	Chat             string
 	Queue            []session.QueuedMessage // whole queue when Action is empty; unknown ids are refused
-	Action, ID, Text string                  // edit, move, remove, steer or resume
+	Action, ID, Text string                  // edit, move, remove, steer, now (QueueLevel) or resume
 	Index            int                     // move destination
 }
 

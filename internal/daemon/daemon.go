@@ -1808,6 +1808,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	}
 	delete(d.mail.wake, id)
 	delete(d.mail.queue, id)
+	delete(d.mail.chat, id)
 	delete(d.mail.typed, id)
 	delete(d.mail.keyAt, id)
 	delete(d.repeats, id)

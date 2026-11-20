@@ -118,20 +118,95 @@ func TestPaneChat(t *testing.T) {
 	if got := gotAfter(t, f.pane(0), before, 1); got != "\x1b" {
 		t.Errorf("interrupt typed %q, want Esc", got)
 	}
-	// Sent mid-turn, a message waits in the chat's queue until the next
-	// prompt line takes it.
-	if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: "then this"}); r.(proto.ChatResult).Message != "queued" {
-		t.Fatalf("busy send: %+v", r)
+	// Sent mid-turn, a message waits in the chat's queue, untyped, until
+	// the turn ends; its row can be moved, edited, removed or sent now.
+	queue := func(m proto.ChatQueue) {
+		t.Helper()
+		m.Chat = "a"
+		if r, _ := d.chatRequest(context.Background(), m); r.(proto.ChatResult).Code != "" {
+			t.Fatalf("%s: %+v", m.Action, r)
+		}
 	}
-	if snap, seq = paneRead(t, d, "a", snap, seq); len(snap.QueuedInputs) != 1 || snap.QueuedInputs[0].Text != "then this" {
-		t.Fatalf("queue %+v: want the busy send", snap.QueuedInputs)
+	texts := func(s session.Snapshot) string {
+		var out []string
+		for _, q := range s.QueuedInputs {
+			out = append(out, q.Text)
+		}
+		return strings.Join(out, "|")
 	}
-	fh, _ = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
-	fh.WriteString(`{"type":"user","uuid":"p2","timestamp":"2026-11-18T10:01:00Z","message":{"role":"user","content":"then this"}}` + "\n")
-	fh.Close()
-	if snap, seq = paneRead(t, d, "a", snap, seq); len(snap.QueuedInputs) != 0 || len(snap.Turns) != 2 {
-		t.Fatalf("after its prompt: queue %+v, %d turns", snap.QueuedInputs, len(snap.Turns))
+	before = len(f.pane(0).got())
+	for _, text := range []string{"then this", "and that", "drop me"} {
+		if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: text}); r.(proto.ChatResult).Message != "queued" {
+			t.Fatalf("busy send: %+v", r)
+		}
 	}
+	snap, seq = paneRead(t, d, "a", snap, seq)
+	if got := texts(snap); got != "then this|and that|drop me" {
+		t.Fatalf("queue %q: want the busy sends", got)
+	}
+	ids := map[string]string{}
+	for _, q := range snap.QueuedInputs {
+		ids[q.Text] = q.ID
+	}
+	queue(proto.ChatQueue{Action: "move", ID: ids["and that"], Index: 0})
+	queue(proto.ChatQueue{Action: "edit", ID: ids["then this"], Text: "then this, edited"})
+	queue(proto.ChatQueue{Action: "remove", ID: ids["drop me"]})
+	if snap, seq = paneRead(t, d, "a", snap, seq); texts(snap) != "and that|then this, edited" {
+		t.Fatalf("queue %q after move, edit and remove", texts(snap))
+	}
+	if got := f.pane(0).got()[before:]; got != "" {
+		t.Fatalf("typed %q mid-turn: the queue holds it", got)
+	}
+	f.pane(0).mu.Lock()
+	f.pane(0).screen = []string{"> "} // the prompt answered: Claude works at its prompt
+	f.pane(0).mu.Unlock()
+	queue(proto.ChatQueue{Action: "now", ID: ids["and that"]})
+	if got := gotAfter(t, f.pane(0), before, len("and that")); !strings.Contains(got, "and that") {
+		t.Fatalf("send now typed %q", got)
+	}
+	if snap, seq = paneRead(t, d, "a", snap, seq); texts(snap) != "then this, edited" {
+		t.Fatalf("queue %q after send now", texts(snap))
+	}
+	// Stop holds the queue until the next send or Resume.
+	d.chatRequest(context.Background(), proto.ChatInterrupt{Chat: "a"})
+	if snap, seq = paneRead(t, d, "a", snap, seq); !snap.QueuePaused {
+		t.Fatal("an interrupt did not hold the queue")
+	}
+	queue(proto.ChatQueue{Action: "resume"})
+	if snap, seq = paneRead(t, d, "a", snap, seq); snap.QueuePaused {
+		t.Fatal("resume left the queue held")
+	}
+	// The turn ends: deliver types the row and it goes.
+	oldQuiet, oldSettle := sendQuiet.set(time.Millisecond), sendSettle.set(time.Millisecond)
+	defer func() { sendQuiet.set(oldQuiet); sendSettle.set(oldSettle) }()
+	before = len(f.pane(0).got())
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].State = model.StateCompleted
+	d.live.hookAt["a"] = time.Now()
+	d.wake("a", 0)
+	d.mu.Unlock()
+	if got := gotAfter(t, f.pane(0), before, len("then this, edited")); !strings.Contains(got, "then this, edited") {
+		t.Fatalf("turn end typed %q", got)
+	}
+	if snap, seq = paneRead(t, d, "a", snap, seq); len(snap.QueuedInputs) != 0 {
+		t.Fatalf("queue %q after delivery", texts(snap))
+	}
+	// A turn that ended with a background shell running takes a send at
+	// once: Claude Code sits at its prompt.
+	d.mu.Lock()
+	ai := d.activityIndex("a")
+	d.st.Activities[ai].State, d.st.Activities[ai].Background = model.StateWorking, true
+	d.mu.Unlock()
+	before = len(f.pane(0).got())
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: "while it sleeps"}); r.(proto.ChatResult).Message == "queued" {
+		t.Fatalf("a send after the turn queued: %+v", r)
+	}
+	if got := gotAfter(t, f.pane(0), before, len("while it sleeps")); !strings.Contains(got, "while it sleeps") {
+		t.Fatalf("background send typed %q", got)
+	}
+	d.mu.Lock()
+	d.st.Activities[ai].Background = false
+	d.mu.Unlock()
 
 	d.mu.Lock()
 	d.st.Activities[d.activityIndex("a")].State = model.StateCompleted
@@ -383,28 +458,5 @@ func TestPaneChatNotifiedTurn(t *testing.T) {
 	last := pc.snap.Content[len(pc.snap.Content)-1]
 	if last.Text != "done" || last.TurnID == nil || *last.TurnID != pc.snap.Turns[1].ID || pc.snap.Turns[1].State != session.TurnCompleted {
 		t.Fatalf("last item %+v in turns %+v: want done in the notified turn, completed", last, pc.snap.Turns)
-	}
-}
-
-// A message queued mid-turn that the running turn takes loses its queued
-// row then, not when the next turn starts.
-func TestPaneChatAbsorbed(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s.jsonl")
-	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count"}}
-`
-	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	live := paneLive{p: &fakePane{}, act: model.Activity{State: model.StateWorking}}
-	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
-	pc.catchUp(live)
-	pc.queued = []session.QueuedInput{{ID: "k", Text: "say kiwi"}, {ID: "l", Text: "say lime"}}
-	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
-	fh.WriteString(`{"type":"attachment","uuid":"q1","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"say kiwi","origin":{"kind":"human"}}}
-`)
-	fh.Close()
-	pc.catchUp(live)
-	if len(pc.snap.QueuedInputs) != 1 || pc.snap.QueuedInputs[0].ID != "l" {
-		t.Fatalf("queued %+v: want only lime's row", pc.snap.QueuedInputs)
 	}
 }

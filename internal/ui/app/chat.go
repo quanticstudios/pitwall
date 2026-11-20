@@ -83,15 +83,16 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)
 	gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
-	u.chatBody(gtx, st, ch, ws.Chat, ws.Path, tui == nil, func() { u.toggleChatTerminal(st, ws) })
+	u.chatBody(gtx, st, ch, ws.Chat, ws, tui == nil, func() { u.toggleChatTerminal(st, ws) })
 }
 
 // chatBody draws chat id's transcript with the composer under it, and
-// sends the composer's messages and the requests answered on it. dir is
-// where the transcript's paths are; focus is whether the composer may
+// sends the composer's messages and the requests answered on it. ws is
+// its tab, whose folder the transcript's paths are in; focus is whether the composer may
 // take the keys, as a pane chat in an unfocused split may not; term
 // opens the chat's terminal view.
-func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir string, focus bool, term func()) {
+func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws *model.Workspace, focus bool, term func()) {
+	dir := ws.Path
 	s, ok := ch.Chat(id)
 	if ok {
 		t := u.chatTranscript(st, id)
@@ -123,6 +124,13 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		}
 		env := u.chatEnv(st, id, &s, t)
 		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing()
+		// A pane chat's Claude reads @ paths from its pane's folder.
+		cwd := dir
+		if p := findPane(st, id); p != nil && p.Cwd != "" {
+			cwd = p.Cwd
+		}
+		env.Mentions, env.Branch = u.mentions(cwd), ws.Branch
+		env.Copy = func(s string) { putClipboard(gtx, s) }
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.
@@ -169,7 +177,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 	env := chatin.Env{Chat: id, Snap: s, Width: width,
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
-		Now: u.link().Level >= proto.ChatNowLevel}
+		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel}
 	env.Key, env.Esc = t.Key, t.CloseFiles
 	return env
 }

@@ -329,6 +329,8 @@ type ui struct {
 
 	// paths is the path picker, drawn in the palette's card.
 	paths pathPick
+	// mentionLists are the composer's @ mention listings, by folder.
+	mentionLists map[string]*mentionList
 
 	sw       sessionSwitcher
 	pal      palette // the command palette
