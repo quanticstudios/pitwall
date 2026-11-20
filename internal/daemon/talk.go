@@ -170,6 +170,7 @@ type letter struct {
 	plain      bool
 	notice     string   // success notice prefix, completed with the agent name
 	images     []string // paths typed before the text
+	quoted     []string // attachments' texts, pasted after it
 	window     bool     // from the window, which judged the agent ready itself
 	seq        uint64   // the window's proto.Deliver.Seq
 	// phone is a phone message's id, 0 for any other; owner is the agent
@@ -413,7 +414,7 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.changed()
 	d.mu.Unlock()
-	if err := d.typeLetter(pane, p, l.images, text); err != nil {
+	if err := d.typeLetter(pane, p, l.images, text, l.quoted); err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
 	} else if l.notice != "" {
 		d.mu.Lock()

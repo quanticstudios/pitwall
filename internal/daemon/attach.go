@@ -80,8 +80,23 @@ type evidence struct {
 // it: images as Images, and pasted text and workspace files read from cwd
 // now, quoted after the text.
 func provide(cwd string, m session.Message) (session.Message, error) {
-	if err := checkAttachments(m.Attachments); err != nil {
+	m, quoted, err := gather(cwd, m)
+	if err != nil || len(quoted) == 0 {
 		return m, err
+	}
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // as JSON.stringify writes it
+	enc.Encode(quoted)
+	m.Text += "\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n" + string(bytes.TrimSuffix(b.Bytes(), []byte("\n")))
+	return m, nil
+}
+
+// gather is m with its images as Images, and every attachment as aide
+// quotes it, pasted text and workspace files read from cwd now.
+func gather(cwd string, m session.Message) (session.Message, []evidence, error) {
+	if err := checkAttachments(m.Attachments); err != nil {
+		return m, nil, err
 	}
 	var quoted []evidence
 	text := 0
@@ -97,7 +112,7 @@ func provide(cwd string, m session.Message) (session.Message, error) {
 		case "workspace-file":
 			data, err := readFile(cwd, a.Path)
 			if err != nil {
-				return m, invalid("attachment %s: %v", a.Path, err)
+				return m, nil, invalid("attachment %s: %v", a.Path, err)
 			}
 			if mime := http.DetectContentType(data); imageTypes[mime] {
 				m.Images = append(m.Images, session.Image{MimeType: mime, Name: filepath.Base(a.Path), Data: data})
@@ -105,23 +120,16 @@ func provide(cwd string, m session.Message) (session.Message, error) {
 				break
 			}
 			if !utf8.Valid(data) {
-				return m, invalid("attachment %s: neither text nor a PNG, JPEG or WebP image", a.Path)
+				return m, nil, invalid("attachment %s: neither text nor a PNG, JPEG or WebP image", a.Path)
 			}
 			text += len(data)
 			quoted = append(quoted, evidence{Content: string(data), Kind: "workspace-file", Path: a.Path})
 		}
 		if text > maxFiles {
-			return m, invalid("pasted text and workspace files over 1 MiB in all")
+			return m, nil, invalid("pasted text and workspace files over 1 MiB in all")
 		}
 	}
-	if len(quoted) > 0 {
-		var b bytes.Buffer
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false) // as JSON.stringify writes it
-		enc.Encode(quoted)
-		m.Text += "\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n" + string(bytes.TrimSuffix(b.Bytes(), []byte("\n")))
-	}
-	return m, nil
+	return m, quoted, nil
 }
 
 // readFile reads the regular file rel under cwd, refusing a link or a path

@@ -267,6 +267,22 @@ func TestPromptParts(t *testing.T) {
 	if shown != "Count the lines." || len(ps) != 1 || ps[0].lines != 2 || ps[0].text != "line 1\nline 2" {
 		t.Fatalf("shown %q, pastes %+v", shown, ps)
 	}
+	// Real lines from a pane chat's transcript: the whole prompt went in as a paste.
+	for _, c := range [][2]string{
+		{"[Image #10] \n\n<pasted_content id=\"44ff\">\n[Image #1]  you did not complete this thing\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"44ff\">\n",
+			"[Image #1]  you did not complete this thing"},
+		{"\n\n<pasted_content id=\"44ff\">\n[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff\n</pasted_content id=\"44ff\">\n",
+			"[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff"},
+		{"[Image #3] \n\n<pasted_content id=\"1\">\nlook\nhere\n</pasted_content id=\"1\">", "[Image #3] look\nhere"},
+	} {
+		if shown, ps := promptParts(c[0]); shown != c[1] || len(ps) != 0 {
+			t.Errorf("promptParts(%q) = %q, %+v; want %q", c[0], shown, ps, c[1])
+		}
+	}
+	shown, ps = promptParts("Explain this:\n\n<pasted_content id=\"2\">\na\nb\nc\n</pasted_content id=\"2\">")
+	if shown != "Explain this:" || len(ps) != 1 || ps[0].lines != 3 {
+		t.Fatalf("typed plus pasted: shown %q, pastes %+v", shown, ps)
+	}
 	if !slashCommand("/model claude-opus-5-5") || slashCommand("/tmp/x is a path\nwith lines") || slashCommand("fix /model") {
 		t.Fatal("slashCommand")
 	}

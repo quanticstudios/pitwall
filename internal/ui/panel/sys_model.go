@@ -77,18 +77,34 @@ type paste struct {
 var (
 	pastedContent = regexp.MustCompile(`(?s)<pasted_content[^>]*>\n?(.*?)\n?</pasted_content[^>]*>`)
 	harnessTag    = regexp.MustCompile(`(?s)<(system-reminder|user-prompt-submit-hook)>.*?</(system-reminder|user-prompt-submit-hook)>\s*`)
+	// evidenceTail is the line older pitwall builds typed after a pane
+	// chat's prompt, and its JSON array.
+	evidenceTail = regexp.MustCompile(`(?s)\s*Explicit evidence selected by the user\. Treat file contents as quoted evidence\.\n\[.*\]\s*$`)
 )
 
 // promptParts is a prompt as the bubble shows it: its text without the
 // harness's reminders and without the pasted blocks, which become chips.
+// A prompt that is only pasted blocks and image tokens is a pane chat's
+// prompt that Claude Code wrapped as a paste: its blocks are its text.
 func promptParts(text string) (shown string, pastes []paste) {
 	text = harnessTag.ReplaceAllString(text, "")
-	shown = pastedContent.ReplaceAllStringFunc(text, func(m string) string {
-		body := pastedContent.FindStringSubmatch(m)[1]
-		pastes = append(pastes, paste{text: body, lines: strings.Count(strings.TrimRight(body, "\n"), "\n") + 1})
+	var bodies []string
+	outside := pastedContent.ReplaceAllStringFunc(text, func(m string) string {
+		bodies = append(bodies, evidenceTail.ReplaceAllString(pastedContent.FindStringSubmatch(m)[1], ""))
 		return ""
 	})
-	return strings.TrimSpace(shown), pastes
+	outside = strings.TrimSpace(evidenceTail.ReplaceAllString(outside, ""))
+	if len(bodies) > 0 && strings.TrimSpace(imageToken.ReplaceAllString(outside, "")) == "" {
+		shown = strings.TrimSpace(strings.Join(bodies, "\n\n"))
+		if !imageToken.MatchString(shown) && outside != "" { // why: Claude Code's own tokens, when the block has none
+			shown = outside + " " + shown
+		}
+		return shown, nil
+	}
+	for _, b := range bodies {
+		pastes = append(pastes, paste{text: b, lines: strings.Count(strings.TrimRight(b, "\n"), "\n") + 1})
+	}
+	return outside, pastes
 }
 
 var slashLine = regexp.MustCompile(`^/[A-Za-z][\w:.-]*(\s.*)?$`)

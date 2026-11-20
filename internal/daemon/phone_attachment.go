@@ -52,5 +52,5 @@ func (d *Daemon) phoneSendImage(pane, text, image string) (uint64, error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return 0, errors.New("the image is unavailable")
 	}
-	return d.phoneSendPaths(pane, text, []string{path})
+	return d.phoneSendPaths(pane, text, []string{path}, nil)
 }

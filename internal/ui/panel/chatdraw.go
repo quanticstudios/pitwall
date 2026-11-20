@@ -347,7 +347,8 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 		return layout.Dimensions{}
 	}
 	var ws []layout.Widget
-	refs := imageRefs(it.Text)
+	shown, _ := promptParts(it.Text)
+	refs := imageRefs(shown)
 	n := 0
 	for i := range it.Attachments {
 		a := &it.Attachments[i]

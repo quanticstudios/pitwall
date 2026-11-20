@@ -650,13 +650,20 @@ var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 // Enter, mid-turn too, where Claude Code queues it and so does the chat
 // until the next prompt line; one sent "now" shows no queued row.
 func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
-	sm, err := provide(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
+	sm, quoted, err := gather(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
 		return "", err
 	}
-	if !slices.ContainsFunc(m.Attachments, func(a session.Attachment) bool { return a.Kind != "image" }) {
-		// why: Claude Code numbers each pasted image path itself; the composer's tokens and the evidence line would repeat them.
-		sm.Text = strings.TrimSpace(imageToken.ReplaceAllString(m.Text, ""))
+	// why: Claude Code numbers each pasted image path itself, and the TUI takes attachments' texts as pastes, not aide's evidence line.
+	sm.Text = strings.TrimSpace(imageToken.ReplaceAllString(m.Text, ""))
+	var texts []string
+	for _, q := range quoted {
+		switch {
+		case q.Kind == "workspace-file":
+			texts = append(texts, q.Path+":\n"+q.Content)
+		case q.Content != "":
+			texts = append(texts, q.Content)
+		}
 	}
 	if m.Skill != nil {
 		sm.Text = "/" + m.Skill.Name + " " + sm.Text
@@ -669,7 +676,7 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		}
 		paths = append(paths, r.Path)
 	}
-	if _, err := d.phoneSendPaths(pc.id, sm.Text, paths); err != nil {
+	if _, err := d.phoneSendPaths(pc.id, sm.Text, paths, texts); err != nil {
 		return "", err
 	}
 	if !busy(l.act.State) {
