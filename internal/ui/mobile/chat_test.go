@@ -631,3 +631,21 @@ func TestApprovalPreflightBlocksAllowBeforeRequest(t *testing.T) {
 		t.Fatal("Open on desktop did not focus the desktop")
 	}
 }
+
+// The phone's card offers Allow for this session on an approval whose
+// prompt has it, not on one without, a plan or a question.
+func TestSessionOffered(t *testing.T) {
+	for _, tc := range []struct {
+		r    remote.Request
+		want bool
+	}{
+		{remote.Request{Kind: "approval"}, true},
+		{remote.Request{Kind: "approval", NoSession: true}, false},
+		{remote.Request{Kind: "plan"}, false},
+		{remote.Request{Kind: "input"}, false},
+	} {
+		if got := sessionOffered(tc.r); got != tc.want {
+			t.Errorf("sessionOffered(%+v) = %v", tc.r, got)
+		}
+	}
+}

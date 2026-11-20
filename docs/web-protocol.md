@@ -544,7 +544,7 @@ result is still `ok`: nothing runs, which is what the client asked for.
 {"type": "resolveInput", "id": "10", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "requestId": "question-1", "answers": {"branch": ["main"]}}
 ```
 
-`decision` is `allow`, `allow-session` or `deny`. `answers` maps a
+`decision` is `allow`, `allow-session` or `deny`; `allow-session` fails on an approval with `noSession`, a TUI prompt that has no such answer. `answers` maps a
 question id to the chosen labels or typed text, always a list. The first
 answer from any client wins; a later one gets `conflict`
 ([who answers approvals](managed-sessions.md#approvals)).

@@ -122,6 +122,9 @@ func describe(c *session.ToolCall, sum toolSummary, out string) toolView {
 	case "Skill":
 		v.verb, v.icon = "Using skill", "sparkles"
 		v.arg = in.str("skill", "command", "name")
+	case "ExitPlanMode":
+		v.verb, v.icon = "Plan", "map"
+		v.arg = strings.TrimLeft(firstLine(strings.TrimSpace(in.str("plan"))), "# ") // its title, without the heading's #
 	case "ToolSearch":
 		v.verb, v.icon = "Load tools", "search"
 		v.arg = in.str("query")

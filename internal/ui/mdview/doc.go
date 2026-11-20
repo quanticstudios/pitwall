@@ -84,10 +84,22 @@ func Parse(src []byte) []Block {
 	return p.out
 }
 
+// ParseChat is Parse for an agent's reply: a line break inside a
+// paragraph stays a line break, as in the agent's own TUI, GitHub's
+// comments and chat apps, so a list written one item per line without
+// markers keeps its lines.
+func ParseChat(src []byte) []Block {
+	p := &parser{src: src, slugs: map[string]int{}, breaks: true}
+	doc := md.Parser().Parse(text.NewReader(src))
+	p.blocks(doc, 0, 0)
+	return p.out
+}
+
 type parser struct {
-	src   []byte
-	out   []Block
-	slugs map[string]int
+	src    []byte
+	out    []Block
+	slugs  map[string]int
+	breaks bool // a soft line break is a line break (ParseChat)
 	// marker and task go on the next block a list item emits, newList
 	// on the next block a list emits.
 	marker  string
@@ -240,6 +252,8 @@ func (p *parser) inlines(n ast.Node, st Span, out *[]inl) {
 			s.Text = string(c.Segment.Value(p.src))
 			switch {
 			case c.HardLineBreak():
+				s.Text += "\n"
+			case c.SoftLineBreak() && p.breaks:
 				s.Text += "\n"
 			case c.SoftLineBreak():
 				s.Text += " "

@@ -606,7 +606,7 @@ func prompt(gtx C, th *theme.Theme, s string, opacity float32) D {
 // link opens a markdown file, or copies anything else.
 func (c *chatView) reply(gtx C, th *theme.Theme, r *entryRow, src string) D {
 	if !r.parsed || r.text != src || r.files != c.files {
-		blocks := mdview.Parse([]byte(src))
+		blocks := mdview.ParseChat([]byte(src))
 		if c.files {
 			linkPaths(blocks)
 		}

@@ -11,6 +11,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -401,7 +402,7 @@ func (d *cdraw) usageParts(id string, c useCard) []layout.Widget {
 		}
 		parts = append(parts, func(gtx layout.Context) layout.Dimensions {
 			return d.split(gtx, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.Fg, m.name)
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.Fg, chatin.ModelName(m.name))
 			}, d.muted(right))
 		})
 	}
@@ -420,7 +421,7 @@ func (d *cdraw) usageParts(id string, c useCard) []layout.Widget {
 	if len(c.models) > 0 {
 		s := detailSection{title: "Tokens by model"}
 		for _, m := range c.models {
-			s.rows = append(s.rows, detailRow{name: m.name, value: fmt.Sprintf("%s input · %s output · %s cache read · %s cache write",
+			s.rows = append(s.rows, detailRow{name: chatin.ModelName(m.name), value: fmt.Sprintf("%s input · %s output · %s cache read · %s cache write",
 				tokShort(m.in), tokShort(m.out), tokShort(m.cacheRead), tokShort(m.cacheWrt))})
 		}
 		secs = append(secs, s)
@@ -448,6 +449,9 @@ func (d *cdraw) statusParts(id string, c statusCard) []layout.Widget {
 		kw += gtx.Dp(theme.SpaceL)
 		var rows []layout.Widget
 		for i, r := range c.rows {
+			if r.name == "Model" {
+				r.value = chatin.ModelName(r.value) // as the composer names it
+			}
 			rows = append(rows, func(gtx layout.Context) layout.Dimensions {
 				g := gtx
 				g.Constraints.Max.X = max(0, gtx.Constraints.Max.X-kw)

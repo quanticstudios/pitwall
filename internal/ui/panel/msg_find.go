@@ -176,7 +176,8 @@ func (t *Transcript) findUpdate(gtx layout.Context, s *session.Snapshot) {
 		f.cur = ((f.cur+step)%len(f.hits) + len(f.hits)) % len(f.hits)
 		f.jump = true
 	}
-	if len(f.q) > 0 && t.older && t.Older != nil {
+	// why: the view may never have scrolled near the top, so nothing asked yet whether older pages exist.
+	if len(f.q) > 0 && t.Older != nil {
 		t.older = t.Older()
 	}
 }
@@ -277,16 +278,17 @@ func (t *Transcript) findJump(gtx layout.Context, s *session.Snapshot, h int) {
 	if !f.on || !f.jump || f.cur < 0 || f.cur >= len(f.hits) {
 		return
 	}
-	hit := f.hits[f.cur]
-	k := t.findRow(s, hit.i)
+	cur := f.hits[f.cur]
+	k := t.findRow(s, cur.i)
 	gtx.Execute(op.InvalidateCmd{})
 	if k < 0 {
 		return
 	}
 	el := k + 1
-	off := 0
+	// A short row goes just under the find bar, which would cover it at the top.
+	off := -(gtx.Dp(theme.SpaceM+theme.SpaceS) + gtx.Dp(hit) + 2*gtx.Dp(theme.SpaceXS))
 	if sp, ok := t.msg.ys[el]; ok && sp.h > h/2 {
-		off = min(max(0, sp.h*hit.at/max(1, hit.runs)-h/3), max(0, sp.h-h/2))
+		off = min(max(0, sp.h*cur.at/max(1, cur.runs)-h/3), max(0, sp.h-h/2))
 	}
 	t.list.Position.First, t.list.Position.Offset, t.list.Position.BeforeEnd = el, off, true
 	if _, ok := t.msg.ys[el]; ok && f.jumped {

@@ -74,7 +74,7 @@ func (d *cdraw) sysItem(gtx layout.Context, it *session.Item, inLog bool) layout
 		})
 	case session.PhaseWarning:
 		return pad(func(gtx layout.Context) layout.Dimensions {
-			return d.notice(gtx, it.ID, th.Yellow, "Retrying", txt)
+			return d.notice(gtx, it.ID, th.Yellow, warningTitle(txt), txt)
 		})
 	case session.PhaseError:
 		return pad(func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, it.ID, th.Red, "", txt) })
@@ -864,4 +864,13 @@ func joinDot(a, b string) string {
 		return b
 	}
 	return a + " · " + b
+}
+
+// warningTitle is a warning card's title: Retrying over an API retry,
+// none over Claude Code's other warnings, such as an unknown command.
+func warningTitle(text string) string {
+	if strings.Contains(text, " · retrying") {
+		return "Retrying"
+	}
+	return ""
 }

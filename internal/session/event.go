@@ -148,6 +148,7 @@ type Event struct {
 	RequestID   string       `json:"requestId,omitempty"`
 	RequestType RequestType  `json:"requestType,omitempty"`
 	Request     *ToolRequest `json:"request,omitempty"`
+	NoSession   bool         `json:"noSession,omitempty"` // a request.opened that offers no Allow for this session
 	Questions   []Question   `json:"questions,omitempty"`
 
 	ItemID string    `json:"itemId,omitempty"`

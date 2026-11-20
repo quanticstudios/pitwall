@@ -2527,6 +2527,10 @@
               "description": "Anything."
             }
           }
+        },
+        "noSession": {
+          "description": "pitwall's: the prompt offers no Allow for this session, so allow-session fails. Absent when it does.",
+          "type": "boolean"
         }
       }
     },

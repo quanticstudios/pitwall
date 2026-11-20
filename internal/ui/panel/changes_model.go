@@ -122,6 +122,13 @@ func numbered(ls []diffLine) []diffLine {
 	return ls
 }
 
+// planFile is whether p is a plan Claude Code wrote in plan mode, under
+// ~/.claude/plans: its own notes, not a change to the user's files.
+func planFile(p string) bool {
+	d := filepath.Dir(filepath.Clean(p))
+	return filepath.Base(d) == "plans" && filepath.Base(filepath.Dir(d)) == ".claude"
+}
+
 // turnChanges are the files content[lo:hi] edited, in the order the turn
 // first touched them, each counted once over its edits. A failed or
 // running call changed nothing yet. diff is an edit item's lines.
@@ -135,6 +142,9 @@ func turnChanges(content []session.Item, lo, hi int, dir string, diff func(*sess
 			continue
 		}
 		for _, e := range callEdits(c, diff(it)) {
+			if planFile(e.path) {
+				continue
+			}
 			p := relPath(dir, filepath.Clean(e.path))
 			k, ok := at[p]
 			if !ok {

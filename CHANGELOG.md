@@ -24,6 +24,29 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The phone app and the phone web page leave out Allow for this session on an approval whose prompt doesn't offer it, as the desktop chat does.
+- A rewind the chat refuses, as when Claude Code's rewind list shows the message like a later one, leaves the composer as it was; the prompt comes back into it only once a rewind went through.
+- A TUI pane chat rewound past a compaction stays rewound after a daemon restart. When a turn had followed the compaction, the chat's older history showed the turns the rewind left behind.
+- When a hook makes Claude Code ask, as a PreToolUse hook that returns ask does even under bypass, the pane chat's approval card shows the hook's reason under the command.
+- A TUI pane chat's approval card shows Allow for session only when Claude Code's or Codex's prompt offers it, and 2 then denies. A prompt from a hook that asks, or a protected path under bypass, offers only Yes and No, and the button used to fail with "the pane no longer offers Allow always".
+- A Codex tab's title drops the status Codex puts first, such as "[ . ] Action Required | ", and the folder it puts last; the sidebar shows both already.
+- A resumed TUI pane chat no longer shows Claude Code's "No response requested." placeholder as a reply.
+- The desktop and phone chats keep a reply's single line breaks, as Claude Code's TUI does, so text written one item per line no longer runs together into one paragraph.
+- A Ctrl+F match in the desktop chat lands just under the find bar instead of behind it.
+- Ctrl+F in a long desktop chat searches its older pages right after the chat opens; before, it said No results until you had scrolled near the top once.
+- Rewind in the desktop chat takes away the Allowed, Denied and Answered lines of the turns it removes, instead of leaving them stacked at the end.
+- The work log shows an ExitPlanMode call as Plan and the plan's title, without the markdown heading's #.
+- The turn change card and Changes panel leave out the plan Claude Code writes under ~/.claude/plans in plan mode.
+- A TUI pane chat's permission card for a call Claude Code has not written yet, as a Write often is, says what it runs or touches ("Claude wants to edit a file" and the path) instead of a generic "asks for approval" with the tool name twice.
+- A denied permission's line in the desktop chat starts with an x, not a check.
+- The /usage, /cost and /status cards name models as the composer does, Sonnet 5.5 rather than claude-sonnet-5-5.
+- A TUI pane chat on Sonnet 5.5 meters its context out of 1M, as Claude Code's /context does, not 200K.
+- The chat's Changes panel and File view highlight code as the chat's own diffs and code blocks do.
+- When a background shell ends while a TUI pane chat answers the next prompt, that answer stays its turn's reply instead of folding into the work log under the notification's reply.
+- Claude Code's warnings in the desktop chat, such as an unknown slash command, no longer carry an API retry's "Retrying" title.
+- Shift+Tab through the modes, or a model picked and picked again, leaves one divider in the desktop chat for where it ended, not one per step.
+- A TUI pane chat's model and effort chips follow a /model or /effort change again with Claude Code 2.1.329, which draws its acknowledgement with a no-break space; the chip no longer falls back to the last reply's model mid-turn.
+- A TUI pane chat's model chip keeps the model through the first prompt instead of reading "Model" until Claude replies.
 - Rewind on a prompt sent mid-turn rewinds to that prompt in a TUI pane chat, not to the turn's first prompt. A New task chat rewinds and forks whole turns, so it offers both only on the prompt that opened a turn.
 - A TUI pane chat refuses a rewind when a later prompt reads the same in Claude Code's rewind list, as two long prompts cut to one label do, instead of rewinding the newer one. Rewind in the terminal to pick it yourself.
 - Scrolling up in a TUI pane chat after a rewind no longer shows the rewound turns again, nor does a chat read again after a daemon restart.

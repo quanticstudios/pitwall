@@ -16,6 +16,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -279,4 +280,88 @@ func (pc *paneChat) nextParent(f io.ReaderAt, at int64) string {
 		}
 	}
 	return ""
+}
+
+// rewoundStart moves a Claude transcript's tail start, start, back to the
+// prompt before the line a rewind went back to, when a prompt in
+// [start, end) branches off a line before start, so that branched sees
+// that line and drops the turns the rewind left behind. Without this, a
+// chat read afresh, as after a restart, showed both branches.
+func rewoundStart(r io.ReaderAt, start, end int64) (int64, error) {
+	for range 8 { // a rewind that leads to another one before it; more is never seen
+		if start == 0 {
+			return 0, nil
+		}
+		b := make([]byte, end-start)
+		if _, err := r.ReadAt(b, start); err != nil && err != io.EOF {
+			return start, err
+		}
+		// A prompt's parent is the line with a uuid just before it, unless a rewind branched it off.
+		prev, err := lastUUID(r, start)
+		if err != nil {
+			return start, err
+		}
+		seen := map[string]bool{prev: true}
+		target := ""
+		for line := range bytes.SplitSeq(b, []byte("\n")) {
+			var l chainLine
+			if json.Unmarshal(line, &l) != nil || l.UUID == "" || l.Sidechain {
+				continue
+			}
+			if l.Parent != "" && !seen[l.Parent] && claude.MarkOf(line) == claude.MarkPrompt {
+				target = l.Parent
+			}
+			seen[l.UUID] = true
+		}
+		if target == "" {
+			return start, nil
+		}
+		at, err := lineOf(r, start, target)
+		if err != nil || at < 0 {
+			return start, err
+		}
+		p, err := tailStart(r, at, claude.MarkOf)
+		if err != nil || p >= start {
+			return start, err
+		}
+		start = p
+	}
+	return start, nil
+}
+
+// lastUUID is the uuid of the last line before end that has one, "" for none
+// in the 4 MiB before it.
+func lastUUID(r io.ReaderAt, end int64) (string, error) {
+	lo := max(0, end-4<<20)
+	b := make([]byte, end-lo)
+	if _, err := r.ReadAt(b, lo); err != nil && err != io.EOF {
+		return "", err
+	}
+	for len(b) > 0 {
+		i := bytes.LastIndexByte(b[:len(b)-1], '\n') + 1
+		var l chainLine
+		if json.Unmarshal(b[i:], &l) == nil && l.UUID != "" && !l.Sidechain {
+			return l.UUID, nil
+		}
+		b = b[:i]
+	}
+	return "", nil
+}
+
+// lineOf is the offset of the line before end whose uuid is id, -1 for none.
+func lineOf(r io.ReaderAt, end int64, id string) (int64, error) {
+	key := []byte(`"uuid":"` + id + `"`)
+	const chunk = 4 << 20
+	for hi := end; hi > 0; {
+		lo := max(0, hi-chunk)
+		b := make([]byte, min(end, hi+chunk)-lo) // past hi, so a line cut there is whole
+		if _, err := r.ReadAt(b, lo); err != nil && err != io.EOF {
+			return -1, err
+		}
+		if i := bytes.LastIndex(b, key); i >= 0 {
+			return lo + int64(bytes.LastIndexByte(b[:i], '\n')+1), nil
+		}
+		hi = lo
+	}
+	return -1, nil
 }

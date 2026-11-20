@@ -138,6 +138,10 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		}
 		out = t.s.line(b)
 	case "assistant":
+		// why: Claude Code writes this placeholder as the last reply when it resumes a session; Claude said nothing.
+		if l.Message.Model == "<synthetic>" && strings.TrimSpace(blocksText(l.Message.Content)) == "No response requested." {
+			return nil
+		}
 		if l.IsAPIError {
 			out = []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: session.PhaseError,
 				Text: apiError(blocksText(l.Message.Content), time.Now())}}
@@ -614,11 +618,32 @@ func (t *Transcript) Ask(id, detail string) []session.Event {
 	out := t.Resolve()
 	t.asked, t.bare = id, !ok
 	if !ok {
-		return append(out, session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail})
+		return append(out, bareRequest(id, detail))
 	}
 	var l line
 	l.RequestID, l.Request.Subtype, l.Request.ToolName, l.Request.Input = id, "can_use_tool", call.ToolName, call.Input
 	return append(out, t.s.canUseTool(l)...)
+}
+
+// bareRequest is a request whose call Claude Code has not written yet,
+// as Write's often is: what its hook said, "Tool\ntarget", read as the
+// call it names so the card says what it runs or touches.
+func bareRequest(id, detail string) session.Event {
+	e := session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail}
+	tool, target, cut := strings.Cut(detail, "\n")
+	if !cut || tool == "" || strings.ContainsAny(tool, " :") {
+		return e
+	}
+	r := &session.ToolRequest{ToolName: tool}
+	e.RequestType = requestType(tool)
+	switch e.RequestType {
+	case session.RequestCommand:
+		r.Command = target
+	case session.RequestFileChange, session.RequestFileRead:
+		r.FilePath = target
+	}
+	e.Request, e.Detail = r, tool+": "+target
+	return e
 }
 
 // Asked is the open request's id, "" for none.
