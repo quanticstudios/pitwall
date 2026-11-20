@@ -264,18 +264,22 @@ func TestReportedAgentsQueueOnRestore(t *testing.T) {
 // agent is the foreground, the poll still names it once it is.
 func TestReportNamingBuiltin(t *testing.T) {
 	for _, name := range []string{"claude", "codex", "gemini", "pi", "opencode", "cursor-agent", "amp", "aider", "agy", "antigravity"} {
-		d, _, id := openLive(t, 400)
-		useReportHooks(d)
-		report(t, d, id, agent.Report{Name: name, State: "working", ResumeCmd: []string{name, "--resume", "s"}})
-		if p := reportedPane(d, id); model.ReportedName(p.Provider) != "" || len(p.ResumeCmd) != 0 {
-			t.Errorf("a report named %q made %+v", name, p)
-		}
+		t.Run(name, func(t *testing.T) {
+			d, _, id := openLive(t, 400)
+			useReportHooks(d)
+			report(t, d, id, agent.Report{Name: name, State: "working", ResumeCmd: []string{name, "--resume", "s"}})
+			if p := reportedPane(d, id); model.ReportedName(p.Provider) != "" || len(p.ResumeCmd) != 0 {
+				t.Errorf("made %+v", p)
+			}
+		})
 	}
-	d, lp, id := openLive(t, 400)
-	useReportHooks(d)
-	report(t, d, id, agent.Report{Name: "codex", State: "working"})
-	lp.fgGroup.Store(300) // codex is the foreground now
-	waitUntil(t, "the poll names the reporting agent", func() bool { return d.providerOf(id) == model.ProviderCodex })
+	t.Run("report before the foreground", func(t *testing.T) {
+		d, lp, id := openLive(t, 400)
+		useReportHooks(d)
+		report(t, d, id, agent.Report{Name: "codex", State: "working"})
+		lp.fgGroup.Store(300) // codex is the foreground now
+		waitUntil(t, "the poll names the reporting agent", func() bool { return d.providerOf(id) == model.ProviderCodex })
+	})
 }
 
 // A pane a report made agent:antigravity, before reports naming a
