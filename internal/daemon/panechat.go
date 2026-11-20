@@ -21,6 +21,7 @@ import (
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -74,6 +75,32 @@ type paneChat struct {
 	// and how far each was read.
 	agents  map[string]*agentFile
 	scanned time.Time // when subagents last looked for transcripts it lacked
+	// limit is the pane's Claude plan limit, which /usage shows; nil for none.
+	limit func() (flow.Limit, bool)
+}
+
+// transcript is a new reader of pc's transcript.
+func (pc *paneChat) transcript() *claude.Transcript {
+	t := claude.NewTranscript()
+	t.Limit = pc.limit
+	return t
+}
+
+// claudeLimit finds profile's Claude plan limit, for a pane chat's /usage.
+// Callers hold d.mu.
+func (d *Daemon) claudeLimit(profile string) func() (flow.Limit, bool) {
+	limits := d.o.Limits
+	if limits == nil {
+		return nil
+	}
+	return func() (flow.Limit, bool) {
+		for _, l := range limits() {
+			if l.Provider == model.ProviderClaude && l.Name == "" && l.Profile == profile {
+				return l, true
+			}
+		}
+		return flow.Limit{}, false
+	}
 }
 
 // agentFile is a subagent's transcript and how far it was read; done once
@@ -117,9 +144,15 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	}
 	pc := d.paneChats[id]
 	if pc == nil || pc.path != l.path { // a new session (claude again, /clear, /resume) starts over
-		pc = &paneChat{id: id, path: l.path, tr: claude.NewTranscript(),
+		pc = &paneChat{id: id, path: l.path,
 			snap: session.Snapshot{SessionID: id, PaneID: id, WorkspaceID: p.WorkspaceID, Provider: model.ProviderClaude,
 				SessionState: session.StateReady, Running: true, PermissionMode: "default", InteractionMode: "build"}}
+		if w := d.workspace(p.WorkspaceID); w != nil {
+			pc.limit = d.claudeLimit(w.Profile)
+		} else {
+			pc.limit = d.claudeLimit("")
+		}
+		pc.tr = pc.transcript()
 		if d.paneChats == nil {
 			d.paneChats = map[string]*paneChat{}
 		}
@@ -301,7 +334,7 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 			return err
 		}
 		s := pc.snap
-		pc.tr, pc.snap = claude.NewTranscript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
+		pc.tr, pc.snap = pc.transcript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
 		pc.start, pc.off, pc.pages, pc.agents, pc.at = start, start, nil, nil, nil
@@ -461,7 +494,7 @@ func (pc *paneChat) reduceRange(f io.ReaderAt, from, to int64) (session.Snapshot
 	if err != nil && err != io.EOF {
 		return session.Snapshot{}, nil, err
 	}
-	p := &paneChat{id: pc.id, off: from, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: pc.id, Provider: model.ProviderClaude}}
+	p := &paneChat{id: pc.id, off: from, tr: pc.transcript(), snap: session.Snapshot{SessionID: pc.id, Provider: model.ProviderClaude}}
 	p.lines(b[:n], "") // a transcript that shrank since gives fewer
 	p.reduce(p.tr.End(session.TurnCompleted))
 	return p.snap, p.at, nil
@@ -718,6 +751,10 @@ var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 // Enter, mid-turn too, where Claude Code queues it and so does the chat
 // until the next prompt line; one sent "now" shows no queued row.
 func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
+	// why: Claude Code's dialog for these needs Esc and writes nothing the chat could show.
+	if dialogCommand(m) && pc.dialog(l, strings.TrimSpace(m.Text)) {
+		return "", nil
+	}
 	sm, quoted, err := gather(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
 		return "", err
@@ -758,6 +795,29 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		Attachments: nonNil(m.Attachments), Recipients: []string{}})
 	pc.mu.Unlock()
 	return "queued", nil
+}
+
+// dialogCommand reports whether m is /usage, /cost or /status alone, which
+// a pane chat answers itself.
+func dialogCommand(m proto.ChatSend) bool {
+	switch strings.TrimSpace(m.Text) {
+	case "/usage", "/cost", "/status":
+		return len(m.Attachments) == 0 && m.Skill == nil
+	}
+	return false
+}
+
+// dialog adds cmd's chip and card to pc; false when the transcript knows
+// nothing to show.
+func (pc *paneChat) dialog(l paneLive, cmd string) bool {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	if pc.catchUp(l) != nil {
+		return false
+	}
+	es := pc.tr.Dialog(cmd, time.Now())
+	pc.reduce(es)
+	return es != nil
 }
 
 // paneKey presses data into pane id, as the user's own key.

@@ -48,6 +48,7 @@ type stream struct {
 	usage         *session.Event // the last usage event, which a new context size updates
 
 	commands []string // the slash_commands system/init last listed
+	info     statusInfo // what system/init said, for /status
 
 	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
 
@@ -84,6 +85,8 @@ type line struct {
 	// SlashCommands are names without the slash; the terminal ones need the TUI.
 	SlashCommands         []string `json:"slash_commands"`
 	TerminalSlashCommands []string `json:"terminal_slash_commands"`
+	Cwd                   string   `json:"cwd"`
+	PermissionMode        string   `json:"permissionMode"`
 
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
@@ -130,6 +133,11 @@ type line struct {
 	ModelUsage     map[string]modelUsage `json:"modelUsage"`
 
 	RateLimitInfo *rateLimitInfo `json:"rate_limit_info"`
+
+	// assistant: a local command's synthetic reply
+	LocalSource string          `json:"local_command_source"`
+	LocalRun    *localRun       `json:"local_command_run"`
+	UsageReport json.RawMessage `json:"usage_report"`
 
 	// control_request, control_cancel_request
 	RequestID string `json:"request_id"`
@@ -258,6 +266,7 @@ func (s *stream) system(l line) []session.Event {
 	switch l.Subtype {
 	case "init":
 		var out []session.Event
+		s.info = statusInfo{version: l.Version, session: l.SessionID, cwd: l.Cwd, mode: l.PermissionMode}
 		if l.SessionID != "" && (l.SessionID != s.resume || s.version == "") {
 			if s.version == "" {
 				log.Printf("claude: Claude Code %s", l.Version)
@@ -365,6 +374,9 @@ func (s *stream) assistant(l line) []session.Event {
 	}
 	if l.ParentToolUseID != "" {
 		return s.subagent(l.ParentToolUseID, blocks)
+	}
+	if l.LocalSource != "" {
+		return s.localOutput(l)
 	}
 	if m.Model != "" {
 		s.contextModel = m.Model
@@ -656,6 +668,30 @@ func (s *stream) harness(id, text string) []session.Event {
 		return []session.Event{{Type: session.EventContent, ItemID: cmp.Or(id, "out:"+n.text), Kind: session.KindSystem, Phase: phase, Text: text}}
 	}
 	return nil
+}
+
+// localOutput is a local command's synthetic reply as its output: /usage
+// and /cost with the session's tokens, a /status stream-json lacks as
+// what system/init said.
+func (s *stream) localOutput(l line) []session.Event {
+	text, ok := tag(l.LocalSource, "local-command-stdout")
+	if !ok {
+		text, _ = tag(l.LocalSource, "local-command-stderr")
+	}
+	text = strings.TrimSpace(text)
+	run := localRun{}
+	if l.LocalRun != nil {
+		run = *l.LocalRun
+	}
+	switch {
+	case run.Command == "usage" || run.Command == "cost":
+		text = joinParts(text, reportLines(l.UsageReport))
+	case strings.HasPrefix(text, "/status isn't available") && s.info.version != "":
+		st := s.info
+		st.model = s.contextModel
+		text = st.lines()
+	}
+	return s.harness(l.UUID, "<local-command-stdout>"+text+"</local-command-stdout>")
 }
 
 // resultText is a tool_result's content as text: the string, or its text
