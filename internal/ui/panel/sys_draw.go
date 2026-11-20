@@ -76,6 +76,8 @@ func (d *cdraw) sysItem(gtx layout.Context, it *session.Item, inLog bool) layout
 		})
 	case session.PhaseError:
 		return pad(func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, it.ID, th.Red, "", txt) })
+	case session.PhaseRecap:
+		return pad(func(gtx layout.Context) layout.Dimensions { return d.recapCard(gtx, it, txt) })
 	}
 	if txt == "" {
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}
