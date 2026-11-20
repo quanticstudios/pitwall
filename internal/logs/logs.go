@@ -89,13 +89,36 @@ func Start(path, role, version string, stderr bool) (*Writer, error) {
 		log.Printf("log file: %q", err)
 		return w, err
 	}
-	outs := []io.Writer{f}
+	outs := []io.Writer{&lineEnder{w: f}}
 	if stderr {
 		outs = append(outs, os.Stderr)
 	}
 	w := NewWriter(prefix, f, outs...)
 	log.SetOutput(w)
 	return w, nil
+}
+
+// lineEnder ends a line that a failed write cut short, such as on a full
+// disk, before the next one, so two log lines never share one. Unlike
+// Rotating it does not truncate the cut line: other processes append to
+// gui.log and daemon.log too, and truncating to a stale size would cut theirs.
+type lineEnder struct {
+	w    io.Writer
+	torn bool
+}
+
+func (l *lineEnder) Write(p []byte) (int, error) {
+	if l.torn {
+		if _, err := l.w.Write([]byte("\n")); err != nil {
+			return 0, err
+		}
+		l.torn = false
+	}
+	n, err := l.w.Write(p)
+	if err != nil && n > 0 && n < len(p) {
+		l.torn = true
+	}
+	return n, err
 }
 
 // Writer hands each line to one goroutine that writes it to every output,

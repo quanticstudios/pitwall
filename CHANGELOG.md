@@ -25,6 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - Settings, Timing no longer counts an idle agent as model time. A turn that ended with a background shell still running stayed open until the next prompt, so 12 Claude turns put about 49 idle hours into "model". The timed turn now ends when the agent stops, background work or not.
+- A line a full disk cut short in `daemon.log` or `gui.log` no longer runs into the next one.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
 - A TUI pane chat's snapshot and pages stay under 4 MB, as a New task chat's do, with older items a scroll up, and an item opened whole stays under 16 MB. A pane chat that grew large could send a reply so big that the window lost its connection to the daemon.
 - A chat whose newest item is over 4 MB even once cut, such as a call with a huge nested input, shows that item instead of an empty transcript that pages forever.
