@@ -47,6 +47,7 @@ var presetAgents = []struct{ cmd, label string }{
 	{"cursor-agent", "Cursor CLI"},
 	{"amp", "Amp"},
 	{"aider", "Aider"},
+	{"agy", "Antigravity"},
 }
 
 // findPresetAgents looks up the optional agents on PATH.

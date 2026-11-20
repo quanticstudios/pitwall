@@ -18,6 +18,8 @@ var programs = map[string]model.Provider{
 	"cursor-agent": model.ProviderCursor,
 	"amp":          model.ProviderAmp,
 	"aider":        model.ProviderAider,
+	"agy":          model.ProviderAntigravity,
+	"antigravity":  model.ProviderAntigravity,
 }
 
 // packages names the agents whose npm package an interpreter runs a
@@ -117,7 +119,7 @@ func scriptAgent(path string) model.Provider {
 // `pitwall hooks install`. Amp and Aider have none.
 func HooksFor(p model.Provider) bool {
 	switch p {
-	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor:
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor, model.ProviderAntigravity:
 		return true
 	}
 	return false
@@ -125,8 +127,11 @@ func HooksFor(p model.Provider) bool {
 
 // Command is the program agent p runs as.
 func Command(p model.Provider) string {
-	if p == model.ProviderCursor {
+	switch p {
+	case model.ProviderCursor:
 		return "cursor-agent"
+	case model.ProviderAntigravity:
+		return "agy"
 	}
 	return string(p)
 }

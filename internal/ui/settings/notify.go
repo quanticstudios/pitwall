@@ -29,6 +29,7 @@ var notifyAgents = []struct{ name, label, desc string }{
 	{"omp", "Oh My Pi", ""},
 	{"gemini", "Gemini CLI", ""},
 	{"opencode", "OpenCode", ""},
+	{"antigravity", "Antigravity", ""},
 	{"terminal", "Terminals", "pitwall notify, a bell, or OSC 9 from a program in a shell."},
 }
 
