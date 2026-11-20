@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
 
 // What a transcript holds besides prompts, replies and tool calls: task
@@ -77,18 +79,67 @@ type paste struct {
 var (
 	pastedContent = regexp.MustCompile(`(?s)<pasted_content[^>]*>\n?(.*?)\n?</pasted_content[^>]*>`)
 	harnessTag    = regexp.MustCompile(`(?s)<(system-reminder|user-prompt-submit-hook)>.*?</(system-reminder|user-prompt-submit-hook)>\s*`)
+	// evidenceTail is the line older pitwall builds typed after a pane
+	// chat's prompt, and its JSON array.
+	evidenceTail = regexp.MustCompile(`(?s)\s*Explicit evidence selected by the user\. Treat file contents as quoted evidence\.\n\[.*\]\s*$`)
 )
 
 // promptParts is a prompt as the bubble shows it: its text without the
 // harness's reminders and without the pasted blocks, which become chips.
+// A prompt that is only pasted blocks and image tokens is a pane chat's
+// prompt that Claude Code wrapped as a paste: its blocks are its text.
 func promptParts(text string) (shown string, pastes []paste) {
 	text = harnessTag.ReplaceAllString(text, "")
-	shown = pastedContent.ReplaceAllStringFunc(text, func(m string) string {
-		body := pastedContent.FindStringSubmatch(m)[1]
-		pastes = append(pastes, paste{text: body, lines: strings.Count(strings.TrimRight(body, "\n"), "\n") + 1})
+	var bodies []string
+	outside := pastedContent.ReplaceAllStringFunc(text, func(m string) string {
+		bodies = append(bodies, evidenceTail.ReplaceAllString(pastedContent.FindStringSubmatch(m)[1], ""))
 		return ""
 	})
-	return strings.TrimSpace(shown), pastes
+	outside = strings.TrimSpace(evidenceTail.ReplaceAllString(outside, ""))
+	if len(bodies) > 0 && strings.TrimSpace(imageToken.ReplaceAllString(outside, "")) == "" {
+		shown = strings.TrimSpace(strings.Join(bodies, "\n\n"))
+		if outside != "" { // Claude Code's tokens for the pasted images, before the words
+			shown = outside + " " + shown
+		}
+		return shown, nil
+	}
+	for _, b := range bodies {
+		pastes = append(pastes, paste{text: b, lines: strings.Count(strings.TrimRight(b, "\n"), "\n") + 1})
+	}
+	return outside, pastes
+}
+
+// pitwallHeader is the line pitwall types above a message from another
+// pane or a script: who sent it, its tab, and how to answer.
+var pitwallHeader = regexp.MustCompile(`^\[pitwall: message from ([^;\]\n]+?)(?: in (#[^;\]\s]+))?(?:;[^\]\n]*)?\]\n?`)
+
+// sender is who sent a message pitwall typed, as its bubble names them.
+type sender struct {
+	prov  model.Provider // "" for a script, a pane or another machine
+	label string         // as "Codex · #6.2"
+	line  string         // the header as typed, which a copy gives back
+}
+
+// promptSender splits pitwall's header off a prompt's shown text: the
+// sender, and the text after the header.
+func promptSender(shown string) (sender, string) {
+	m := pitwallHeader.FindStringSubmatchIndex(shown)
+	if m == nil {
+		return sender{}, shown
+	}
+	who := shown[m[2]:m[3]]
+	s := sender{prov: model.Provider(who), line: strings.TrimSuffix(shown[m[0]:m[1]], "\n")}
+	name := sidebar.AgentName(s.prov)
+	if name == "" { // a script, a pane, an agent on another machine
+		s.prov = ""
+		name = strings.TrimPrefix(strings.TrimPrefix(who, "an "), "a ")
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	s.label = name
+	if m[4] >= 0 {
+		s.label += " · " + shown[m[4]:m[5]]
+	}
+	return s, shown[m[1]:]
 }
 
 var slashLine = regexp.MustCompile(`^/[A-Za-z][\w:.-]*(\s.*)?$`)

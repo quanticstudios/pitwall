@@ -400,19 +400,50 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	return nil
 }
 
-// typeLine pastes text into pane p, cleaned of control characters, and
-// presses Enter; empty is the error for text that cleans to nothing.
-func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
+// typeLine pastes text into pane p, cleaned of control characters, then
+// each of quoted as a paste of its own under a blank line, and presses
+// Enter; empty is the error for text that cleans to nothing.
+func (d *Daemon) typeLine(pane string, p Pane, text, empty string, quoted ...string) error {
 	m := p.Modes()
-	text = remote.Clean(text)
-	if !m.BracketedPaste {
-		text = strings.ReplaceAll(text, "\n", " ") // a bare newline would send the first line alone
+	clean := func(s string) string {
+		s = remote.Clean(s)
+		if !m.BracketedPaste {
+			s = strings.ReplaceAll(s, "\n", " ") // a bare newline would send the first line alone
+		}
+		return s
 	}
-	if text == "" {
+	text = clean(text)
+	var quotes []string
+	for _, q := range quoted {
+		if q = clean(q); q != "" {
+			quotes = append(quotes, q)
+		}
+	}
+	if text == "" && len(quotes) == 0 {
 		return errors.New(empty)
 	}
 	ctx := context.Background()
-	if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.Paste(text, m)}); err != nil {
+	d.mu.Lock()
+	claude := d.paneProvider(pane) == model.ProviderClaude
+	d.mu.Unlock()
+	var data []byte
+	if text != "" {
+		data = input.Paste(text, m)
+		if claude {
+			data = typeLines(text, m)
+		}
+	}
+	for _, q := range quotes {
+		if len(data) > 0 {
+			nl := typeLines("\n\n", m)
+			if !m.BracketedPaste {
+				nl = []byte("  ")
+			}
+			data = append(data, nl...)
+		}
+		data = append(data, input.Paste(q, m)...) // why: a real paste, so Claude Code quotes a long one as pasted material
+	}
+	if err := d.handle(ctx, proto.Input{Pane: pane, Data: data}); err != nil {
 		return err
 	}
 	if strings.HasPrefix(text, "/") {
@@ -425,6 +456,38 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
 		}
 	}
 	return d.pressEnter(pane, p, text)
+}
+
+// pasteChunk is the longest paste typeLines sends, in runes. Claude Code
+// 2.1 records a paste over 800 characters, or one of four lines or more,
+// as <pasted_content>, which its model reads as material the user pasted
+// rather than as the user's own words; a rune may count as two of its
+// characters.
+const pasteChunk = 400
+
+// typeLines is text as Claude Code records it typed: each line, and each
+// pasteChunk runes of a longer one, a paste of its own, joined by Ctrl+J,
+// its newline. Pastes, not keys, so that a leading ?, an @ or a # opens no
+// popup or menu. A leading ! goes in after a space: pasted first, it too
+// turns on bash mode.
+func typeLines(text string, m vt.Modes) []byte {
+	if !m.BracketedPaste {
+		return input.Paste(text, m)
+	}
+	if strings.HasPrefix(text, "!") {
+		text = " " + text
+	}
+	nl := input.Key(key.Event{Name: "J", Modifiers: key.ModCtrl, State: key.Press}, m)
+	var b []byte
+	for i, line := range strings.Split(text, "\n") {
+		if i > 0 {
+			b = append(b, nl...)
+		}
+		for r := []rune(line); len(r) > 0; r = r[min(len(r), pasteChunk):] {
+			b = append(b, input.Paste(string(r[:min(len(r), pasteChunk)]), m)...)
+		}
+	}
+	return b
 }
 
 // pressEnter presses Enter on what was just pasted into pane p, after
@@ -464,7 +527,7 @@ func formAnnounced(a model.Activity) bool {
 
 // typeLetter pastes each image's path into pane p, then text, and presses
 // Enter. Images with no text go in with no empty paste.
-func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string) error {
+func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string, quoted []string) error {
 	m := p.Modes()
 	ctx := context.Background()
 	for _, img := range images {
@@ -472,10 +535,10 @@ func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string) e
 			return err
 		}
 	}
-	if len(images) > 0 && remote.Clean(text) == "" {
+	if len(images) > 0 && remote.Clean(text) == "" && len(quoted) == 0 {
 		return d.pressEnter(pane, p, "")
 	}
-	return d.typeLine(pane, p, text, "the message is empty")
+	return d.typeLine(pane, p, text, "the message is empty", quoted...)
 }
 
 // press is what pressing k alone sends to a pane in modes m, as the GUI
