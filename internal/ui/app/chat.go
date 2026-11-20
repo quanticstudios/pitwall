@@ -121,7 +121,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
-		env.Focus = env.Focus && focus && !t.Zoomed()
+		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing()
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.

@@ -183,8 +183,8 @@ func TestTUIDialog(t *testing.T) {
 
 // TestTUIDialogChatTab: a chat tab's command opens its terminal view on
 // the same session and not the driver, types the command once the TUI is
-// up, then Enter, and closing goes back to the chat; a turn running keeps
-// the command a message.
+// up, then Enter, and closing goes back to the chat; a turn running, or
+// arguments the driver takes, as /config key=value, keep it a message.
 func TestTUIDialogChatTab(t *testing.T) {
 	b := &screenBackend{chatBackend: &chatBackend{FakeBackend: NewFakeBackend()}}
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
@@ -194,6 +194,9 @@ func TestTUIDialogChatTab(t *testing.T) {
 		t.Fatal("a running chat opened the dialog")
 	}
 	st.Chats[0].State = session.StateReady
+	if u.openTUI(st, "c1", "/config theme=dark", now) {
+		t.Fatal("a command the driver runs headless opened the dialog")
+	}
 	if !u.openTUI(st, "c1", "/config", now) || !slices.Contains(b.Sent(), any(proto.ChatTerminal{Chat: "c1", On: true})) {
 		t.Fatal("no terminal view for the dialog")
 	}

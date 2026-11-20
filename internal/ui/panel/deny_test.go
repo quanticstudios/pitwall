@@ -45,13 +45,16 @@ func TestDenyReason(t *testing.T) {
 	if e == nil || len(tr.Answers()) != 0 {
 		t.Fatal("Deny did not open the reason field, or denied at once")
 	}
-	if !r.Source().Focused(e) {
+	if !r.Source().Focused(e) || !tr.Typing() {
 		t.Fatal("the reason field does not have the keys")
 	}
 	e.SetText("  use echo instead ")
 	press(key.NameReturn)
 	if got := tr.Answers(); len(got) != 1 || got[0] != (Answer{Request: "r1", Decision: "deny", Reason: "use echo instead"}) {
 		t.Fatalf("Enter answered %+v", got)
+	}
+	if tr.Typing() {
+		t.Fatal("a sent reason still holds the keys")
 	}
 	if len(tr.done) != 1 || tr.done[0].line != "Denied" || tr.done[0].what != "use echo instead" || !tr.done[0].prose {
 		t.Fatalf("answered line %+v", tr.done)

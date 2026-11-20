@@ -24,6 +24,8 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Deny on a chat's permission card, or 3, opens a one-line field for what Claude should do instead; Enter sends the denial with it and Esc denies without one. Refine on a plan card, or 2, does the same for what to change. Claude reads the reason and carries on with the turn. In a TUI pane chat pitwall types it into Claude Code's own "No, and tell Claude what to do differently" field.
+- Claude Code commands that open a screen of their own, such as `/config`, `/permissions`, `/mcp`, `/login`, `/hooks`, `/memory`, `/theme` and `/resume`, open that screen in a dialog over the chat instead of nowhere: the pane's live terminal, taking the keys. It closes when the command does, on Esc or its own exit, or on its close button, and Alt+T from it goes to the full TUI. A New task chat runs Claude Code's TUI on the same session behind the dialog and goes back to the chat when it closes; a command with arguments, such as `/config theme=dark`, still runs in the chat.
 - Settings, Timing no longer counts an idle agent as model time. A turn that ended with a background shell still running stayed open until the next prompt, so 12 Claude turns put about 49 idle hours into "model". The timed turn now ends when the agent stops, background work or not.
 - A line a full disk cut short in `daemon.log` or `gui.log` no longer runs into the next one.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.

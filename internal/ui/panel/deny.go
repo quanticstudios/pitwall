@@ -60,6 +60,17 @@ func (t *Transcript) reasonEvents(gtx layout.Context, pending map[string]bool) {
 	}
 }
 
+// Typing reports whether a reason field is open and unsent: it holds the
+// keys, so the window's composer leaves them to it.
+func (t *Transcript) Typing() bool {
+	for id := range t.reasons {
+		if !t.sent[id] {
+			return true
+		}
+	}
+	return false
+}
+
 // reasonField is request id's open reason field, nil while it is shut.
 func (t *Transcript) reasonField(id string) *widget.Editor { return t.reasons[id] }
 

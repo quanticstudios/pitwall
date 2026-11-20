@@ -94,11 +94,12 @@ func (d *tuiDialog) step(ready bool, now time.Time) (show, keep bool) {
 }
 
 // openTUI opens chat id's dialog for cmd. ok false leaves cmd to go as a
-// message: a chat tab mid-turn, or one that is not Claude's.
+// message: a chat tab mid-turn, one that is not Claude's, or a command with
+// arguments, which the driver runs headless, as /config key=value.
 func (u *ui) openTUI(st *model.State, id, cmd string, now time.Time) bool {
 	d := &tuiDialog{cmd: cmd, since: now}
 	if c := findChat(st, id); paneChatOf(st, id) == nil {
-		if c == nil || c.Provider != model.ProviderClaude || chatBusy(c.State) {
+		if c == nil || c.Provider != model.ProviderClaude || chatBusy(c.State) || strings.Contains(cmd, " ") {
 			return false
 		}
 		d.tab = true
