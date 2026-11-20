@@ -1,8 +1,12 @@
 package daemon
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"math"
 	"slices"
 	"time"
 
@@ -225,16 +229,54 @@ func (pc *paneChat) branched(line []byte, es []session.Event) {
 	prompt := slices.ContainsFunc(es, func(e session.Event) bool {
 		return e.Type == session.EventContent && e.Kind == session.KindUserPrompt
 	})
-	if off, ok := pc.lineAt[l.Parent]; ok && prompt && l.Parent != pc.tip {
-		k := slices.IndexFunc(pc.at, func(at int64) bool { return at > off })
-		if k >= 0 && k < len(pc.snap.Content) && slices.ContainsFunc(pc.snap.Content[k:], func(it session.Item) bool {
-			return it.Kind == session.KindUserPrompt
-		}) {
-			pc.cut(k)
-		}
+	if prompt {
+		pc.cutAfter(l.Parent)
 	}
 	if pc.lineAt == nil {
 		pc.lineAt = map[string]int64{}
 	}
 	pc.lineAt[l.UUID], pc.tip = pc.cur, l.UUID
+}
+
+// cutAfter drops what was read after line parent, which the conversation
+// goes on from, when that is not the last line read and a prompt is among
+// what goes: the turns a rewind left in the file. A parent from before
+// everything read leaves nothing read on the conversation, as when the
+// tail starts after it. Callers hold pc.mu.
+func (pc *paneChat) cutAfter(parent string) {
+	if parent == "" || parent == pc.tip || pc.tip == "" {
+		return
+	}
+	k := 0
+	if off, ok := pc.lineAt[parent]; ok {
+		k = slices.IndexFunc(pc.at, func(at int64) bool { return at > off })
+	}
+	if k >= 0 && k < len(pc.snap.Content) && slices.ContainsFunc(pc.snap.Content[k:], func(it session.Item) bool {
+		return it.Kind == session.KindUserPrompt
+	}) {
+		pc.cut(k)
+	}
+}
+
+// nextParent is the parent of the first conversation line at or after
+// offset at in f when that line is a prompt, as one that branched off is;
+// "" for any other line, or none within a few whole lines.
+func (pc *paneChat) nextParent(f io.ReaderAt, at int64) string {
+	r := bufio.NewReader(io.NewSectionReader(f, at, math.MaxInt64-at))
+	for range 64 {
+		line, err := r.ReadBytes('\n')
+		var l chainLine
+		if bytes.HasSuffix(line, []byte("\n")) && json.Unmarshal(line, &l) == nil && l.UUID != "" && !l.Sidechain {
+			if slices.ContainsFunc(pc.transcript().Line(line), func(e session.Event) bool {
+				return e.Type == session.EventContent && e.Kind == session.KindUserPrompt
+			}) {
+				return l.Parent
+			}
+			return ""
+		}
+		if err != nil {
+			return ""
+		}
+	}
+	return ""
 }
