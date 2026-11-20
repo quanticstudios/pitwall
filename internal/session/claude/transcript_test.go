@@ -488,3 +488,23 @@ func TestTranscriptAbsorbed(t *testing.T) {
 		t.Errorf("turns %+v: want the one", snap.Turns)
 	}
 }
+
+// TestTranscriptAskBeforeLine: the hook that a question waits can come
+// before Claude Code writes the AskUserQuestion call; once the call is
+// read, the request becomes the question, under the same id.
+func TestTranscriptAskBeforeLine(t *testing.T) {
+	tr := NewTranscript()
+	snap := apply(t, base(), tr.Line([]byte(`{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","message":{"role":"user","content":"pick one"}}`)))
+	snap = apply(t, snap, tr.Ask("7", "Which?"))
+	if len(snap.PendingApprovals) != 1 || len(snap.PendingUserInputs) != 0 {
+		t.Fatalf("before the call: approvals %+v, inputs %+v", snap.PendingApprovals, snap.PendingUserInputs)
+	}
+	snap = apply(t, snap, tr.Line([]byte(`{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","content":[{"type":"tool_use","id":"q1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"first"},{"label":"B","description":"second"}]}]}}]}}`)))
+	snap = apply(t, snap, tr.Ask("7", "Which?"))
+	if len(snap.PendingApprovals) != 0 || len(snap.PendingUserInputs) != 1 || snap.PendingUserInputs[0].ID != "7" || len(snap.PendingUserInputs[0].Questions[0].Options) != 2 {
+		t.Fatalf("after the call: approvals %+v, inputs %+v: want only the question, id 7", snap.PendingApprovals, snap.PendingUserInputs)
+	}
+	if out := tr.Ask("7", "Which?"); out != nil {
+		t.Errorf("asked again: %+v, want nothing", out)
+	}
+}

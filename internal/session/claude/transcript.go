@@ -24,6 +24,7 @@ type Transcript struct {
 	model string
 	last  string // the latest tool call's id
 	asked string // the open request's id, "" for none
+	bare  bool   // the open request came with no tool call to show
 	// cmd is a /model or /effort command waiting for its output, which
 	// turns the two into one divider; cmdID is its line's uuid.
 	cmd, cmdID string
@@ -557,13 +558,15 @@ func (t *Transcript) End(state string) []session.Event {
 // or a question for its latest tool call that has not finished. Without
 // such a call it opens a permission request that says only detail.
 func (t *Transcript) Ask(id, detail string) []session.Event {
-	if id == t.asked {
+	call, ok := t.s.tools[t.last]
+	ok = ok && call.Status == "running"
+	// why: the hook can come before Claude Code writes the call it asks about; once the call is read, the request takes it.
+	if id == t.asked && (!t.bare || !ok) {
 		return nil
 	}
 	out := t.Resolve()
-	t.asked = id
-	call, ok := t.s.tools[t.last]
-	if !ok || call.Status != "running" {
+	t.asked, t.bare = id, !ok
+	if !ok {
 		return append(out, session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail})
 	}
 	var l line
