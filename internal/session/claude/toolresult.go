@@ -160,6 +160,10 @@ func (s *stream) background(id, state string) []session.Event {
 	return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindToolCall, Tool: &t}}
 }
 
+// monitorKeep is how much of a Monitor call's output it keeps: its newest
+// whole lines up to that many bytes, as each event's delta carries the call.
+const monitorKeep = 64 << 10
+
 // monitorEvent is a Monitor watch's event, which Claude Code notifies as
 // it happens: a line more of its call's output, after the line that
 // started it.
@@ -174,6 +178,13 @@ func (s *stream) monitorEvent(task, event string) []session.Event {
 		t = cur
 	}
 	t.Output = strings.TrimRight(t.Output, "\n") + "\n" + event
+	if n := len(t.Output); n > monitorKeep {
+		cut := t.Output[n-monitorKeep:]
+		if i := strings.IndexByte(cut, '\n'); i >= 0 {
+			cut = cut[i+1:] // whole lines only
+		}
+		t.Output = cut
+	}
 	s.bg[id] = t
 	if _, ok := s.tools[id]; ok {
 		s.tools[id] = t
