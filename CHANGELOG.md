@@ -46,6 +46,7 @@ takes `--dry-run`.
 - When the daemon refuses an answer to an approval or a question in the desktop chat, its card comes back instead of an "Allowed" line that said it went through.
 - A background subagent's result shows `<` and `>` and `&` as themselves, not as `&lt;`, `&gt;` and `&amp;`.
 - A long pane chat that ends on a `/compact` opens with one "Conversation compacted" divider. It showed two, and a `/compact` chip under them.
+- A finished agent's line in the sidebar and its Done notice leave out the reply's markdown table rows and code fences, which showed as raw pipes and dashes.
 - A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.

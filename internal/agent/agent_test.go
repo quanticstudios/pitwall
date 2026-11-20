@@ -398,6 +398,19 @@ func TestSummaryRedacts(t *testing.T) {
 	}
 }
 
+// A reply's table rows and code fences stay out of its one-line Detail.
+func TestSummaryProse(t *testing.T) {
+	for msg, want := range map[string]string{
+		"All four steps are done.\n\n| # | Action |\n|---|---|\n| 1 | Bash |\n\n```sh\nls\n```\n- Done.": "All four steps are done. ls - Done.",
+		"| a | b |\n|---|---|": "| a | b | |---|---|",
+		"Plain reply.":         "Plain reply.",
+	} {
+		if got := Summary(msg); got != want {
+			t.Errorf("Summary(%q) = %q, want %q", msg, got, want)
+		}
+	}
+}
+
 func TestDerivePi(t *testing.T) {
 	const none = model.AgentState("")
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
