@@ -62,9 +62,8 @@ func TestMonitorWatch(t *testing.T) {
 
 	gui.send(proto.MonitorWatch{WorkspaceID: "w", Interval: time.Second})
 	gui.waitFor("a sample again", func(m any) bool { _, ok := m.(proto.MonitorSample); return ok })
-	if n.Load() <= readings {
-		t.Fatal("the sampler did not restart")
-	}
+	// The sample may be one queued before the stop: wait for a new reading.
+	waitUntil(t, "the sampler to restart", func() bool { return n.Load() > readings })
 	gui.conn.Close()
 	waitUntil(t, "a disconnect to stop it", stopped)
 	select {
