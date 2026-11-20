@@ -99,14 +99,19 @@ func TestFindJump(t *testing.T) {
 	if len(f.hits) != 2 || f.cur != 1 || f.counted(false) != "2 of 2" {
 		t.Fatalf("hits %+v cur %d", f.hits, f.cur)
 	}
-	row := func() int { return rowItem(tr.rows[max(0, tr.list.Position.First-1)]) }
-	if got := row(); got != 203 {
-		t.Errorf("view starts at item %d, want 203", got)
+	// The hit's row shows just under the find bar, not under it.
+	bar := int(theme.SpaceM) + int(hit) + 2*int(theme.SpaceXS)
+	shown := func(i int) bool {
+		sp, ok := tr.msg.ys[tr.findRow(s, i)+1]
+		return ok && sp.y >= bar && sp.y < 800/2
+	}
+	if !shown(203) {
+		t.Errorf("item 203 at %+v: want it in view under the find bar", tr.msg.ys[tr.findRow(s, 203)+1])
 	}
 	f.cur, f.jump = 0, true
 	frame()
-	if got := row(); got != 3 {
-		t.Errorf("view starts at item %d, want 3", got)
+	if !shown(3) {
+		t.Errorf("item 3 at %+v: want it in view under the find bar", tr.msg.ys[tr.findRow(s, 3)+1])
 	}
 	// Claude's text in a work log: its log opens to show it.
 	s.Content[103].Text = "needle"
@@ -115,8 +120,8 @@ func TestFindJump(t *testing.T) {
 	f.cur = slices.IndexFunc(f.hits, func(h findHit) bool { return h.i == 103 })
 	f.jump = true
 	frame()
-	if got := row(); got != 103 {
-		t.Errorf("view starts at item %d, want 103 in its opened log", got)
+	if !shown(103) {
+		t.Errorf("item 103 at %+v: want it in view in its opened log", tr.msg.ys[tr.findRow(s, 103)+1])
 	}
 }
 
