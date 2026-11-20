@@ -252,19 +252,23 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 		c.q.hov[q.ID] = hv
 	}
 	rect := image.Rectangle{Max: image.Pt(w, h)}
+	// An action with no key holds its slot, so the buttons keep their
+	// places from row to row: the first has no Move up, the last no Move down.
 	type action struct {
 		key, icon, tip string
 	}
 	var acts []action
 	if env.Queue {
-		acts = append(acts, action{"qnow:", "arrow-up", "Send now"})
-	}
-	acts = append(acts, action{"qedit:", "pencil", "Edit"})
-	if env.Queue && i > 0 {
-		acts = append(acts, action{"qup:", "chevron-up", "Move up"})
-	}
-	if env.Queue && i < n-1 {
-		acts = append(acts, action{"qdown:", "chevron-down", "Move down"})
+		up, down := action{"qup:", "chevron-up", "Move up"}, action{"qdown:", "chevron-down", "Move down"}
+		if i == 0 {
+			up.key = ""
+		}
+		if i == n-1 {
+			down.key = ""
+		}
+		acts = append(acts, action{"qnow:", "arrow-up", "Send now"}, action{"qedit:", "pencil", "Edit"}, up, down)
+	} else {
+		acts = append(acts, action{"qedit:", "pencil", "Edit"})
 	}
 	acts = append(acts, action{"qrm:", "x", "Remove"})
 	failed := q.Error != ""
@@ -273,7 +277,7 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	}
 	over := hv.Update(gtx.Source)
 	for _, a := range acts {
-		if b := c.click(a.key + q.ID); b.Hovered() || gtx.Focused(b) {
+		if b := c.click(a.key + q.ID); a.key != "" && (b.Hovered() || gtx.Focused(b)) {
 			over = true
 		}
 	}
@@ -296,6 +300,9 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	if over || failed {
 		for _, a := range acts {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+				if a.key == "" {
+					return layout.Dimensions{Size: image.Pt(gtx.Dp(28), gtx.Dp(28))}
+				}
 				b := c.click(a.key + q.ID)
 				d := iconButton(gtx, th, b, a.icon, a.tip)
 				c.tip(gtx, th, b, d.Size, a.tip, true)

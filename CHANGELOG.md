@@ -24,6 +24,9 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A queued chat message has Send now, Edit, Move up, Move down and Remove under the pointer, in TUI pane chats and New task chats. More than two fold into a count, a message that could not be sent stays with Retry, and Stop holds the queue until Resume or the next send. A TUI pane chat now holds what you queue mid-turn and types it when the turn ends, instead of typing it into Claude Code at once. Needs the daemon from this release; an older one keeps Edit and Remove.
+- Typing `@` in the chat composer lists the project's files and folders, fuzzy matched, and puts the one you pick in as an `@path` chip that Claude Code reads.
+- The chat composer shows the repo's branch, following switches made anywhere; a click copies it.
 - Settings, Timing no longer counts an idle agent as model time. A turn that ended with a background shell still running stayed open until the next prompt, so 12 Claude turns put about 49 idle hours into "model". The timed turn now ends when the agent stops, background work or not.
 - A line a full disk cut short in `daemon.log` or `gui.log` no longer runs into the next one.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.

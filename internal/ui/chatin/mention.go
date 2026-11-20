@@ -181,7 +181,8 @@ func (c *Composer) mentionChips(gtx layout.Context, th *theme.Theme) {
 			label := lm.Stop()
 			base := rg.Bounds.Max.Y - rg.Baseline
 			ly := base - (ld.Size.Y - ld.Baseline)
-			padX, padY := gtx.Dp(3), gtx.Dp(theme.Space2XS)
+			// why: 2 dp, not the image chip's 6: the label is the text itself, so wider padding would cover the spaces around it.
+			padX, padY := gtx.Dp(theme.Space2XS), gtx.Dp(theme.Space2XS)
 			box := image.Rect(rg.Bounds.Min.X-padX, ly-padY, rg.Bounds.Min.X+ld.Size.X+padX, ly+ld.Size.Y+padY)
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
 			o := op.Offset(image.Pt(rg.Bounds.Min.X, ly)).Push(gtx.Ops)
