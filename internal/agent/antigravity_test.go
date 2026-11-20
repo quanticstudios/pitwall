@@ -299,3 +299,25 @@ func TestAgyTrustOffers(t *testing.T) {
 		t.Error("offers for another state")
 	}
 }
+
+// TestSamePath: a trusted folder matches through a symlink, a trailing
+// separator and, on Windows, another case or slash.
+func TestSamePath(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "repo")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(real+string(filepath.Separator), real) {
+		t.Error("a trailing separator")
+	}
+	if link := filepath.Join(dir, "link"); os.Symlink(real, link) == nil && !samePath(link, real) {
+		t.Error("a symlink to the folder")
+	}
+	if samePath(real, filepath.Join(dir, "other")) {
+		t.Error("another folder")
+	}
+	if runtime.GOOS == "windows" && (!samePath(strings.ToUpper(real), real) || !samePath(filepath.ToSlash(real), real)) {
+		t.Error("case or forward slashes on Windows")
+	}
+}

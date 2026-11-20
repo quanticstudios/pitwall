@@ -281,9 +281,9 @@ func AgyTrust(data []byte, main, dir string) (out []byte, ok bool, err error) {
 			return data, false, err
 		}
 	}
-	main, dir = filepath.Clean(main), filepath.Clean(dir)
+	dir = filepath.Clean(dir)
 	has := func(path string) bool {
-		return slices.ContainsFunc(trusted, func(t string) bool { return filepath.Clean(t) == path })
+		return slices.ContainsFunc(trusted, func(t string) bool { return samePath(t, path) })
 	}
 	if !has(main) || has(dir) {
 		return data, false, nil
@@ -349,4 +349,25 @@ func agyOffers(a model.Activity, g vt.Grid) []Offer {
 		return nil
 	}
 	return []Offer{{Label: Trust, Key: "⏎"}, {Label: DontTrust, Key: "⎋"}}
+}
+
+// samePath reports whether a and b name one folder: both resolved through
+// symlinks where they exist, which on Windows also expands a short name
+// such as RUNNER~1, and cleaned; Windows compares them without case, and
+// either kind of slash is a separator there.
+func samePath(a, b string) bool {
+	a, b = resolvePath(a), resolvePath(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// resolvePath is p cleaned, through its symlinks when it exists.
+func resolvePath(p string) string {
+	p = filepath.Clean(filepath.FromSlash(p))
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return filepath.Clean(r)
+	}
+	return p
 }
