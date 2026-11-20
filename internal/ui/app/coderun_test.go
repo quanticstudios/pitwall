@@ -38,4 +38,13 @@ func TestShellBeside(t *testing.T) {
 	if got := shellBeside(st, "claude"); got != "sh" {
 		t.Errorf("the user's shell: %q", got)
 	}
+	// A pane chat in a tab the workspace is not showing: its own tab's
+	// shell, never the shown tab's.
+	w := &st.Workspaces[0]
+	w.Tabs = append(w.Tabs, model.Tab{ID: "other", Layout: &layout.Node{Pane: "sh2"}})
+	w.ActiveTab = "other"
+	st.Panes = append(st.Panes, model.Pane{ID: "sh2", WorkspaceID: "w1"})
+	if got := shellBeside(st, "claude"); got != "sh" {
+		t.Errorf("a chat in a tab not shown: %q, want its own tab's sh", got)
+	}
 }

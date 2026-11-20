@@ -44,14 +44,13 @@ func shellBeside(st *model.State, id string) string {
 	if ws == nil {
 		return ""
 	}
-	for _, t := range ws.Tabs {
-		if t.ID != ws.ActiveTab {
-			continue
-		}
-		for _, pid := range layout.Panes(t.Layout) {
-			if q := findPane(st, pid); pid != id && q != nil && isShell(q) {
-				return pid
-			}
+	t := tabOf(ws, id)
+	if t == nil {
+		return ""
+	}
+	for _, pid := range layout.Panes(t.Layout) {
+		if q := findPane(st, pid); pid != id && q != nil && isShell(q) {
+			return pid
 		}
 	}
 	return ""
