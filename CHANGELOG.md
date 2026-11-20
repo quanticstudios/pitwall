@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A work log's header counts its calls by kind where they fit, as Claude Code's TUI does: "Worked for 8s · Read 2 files, ran 4 commands", else "8 tools".
 - A Monitor call's row tracks its watch as a background shell's row does: Running in background, then Finished or Stopped, and opened, the events it saw.
 - A summary Claude Code tags "· summary", the server's short summary of Claude's words between calls, draws as a muted row with a Summary tag in the work log, where it came among the calls, not as a thinking row.
 - Claude Code's recap draws as a quiet Recap card where it came, its text as prose, without the "(turn off recaps in /config)" hint; `/recap` shows its chip and the card instead of a cut-off line of mono output.
