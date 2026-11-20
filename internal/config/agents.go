@@ -156,7 +156,7 @@ func (s Settings) FindPreset(name string) (AgentPreset, bool) {
 // does not set its model and effort.
 func Efforts(agent string) []string {
 	switch filepath.Base(agent) {
-	case "claude":
+	case "claude", "agy":
 		return []string{"low", "medium", "high", "xhigh", "max"}
 	case "codex", "opencode":
 		return []string{"none", "low", "medium", "high", "xhigh", "max"}
@@ -197,7 +197,7 @@ func SplitArgs(agent string, args []string) (model, effort string, rest []string
 				model, effort = suffix(model, "#")
 			}
 			i++
-		case effort == "" && base == "claude" && a == "--effort" && slices.Contains(efforts, next):
+		case effort == "" && (base == "claude" || base == "agy") && a == "--effort" && slices.Contains(efforts, next):
 			effort = next
 			i++
 		case effort == "" && base == "codex" && a == "-c" && strings.HasPrefix(next, codexEffort) && slices.Contains(efforts, strings.Trim(next[len(codexEffort):], `"'`)):
@@ -215,7 +215,7 @@ func SplitArgs(agent string, args []string) (model, effort string, rest []string
 func PresetArgs(agent, model, effort string, rest []string) []string {
 	var out []string
 	switch filepath.Base(agent) {
-	case "claude":
+	case "claude", "agy":
 		if model != "" {
 			out = append(out, "--model", model)
 		}

@@ -464,7 +464,7 @@ func Resumes(p model.Pane) bool {
 		return len(p.ResumeCmd) > 0
 	}
 	switch p.Provider {
-	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor:
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor, model.ProviderAntigravity:
 		return p.SessionID != ""
 	}
 	return false
@@ -566,13 +566,17 @@ func restoreCmd(p model.Pane, fork bool, cwd *string) []string {
 		return p.Cmd
 	}
 	binary := string(p.Provider)
-	if p.Provider == model.ProviderCursor {
+	switch p.Provider {
+	case model.ProviderCursor:
 		binary = "cursor-agent"
+	case model.ProviderAntigravity:
+		binary = "agy"
 	}
 	var args []string
 	// Hooks identify the agent inside a pane, not the command that launched it.
 	// Reusing a shell or wrapper can execute the original script again.
-	if len(p.Cmd) > 0 && (filepath.Base(p.Cmd[0]) == binary || p.Provider == model.ProviderCursor && filepath.Base(p.Cmd[0]) == "agent") {
+	if len(p.Cmd) > 0 && (filepath.Base(p.Cmd[0]) == binary || p.Provider == model.ProviderCursor && filepath.Base(p.Cmd[0]) == "agent" ||
+		p.Provider == model.ProviderAntigravity && filepath.Base(p.Cmd[0]) == "antigravity") {
 		binary, args = p.Cmd[0], p.Cmd[1:]
 	}
 	cmd := []string{binary}
@@ -606,6 +610,8 @@ func restoreCmd(p model.Pane, fork bool, cwd *string) []string {
 	case model.ProviderCursor:
 		// why: the Cursor CLI's options are not documented in full, so none are carried over.
 		return append(cmd, "--resume", p.SessionID)
+	case model.ProviderAntigravity:
+		return append(keepFlags(cmd, args, agyOptions), "--conversation", p.SessionID)
 	}
 	if fork {
 		cmd = append(cmd, "fork")
@@ -731,6 +737,56 @@ var geminiOptions = map[string]cliOpt{
 	"-w": {'?', false}, "--worktree": {'?', false}, "--acp": {}, "--experimental-acp": {},
 	"-l": {}, "--list-extensions": {}, "-r": {'?', false}, "--resume": {'?', false}, "--session-file": {'1', false},
 	"--session-id": {'1', false}, "--list-sessions": {}, "--delete-session": {'1', false}, "-o": {'1', false}, "--output-format": {'1', false},
+}
+
+// agyOptions are the options of Antigravity CLI 1.5.13 (agy --help), a Go
+// flag set: no option takes more than one value, and none takes an
+// optional one. A resume keeps the model, effort, mode, permission,
+// settings, workspace and agent choices, and drops prompts, print mode and
+// its formats, and the session selectors.
+var agyOptions = map[string]cliOpt{
+	"--add-dir": {'1', true}, "--agent": {'1', true}, "--dangerously-skip-permissions": {0, true},
+	"--disable-slash-commands": {0, true}, "--effort": {'1', true}, "--log-file": {'1', true}, "--mode": {'1', true},
+	"--model": {'1', true}, "--project": {'1', true}, "--remote-agent": {0, true}, "--sandbox": {0, true}, "--settings": {'1', true},
+	"-c": {}, "--continue": {}, "--conversation": {'1', false}, "-i": {'1', false}, "--prompt-interactive": {'1', false},
+	"-p": {'1', false}, "--print": {'1', false}, "--prompt": {'1', false}, "--input-format": {'1', false},
+	"--output-format": {'1', false}, "--json-schema": {'1', false}, "--print-timeout": {'1', false},
+	"--new-project": {}, "--remote-control": {},
+}
+
+// AgyInteractive is cmd, an agy command, with a prompt given as its
+// arguments moved behind -i, which keeps agy open on it: agy refuses a
+// bare prompt argument. A command that already names a prompt, with -i or
+// -p, or has none is returned as it is. The words of the prompt are
+// joined with spaces, as a shell would pass them to an agent that takes
+// them.
+func AgyInteractive(cmd []string) []string {
+	if len(cmd) < 2 {
+		return cmd
+	}
+	if b := strings.TrimSuffix(filepath.Base(cmd[0]), ".exe"); b != "agy" && b != "antigravity" {
+		return cmd
+	}
+	for i := 1; i < len(cmd); i++ {
+		a := cmd[i]
+		if a == "--" {
+			if i+1 == len(cmd) {
+				return cmd
+			}
+			return append(slices.Clone(cmd[:i]), "-i", strings.Join(cmd[i+1:], " "))
+		}
+		if !strings.HasPrefix(a, "-") {
+			return append(slices.Clone(cmd[:i]), "-i", strings.Join(cmd[i:], " "))
+		}
+		flag, _, attached := strings.Cut(a, "=")
+		if flag == "-i" || flag == "--prompt-interactive" || flag == "-p" || flag == "--print" || flag == "--prompt" {
+			return cmd
+		}
+		if opt, ok := agyOptions[flag]; ok && opt.values == '1' && !attached {
+			i++
+		}
+	}
+	return cmd
 }
 
 // ompOptions are the options of omp's own parser (v18.12.6,

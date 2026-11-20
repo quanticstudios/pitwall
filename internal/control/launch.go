@@ -9,12 +9,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/store"
 )
 
 // Launch is the command and environment of a tab that pitwall new,
 // worktree new, queue add or the JSON newTab opens: preset's agent and
 // args before rest, else rest; preset's variables, and guard.Env when
-// guarded or the preset asks for the guard. s holds the presets.
+// guarded or the preset asks for the guard. s holds the presets. An agy
+// command's prompt goes behind -i (store.AgyInteractive).
 func Launch(s config.Settings, preset string, guarded bool, rest []string) (cmd, vars []string, err error) {
 	cmd = rest
 	if preset != "" {
@@ -31,7 +33,7 @@ func Launch(s config.Settings, preset string, guarded bool, rest []string) (cmd,
 		}
 		vars = append(vars, guard.Env+"=1")
 	}
-	return cmd, vars, nil
+	return store.AgyInteractive(cmd), vars, nil
 }
 
 // WithModel applies a model override after resolving a preset.
