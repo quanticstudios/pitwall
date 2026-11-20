@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The desktop and phone chats keep a reply's single line breaks, as Claude Code's TUI does, so text written one item per line no longer runs together into one paragraph.
 - A Ctrl+F match in the desktop chat lands just under the find bar instead of behind it.
 - Ctrl+F in a long desktop chat searches its older pages right after the chat opens; before, it said No results until you had scrolled near the top once.
 - Rewind in the desktop chat takes away the Allowed, Denied and Answered lines of the turns it removes, instead of leaving them stacked at the end.
