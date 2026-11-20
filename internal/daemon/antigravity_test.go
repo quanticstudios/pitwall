@@ -115,7 +115,8 @@ func TestAgyTrustWorktree(t *testing.T) {
 	if note := agyTrustWorktree(wt, env); note != "" {
 		t.Fatalf("an untrusted repo's worktree: %s", note)
 	}
-	os.WriteFile(settings, []byte(`{"trustedWorkspaces":["`+repo+`"]}`), 0o600)
+	trusted, _ := json.Marshal(map[string][]string{"trustedWorkspaces": {repo}})
+	os.WriteFile(settings, trusted, 0o600)
 	if note := agyTrustWorktree(wt, env); note == "" {
 		t.Fatal("a trusted repo's worktree was not trusted")
 	}

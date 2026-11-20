@@ -282,7 +282,10 @@ func AgyTrust(data []byte, main, dir string) (out []byte, ok bool, err error) {
 		}
 	}
 	main, dir = filepath.Clean(main), filepath.Clean(dir)
-	if !slices.Contains(trusted, main) || slices.Contains(trusted, dir) {
+	has := func(path string) bool {
+		return slices.ContainsFunc(trusted, func(t string) bool { return filepath.Clean(t) == path })
+	}
+	if !has(main) || has(dir) {
 		return data, false, nil
 	}
 	root["trustedWorkspaces"], _ = json.Marshal(append(trusted, dir))

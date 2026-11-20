@@ -216,23 +216,29 @@ func TestAgyAlwaysOffered(t *testing.T) {
 // TestAgyTrust: a worktree is added the way agy records trust itself,
 // only when its main repo is trusted, and never twice.
 func TestAgyTrust(t *testing.T) {
-	data := []byte("{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    \"/src/app\"\n  ]\n}\n")
-	out, ok, err := AgyTrust(data, "/src/app", "/src/app/.worktrees/fix")
+	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
+	app, fix := filepath.FromSlash("/src/app"), filepath.FromSlash("/src/app/.worktrees/fix")
+	data := []byte("{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    " + q(app) + "\n  ]\n}\n")
+	out, ok, err := AgyTrust(data, app, fix)
 	if err != nil || !ok {
 		t.Fatalf("trusted repo: %v %v", ok, err)
 	}
-	if want := "{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    \"/src/app\",\n    \"/src/app/.worktrees/fix\"\n  ]\n}\n"; string(out) != want {
+	if want := "{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    " + q(app) + ",\n    " + q(fix) + "\n  ]\n}\n"; string(out) != want {
 		t.Fatalf("settings:\n%s\nwant\n%s", out, want)
 	}
-	if _, ok, _ := AgyTrust(out, "/src/app", "/src/app/.worktrees/fix"); ok {
+	if _, ok, _ := AgyTrust(out, app, fix); ok {
 		t.Error("trusted twice")
+	}
+	// A path agy wrote with a trailing separator is the same folder.
+	if _, ok, _ := AgyTrust([]byte(`{"trustedWorkspaces":[`+q(app+string(filepath.Separator))+`]}`), app, fix); !ok {
+		t.Error("a trusted repo written with a trailing separator was not matched")
 	}
 	for name, d := range map[string]string{
 		"repo not trusted": `{"trustedWorkspaces":["/src/other"]}`,
 		"nothing trusted":  `{}`,
 		"a parent of repo": `{"trustedWorkspaces":["/src"]}`,
 	} {
-		if out, ok, err := AgyTrust([]byte(d), "/src/app", "/src/app/.worktrees/fix"); ok || err != nil || string(out) != d {
+		if out, ok, err := AgyTrust([]byte(d), filepath.FromSlash("/src/app"), filepath.FromSlash("/src/app/.worktrees/fix")); ok || err != nil || string(out) != d {
 			t.Errorf("%s: trusted %v, %v, %s", name, ok, err, out)
 		}
 	}
