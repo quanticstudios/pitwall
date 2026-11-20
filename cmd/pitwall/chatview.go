@@ -35,7 +35,6 @@ type chatCache struct {
 
 	older  []session.Item // the pages read, oldest first
 	turns  []session.TurnSummary
-	base   int64     // the cursor snap came with: the history before its items
 	more   int64     // the cursor before older; 0 when they reach the start
 	paging time.Time // when the page read that is out went out, zero for none
 
@@ -269,7 +268,8 @@ func (b *backend) ChatResults(id string) []chatin.Result {
 
 // take applies a ChatRead's reply and reports whether the transcript
 // changed: a page goes before the items, an item read whole stands in for
-// its cut copy, and a snapshot with another cursor drops the pages. A
+// its cut copy, and a snapshot whose first item is not in the transcript
+// drops the pages. A
 // delta that does not apply makes the next read ask for a snapshot, and
 // the old transcript stays on screen until it comes.
 func (c *chatCache) take(m proto.ChatDeltas) bool {
@@ -308,8 +308,8 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 			c.seq = 0
 			return false
 		}
-		if m.Older != c.base {
-			c.older, c.turns, c.base, c.more, c.paging = nil, nil, m.Older, m.Older, time.Time{}
+		if !c.rebase(s) { // a managed chat's cursor is an index that moves with each new item
+			c.older, c.turns, c.more, c.paging = nil, nil, m.Older, time.Time{}
 		}
 		c.snap, c.seq, c.view, changed = &s, m.Seq, nil, true
 	}
@@ -333,7 +333,7 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 		// A snapshot delta, as a rewind commits, holds the daemon's whole
 		// snapshot: a managed chat's every item, a pane chat's tail.
 		if d.Type == session.DeltaSnapshot && !c.rebase(n) {
-			c.older, c.turns, c.base, c.more, c.paging = nil, nil, 0, 0, time.Time{}
+			c.older, c.turns, c.more, c.paging = nil, nil, 0, time.Time{}
 			reread = true // a snapshot's cursor tells where the history before it starts
 		}
 		c.snap, c.seq, c.view, changed = &n, d.Seq, nil, true

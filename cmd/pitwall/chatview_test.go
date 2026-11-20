@@ -339,3 +339,33 @@ func TestChatRewindDelta(t *testing.T) {
 		}
 	}
 }
+
+// TestChatSnapshotKeepsPages: a managed chat's cursor is an index that
+// moves as items come, so a snapshot after a gap comes with another one;
+// the pages read stay when its first item lines up with them, and the
+// view keeps its history.
+func TestChatSnapshotKeepsPages(t *testing.T) {
+	wire := func(ids ...string) []byte {
+		s := session.Snapshot{SessionID: "c", Content: []session.Item{}}
+		for _, id := range ids {
+			s.Content = append(s.Content, session.Item{ID: id, Kind: session.KindAssistantText, Text: id})
+		}
+		b, _ := json.Marshal(s)
+		return b
+	}
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	b.Chat("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("c", "d"), Seq: 1, Older: 2})
+	b.ChatOlder("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("a", "b"), Page: 2, Older: 0})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("d", "e"), Seq: 9, Older: 3})
+	s, _ := b.Chat("c")
+	var got []string
+	for _, it := range s.Content {
+		got = append(got, it.ID)
+	}
+	if !reflect.DeepEqual(got, []string{"a", "b", "c", "d", "e"}) || b.ChatOlder("c") {
+		t.Fatalf("after the snapshot: %v, more %d", got, b.chats["c"].more)
+	}
+}
