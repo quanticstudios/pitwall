@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Claude Code's warnings in the desktop chat, such as an unknown slash command, no longer carry an API retry's "Retrying" title.
 - Shift+Tab through the modes, or a model picked and picked again, leaves one divider in the desktop chat for where it ended, not one per step.
 - A TUI pane chat's model and effort chips follow a /model or /effort change again with Claude Code 2.1.329, which draws its acknowledgement with a no-break space; the chip no longer falls back to the last reply's model mid-turn.
 - A TUI pane chat's model chip keeps the model through the first prompt instead of reading "Model" until Claude replies.

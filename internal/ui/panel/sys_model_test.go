@@ -265,3 +265,13 @@ func TestQuietSettings(t *testing.T) {
 		t.Errorf("glued label %q", got)
 	}
 }
+
+// Only an API retry's warning says Retrying; an unknown command's has no title.
+func TestWarningTitle(t *testing.T) {
+	if got := warningTitle("API error 529: Overloaded · retrying in 3s (attempt 1 of 10)"); got != "Retrying" {
+		t.Errorf("retry: %q", got)
+	}
+	if got := warningTitle("Unknown command: /ux. Did you mean /run?"); got != "" {
+		t.Errorf("unknown command: %q", got)
+	}
+}
