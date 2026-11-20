@@ -1,2 +1,0 @@
-requests your input
-esc to cancel

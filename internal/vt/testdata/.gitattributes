@@ -1,2 +1,0 @@
-# Preserve the OSC 133 fixture, including CR and escape sequences.
-commands.raw binary

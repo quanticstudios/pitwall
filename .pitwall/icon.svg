@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
-  <title>pitwall</title>
-  <g transform="translate(-35.5 -38)">
-    <path d="M91 70h50a34 34 0 0 1 0 68h-50" fill="none" stroke="#e8edf5" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="76" y="56" width="30" height="44" rx="15" fill="#57c1ff"/>
-    <rect x="76" y="106" width="30" height="44" rx="15" fill="#ffc533"/>
-    <rect x="76" y="156" width="30" height="44" rx="15" fill="#59d499"/>
-  </g>
-</svg>

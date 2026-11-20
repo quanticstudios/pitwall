@@ -1,8 +1,0 @@
-• Ran go test ./internal/harness/
-  └ ok  	github.com/Gaurav-Gosain/tuios/internal/harness	0.014s
-
-• Working (12s • esc to interrupt)
-
-› Summarize recent commits
-
-  ? for shortcuts                                                   98% context left

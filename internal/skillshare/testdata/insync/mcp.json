@@ -1,1 +1,0 @@
-{"revision":"c993f1097a8c18ed1b1251e7ff0a26bb92692c3079d34b5fbaa857cb6e28d448","sourcePath":"/home/demo/.config/skillshare/config.yaml","blocked":false,"changes":[{"target":"claude","path":"/home/demo/.claude.json","name":"demo-server","action":"unchanged"},{"target":"codex","path":"/home/demo/.codex/config.toml","name":"demo-server","action":"unchanged"}]}
