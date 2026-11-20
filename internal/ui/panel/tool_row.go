@@ -73,8 +73,14 @@ func (d *cdraw) view(it *session.Item) (toolView, string) {
 	return v, out
 }
 
-// openTarget opens a row's link: a URL, or a path from the chat's folder.
+// openTarget opens a row's link: a file on this machine in the side
+// panel's File view, else a URL, or a path from the chat's folder, with
+// Open.
 func (t *Transcript) openTarget(target string) {
+	if p := t.localFile(target); p != "" {
+		t.showFile(p)
+		return
+	}
 	if t.Open == nil || target == "" {
 		return
 	}

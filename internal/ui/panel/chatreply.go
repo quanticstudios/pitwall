@@ -459,8 +459,8 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 				continue
 			}
 			c := d.t.click(key + "/a" + strconv.Itoa(i) + "/" + strconv.Itoa(j))
-			if c.Clicked(gtx) && d.t.Open != nil {
-				d.t.Open(p.hrefs[i])
+			if c.Clicked(gtx) {
+				d.t.openTarget(p.hrefs[i])
 			}
 			if c.Hovered() {
 				line = link
