@@ -214,3 +214,17 @@ func TestPaneChatShrunk(t *testing.T) {
 		t.Fatalf("after the rewrite: %+v", s.Content)
 	}
 }
+
+// TestWindowBigItem: an item still over snapBytes once cut is a snapshot
+// of its own, not an empty one with a cursor that never moves.
+func TestWindowBigItem(t *testing.T) {
+	big := session.Item{ID: "big", Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash",
+		Input: json.RawMessage(`{"edits":["` + strings.Repeat("e", snapBytes+1000) + `"]}`)}}
+	items := []session.Item{{ID: "a", Kind: session.KindSystem}, big}
+	if from := window(items, 2); from != 1 {
+		t.Fatalf("window from %d, want 1", from)
+	}
+	if from := window(items, 1); from != 0 {
+		t.Fatalf("page window from %d, want 0", from)
+	}
+}

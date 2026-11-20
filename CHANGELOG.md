@@ -25,6 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
+- A chat whose newest item is over 4 MB even once cut, such as a call with a huge nested input, shows that item instead of an empty transcript that pages forever.
 - A TUI pane chat whose last turn holds thousands of calls reads its transcript once, not again on every refresh, and a slow chat read no longer holds up keys sent to the daemon after it.
 - The daemon no longer crashes, closing every pane, when a TUI pane chat's transcript is rewritten shorter: the chat reads it again from the start.
 - A subagent that makes hundreds of calls no longer fills the daemon's memory and a chat's event log: a subagent card keeps its newest 20 calls, and its count still says them all. A chat keeps 1 MB of recent changes at most.

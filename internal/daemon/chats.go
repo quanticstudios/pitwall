@@ -1322,12 +1322,13 @@ func wireSnapshot(s session.Snapshot, from int) []byte {
 }
 
 // window is the index of the oldest of the items before end that a
-// snapshot or page holds: snapBytes of them once cut, at most retailItems.
+// snapshot or page holds: snapBytes of them once cut, at most retailItems,
+// and always the item at end-1, so a page is never empty.
 func window(items []session.Item, end int) int {
 	n := 0
 	for i := end - 1; i >= 0; i-- {
 		b, _ := json.Marshal(session.Clip(items[i], session.ClipBytes))
-		if n += len(b); n > snapBytes || end-i > retailItems {
+		if n += len(b); (n > snapBytes || end-i > retailItems) && i < end-1 {
 			return i + 1
 		}
 	}
