@@ -106,3 +106,20 @@ func TestExecuteCommand(t *testing.T) {
 		t.Fatalf("read: %+v", other)
 	}
 }
+
+func TestCommandOf(t *testing.T) {
+	for want, in := range map[string]map[string]any{
+		"ls -la":        {"command": "ls -la"},
+		"go test ./...": {"CommandLine": "go test ./..."},
+		"git status":    {"command": []any{"git", "status"}},
+		"make":          {"cmd": "make"},
+		"":              {"path": "/file"},
+	} {
+		if got := commandOf(in); got != want {
+			t.Errorf("commandOf(%v) = %q, want %q", in, got, want)
+		}
+	}
+	if got := commandOf(map[string]any{"command": []any{"a", 1}}); got != "" {
+		t.Errorf("an argv with a number: %q", got)
+	}
+}

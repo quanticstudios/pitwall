@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -263,11 +264,7 @@ func (s *stream) tool(u toolUpdate) session.Event {
 	if s.kinds[u.ToolCallID] == "execute" {
 		var in map[string]any
 		_ = json.Unmarshal(t.Input, &in)
-		for _, k := range []string{"command", "CommandLine"} { // Antigravity names it CommandLine
-			if c, _ := in[k].(string); c != "" && t.Command == "" {
-				t.Command = c
-			}
-		}
+		t.Command = cmp.Or(t.Command, commandOf(in))
 		// why: each update names the tool and its input again, so the call is drawn as Bash after every one.
 		if t.Command != "" {
 			t.ToolName = "Bash"
@@ -310,4 +307,29 @@ func (s *stream) tool(u toolUpdate) session.Event {
 	}
 	s.tools[u.ToolCallID] = &t
 	return session.Event{Type: session.EventContent, TurnID: s.turn, ItemID: "acp-tool-" + u.ToolCallID, Kind: session.KindToolCall, Tool: &t}
+}
+
+// commandOf is the shell command an execute call's input names: its
+// command, or Antigravity's CommandLine and the like, as a string or an
+// argv; "" when it names none.
+func commandOf(in map[string]any) string {
+	for _, k := range []string{"command", "CommandLine", "commandLine", "command_line", "cmd"} {
+		switch v := in[k].(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case []any:
+			var argv []string
+			for _, a := range v {
+				if s, ok := a.(string); ok {
+					argv = append(argv, s)
+				}
+			}
+			if len(argv) > 0 && len(argv) == len(v) {
+				return strings.Join(argv, " ")
+			}
+		}
+	}
+	return ""
 }
