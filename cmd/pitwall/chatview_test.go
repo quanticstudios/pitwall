@@ -90,7 +90,7 @@ func TestChatCachePages(t *testing.T) {
 		return out
 	}
 	b.Chat("c")
-	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("c", "d"), Seq: 1, Older: 40})
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("c", "d"), Seq: 1, Older: 40})
 	if !b.ChatOlder("c") || !b.ChatOlder("c") {
 		t.Fatal("no older history")
 	}
@@ -103,24 +103,24 @@ func TestChatCachePages(t *testing.T) {
 	if reads != 1 {
 		t.Fatalf("%d page reads, want 1: %+v", reads, b.out)
 	}
-	if b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("x"), Page: 99, Older: 1}) {
+	if b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("x"), Page: 99, Older: 1}) {
 		t.Fatal("took a page of another snapshot")
 	}
-	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("a", "b"), Page: 40, Older: 0})
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("a", "b"), Page: 40, Older: 0})
 	s, _ := b.Chat("c")
 	if got := ids(s); !reflect.DeepEqual(got, []string{"a=a cut", "b=b cut", "c=c cut", "d=d cut"}) || len(s.Turns) != 2 || b.ChatOlder("c") {
-		t.Fatalf("after the page: %v, %d turns, more %v", got, len(s.Turns), b.chat.more)
+		t.Fatalf("after the page: %v, %d turns, more %v", got, len(s.Turns), b.chats["c"].more)
 	}
 	whole, _ := json.Marshal(session.Item{ID: "b", Text: "b whole"})
 	b.ChatItem("c", "b")
 	b.ChatItem("c", "b")
-	b.chat.take(proto.ChatDeltas{Chat: "c", Item: whole})
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Item: whole})
 	if s, _ := b.Chat("c"); ids(s)[1] != "b=b whole" || len(b.chatReq["c"]) > 4 {
 		t.Fatalf("whole item: %v, %d reads out", ids(s), len(b.chatReq["c"]))
 	}
-	b.chat.take(proto.ChatDeltas{Chat: "c", Snapshot: snap("e"), Seq: 9, Older: 70})
-	if s, _ := b.Chat("c"); len(s.Content) != 1 || b.chat.more != 70 {
-		t.Fatalf("new cursor: %v, more %d", ids(s), b.chat.more)
+	b.chats["c"].take(proto.ChatDeltas{Chat: "c", Snapshot: snap("e"), Seq: 9, Older: 70})
+	if s, _ := b.Chat("c"); len(s.Content) != 1 || b.chats["c"].more != 70 {
+		t.Fatalf("new cursor: %v, more %d", ids(s), b.chats["c"].more)
 	}
 
 	b2 := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
@@ -131,12 +131,12 @@ func TestChatCachePages(t *testing.T) {
 		t.Fatalf("refused read: %q, results %v", why, b2.chatOut)
 	}
 	b2.ChatRetry("x")
-	b2.chat.at = time.Time{}
+	b2.chats["x"].at = time.Time{}
 	b2.Chat("x")
-	if !b2.chat.out {
+	if !b2.chats["x"].out {
 		t.Fatal("Try again sent no read")
 	}
-	b2.chat.at = time.Now().Add(-readWait)
+	b2.chats["x"].at = time.Now().Add(-readWait)
 	b2.Chat("x")
 	if since, why := b2.ChatWait("x"); why == "" || since.IsZero() {
 		t.Fatalf("no reply in %v: %q", readWait, why)
@@ -180,7 +180,7 @@ func TestChatReadPace(t *testing.T) {
 		{"another chat", busy, "x", time.Second, 0, false, 0},
 		{"no longer shown", busy, "c", time.Second, 2 * time.Second, false, 0},
 	} {
-		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out, at: now.Add(-tc.ago), shown: now.Add(-tc.shown)}
+		b.chats = map[string]*chatCache{"c": {id: "c", snap: tc.snap, out: tc.out, at: now.Add(-tc.ago), shown: now.Add(-tc.shown)}}
 		b.chatRead(tc.id)
 		if got := reads(); got != tc.want {
 			t.Errorf("%s: %d reads, want %d", tc.what, got, tc.want)
@@ -203,12 +203,46 @@ func TestChatReadPace(t *testing.T) {
 		{"idle, changed", idle, false, true, app.ChatPoll, true},
 		{"idle, unchanged", idle, false, false, app.ChatPoll, false},
 	} {
-		b.chat = chatCache{id: "c", snap: tc.snap, out: tc.out}
-		if after, ok := b.chat.again("c", tc.changed); after != tc.after && tc.ok || ok != tc.ok {
+		b.chats = map[string]*chatCache{"c": {id: "c", snap: tc.snap, out: tc.out}}
+		if after, ok := b.chats["c"].again("c", tc.changed); after != tc.after && tc.ok || ok != tc.ok {
 			t.Errorf("%s: again %v %v, want %v %v", tc.what, after, ok, tc.after, tc.ok)
 		}
 	}
-	if _, ok := b.chat.again("x", true); ok {
+	if _, ok := b.chats["c"].again("x", true); ok {
 		t.Error("read again for another chat")
+	}
+}
+
+// TestChatCacheSideBySide: two chats drawn in one frame, as two pane
+// chats of a split, each keep their transcript and read a snapshot once;
+// a chat new to the window drops the ones no longer shown.
+func TestChatCacheSideBySide(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	snaps := 0
+	for range 3 {
+		b.Chat("a")
+		b.Chat("b")
+		for _, m := range b.out {
+			if r, ok := m.(proto.ChatRead); ok && r.After == 0 {
+				snaps++
+				s, _ := json.Marshal(session.Snapshot{SessionID: r.Chat, Content: []session.Item{{ID: r.Chat + "1"}}})
+				b.chatTook(proto.ChatDeltas{Chat: r.Chat, Snapshot: s, Seq: 1})
+			}
+		}
+		b.out = nil
+	}
+	for _, id := range []string{"a", "b"} {
+		if s, ok := b.Chat(id); !ok || len(s.Content) != 1 || s.Content[0].ID != id+"1" {
+			t.Fatalf("chat %s: %v %+v", id, ok, s.Content)
+		}
+	}
+	if snaps != 2 {
+		t.Fatalf("%d snapshot reads, want one per chat", snaps)
+	}
+	b.chats["b"].shown = time.Now().Add(-2 * chatShown)
+	b.Chat("c")
+	if _, kept := b.chats["b"]; kept || b.chats["a"] == nil {
+		t.Fatalf("kept %v", b.chats)
 	}
 }
