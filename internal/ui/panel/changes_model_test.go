@@ -229,3 +229,13 @@ func TestFileViewHighlights(t *testing.T) {
 		t.Errorf("notes.txt spans %v: want none", tr.side.spans)
 	}
 }
+
+// A plan Claude Code writes in plan mode is no change to the user's files.
+func TestPlanFileIsNoChange(t *testing.T) {
+	if !planFile("/home/dev/.claude/plans/plan-add-greeting.md") {
+		t.Error("a plan under ~/.claude/plans counts as a change")
+	}
+	if planFile("/repo/docs/plans/roadmap.md") {
+		t.Error("the repo's own plans folder was skipped")
+	}
+}
