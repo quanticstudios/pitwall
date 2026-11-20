@@ -203,6 +203,15 @@ func TestHarnessMalformed(t *testing.T) {
 	}
 }
 
+// A task notification's summary and result come XML-escaped, as Claude
+// Code writes them inside its tags; the card shows the text.
+func TestHarnessNotificationEntities(t *testing.T) {
+	n := harness("<task-notification>\n<tool-use-id>t1</tool-use-id>\n<summary>Agent \"a &amp; b\" finished</summary>\n<result>prints `hello, &lt;name&gt;`</result>\n</task-notification>")
+	if n.notified != "t1" || n.summary != `Agent "a & b" finished` || n.result != "prints `hello, <name>`" {
+		t.Errorf("note %+v", n)
+	}
+}
+
 // TestStreamEchoes: the output of a set_model the driver sent says
 // nothing the chat loop did not, and a line a compaction replays shows
 // once.

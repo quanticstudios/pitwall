@@ -14,5 +14,6 @@ func TestMain(m *testing.M) {
 	// reads time.Local after its test returns.
 	time.Local = time.UTC
 	replyDelay.set(0)
+	imageWait.set(0)
 	testenv.Main(m)
 }

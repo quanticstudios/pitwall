@@ -395,9 +395,10 @@ const summaryLen = 300
 func summary(msg string) string { return Summary(msg) }
 
 // Summary is msg as a completed activity's Detail: secrets are redacted in
-// the whole text before it is cut to summaryLen runes.
+// the whole text, then its markdown table rows and code fence lines go,
+// unless nothing else is left, before it is cut to summaryLen runes.
 func Summary(msg string) string {
-	r := []rune(strings.Join(strings.Fields(logs.Redact(msg)), " "))
+	r := []rune(strings.Join(strings.Fields(prose(logs.Redact(msg))), " "))
 	if len(r) <= summaryLen {
 		return string(r)
 	}
@@ -408,6 +409,23 @@ func Summary(msg string) string {
 		s = "" // one long token: none of it
 	}
 	return s + "…"
+}
+
+// prose is msg without its markdown table rows and code fence lines, msg
+// itself when they are all it has.
+func prose(msg string) string {
+	var keep []string
+	for l := range strings.SplitSeq(msg, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "|") || strings.HasPrefix(t, "```") {
+			continue
+		}
+		keep = append(keep, l)
+	}
+	if out := strings.Join(keep, "\n"); strings.TrimSpace(out) != "" {
+		return out
+	}
+	return msg
 }
 
 // mapGemini maps the events only Gemini CLI sends; ok is false for the

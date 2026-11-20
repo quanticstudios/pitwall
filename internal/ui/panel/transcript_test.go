@@ -117,6 +117,16 @@ func TestTranscriptAnswers(t *testing.T) {
 	if tr.Key("1") {
 		t.Fatal("a key answered an approval already answered")
 	}
+	tr.Refused("r1") // the pane no longer offered it
+	transcriptFrame(&tr, th, s, &ops, now)
+	if len(tr.done) != 0 || tr.sent["r1"] || tr.answer["r1"] == nil {
+		t.Fatalf("after a refusal: lines %+v, sent %v: want the card back", tr.done, tr.sent["r1"])
+	}
+	tr.answer["r1"][1].Click()
+	transcriptFrame(&tr, th, s, &ops, now)
+	if got := tr.Answers(); len(got) != 1 || len(tr.done) != 1 {
+		t.Fatalf("answered again: %+v, lines %+v", got, tr.done)
+	}
 	s.PendingApprovals = append(s.PendingApprovals, session.Approval{ID: "r2", RequestType: session.RequestCommand, Request: &session.ToolRequest{ToolName: "Bash", Command: "git push"}})
 	transcriptFrame(&tr, th, s, &ops, now)
 	if !tr.Key("3") {

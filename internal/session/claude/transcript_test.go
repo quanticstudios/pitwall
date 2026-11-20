@@ -457,3 +457,54 @@ func TestTranscriptUnknownCommand(t *testing.T) {
 		t.Errorf("running %v, %d turns: want none", tr.Running(), len(snap.Turns))
 	}
 }
+
+// TestTranscriptAbsorbed: a message typed while Claude works, which Claude
+// Code 2.1.329 takes into the running turn as a queued_command attachment,
+// is a prompt bubble in that turn, ahead of the reply it got.
+func TestTranscriptAbsorbed(t *testing.T) {
+	tr := NewTranscript()
+	lines := []string{
+		`{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count to 30"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"seq 30"}}]}}`,
+		`{"type":"attachment","uuid":"q1","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"also say kiwi","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}`,
+		`{"type":"attachment","uuid":"q2","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"from a script","origin":{"kind":"coordinator"}}}`,
+		`{"type":"user","uuid":"r1","timestamp":"2026-11-20T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"1"}]}}`,
+		`{"type":"assistant","uuid":"a2","timestamp":"2026-11-20T10:00:07Z","message":{"id":"m2","content":[{"type":"text","text":"done. kiwi"}]}}`,
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T10:00:08Z"}`,
+	}
+	snap := base()
+	for _, l := range lines {
+		snap = apply(t, snap, tr.Line([]byte(l)))
+	}
+	var got []string
+	for _, it := range snap.Content {
+		got = append(got, string(it.Kind)+":"+it.Text+":"+*it.TurnID)
+	}
+	want := []string{"user-prompt:count to 30:p1", "tool-call::p1", "user-prompt:also say kiwi:p1", "assistant-text:done. kiwi:p1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("content:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if len(snap.Turns) != 1 {
+		t.Errorf("turns %+v: want the one", snap.Turns)
+	}
+}
+
+// TestTranscriptAskBeforeLine: the hook that a question waits can come
+// before Claude Code writes the AskUserQuestion call; once the call is
+// read, the request becomes the question, under the same id.
+func TestTranscriptAskBeforeLine(t *testing.T) {
+	tr := NewTranscript()
+	snap := apply(t, base(), tr.Line([]byte(`{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","message":{"role":"user","content":"pick one"}}`)))
+	snap = apply(t, snap, tr.Ask("7", "Which?"))
+	if len(snap.PendingApprovals) != 1 || len(snap.PendingUserInputs) != 0 {
+		t.Fatalf("before the call: approvals %+v, inputs %+v", snap.PendingApprovals, snap.PendingUserInputs)
+	}
+	snap = apply(t, snap, tr.Line([]byte(`{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","content":[{"type":"tool_use","id":"q1","name":"AskUserQuestion","input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"first"},{"label":"B","description":"second"}]}]}}]}}`)))
+	snap = apply(t, snap, tr.Ask("7", "Which?"))
+	if len(snap.PendingApprovals) != 0 || len(snap.PendingUserInputs) != 1 || snap.PendingUserInputs[0].ID != "7" || len(snap.PendingUserInputs[0].Questions[0].Options) != 2 {
+		t.Fatalf("after the call: approvals %+v, inputs %+v: want only the question, id 7", snap.PendingApprovals, snap.PendingUserInputs)
+	}
+	if out := tr.Ask("7", "Which?"); out != nil {
+		t.Errorf("asked again: %+v, want nothing", out)
+	}
+}

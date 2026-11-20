@@ -24,6 +24,7 @@ type Transcript struct {
 	model string
 	last  string // the latest tool call's id
 	asked string // the open request's id, "" for none
+	bare  bool   // the open request came with no tool call to show
 	// cmd is a /model or /effort command waiting for its output, which
 	// turns the two into one divider; cmdID is its line's uuid.
 	cmd, cmdID string
@@ -91,6 +92,9 @@ type transcriptLine struct {
 		Blocking *struct {
 			Error string `json:"blockingError"`
 		} `json:"blockingError"`
+		Origin *struct {
+			Kind string `json:"kind"`
+		} `json:"origin"`
 	} `json:"attachment"`
 }
 
@@ -200,9 +204,9 @@ func (t *Transcript) system(l transcriptLine) []session.Event {
 	return nil
 }
 
-// attachment is an attachment line: a notification Claude Code queued
-// mid-turn, or a hook that blocked or failed. The rest (reminders, file
-// and tool listings) speak to the model.
+// attachment is an attachment line: a notification or a message of the
+// user's that Claude Code queued mid-turn, or a hook that blocked or
+// failed. The rest (reminders, file and tool listings) speak to the model.
 func (t *Transcript) attachment(l transcriptLine) []session.Event {
 	a := l.Attachment
 	if a == nil {
@@ -211,8 +215,13 @@ func (t *Transcript) attachment(l transcriptLine) []session.Event {
 	switch a.Type {
 	case "queued_command":
 		var text string
-		if json.Unmarshal(a.Prompt, &text) == nil && strings.Contains(text, "<task-notification>") {
+		switch {
+		case json.Unmarshal(a.Prompt, &text) != nil:
+		case strings.Contains(text, "<task-notification>"):
 			return t.notified(l, harness(text), text)
+		case a.Origin != nil && a.Origin.Kind == "human" && strings.TrimSpace(text) != "":
+			// A message the user sent mid-turn, which the running turn took.
+			return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindUserPrompt, Text: text}}
 		}
 	case "hook_blocking_error", "hook_non_blocking_error", "hook_stopped_continuation", "hook_error_during_execution":
 		msg := cmp.Or(a.Message, a.Stderr)
@@ -549,13 +558,15 @@ func (t *Transcript) End(state string) []session.Event {
 // or a question for its latest tool call that has not finished. Without
 // such a call it opens a permission request that says only detail.
 func (t *Transcript) Ask(id, detail string) []session.Event {
-	if id == t.asked {
+	call, ok := t.s.tools[t.last]
+	ok = ok && call.Status == "running"
+	// why: the hook can come before Claude Code writes the call it asks about; once the call is read, the request takes it.
+	if id == t.asked && (!t.bare || !ok) {
 		return nil
 	}
 	out := t.Resolve()
-	t.asked = id
-	call, ok := t.s.tools[t.last]
-	if !ok || call.Status != "running" {
+	t.asked, t.bare = id, !ok
+	if !ok {
 		return append(out, session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail})
 	}
 	var l line

@@ -46,6 +46,17 @@ takes `--dry-run`.
 - A composer popover, such as the model picker, closes on Alt+T, on a tab switch and when another pane takes focus. A click outside it closes it and still lands where it was aimed, so clicking another pane focuses that pane.
 - A chat tab shows its model and effort from the start: the ones it was started with, else the model and effortLevel in Claude Code's user settings, read only. Once Claude Code starts, the chip shows the model it runs.
 - A Claude Code pane's chat shows a sent picture as a thumbnail under the prompt, as a chat tab does, instead of only its chip.
+- A Claude Code pane's chat keeps a background task's reply in its own turn. When the task ended, the turn its notification started could end at once, so the reply took over the previous turn and folded that turn's answer into its work log.
+- A message you send while Claude Code works shows in its pane's chat when Claude takes it into the running turn, as Claude Code 2.1.329 does, and its queued row goes then. Before, it vanished, and only Claude's answer to it showed.
+- A Claude Code pane's chat shows a question as its question card, with each option on its key, when the hook that it waits comes before Claude Code writes the AskUserQuestion call. It stayed a generic approval card with Allow and Deny.
+- Allow for session answers Claude Code's file edit prompt, whose second option now reads "Yes, and switch to accept edits … for this session". It failed with "the pane no longer offers Allow always".
+- When the daemon refuses an answer to an approval or a question in the desktop chat, its card comes back instead of an "Allowed" line that said it went through.
+- A background subagent's result shows `<` and `>` and `&` as themselves, not as `&lt;`, `&gt;` and `&amp;`.
+- A long pane chat that ends on a `/compact` opens with one "Conversation compacted" divider. It showed two, and a `/compact` chip under them.
+- A finished agent's line in the sidebar and its Done notice leave out the reply's markdown table rows and code fences, which showed as raw pipes and dashes.
+- A click on a sent picture's thumbnail in the desktop chat shows it large, as a tool's picture does. Esc or a click closes it.
+- A numbered list past 99 shows its numbers whole, "100." and on, in the desktop chat and the markdown reader. They cut to "1…".
+- Pictures sent from a TUI pane chat keep their order. Claude Code numbers a pasted picture once it has read it, so a smaller second picture could become #1; pitwall now pastes each path after the one before shows its token.
 - A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
