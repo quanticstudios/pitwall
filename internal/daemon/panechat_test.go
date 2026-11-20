@@ -481,3 +481,37 @@ func TestPaneChatNotifiedTurn(t *testing.T) {
 		t.Fatalf("last item %+v in turns %+v: want done in the notified turn, completed", last, pc.snap.Turns)
 	}
 }
+
+// A background shell that ends while the next prompt's turn runs updates
+// its call from the earlier turn. That is no reply in the running turn, so
+// a Stop hook read before Claude Code wrote the turn's answer leaves it
+// running, and the answer stays its turn's own.
+func TestPaneChatBackgroundNoticeIsNoReply(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"sleep in the background"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t9","name":"Bash","input":{"command":"sleep 40","run_in_background":true}}],"usage":{"input_tokens":2,"output_tokens":3}}}
+{"type":"user","uuid":"r1","timestamp":"2026-11-20T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":"Command running in background with ID: b1."}]},"toolUseResult":{"stdout":"","stderr":"","backgroundTaskId":"b1"}}
+{"type":"assistant","uuid":"a2","timestamp":"2026-11-20T10:00:03Z","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"started"}],"usage":{"input_tokens":2,"output_tokens":3}}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T10:00:04Z"}
+{"type":"user","uuid":"p2","timestamp":"2026-11-20T10:00:40Z","origin":{"kind":"human"},"message":{"role":"user","content":"say A"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-20T10:00:40.1Z","content":"<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>t9</tool-use-id>\n<status>completed</status>\n<summary>Background command \"sleep\" completed (exit code 0)</summary>\n</task-notification>"}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stopped := paneLive{p: &fakePane{}, act: model.Activity{State: model.StateCompleted, UpdatedAt: time.Date(2026, 11, 20, 10, 0, 41, 0, time.UTC)}}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(stopped)
+	if n := len(pc.snap.Turns); n != 2 || pc.snap.Turns[1].State != session.TurnRunning {
+		t.Fatalf("turns %+v: want the second running until its answer", pc.snap.Turns)
+	}
+	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"assistant","uuid":"a3","timestamp":"2026-11-20T10:00:41Z","message":{"id":"m3","model":"claude-sonnet-5-5","content":[{"type":"text","text":"A"}],"usage":{"input_tokens":2,"output_tokens":1}}}
+`)
+	fh.Close()
+	pc.catchUp(stopped)
+	last := pc.snap.Content[len(pc.snap.Content)-1]
+	if last.Text != "A" || last.TurnID == nil || *last.TurnID != pc.snap.Turns[1].ID {
+		t.Fatalf("last item %+v: want A in the second turn %+v", last, pc.snap.Turns)
+	}
+}

@@ -429,7 +429,8 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			case es[i].Type == session.EventTurnStarted:
 				pc.replied = false
 			case es[i].Type == session.EventContent && es[i].Kind != session.KindSystem:
-				pc.replied = true
+				// why: a background shell's end notice updates a call an earlier turn made; that is no reply in this one.
+				pc.replied = pc.replied || es[i].Kind != session.KindToolCall || !slices.ContainsFunc(pc.snap.Content, func(it session.Item) bool { return it.ID == es[i].ItemID })
 			}
 			// A turn's usage report says the context as the meter reads it.
 			if es[i].Type == session.EventUsage && pc.ctx > 0 {

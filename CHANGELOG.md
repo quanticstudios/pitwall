@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- When a background shell ends while a TUI pane chat answers the next prompt, that answer stays its turn's reply instead of folding into the work log under the notification's reply.
 - Claude Code's warnings in the desktop chat, such as an unknown slash command, no longer carry an API retry's "Retrying" title.
 - Shift+Tab through the modes, or a model picked and picked again, leaves one divider in the desktop chat for where it ended, not one per step.
 - A TUI pane chat's model and effort chips follow a /model or /effort change again with Claude Code 2.1.329, which draws its acknowledgement with a no-break space; the chip no longer falls back to the last reply's model mid-turn.
