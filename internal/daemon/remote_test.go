@@ -1164,3 +1164,39 @@ func TestTypeLines(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code numbers a pasted image once it has read the file, so a small
+// one pasted second could take #1: each image's path goes in only after
+// the one before shows its [Image #N] token.
+func TestTypeLetterImageOrder(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	p := f.pane(0) // Claude Code
+	p.mu.Lock()
+	p.screen = []string{"> "}
+	p.mu.Unlock()
+	old := imageWait.set(2 * time.Second)
+	defer imageWait.set(old)
+	early := make(chan bool, 1)
+	go func() {
+		for !strings.Contains(p.got(), "a.png") {
+			time.Sleep(time.Millisecond)
+		}
+		time.Sleep(50 * time.Millisecond) // Claude Code reads the picture
+		p.mu.Lock()
+		early <- strings.Contains(string(p.input), "b.png")
+		p.screen = []string{"> [Image #1] "}
+		p.mu.Unlock()
+	}()
+	if err := d.typeLetter("a", p, []string{"/tmp/a.png", "/tmp/b.png"}, "look", nil); err != nil {
+		t.Fatal(err)
+	}
+	if <-early {
+		t.Fatal("the second path went in before the first image's token showed")
+	}
+	for end := time.Now().Add(time.Second); !strings.Contains(p.got(), "b.png") && time.Now().Before(end); {
+		time.Sleep(time.Millisecond) // the pane takes input off this goroutine
+	}
+	if got := p.got(); !strings.Contains(got, "b.png") || strings.Index(got, "a.png") > strings.Index(got, "b.png") {
+		t.Fatalf("typed %q: want a.png first", got)
+	}
+}

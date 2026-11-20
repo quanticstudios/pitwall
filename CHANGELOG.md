@@ -56,6 +56,7 @@ takes `--dry-run`.
 - A finished agent's line in the sidebar and its Done notice leave out the reply's markdown table rows and code fences, which showed as raw pipes and dashes.
 - A click on a sent picture's thumbnail in the desktop chat shows it large, as a tool's picture does. Esc or a click closes it.
 - A numbered list past 99 shows its numbers whole, "100." and on, in the desktop chat and the markdown reader. They cut to "1…".
+- Pictures sent from a TUI pane chat keep their order. Claude Code numbers a pasted picture once it has read it, so a smaller second picture could become #1; pitwall now pastes each path after the one before shows its token.
 - A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
