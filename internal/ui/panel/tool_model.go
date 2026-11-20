@@ -483,6 +483,7 @@ func prettyJSON(s string) string {
 
 var (
 	backgroundID = regexp.MustCompile(`running in background with ID: ([A-Za-z0-9_-]+)`)
+	monitorID    = regexp.MustCompile(`^Monitor started \(task ([A-Za-z0-9_-]+)`)
 	shellStatus  = regexp.MustCompile(`<status>([a-z_]+)</status>`)
 	shellOut     = regexp.MustCompile(`(?s)<(stdout|output)>\n?(.*?)\n?</(?:stdout|output)>`)
 	shellFile    = regexp.MustCompile(`/tasks/([A-Za-z0-9_-]+)\.output$`) // where Claude Code writes a shell's output
@@ -490,13 +491,28 @@ var (
 
 // shellID is the background shell a Bash call started, "" for none.
 func shellID(c *session.ToolCall) string {
-	if c == nil || c.ToolName != "Bash" {
+	if c == nil {
 		return ""
 	}
-	if m := backgroundID.FindStringSubmatch(c.Output); m != nil {
+	re := backgroundID
+	switch c.ToolName {
+	case "Bash":
+	case "Monitor": // a watch runs on as a shell does
+		re = monitorID
+	default:
+		return ""
+	}
+	if m := re.FindStringSubmatch(c.Output); m != nil {
 		return m[1]
 	}
 	return ""
+}
+
+// monitorEvents is what a Monitor watch saw: its output's lines after the
+// first, which only says it started.
+func monitorEvents(out string) string {
+	_, events, _ := strings.Cut(out, "\n")
+	return strings.TrimSpace(events)
 }
 
 // shellRef is the shell a BashOutput, TaskOutput, KillShell or TaskStop

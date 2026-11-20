@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A Monitor call's row tracks its watch as a background shell's row does: Running in background, then Finished or Stopped, and opened, the events it saw.
 - A summary Claude Code tags "· summary", the server's short summary of Claude's words between calls, draws as a muted row with a Summary tag in the work log, where it came among the calls, not as a thinking row.
 - Claude Code's recap draws as a quiet Recap card where it came, its text as prose, without the "(turn off recaps in /config)" hint; `/recap` shows its chip and the card instead of a cut-off line of mono output.
 - The desktop chat reads more of what Claude Code's TUI prints: its recaps, from coming back to a session and from `/recap`; the server's short summaries between calls; each Monitor event and a watch's end; and a hook's `systemMessage`, which a New task chat dropped and a TUI pane chat never showed.
