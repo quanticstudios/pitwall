@@ -126,5 +126,5 @@ func (u *ui) layoutPaneChat(gtx gl.Context, st *model.State, ws *model.Workspace
 	head := u.chatStrip(gtx, h, ws, paneChatOf(st, id), func() { u.flipPaneChat(id) })
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(image.Pt(in.Dx(), max(0, in.Dy()-head)))
-	u.chatBody(gtx, st, u.b.(Chatter), id, ws.Path, focused)
+	u.chatBody(gtx, st, u.b.(Chatter), id, ws.Path, focused, func() { u.flipPaneChat(id) })
 }

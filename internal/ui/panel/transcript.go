@@ -40,6 +40,12 @@ type Transcript struct {
 	// Copy puts text on the clipboard: the window's clipboard path. Nil
 	// writes it directly.
 	Copy func(gtx layout.Context, text string)
+	// Older, when set, reads the page of history before the oldest item
+	// once the reader nears it, and reports whether there is one.
+	Older func() bool
+	// Full, when set, reads an item that came cut (session.Item.Cut)
+	// whole, once it is laid out.
+	Full func(item string)
 	// Open opens a link: one clicked in a reply, a URL or a file URL for a
 	// path under Dir, or a tool row's, a URL or a file's absolute path. Nil
 	// leaves links inert.
@@ -90,6 +96,13 @@ type Transcript struct {
 	prompt  string           // the newest prompt's item id, to follow a new one
 	aideBtn widget.Clickable
 	aide    bool // Open in aide was clicked, until OpenAide takes it
+
+	older  bool           // Older said there is history before the oldest item
+	head   string         // the oldest item's id in the last frame
+	anchor string         // the item of the first row in view in the last frame
+	topH   int            // the height of the space above the rows when last laid out
+	frame  int            // frames laid out
+	selAt  map[string]int // the frame each selectable was last drawn in
 }
 
 // Answer is an approval answered with its buttons or keys.
@@ -281,7 +294,7 @@ func (a *ask) current() int {
 // init makes a new Transcript's maps. It sets fields one by one, so the
 // thumbnails' lock, which a decode may hold, is never overwritten.
 func (t *Transcript) init() {
-	t.open, t.clicks, t.sels = map[string]bool{}, map[string]*widget.Clickable{}, map[string]*widget.Selectable{}
+	t.open, t.clicks, t.sels, t.selAt = map[string]bool{}, map[string]*widget.Clickable{}, map[string]*widget.Selectable{}, map[string]int{}
 	t.docs, t.copied = map[string]*reply{}, map[string]time.Time{}
 	t.answer, t.sent, t.asks = map[string]*[3]widget.Clickable{}, map[string]bool{}, map[string]*ask{}
 	t.list.Axis = layout.Vertical
@@ -302,6 +315,7 @@ func (t *Transcript) sel(id string) *widget.Selectable {
 		s = new(widget.Selectable)
 		t.sels[id] = s
 	}
+	t.selAt[id] = t.frame
 	t.drawn = append(t.drawn, s)
 	return s
 }
@@ -425,6 +439,7 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		t.epoch = gtx.Now
 	}
 	t.now, t.live, t.laid, t.drawn = gtx.Now, false, 0, t.drawn[:0]
+	t.frame++
 	t.settle(gtx, s)
 	if t.aideBtn.Clicked(gtx) && aide {
 		t.aide, t.menu = true, false
@@ -466,7 +481,11 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 	d.col, d.proseW = col, proseCap(col, d.avgChar(gtx))
 	x0 := (size.X - col) / 2
 	t.blocks = blocks(s.Content, t.blocks)
+	added := t.prepended(s)
 	t.buildRows(gtx, d)
+	if added > 0 {
+		t.keepPlace(s)
+	}
 
 	// A new prompt, sent here, queued or typed elsewhere, takes the
 	// reader to the end wherever they scrolled.
@@ -481,14 +500,27 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		t.list.Position.BeforeEnd = false
 	}
 	t.list.ScrollToEnd = follow
+	if !follow {
+		defer func() {
+			if t.list.Position.Length > size.Y { // it overflows now: the next frame goes to its end
+				gtx.Execute(op.InvalidateCmd{})
+			}
+		}()
+	}
 	t.list.Layout(gtx, len(t.rows)+2, func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
-			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
+			d := layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
+			if t.older {
+				d = t.loadingOlder(gtx, th, size.X)
+			}
+			t.topH = d.Size.Y
+			return d
 		case i >= len(t.rows):
 			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
 		}
 		r := &t.rows[i]
+		t.wantWhole(s, r)
 		gap := gtx.Dp(r.gap)
 		gtx.Constraints = layout.Constraints{Max: image.Pt(col, gtx.Constraints.Max.Y)}
 		off := op.Offset(image.Pt(x0, gap)).Push(gtx.Ops)
@@ -528,6 +560,8 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gap)}
 	})
 	t.pickSelection(gtx)
+	t.atTop(s, size.Y)
+	t.forget(s)
 	t.newOutput(gtx, d, s, size)
 	t.zoomLayer(gtx, d, size)
 	if aide {
@@ -788,9 +822,9 @@ func lastPrompt(s *session.Snapshot) string {
 // newOutput is the "New output" pill once the reader scrolled up and the
 // chat added to it; a click goes back to the end and follows again.
 func (t *Transcript) newOutput(gtx layout.Context, d *cdraw, s *session.Snapshot, size image.Point) {
-	sig := strconv.Itoa(len(s.Content))
+	sig := "" // the newest item, so a page of older ones is not new output
 	if n := len(s.Content); n > 0 {
-		sig += s.Content[n-1].UpdatedAt + strconv.Itoa(len(s.Content[n-1].Text))
+		sig += s.Content[n-1].ID + s.Content[n-1].UpdatedAt + strconv.Itoa(len(s.Content[n-1].Text))
 	}
 	sig += strconv.Itoa(len(s.PendingApprovals) + len(s.PendingUserInputs))
 	if !t.list.Position.BeforeEnd {

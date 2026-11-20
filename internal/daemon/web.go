@@ -122,7 +122,11 @@ func (h chatHub) Unsubscribe(id string, s web.Sink) {
 // Read reads a live chat on its loop, else an archived one from its
 // folder, which always answers with its snapshot.
 func (h chatHub) Read(id string, after int64) (out proto.ChatDeltas, err error) {
-	err = h.on(id, func(c *chat) { out = c.read(after) })
+	var rerr error
+	err = h.on(id, func(c *chat) { out, rerr = c.read(proto.ChatRead{Chat: id, After: after}) })
+	if err == nil {
+		err = rerr
+	}
 	if chatCode(err) != "not-found" || h.d.o.Chats == "" {
 		return out, err
 	}

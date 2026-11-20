@@ -598,3 +598,35 @@ func str(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &s)
 	return s
 }
+
+// Mark is what a transcript line is to a reader paging through it.
+type Mark uint8
+
+const (
+	MarkNone    Mark = iota // a line no chat shows
+	MarkItem                // a line a chat shows as an item or part of one
+	MarkPrompt              // a prompt line, where a turn starts
+	MarkCompact             // a compaction's boundary
+)
+
+// MarkOf is line b's Mark.
+func MarkOf(b []byte) Mark {
+	var l transcriptLine
+	if json.Unmarshal(b, &l) != nil || l.IsSidechain || l.IsCompactSummary {
+		return MarkNone
+	}
+	switch l.Type {
+	case "user":
+		if text, _, ok := promptText(l); ok && !strings.HasPrefix(strings.TrimSpace(text), "[Request interrupted by user") {
+			return MarkPrompt
+		}
+		return MarkItem
+	case "assistant":
+		return MarkItem
+	case "system":
+		if l.Subtype == "compact_boundary" {
+			return MarkCompact
+		}
+	}
+	return MarkNone
+}

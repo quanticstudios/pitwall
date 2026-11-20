@@ -48,6 +48,9 @@ func (d *cdraw) toolImages(gtx layout.Context, it *session.Item) layout.Dimensio
 // toolThumb is one picture, rounded, with a ring; Hover lightens it.
 func (d *cdraw) toolThumb(gtx layout.Context, k string, a session.Attachment) layout.Dimensions {
 	th := d.th
+	if a.Data == "" { // a snapshot's copy, until the item comes whole (Transcript.Full)
+		return d.fileChip(gtx, "image", "Image")
+	}
 	maxH := gtx.Dp(toolThumbH)
 	tb := d.t.thumbs.snapshot(d.t.thumbs.getSized(k+"@"+strconv.Itoa(maxH), &a, maxH, nil))
 	if tb.ready && tb.size == (image.Point{}) {
