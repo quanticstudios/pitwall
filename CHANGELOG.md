@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A summary Claude Code tags "· summary", the server's short summary of Claude's words between calls, draws as a muted row with a Summary tag in the work log, where it came among the calls, not as a thinking row.
 - Claude Code's recap draws as a quiet Recap card where it came, its text as prose, without the "(turn off recaps in /config)" hint; `/recap` shows its chip and the card instead of a cut-off line of mono output.
 - The desktop chat reads more of what Claude Code's TUI prints: its recaps, from coming back to a session and from `/recap`; the server's short summaries between calls; each Monitor event and a watch's end; and a hook's `systemMessage`, which a New task chat dropped and a TUI pane chat never showed.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
