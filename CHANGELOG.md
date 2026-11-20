@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Antigravity CLI (`agy`) joins the agents: its mark in the sidebar and chat header, its states through `pitwall hooks install` (a `pitwall` hook in `~/.gemini/config/hooks.json`) and the status agy reports to its terminal, Allow, Always and Deny on its permission prompts, resume with `agy --conversation` after a restart, workers whose brief goes in with `-i`, New task chats over `agy acp`, and its TUI panes as the desktop chat. `[chat] antigravity = "terminal"` keeps the TUI.
 - The phone app and the phone web page leave out Allow for this session on an approval whose prompt doesn't offer it, as the desktop chat does.
 - A rewind the chat refuses, as when Claude Code's rewind list shows the message like a later one, leaves the composer as it was; the prompt comes back into it only once a rewind went through.
 - A TUI pane chat rewound past a compaction stays rewound after a daemon restart. When a turn had followed the compaction, the chat's older history showed the turns the rewind left behind.

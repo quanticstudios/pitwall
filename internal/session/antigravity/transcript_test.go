@@ -1,0 +1,184 @@
+package antigravity
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
+)
+
+// testdata/transcript_full.jsonl is agy 1.5.13's transcript of one turn,
+// with paths and the conversation id replaced: it reads a file, edits it,
+// writes another, runs a command that fails, then replies.
+func TestTranscript(t *testing.T) {
+	data, err := os.ReadFile("testdata/transcript_full.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranscript()
+	var es []session.Event
+	for line := range bytes.SplitSeq(bytes.TrimSpace(data), []byte("\n")) {
+		es = append(es, tr.Line(line)...)
+	}
+	if tr.Running() {
+		t.Error("the turn still runs after the reply that made no call")
+	}
+	tools := map[string]*session.ToolCall{}
+	var prompt, reply, model string
+	var started, completed int
+	for _, e := range es {
+		switch {
+		case e.Type == session.EventTurnStarted:
+			started++
+		case e.Type == session.EventTurnCompleted:
+			completed++
+			if e.State != session.TurnCompleted {
+				t.Errorf("turn ended %q", e.State)
+			}
+		case e.Type == session.EventSettings:
+			model = e.Model
+		case e.Kind == session.KindUserPrompt:
+			prompt = e.Text
+		case e.Kind == session.KindAssistantText:
+			reply = e.Text
+		case e.Kind == session.KindToolCall:
+			tools[e.Tool.ToolName] = e.Tool
+		}
+	}
+	if started != 1 || completed != 1 || model != "gemini-3.8-flash" || tr.effort != "low" {
+		t.Errorf("turns %d started, %d completed; model %q", started, completed, model)
+	}
+	if !strings.HasPrefix(prompt, "Do these steps in order:") || strings.Contains(prompt, "USER_REQUEST") || strings.Contains(prompt, "local time") {
+		t.Errorf("prompt %q; want the user's own text", prompt)
+	}
+	if !strings.HasPrefix(reply, "Read [notes.txt]") {
+		t.Errorf("reply %q", reply)
+	}
+	if r := tools["Read"]; r == nil || !strings.Contains(string(r.Input), `"file_path":"/home/user/project/notes.txt"`) || !strings.Contains(r.Output, "1: line one") || strings.Contains(r.Output, "Created At") {
+		t.Errorf("read %+v", r)
+	}
+	if e := tools["Edit"]; e == nil || !strings.Contains(string(e.Input), `"old_string":"line two"`) || !strings.Contains(string(e.Input), `"new_string":"line 2"`) || e.Status != "completed" {
+		t.Errorf("edit %+v", e)
+	}
+	if w := tools["Write"]; w == nil || !strings.Contains(string(w.Input), `"content":"hi\n"`) || w.Output != "Created file." {
+		t.Errorf("write %+v", w)
+	}
+	b := tools["Bash"]
+	if b == nil || b.Command != "ls nonexistent-xyz" || b.ExitCode == nil || *b.ExitCode != 2 || b.Status != "failed" ||
+		b.Output != "ls: cannot access 'nonexistent-xyz': No such file or directory" {
+		t.Errorf("command %+v", b)
+	}
+
+	var marks []claude.Mark
+	for line := range bytes.SplitSeq(bytes.TrimSpace(data), []byte("\n")) {
+		marks = append(marks, MarkOf(line))
+	}
+	if marks[0] != claude.MarkPrompt || marks[1] != claude.MarkItem || marks[len(marks)-1] != claude.MarkItem {
+		t.Errorf("marks %v", marks)
+	}
+}
+
+// TestTranscriptAsk: an approval agy's terminal report names opens a
+// command request; a new turn's prompt withdraws it, and a turn cut off
+// shows its waiting calls as failed.
+func TestTranscriptAsk(t *testing.T) {
+	tr := NewTranscript()
+	tr.Line([]byte(`{"step_index":0,"type":"USER_INPUT","content":"<USER_REQUEST>\nclean up\n</USER_REQUEST>"}`))
+	tr.Line([]byte(`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"run_command","args":{"CommandLine":"rm -rf ./junk"}}]}`))
+	es := tr.Ask("7", "Approve Bash: rm -rf ./junk")
+	if len(es) != 1 || es[0].RequestType != session.RequestCommand || es[0].Request.Command != "rm -rf ./junk" {
+		t.Fatalf("ask %+v", es)
+	}
+	if again := tr.Ask("7", "Approve Bash: rm -rf ./junk"); again != nil {
+		t.Errorf("the same request opened twice: %+v", again)
+	}
+	es = tr.End(session.TurnInterrupted)
+	if len(es) != 3 || es[0].Type != session.EventRequestResolved || es[1].Tool == nil || es[1].Tool.Status != "failed" || es[2].State != session.TurnInterrupted {
+		t.Errorf("end %+v", es)
+	}
+	if es := tr.Ask("8", "Trust this folder?"); len(es) != 1 || es[0].RequestType != session.RequestUnknown {
+		t.Errorf("unknown ask %+v", es)
+	}
+}
+
+// TestTranscriptTasks: agy keeps its to-do list in task.md in the
+// conversation's folder. testdata/tasks.jsonl is agy 1.5.13 writing one;
+// an edit then ticks the next item, and the card follows in place.
+func TestTranscriptTasks(t *testing.T) {
+	data, err := os.ReadFile("testdata/tasks.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranscript()
+	var plans []*session.ToolCall
+	collect := func(es []session.Event) {
+		for _, e := range es {
+			if e.Tool != nil {
+				if e.Tool.ToolName != "Plan" {
+					t.Errorf("the task list's write showed as %s", e.Tool.ToolName)
+				}
+				plans = append(plans, e.Tool)
+			}
+		}
+	}
+	for line := range bytes.SplitSeq(bytes.TrimSpace(data), []byte("\n")) {
+		collect(tr.Line(line))
+	}
+	want := []session.Task{{Subject: "plan", Status: "completed"}, {Subject: "build", Status: "pending"}, {Subject: "test", Status: "pending"}}
+	if len(plans) != 1 || !slices.Equal(plans[0].Tasks, want) {
+		t.Fatalf("plans %+v", plans)
+	}
+	collect(tr.Line([]byte(`{"step_index":4,"type":"USER_INPUT","content":"<USER_REQUEST>\nnext\n</USER_REQUEST>"}`)))
+	collect(tr.Line([]byte(`{"step_index":5,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"edit_file","args":{"Path":"/home/user/.gemini/antigravity-cli/brain/22222222-3333-4444-5555-666666666666/tasks.md","Target":"- [ ] build","Replacement":"- [/] build"}}]}`)))
+	collect(tr.Line([]byte(`{"step_index":6,"type":"GENERIC","status":"DONE","content":"Made 1 replacement"}`)))
+	if len(plans) != 2 || plans[1].Tasks[1].Status != "in_progress" || plans[1].CallID != "plan-step-4" {
+		t.Fatalf("after the edit: %+v", plans)
+	}
+	// A task.md outside agy's conversation folders is a file of the project.
+	if tr.taskList("write_file", map[string]json.RawMessage{"Path": json.RawMessage(`"/home/user/project/task.md"`), "Content": json.RawMessage(`"- [ ] x"`)}) != nil {
+		t.Error("a project's task.md read as agy's list")
+	}
+}
+
+// TestTranscriptTaskList: testdata/task_list.jsonl is agy 1.5.13 on a job
+// it tracked in its own task.md unasked: written, then ticked through
+// "[/]" to "[x]". The card shows each state, and the file's writes show
+// as no tool rows of their own.
+func TestTranscriptTaskList(t *testing.T) {
+	data, err := os.ReadFile("testdata/task_list.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranscript()
+	var cards [][]session.Task
+	tools := 0
+	for line := range bytes.SplitSeq(bytes.TrimSpace(data), []byte("\n")) {
+		for _, e := range tr.Line(line) {
+			switch {
+			case e.Tool != nil && e.Tool.ToolName == "Plan":
+				cards = append(cards, e.Tool.Tasks)
+			case e.Tool != nil:
+				tools++
+				if strings.Contains(string(e.Tool.Input), "task.md") {
+					t.Errorf("task.md showed as a %s row", e.Tool.ToolName)
+				}
+			}
+		}
+	}
+	if len(cards) < 2 || len(cards[0]) != 4 || cards[0][0].Status != "pending" {
+		t.Fatalf("cards %+v", cards)
+	}
+	sawProgress := false
+	for _, c := range cards {
+		sawProgress = sawProgress || slices.ContainsFunc(c, func(t session.Task) bool { return t.Status == "in_progress" })
+	}
+	last := cards[len(cards)-1]
+	if !sawProgress || slices.ContainsFunc(last, func(t session.Task) bool { return t.Status != "completed" }) || tools == 0 {
+		t.Errorf("progress %v, last card %+v, %d other tool rows", sawProgress, last, tools)
+	}
+}

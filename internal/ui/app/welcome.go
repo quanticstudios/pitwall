@@ -38,6 +38,7 @@ var welcomeAgents = []struct{ cmd, name, url string }{
 	{"cursor-agent", "Cursor CLI", "https://cursor.com/cli"},
 	{"amp", "Amp", "https://ampcode.com"},
 	{"aider", "Aider", "https://aider.chat"},
+	{"agy", "Antigravity", "https://antigravity.google"},
 }
 
 // welcome is the first-run card: the agents on PATH with their hook
@@ -109,10 +110,7 @@ func findAgents(home string) []foundAgent {
 	var out []foundAgent
 	for _, a := range welcomeAgents {
 		if _, err := exec.LookPath(a.cmd); err == nil {
-			p := model.ProviderCursor
-			if a.cmd != agent.Command(p) {
-				p = model.Provider(a.cmd)
-			}
+			p := agent.Identify(a.cmd, "")
 			out = append(out, foundAgent{cmd: a.cmd, name: a.name, hooks: hooked[a.cmd], hookless: !agent.HooksFor(p)})
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -40,8 +42,11 @@ func ModelName(id string) string {
 	if m[3] != "" && len(m[3]) != 8 { // a date suffix is not a minor version
 		version += "." + m[3]
 	}
-	if m[1] == "gpt" {
+	if m[1] == "gpt" || m[1] == "gemini" {
 		name := "GPT-" + version
+		if m[1] == "gemini" {
+			name = "Gemini " + version
+		}
 		for _, word := range strings.Split(m[4], "-") {
 			if word != "" {
 				name += " " + strings.ToUpper(word[:1]) + word[1:]
@@ -62,6 +67,55 @@ const (
 )
 
 var modes = []string{ModeDefault, ModeAccept, ModePlan}
+
+// Antigravity CLI's choices, as agy 1.5.13 takes them in its TUI (/model,
+// /effort, Shift+Tab) and over ACP (its model, thought_level and mode
+// options): model families without the effort suffix `agy models` adds.
+// shortcut: a fixed list of agy's models; read them from agy if they change often.
+var (
+	agyModels  = []string{"gemini-4-neon", "gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen", "gemini-3.8-flash", "claude-opus-5-5", "claude-sonnet-5-5"}
+	agyEfforts = []string{"low", "medium", "high", "xhigh"}
+	agyModes   = []string{ModeDefault, "accept-edits", "auto", ModePlan}
+)
+
+// ModelsOf are the models the model chip offers for provider p's chats.
+func ModelsOf(p model.Provider) []string {
+	if p == model.ProviderAntigravity {
+		return agyModels
+	}
+	return remote.Models
+}
+
+// EffortsOf are the efforts the effort chip offers for p's chats; nil for
+// an agent whose efforts pitwall does not know, which shows no chip.
+func EffortsOf(p model.Provider) []string {
+	switch p {
+	case model.ProviderClaude:
+		return remote.Efforts
+	case model.ProviderAntigravity:
+		return agyEfforts
+	}
+	return nil
+}
+
+// ModeItemsOf is ModeItems for p's chats: Antigravity's own four modes.
+func ModeItemsOf(p model.Provider, bypass bool) []string {
+	if p == model.ProviderAntigravity {
+		return agyModes
+	}
+	return ModeItems(bypass)
+}
+
+// NextModeOf is NextMode along ModeItemsOf(p, bypass).
+func NextModeOf(p model.Provider, m string, bypass bool) string {
+	items := ModeItemsOf(p, bypass)
+	for i, x := range items {
+		if x == m {
+			return items[(i+1)%len(items)]
+		}
+	}
+	return items[0]
+}
 
 // ModeOf is the permission mode s runs in.
 func ModeOf(s *session.Snapshot) string {
@@ -109,6 +163,8 @@ func ModeName(m string) string {
 		return "Bypass permissions"
 	case "auto":
 		return "Auto"
+	case "accept-edits":
+		return "Accept edits"
 	}
 	return m
 }

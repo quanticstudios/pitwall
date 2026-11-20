@@ -158,12 +158,13 @@ type taskMode struct {
 // keeps (store.RestoreCmd).
 var taskModes = map[string][]taskMode{
 	"claude": {{"Default", nil}, {"Accept edits", []string{"--permission-mode", "acceptEdits"}}, {"Plan", []string{"--permission-mode", "plan"}}},
+	"agy":    {{"Default", nil}, {"Accept edits", []string{"--mode", "accept-edits"}}, {"Auto", []string{"--mode", "auto"}}, {"Plan", []string{"--mode", "plan"}}},
 	"codex":  {{"Default", nil}, {"Read only", []string{"-s", "read-only"}}, {"Auto", []string{"-s", "workspace-write", "-a", "on-request"}}},
 }
 
 // promptFlags are the flags before the prompt of agents that do not take
 // it as their first argument and stay open.
-var promptFlags = map[string][]string{"gemini": {"-i"}, "opencode": {"--prompt"}}
+var promptFlags = map[string][]string{"gemini": {"-i"}, "opencode": {"--prompt"}, "agy": {"-i"}}
 
 // taskCmd is the argv that starts agent, the program at path, with args
 // in mode on prompt.
@@ -265,7 +266,10 @@ func (u *ui) openTask(st *model.State, group string) {
 		}
 	}
 	if u.chatClaude() {
-		t.agents = withTerminalClaude(t.agents)
+		t.agents = withTerminal(t.agents, "claude")
+	}
+	if u.chatOn(model.ProviderAntigravity) {
+		t.agents = withTerminal(t.agents, "agy")
 	}
 	for _, p := range u.cfg.Presets {
 		vars := slices.Clone(p.Env)
@@ -556,7 +560,7 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 		task.NextStart, task.Repeat = next, repeat
 		task.SessionID = u.nav.session
 		// shortcut: a queued or scheduled Claude task still runs the TUI; the daemon's task runner starts panes only.
-		if c, ok := chatTask(task); ok && !queue && !agents[i].terminal && u.chatClaude() && t.projects[t.project].host == "" {
+		if c, ok := chatTask(task); ok && !queue && !agents[i].terminal && u.chatOn(c.Provider) && t.projects[t.project].host == "" {
 			u.send(c)
 			continue
 		}

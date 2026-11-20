@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -149,7 +150,7 @@ func (d *driver) line(b []byte) []session.Event {
 			case "read":
 				rt = session.RequestFileRead
 			}
-			return []session.Event{e, {Type: session.EventRequestOpened, TurnID: d.s.turn, RequestID: key, RequestType: rt, Detail: t.Progress, Request: &session.ToolRequest{ToolName: t.ToolName, Input: t.Input}}}
+			return []session.Event{e, {Type: session.EventRequestOpened, TurnID: d.s.turn, RequestID: key, RequestType: rt, Detail: t.Progress, Request: &session.ToolRequest{ToolName: t.ToolName, Input: t.Input, Command: t.Command}}}
 		}
 		if m.Method == "elicitation/create" {
 			return d.elicit(m)
@@ -259,6 +260,17 @@ func (s *stream) tool(u toolUpdate) session.Event {
 	if len(u.RawInput) > 0 {
 		t.Input = u.RawInput
 	}
+	// why: an execute call is a shell command; drawn as Bash, its card and row show the command, not the agent's tool name.
+	if s.kinds[u.ToolCallID] == "execute" {
+		var in map[string]any
+		_ = json.Unmarshal(t.Input, &in)
+		t.Command = cmp.Or(t.Command, commandOf(in))
+		// why: each update names the tool and its input again, so the call is drawn as Bash after every one.
+		if t.Command != "" {
+			t.ToolName = "Bash"
+			t.Input, _ = json.Marshal(map[string]string{"command": t.Command})
+		}
+	}
 	switch u.Status {
 	case "pending", "in_progress":
 		t.Status = "running"
@@ -295,4 +307,29 @@ func (s *stream) tool(u toolUpdate) session.Event {
 	}
 	s.tools[u.ToolCallID] = &t
 	return session.Event{Type: session.EventContent, TurnID: s.turn, ItemID: "acp-tool-" + u.ToolCallID, Kind: session.KindToolCall, Tool: &t}
+}
+
+// commandOf is the shell command an execute call's input names: its
+// command, or Antigravity's CommandLine and the like, as a string or an
+// argv; "" when it names none.
+func commandOf(in map[string]any) string {
+	for _, k := range []string{"command", "CommandLine", "commandLine", "command_line", "cmd"} {
+		switch v := in[k].(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		case []any:
+			var argv []string
+			for _, a := range v {
+				if s, ok := a.(string); ok {
+					argv = append(argv, s)
+				}
+			}
+			if len(argv) > 0 && len(argv) == len(v) {
+				return strings.Join(argv, " ")
+			}
+		}
+	}
+	return ""
 }

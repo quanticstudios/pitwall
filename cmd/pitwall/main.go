@@ -445,6 +445,12 @@ func runHook(args []string) int {
 	} else {
 		payload, _ = io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 	}
+	if provider == model.ProviderAntigravity {
+		// why: the daemon and its helpers read hooks in Claude Code's vocabulary.
+		if payload = agent.FromAntigravity(payload); payload == nil {
+			return 0
+		}
+	}
 	if code := guardHook(provider, payload, os.Stdout, os.Stderr); code != 0 {
 		return code
 	}
@@ -541,6 +547,7 @@ func printHooks() error {
 	fmt.Printf("# ~/.omp/agent/extensions/pitwall.ts, for Oh My Pi (pi's above when $PI_CODING_AGENT_DIR is set):\n%s\n", agent.OmpExtension(bin))
 	fmt.Printf("# ~/.gemini/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.GeminiHooks(bin))
 	fmt.Printf("# ~/.cursor/hooks.json, merge into the top-level object:\n{\"version\": 1, \"hooks\": %s}\n\n", agent.CursorHooks(bin))
+	fmt.Printf("# ~/.gemini/config/hooks.json, for Antigravity (agy), merge into the top-level object:\n%s\n\n", agent.AntigravityHooks(bin))
 	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js and, for OpenCode 2, ~/.config/opencode/plugins/pitwall/tui.js ($XDG_CONFIG_HOME/opencode/plugins/ when set):\n%s\n", agent.OpenCodePlugin(bin))
 	fmt.Printf("# ~/.claude/skills/pitwall/SKILL.md, and ~/.codex/skills/pitwall/SKILL.md ($CODEX_HOME/skills/pitwall/SKILL.md when set):\n%s", agent.Skill())
 	return nil

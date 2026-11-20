@@ -186,11 +186,11 @@ func ResolvePopupSize(spec, fallback string, extent, floor int) int {
 	return max(min(value, extent), min(floor, extent), 1)
 }
 
-// PaneChat reports whether p runs Claude Code's or Codex's TUI with a
+// PaneChat reports whether p runs Claude Code's, Codex's or Antigravity's TUI with a
 // transcript its hooks named, which a window can show as a desktop chat
 // (a pane chat): the daemon answers Chat* messages for p.ID then.
 func PaneChat(p Pane) bool {
-	return (p.Provider == ProviderClaude || p.Provider == ProviderCodex) && p.Transcript != "" && !p.Exited
+	return (p.Provider == ProviderClaude || p.Provider == ProviderCodex || p.Provider == ProviderAntigravity) && p.Transcript != "" && !p.Exited
 }
 
 // IsPopup reports whether pane is a tab's popup.
@@ -263,21 +263,22 @@ func (b PortBlock) Env() []string {
 type Provider string
 
 const (
-	ProviderClaude   Provider = "claude"
-	ProviderCodex    Provider = "codex"
-	ProviderPi       Provider = "pi"
-	ProviderOmp      Provider = "omp" // Oh My Pi, a fork of pi
-	ProviderGemini   Provider = "gemini"
-	ProviderOpenCode Provider = "opencode"
-	ProviderCursor   Provider = "cursor"
-	ProviderAmp      Provider = "amp"
-	ProviderAider    Provider = "aider"
-	ProviderTerminal Provider = "terminal"
+	ProviderClaude      Provider = "claude"
+	ProviderCodex       Provider = "codex"
+	ProviderPi          Provider = "pi"
+	ProviderOmp         Provider = "omp" // Oh My Pi, a fork of pi
+	ProviderGemini      Provider = "gemini"
+	ProviderOpenCode    Provider = "opencode"
+	ProviderCursor      Provider = "cursor"
+	ProviderAmp         Provider = "amp"
+	ProviderAider       Provider = "aider"
+	ProviderAntigravity Provider = "antigravity" // Google Antigravity CLI, agy
+	ProviderTerminal    Provider = "terminal"
 )
 
 // Agents are the coding agents pitwall recognizes, in the order lists of
 // them show.
-var Agents = []Provider{ProviderClaude, ProviderCodex, ProviderPi, ProviderOmp, ProviderGemini, ProviderOpenCode, ProviderCursor, ProviderAmp, ProviderAider}
+var Agents = []Provider{ProviderClaude, ProviderCodex, ProviderPi, ProviderOmp, ProviderGemini, ProviderOpenCode, ProviderCursor, ProviderAmp, ProviderAider, ProviderAntigravity}
 
 // ReportedName is the label of a self-reported provider, or "" for a built-in.
 // Self-reports use the agent: prefix so labels cannot impersonate built-ins.

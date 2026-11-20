@@ -1967,6 +1967,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
+	if derived && m.Provider == model.ProviderAntigravity && d.agyTrusting(p.ID) {
+		// why: agy runs a prompt given with -i in a scratch folder while it asks to trust its own; the question is what needs the user.
+		derived = false
+	}
 	activity, mapped := d.o.Derive(nil, m.Provider, m.Payload, now)
 	// Repeated work hooks restart silence; idle reminders and slash commands do not.
 	if q := d.quiet[p.ID]; q != nil && mapped && activity.State != "" {
@@ -2305,6 +2309,11 @@ func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBl
 		if ports.First != 0 && w.Ports == ports {
 			portVars = d.worktreeEnv(w)
 			break
+		}
+	}
+	if len(cmd) > 0 && agent.Identify(filepath.Base(cmd[0]), "") == model.ProviderAntigravity {
+		if note := agyTrustWorktree(cwd, env); note != "" {
+			log.Printf("pane %s: %s", id, note)
 		}
 	}
 	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portVars, env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, newVT)})

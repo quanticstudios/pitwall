@@ -1,0 +1,323 @@
+package agent
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/vt"
+)
+
+// The payloads in testdata/antigravity are agy 1.5.13's own, from a run
+// under a temporary home, with paths and the conversation id replaced.
+func agyFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "antigravity", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestFromAntigravity(t *testing.T) {
+	const sid = "11111111-2222-3333-4444-555555555555"
+	now := time.Unix(1_800_000_000, 0)
+
+	// The fixture's own paths are Unix ones; a path of this system stands in, so it is absolute everywhere.
+	var raw map[string]any
+	json.Unmarshal(agyFixture(t, "session_start.json"), &raw)
+	path := filepath.Join(t.TempDir(), sid, ".system_generated", "logs", "transcript_full.jsonl")
+	raw["transcriptPath"] = path
+	b, _ := json.Marshal(raw)
+	start := FromAntigravity(b)
+	if SessionID(model.ProviderAntigravity, start) != sid || Transcript(start) != path {
+		t.Fatalf("SessionStart: session %q, transcript %q", SessionID(model.ProviderAntigravity, start), Transcript(start))
+	}
+	if _, ok := Derive(nil, model.ProviderAntigravity, start, now); ok {
+		t.Error("SessionStart changed the activity; agy waits at its prompt")
+	}
+
+	prompt := FromAntigravity(agyFixture(t, "pre_invocation.json"))
+	if got := Prompt(model.ProviderAntigravity, prompt); !strings.HasPrefix(got, "Run exactly this shell command") {
+		t.Errorf("first PreInvocation's prompt %q", got)
+	}
+	a, ok := Derive(nil, model.ProviderAntigravity, prompt, now)
+	if !ok || a.State != model.StateWorking || a.SessionID != sid {
+		t.Errorf("first PreInvocation: %+v, %v", a, ok)
+	}
+	if b := FromAntigravity(agyFixture(t, "pre_invocation_next.json")); b != nil {
+		t.Errorf("a later PreInvocation read as %s", b)
+	}
+	if b := FromAntigravity(agyFixture(t, "pre_tool_use_question.json")); b != nil {
+		t.Errorf("PreToolUse, which pitwall does not register, read as %s", b)
+	}
+
+	post := FromAntigravity(agyFixture(t, "post_tool_use.json"))
+	if a, ok := Derive(nil, model.ProviderAntigravity, post, now); !ok || a.State != model.StateWorking {
+		t.Errorf("PostToolUse: %+v, %v", a, ok)
+	}
+	if _, failed := ToolFailure(model.ProviderAntigravity, post); failed {
+		t.Error("a command that succeeded read as a failure")
+	}
+	if c, ok := ToolCall(post); !ok || !c.End || c.Tool != "run_command" || c.Command != "mkdir -p ./junk2 && rmdir ./junk2" || c.ID != "call_12900578850290419103" {
+		t.Errorf("PostToolUse call %+v, %v", c, ok)
+	}
+
+	// A command the user stopped: the same payload with the error agy gives it.
+	raw = nil
+	json.Unmarshal(agyFixture(t, "post_tool_use.json"), &raw)
+	raw["error"] = "command was terminated by a signal: context canceled"
+	b, _ = json.Marshal(raw)
+	f, failed := ToolFailure(model.ProviderAntigravity, FromAntigravity(b))
+	if !failed || !f.Interrupted || !f.Shell || f.Command != "mkdir -p ./junk2 && rmdir ./junk2" || f.Output != "command was terminated by a signal: context canceled" {
+		t.Errorf("stopped command: %+v, %v", f, failed)
+	}
+
+	// Stop takes its reply from the transcript the payload names.
+	dir := t.TempDir()
+	tr := filepath.Join(dir, "transcript_full.jsonl")
+	os.WriteFile(tr, []byte(`{"step_index":0,"type":"USER_INPUT","content":"<USER_REQUEST>\nhi\n</USER_REQUEST>"}
+{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE","content":"Ran it; **all good**."}
+`), 0o600)
+	stop := func(reason, errText string) []byte {
+		var raw map[string]any
+		json.Unmarshal(agyFixture(t, "stop.json"), &raw)
+		raw["transcriptPath"], raw["terminationReason"], raw["error"] = tr, reason, errText
+		b, _ := json.Marshal(raw)
+		return FromAntigravity(b)
+	}
+	working := &model.Activity{Provider: model.ProviderAntigravity, State: model.StateWorking, SessionID: sid}
+	if a, ok := Derive(working, model.ProviderAntigravity, stop("NO_TOOL_CALL", ""), now); !ok || a.State != model.StateCompleted || a.Detail != "Ran it; **all good**." {
+		t.Errorf("Stop: %+v, %v", a, ok)
+	}
+	if got := LastMessage(stop("NO_TOOL_CALL", "")); got != "Ran it; **all good**." {
+		t.Errorf("Stop's last message %q", got)
+	}
+	if a, ok := Derive(working, model.ProviderAntigravity, stop("ERROR", "quota exhausted"), now); !ok || a.State != model.StateError || a.Detail != "quota exhausted" {
+		t.Errorf("Stop ERROR: %+v, %v", a, ok)
+	}
+	if a, ok := Derive(working, model.ProviderAntigravity, stop("USER_CANCELED", ""), now); !ok || a.State != "" {
+		t.Errorf("Stop USER_CANCELED: %+v, %v; want the activity gone", a, ok)
+	}
+
+	for name, b := range map[string]string{
+		"not JSON":       `{`,
+		"no event":       `{"conversationId":"x"}`,
+		"PostInvocation": `{"hookEventName":"PostInvocation","conversationId":"x","invocationNum":0}`,
+		"Claude's shape": `{"hook_event_name":"Stop","session_id":"x"}`,
+	} {
+		if got := FromAntigravity([]byte(b)); got != nil {
+			t.Errorf("%s: %s", name, got)
+		}
+	}
+	// A transcript path that names some other file is not read or passed on.
+	raw = map[string]any{"hookEventName": "Stop", "conversationId": "x", "transcriptPath": "/etc/passwd", "terminationReason": "NO_TOOL_CALL"}
+	b, _ = json.Marshal(raw)
+	if got := FromAntigravity(b); Transcript(got) != "" || LastMessage(got) != "" {
+		t.Errorf("foreign transcript path kept: %s", got)
+	}
+}
+
+func TestAntigravityHooks(t *testing.T) {
+	var got map[string]map[string][]map[string]any
+	if err := json.Unmarshal(AntigravityHooks("/opt/pitwall"), &got); err != nil {
+		t.Fatal(err)
+	}
+	hooks := got[AntigravityHookName]
+	if len(got) != 1 || len(hooks) != 4 || hooks["PreToolUse"] != nil {
+		t.Fatalf("hooks %v; want SessionStart, PreInvocation, PostToolUse and Stop under %q", got, AntigravityHookName)
+	}
+	if c := hooks["Stop"][0]["command"]; c != commandPath(runtime.GOOS, "/opt/pitwall")+" hook antigravity" || hooks["Stop"][0]["timeout"] != float64(5) {
+		t.Errorf("Stop handler %v", hooks["Stop"][0])
+	}
+	g := hooks["PostToolUse"][0]
+	if inner, _ := g["hooks"].([]any); g["matcher"] != "*" || len(inner) != 1 {
+		t.Errorf("PostToolUse group %v", g)
+	}
+}
+
+func TestIdentifyAntigravity(t *testing.T) {
+	for _, c := range [][2]string{{"agy", ""}, {"antigravity", ""}, {"x", "/home/u/.local/share/mise/installs/antigravity-cli/1.5.13/antigravity"}} {
+		if p := Identify(c[0], c[1]); p != model.ProviderAntigravity {
+			t.Errorf("Identify(%q, %q) = %q", c[0], c[1], p)
+		}
+	}
+	if Command(model.ProviderAntigravity) != "agy" || !HooksFor(model.ProviderAntigravity) {
+		t.Error("agy's command or hooks")
+	}
+}
+
+// TestAgyFooter reads the footers agy 1.5.13 drew: with a mode word, in
+// its default mode without one, and none while a picker covers it.
+func TestAgyFooter(t *testing.T) {
+	screen := func(rows ...string) vt.Grid {
+		e := vt.New(100, 6, nil)
+		e.Write([]byte(strings.Join(rows, "\r\n")))
+		return e.Snapshot()
+	}
+	pad := func(left, right string) string {
+		return left + strings.Repeat(" ", 100-len([]rune(left))-len([]rune(right))) + right
+	}
+	for _, c := range []struct {
+		name                string
+		g                   vt.Grid
+		mode, model, effort string
+		ok                  bool
+	}{
+		{"auto", screen("> ", pad("? for shortcuts", "auto · Gemini 3.8 Flash · low")), "auto", "Gemini 3.8 Flash", "low", true},
+		{"busy, accept edits", screen(pad("esc to cancel", "accept-edits · Claude Sonnet 5.5 · medium")), "accept-edits", "Claude Sonnet 5.5", "medium", true},
+		{"default mode", screen(pad("? for shortcuts", "Gemini 4 Neon · xhigh")), "default", "Gemini 4 Neon", "xhigh", true},
+		{"picker", screen("Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back"), "", "", "", false},
+		{"prose with dots", screen(pad("", "a · b · c")), "", "", "", false},
+	} {
+		mode, mdl, eff, ok := AgyFooter(c.g)
+		if mode != c.mode || mdl != c.model || eff != c.effort || ok != c.ok {
+			t.Errorf("%s: %q %q %q %v", c.name, mode, mdl, eff, ok)
+		}
+	}
+}
+
+func TestAntigravityTranscript(t *testing.T) {
+	home := t.TempDir()
+	want := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "11111111-2222-3333-4444-555555555555", ".system_generated", "logs", "transcript_full.jsonl")
+	if got := AntigravityTranscript(home, "11111111-2222-3333-4444-555555555555"); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	for _, bad := range []string{"", ".", "..", "../x", `a\b`} {
+		if got := AntigravityTranscript(home, bad); got != "" {
+			t.Errorf("id %q gave %q", bad, got)
+		}
+	}
+}
+
+// TestAgyAlwaysOffered: agy's command prompt offers option 2; its trust
+// question, whose second row exits, does not.
+func TestAgyAlwaysOffered(t *testing.T) {
+	read := func(name string) vt.Grid {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := vt.New(100, 30, nil)
+		e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+		return e.Snapshot()
+	}
+	if !AgyAlwaysOffered(read("antigravity-approval.txt")) || AgyAlwaysOffered(read("antigravity-trust.txt")) {
+		t.Error("option 2 read wrong")
+	}
+}
+
+// TestAgyTrust: a worktree is added the way agy records trust itself,
+// only when its main repo is trusted, and never twice.
+func TestAgyTrust(t *testing.T) {
+	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
+	app, fix := filepath.FromSlash("/src/app"), filepath.FromSlash("/src/app/.worktrees/fix")
+	data := []byte("{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    " + q(app) + "\n  ]\n}\n")
+	out, ok, err := AgyTrust(data, app, fix)
+	if err != nil || !ok {
+		t.Fatalf("trusted repo: %v %v", ok, err)
+	}
+	if want := "{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    " + q(app) + ",\n    " + q(fix) + "\n  ]\n}\n"; string(out) != want {
+		t.Fatalf("settings:\n%s\nwant\n%s", out, want)
+	}
+	if _, ok, _ := AgyTrust(out, app, fix); ok {
+		t.Error("trusted twice")
+	}
+	// A path agy wrote with a trailing separator is the same folder.
+	if _, ok, _ := AgyTrust([]byte(`{"trustedWorkspaces":[`+q(app+string(filepath.Separator))+`]}`), app, fix); !ok {
+		t.Error("a trusted repo written with a trailing separator was not matched")
+	}
+	for name, d := range map[string]string{
+		"repo not trusted": `{"trustedWorkspaces":["/src/other"]}`,
+		"nothing trusted":  `{}`,
+		"a parent of repo": `{"trustedWorkspaces":["/src"]}`,
+	} {
+		if out, ok, err := AgyTrust([]byte(d), filepath.FromSlash("/src/app"), filepath.FromSlash("/src/app/.worktrees/fix")); ok || err != nil || string(out) != d {
+			t.Errorf("%s: trusted %v, %v, %s", name, ok, err, out)
+		}
+	}
+	if _, ok, err := AgyTrust([]byte(`{"trustedWorkspaces":"x"}`), "/src/app", "/w"); ok || err == nil {
+		t.Error("a bad trustedWorkspaces read as a list")
+	}
+}
+
+// TestWorktreeMain finds a linked worktree's main repo from its .git file.
+func TestWorktreeMain(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	main := t.TempDir()
+	run := func(dir string, args ...string) {
+		t.Helper()
+		c := exec.Command(git, args...)
+		c.Dir = dir
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run(main, "init", "-q")
+	run(main, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(main, ".worktrees", "fix")
+	run(main, "worktree", "add", "-q", wt)
+	os.MkdirAll(filepath.Join(wt, "sub"), 0o755)
+	real, _ := filepath.EvalSymlinks(main)
+	for dir, want := range map[string]string{wt: real, filepath.Join(wt, "sub"): real, main: "", t.TempDir(): ""} {
+		if got := WorktreeMain(dir); got != want && !(want != "" && got == main) {
+			t.Errorf("WorktreeMain(%s) = %q, want %q", dir, got, want)
+		}
+	}
+}
+
+// TestAgyTrustOffers: on agy's trust question the tab offers Trust (Enter)
+// and Don't trust (Esc, which closes agy as "No, exit" does).
+func TestAgyTrustOffers(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "antigravity-trust.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(100, 30, nil)
+	e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+	g := e.Snapshot()
+	a := model.Activity{Provider: model.ProviderAntigravity, State: model.StateAwaitingInput}
+	got := Offers(a, g)
+	if len(got) != 2 || got[0] != (Offer{Trust, "⏎"}) || got[1] != (Offer{DontTrust, "⎋"}) {
+		t.Fatalf("offers %+v", got)
+	}
+	if !AgyTrustAsked(g) || StateOf(model.ProviderAntigravity, g) != model.StateAwaitingInput {
+		t.Error("the trust question reads as no question")
+	}
+	a.State = model.StatePendingApproval
+	if Offers(a, g) != nil {
+		t.Error("offers for another state")
+	}
+}
+
+// TestSamePath: a trusted folder matches through a symlink, a trailing
+// separator and, on Windows, another case or slash.
+func TestSamePath(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "repo")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(real+string(filepath.Separator), real) {
+		t.Error("a trailing separator")
+	}
+	if link := filepath.Join(dir, "link"); os.Symlink(real, link) == nil && !samePath(link, real) {
+		t.Error("a symlink to the folder")
+	}
+	if samePath(real, filepath.Join(dir, "other")) {
+		t.Error("another folder")
+	}
+	if runtime.GOOS == "windows" && (!samePath(strings.ToUpper(real), real) || !samePath(filepath.ToSlash(real), real)) {
+		t.Error("case or forward slashes on Windows")
+	}
+}

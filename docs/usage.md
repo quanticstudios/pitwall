@@ -33,8 +33,8 @@ pitwall
 ```
 
 The first window shows a welcome card. It lists the agent CLIs it found on
-your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi, Oh My Pi, Cursor CLI, Amp,
-Aider) and whether each one's hooks are installed. Start opens an agent in
+your `PATH` (Claude Code, Codex, Gemini CLI, Antigravity CLI, OpenCode, pi, Oh My Pi,
+Cursor CLI, Amp, Aider) and whether each one's hooks are installed. Start opens an agent in
 a tab of its own, and Install hooks shows what it would change before it
 changes it. Dismiss the card, or do anything else, and it never shows
 again. With no agent on your `PATH`, you get a shell and a line with where
@@ -365,6 +365,7 @@ the processes in the pane's own foreground group, and nothing else's.
 | Oh My Pi   | an extension | none (the logo only)    | yes                     | side panel only      |
 | Gemini CLI | yes          | from the screen         | yes                     | yes                  |
 | OpenCode   | a plugin     | from the screen         | yes                     | no                   |
+| Antigravity | yes         | from the screen         | yes                     | no                   |
 | Cursor CLI | yes          | none (the logo only)    | yes                     | no                   |
 | Amp        | none         | none (the logo only)    | no                      | no                   |
 | Aider      | none         | Working, Input and Done | no                      | no                   |
@@ -391,6 +392,17 @@ Some states are out of reach:
 - Cursor's prompt and approval hooks decide for the agent, so pitwall does
   not install them: a Cursor tab shows Working, Done, Error or nothing,
   never Approval.
+- Antigravity CLI (`agy`) has no hook for a permission prompt or a
+  question. It reports both to the terminal (OSC 7501), and pitwall shows
+  them as Approval and Input, with Allow (its option 1), Always (option 2,
+  for this conversation) and Deny (Esc, which interrupts the turn). Its
+  plan mode never asks to approve a plan, so it never shows Plan. A turn
+  that ends with background work still running reads Done.
+- agy asks to trust each new folder, a worker's worktree included, and
+  shows the question until you answer it. A brief given with `-i` runs
+  meanwhile: in the worktree when you trusted the repo in agy before, else
+  in agy's own scratch folder under `~/.gemini/antigravity-cli/scratch`.
+  Trust the repo once in agy before you start agy workers on it.
 - Amp and Aider have no hooks. Amp gets no state from pitwall's own rules,
   as its screen's text is not documented; turn on its notifications
   (`amp.notifications.enabled`, with `AMP_FORCE_BEL=1`) and its bell rings
@@ -1103,6 +1115,7 @@ What each agent reports:
 | Codex       | shell commands whose last line reads as an error, such as `zsh: command not found`; Codex hooks carry no exit code and fire nothing for a failed patch or MCP call | none |
 | Cursor      | every failed tool call (postToolUseFailure)                         | a stop with status error |
 | Gemini CLI  | a tool's error, and shell commands that exit non-zero (AfterTool)   | none: Gemini has no hook for a failed turn |
+| Antigravity | a tool's error, and a command you stopped (PostToolUse); agy's hook carries no exit code, so a command that exits non-zero is not counted | a Stop that ended on an error or the token budget |
 | OpenCode    | a tool that errors, and shell commands that exit non-zero (pitwall's plugin) | session errors |
 | pi, omp     | every tool result marked an error (pitwall's extension)             | a run that ends in an error |
 

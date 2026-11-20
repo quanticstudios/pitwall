@@ -140,6 +140,9 @@ func FormUp(g vt.Grid, pasted string) bool {
 // does not know. Only a Claude Code question or a Claude Code or Codex
 // approval takes any.
 func Offers(a model.Activity, g vt.Grid) []Offer {
+	if a.Provider == model.ProviderAntigravity {
+		return agyOffers(a, g)
+	}
 	if a.Provider != model.ProviderClaude && a.Provider != model.ProviderCodex {
 		return nil
 	}

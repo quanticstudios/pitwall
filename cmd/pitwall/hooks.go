@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -271,6 +272,11 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 	if dir := agent.CursorDir(home); installed("cursor-agent", dir) {
 		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: func(original []byte) ([]byte, []string, error) {
 			return mergeCursorHooks(original, agent.CursorHooks(bin), install, others(bin, original, agent.CursorHooks)...)
+		}})
+	}
+	if dir := agent.AntigravityDir(home); installed("agy", dir) {
+		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: func(original []byte) ([]byte, []string, error) {
+			return mergeAntigravityHooks(original, agent.AntigravityHooks(bin), install, others(bin, original, agent.AntigravityHooks)...)
 		}})
 	}
 	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
@@ -673,6 +679,54 @@ func mergeCursorHooks(original, generated []byte, install bool, also ...[]byte) 
 		} else {
 			root["hooks"], _ = json.Marshal(events)
 		}
+	}
+	data, err := json.MarshalIndent(root, "", "  ")
+	return append(data, '\n'), changes, err
+}
+
+// mergeAntigravityHooks is mergeHooks for agy's hooks.json, an object of
+// named hooks: pitwall owns the one named agent.AntigravityHookName. Install
+// adds it, or replaces one another path to this install wrote (also);
+// uninstall removes it when it is generated's or one of also's. One that
+// differs from all of them was edited, and stays.
+func mergeAntigravityHooks(original, generated []byte, install bool, also ...[]byte) ([]byte, []string, error) {
+	root := hookObject{}
+	if original != nil {
+		var err error
+		root, err = hookJSON[hookObject](original)
+		if err != nil || root == nil {
+			return nil, nil, errors.New("config must be a JSON object")
+		}
+	}
+	name := agent.AntigravityHookName
+	wanted, _ := hookJSON[hookObject](generated)
+	same := func(a, b json.RawMessage) bool {
+		x, errX := hookJSON[any](a)
+		y, errY := hookJSON[any](b)
+		return errX == nil && errY == nil && reflect.DeepEqual(x, y)
+	}
+	have, found := root[name]
+	ours := found && slices.ContainsFunc(append([][]byte{generated}, also...), func(g []byte) bool {
+		h, _ := hookJSON[hookObject](g)
+		return same(have, h[name])
+	})
+	var changes []string
+	switch {
+	case found && !ours:
+		if install {
+			return nil, nil, skipError{"its \"" + name + "\" hook was edited since pitwall wrote it; remove it to reinstall"}
+		}
+		return original, nil, nil
+	case install && found && same(have, wanted[name]):
+		return original, nil, nil
+	case install:
+		root[name] = wanted[name]
+		changes = append(changes, "added the "+name+" hook")
+	case found:
+		delete(root, name)
+		changes = append(changes, "removed the "+name+" hook")
+	default:
+		return original, nil, nil
 	}
 	data, err := json.MarshalIndent(root, "", "  ")
 	return append(data, '\n'), changes, err

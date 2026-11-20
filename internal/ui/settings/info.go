@@ -74,6 +74,9 @@ func hookStatus(home string) []hookFile {
 	if dir := agent.CursorDir(home); installed("cursor-agent", dir) {
 		out = append(out, checkCursorHooks(filepath.Join(dir, "hooks.json")))
 	}
+	if dir := agent.AntigravityDir(home); installed("agy", dir) {
+		out = append(out, checkAntigravityHooks(filepath.Join(dir, "hooks.json")))
+	}
 	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
 		out = append(out, checkPlugin("OpenCode", "opencode", filepath.Join(dir, "plugins", "pitwall.js"), agent.IsOpenCodePlugin))
 	}
@@ -175,6 +178,34 @@ func checkCursorHooks(path string) hookFile {
 	}
 	for ev := range want {
 		if runsPitwall(root.Hooks[ev], " hook cursor") {
+			h.Have++
+		}
+	}
+	return h
+}
+
+// checkAntigravityHooks is checkHooks for agy's hooks.json, where pitwall's
+// handlers sit under one named hook: flat lists, and matcher groups for
+// PostToolUse.
+func checkAntigravityHooks(path string) hookFile {
+	h := hookFile{Agent: "Antigravity", Cmd: "agy", Path: path}
+	var want map[string]map[string]json.RawMessage
+	json.Unmarshal(agent.AntigravityHooks("pitwall"), &want)
+	h.Want = len(want[agent.AntigravityHookName])
+	var root map[string]map[string]json.RawMessage
+	if !readHooks(&h, &root) {
+		return h
+	}
+	for ev, raw := range root[agent.AntigravityHookName] {
+		if _, ok := want[agent.AntigravityHookName][ev]; !ok {
+			continue
+		}
+		var flat []command
+		var groups []hookCommands
+		switch {
+		case json.Unmarshal(raw, &groups) == nil && slices.ContainsFunc(groups, func(g hookCommands) bool { return runsPitwall(g.Hooks, " hook antigravity") }):
+			h.Have++
+		case json.Unmarshal(raw, &flat) == nil && runsPitwall(flat, " hook antigravity"):
 			h.Have++
 		}
 	}

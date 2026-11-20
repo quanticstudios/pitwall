@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"context"
 	"log"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -16,7 +18,9 @@ import (
 
 // configuredProviders reads once at daemon startup, keeping a provider id's
 // executable stable for the lifetime of its chats. No agent is spawned here.
-// PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for aide's e2e.
+// Antigravity chats run `agy acp` with pitwall's ACP driver when agy is on
+// PATH. PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for
+// aide's e2e.
 func configuredProviders() map[model.Provider]session.Provider {
 	s, problems := config.Load()
 	for _, p := range problems {
@@ -24,6 +28,9 @@ func configuredProviders() map[model.Provider]session.Provider {
 	}
 	real := acpProviders(s.ACPAgents)
 	real[model.ProviderClaude] = claude.Provider{} // [chat] claude starts Claude Code on it
+	if path, err := exec.LookPath("agy"); err == nil {
+		real[model.ProviderAntigravity] = agyACP{acp.Provider{Command: path, Args: []string{"acp"}}}
+	}
 	return fake.ProvidersFromEnv(real, nil)
 }
 
@@ -42,4 +49,15 @@ func (d *Daemon) chatProviders() proto.ChatProviderList {
 	}
 	slices.SortFunc(out.Providers, func(a, b proto.ChatProvider) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	return out
+}
+
+// agyACP is the ACP driver for agy acp, which first trusts a worktree of a
+// repo agy trusts (agyTrustWorktree), as a pane running agy does.
+type agyACP struct{ acp.Provider }
+
+func (p agyACP) Start(ctx context.Context, cfg session.Config, from session.Origin, emit func(session.Event)) (session.Driver, error) {
+	if note := agyTrustWorktree(cfg.Cwd, cfg.Env); note != "" {
+		log.Printf("chat: %s", note)
+	}
+	return p.Provider.Start(ctx, cfg, from, emit)
 }

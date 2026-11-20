@@ -87,3 +87,39 @@ func TestMessageIdentity(t *testing.T) {
 		t.Fatal("ACP message ids were lost")
 	}
 }
+
+// TestExecuteCommand: an execute call is drawn as a shell command. The
+// line is Antigravity CLI 1.5.13's own, which names it CommandLine.
+func TestExecuteCommand(t *testing.T) {
+	s := newStream()
+	s.turn = "turn"
+	ev := s.update([]byte(`{"sessionUpdate":"tool_call","toolCallId":"call_1","name":"run_command","args":{"CommandLine":"mkdir -p ./junk2","WaitMsBeforeAsync":5000},"status":"in_progress","kind":"execute","title":"mkdir -p ./junk2","rawInput":{"CommandLine":"mkdir -p ./junk2","WaitMsBeforeAsync":5000}}`))
+	if len(ev) != 1 || ev[0].Tool.ToolName != "Bash" || ev[0].Tool.Command != "mkdir -p ./junk2" || string(ev[0].Tool.Input) != `{"command":"mkdir -p ./junk2"}` {
+		t.Fatalf("execute: %+v", ev)
+	}
+	upd := s.update([]byte(`{"sessionUpdate":"tool_call_update","toolCallId":"call_1","name":"run_command","status":"completed","kind":"execute","rawInput":{"CommandLine":"mkdir -p ./junk2","WaitMsBeforeAsync":5000}}`))
+	if len(upd) != 1 || upd[0].Tool.ToolName != "Bash" || upd[0].Tool.Status != "completed" || string(upd[0].Tool.Input) != `{"command":"mkdir -p ./junk2"}` {
+		t.Fatalf("update: %+v", upd)
+	}
+	other := s.update([]byte(`{"sessionUpdate":"tool_call","toolCallId":"call_2","name":"view_file","status":"in_progress","kind":"read","rawInput":{"CommandLine":"not a command"}}`))
+	if other[0].Tool.ToolName != "view_file" || other[0].Tool.Command != "" {
+		t.Fatalf("read: %+v", other)
+	}
+}
+
+func TestCommandOf(t *testing.T) {
+	for want, in := range map[string]map[string]any{
+		"ls -la":        {"command": "ls -la"},
+		"go test ./...": {"CommandLine": "go test ./..."},
+		"git status":    {"command": []any{"git", "status"}},
+		"make":          {"cmd": "make"},
+		"":              {"path": "/file"},
+	} {
+		if got := commandOf(in); got != want {
+			t.Errorf("commandOf(%v) = %q, want %q", in, got, want)
+		}
+	}
+	if got := commandOf(map[string]any{"command": []any{"a", 1}}); got != "" {
+		t.Errorf("an argv with a number: %q", got)
+	}
+}

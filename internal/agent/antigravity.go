@@ -1,0 +1,373 @@
+package agent
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+
+	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/vt"
+)
+
+// Google's Antigravity CLI (agy) runs command hooks from hooks.json files:
+// a JSON object of named hooks, each a map of event to handlers. Its
+// payloads are camelCase (conversationId, transcriptPath, toolCall) and its
+// events have their own meanings, so FromAntigravity rewrites each one in
+// Claude Code's vocabulary before anything else reads it.
+//
+// agy has no hook for a permission prompt or a question: the daemon reads
+// those from the OSC 7501 reports agy writes to its terminal.
+
+// AntigravityHookName is the key of pitwall's entry in agy's hooks.json.
+const AntigravityHookName = "pitwall"
+
+// antigravityEvents are the agy events pitwall registers. PreToolUse is
+// left out on purpose: agy blocks a tool call whose PreToolUse hook fails,
+// so a missing or broken pitwall binary would stop every command.
+var antigravityEvents = []string{"SessionStart", "PreInvocation", "PostToolUse", "Stop"}
+
+// AntigravityDir is where agy reads the user's hooks.json: .gemini/config
+// in home. agy moves it only with HOME.
+func AntigravityDir(home string) string { return filepath.Join(home, ".gemini", "config") }
+
+// AntigravityHooks returns pitwall's named hook for agy's hooks.json, as
+// {"pitwall": {event: handlers}}: `<bin> hook antigravity` on each event
+// Derive reads, with agy's 5 second timeout. PostToolUse takes a matcher
+// group, the others a flat list. Like ClaudeHooks, the command no-ops
+// outside a pitwall pane.
+func AntigravityHooks(bin string) []byte {
+	type handler struct {
+		Command string `json:"command"`
+		Timeout int    `json:"timeout"`
+	}
+	type group struct {
+		Matcher string    `json:"matcher"`
+		Hooks   []handler `json:"hooks"`
+	}
+	h := handler{Command: commandPath(runtime.GOOS, bin) + " hook antigravity", Timeout: 5}
+	events := map[string]any{}
+	for _, e := range antigravityEvents {
+		if e == "PostToolUse" {
+			events[e] = []group{{Matcher: "*", Hooks: []handler{h}}}
+		} else {
+			events[e] = []handler{h}
+		}
+	}
+	b, _ := json.MarshalIndent(map[string]any{AntigravityHookName: events}, "", "  ")
+	return b
+}
+
+// agyPayload is the part of an agy hook payload pitwall reads.
+type agyPayload struct {
+	Event          string `json:"hookEventName"`
+	ConversationID string `json:"conversationId"`
+	TranscriptPath string `json:"transcriptPath"`
+	Cwd            string `json:"cwd"`
+	LastUserInput  string `json:"lastUserInput"`
+	InvocationNum  *int   `json:"invocationNum"`
+	ToolCall       *struct {
+		ID   string                     `json:"id"`
+		Name string                     `json:"name"`
+		Args map[string]json.RawMessage `json:"args"`
+	} `json:"toolCall"`
+	Error             string `json:"error"`
+	TerminationReason string `json:"terminationReason"`
+}
+
+// FromAntigravity rewrites an agy hook payload as the Claude Code hook
+// Derive and the rest of this package read, or returns nil for one that
+// changes nothing:
+//
+//	SessionStart                    SessionStart (the session id and transcript)
+//	PreInvocation, the turn's first UserPromptSubmit, prompt = lastUserInput
+//	PreInvocation, later ones       nil: the turn is already working
+//	PostToolUse                     PostToolUse, or PostToolUseFailure with
+//	                                its error; run_command's CommandLine
+//	                                is the command
+//	Stop, terminationReason
+//	  ERROR, MAX_TOKEN_BUDGET_EXCEEDED StopFailure, Detail = the error
+//	  USER_CANCELED                 Interrupt (the activity goes)
+//	  others                        Stop, with the reply the transcript's
+//	                                last line holds as last_assistant_message
+//
+// conversationId becomes session_id and transcriptPath transcript_path.
+func FromAntigravity(payload []byte) []byte {
+	var a agyPayload
+	if json.Unmarshal(payload, &a) != nil || a.Event == "" {
+		return nil
+	}
+	out := map[string]any{"session_id": a.ConversationID, "cwd": a.Cwd}
+	if t := agyTranscript(a.TranscriptPath); t != "" {
+		out["transcript_path"] = t
+	}
+	switch a.Event {
+	case "SessionStart":
+		out["hook_event_name"] = "SessionStart"
+	case "PreInvocation":
+		if a.InvocationNum == nil || *a.InvocationNum != 0 {
+			return nil
+		}
+		out["hook_event_name"], out["prompt"] = "UserPromptSubmit", a.LastUserInput
+	case "PostToolUse":
+		if a.ToolCall == nil {
+			return nil
+		}
+		out["hook_event_name"] = "PostToolUse"
+		if a.Error != "" {
+			out["hook_event_name"], out["error"] = "PostToolUseFailure", a.Error
+			// why: agy reports a command the user stopped with this error and nothing else.
+			out["is_interrupt"] = strings.Contains(a.Error, "context canceled")
+		}
+		out["tool_name"], out["tool_use_id"] = a.ToolCall.Name, a.ToolCall.ID
+		input := map[string]string{}
+		if c := agyArg(a.ToolCall.Args, "CommandLine"); c != "" {
+			input["command"] = c
+		}
+		for _, k := range []string{"TargetFile", "AbsolutePath", "Path", "File"} {
+			if f := agyArg(a.ToolCall.Args, k); f != "" {
+				input["file_path"] = f
+				break
+			}
+		}
+		out["tool_input"] = input
+	case "Stop":
+		switch a.TerminationReason {
+		case "ERROR", "MAX_TOKEN_BUDGET_EXCEEDED":
+			out["hook_event_name"], out["error"] = "StopFailure", firstNonEmpty(a.Error, a.TerminationReason)
+		case "USER_CANCELED":
+			out["hook_event_name"] = "Interrupt"
+		default:
+			out["hook_event_name"] = "Stop"
+			out["last_assistant_message"] = agyLastReply(agyTranscript(a.TranscriptPath))
+		}
+	default:
+		return nil
+	}
+	b, _ := json.Marshal(out)
+	return b
+}
+
+// agyArg is a tool call's string argument k, "" when it is missing or not
+// a string.
+func agyArg(args map[string]json.RawMessage, k string) string {
+	var s string
+	_ = json.Unmarshal(args[k], &s)
+	return s
+}
+
+// agyTranscript is path when it names an agy transcript, an absolute
+// transcript_full.jsonl or transcript.jsonl, else "".
+func agyTranscript(path string) string {
+	if !filepath.IsAbs(path) {
+		return ""
+	}
+	if b := filepath.Base(path); b != "transcript_full.jsonl" && b != "transcript.jsonl" {
+		return ""
+	}
+	return filepath.Clean(path)
+}
+
+// agyTail is how much of a transcript's end agyLastReply reads.
+const agyTail = 256 << 10
+
+// agyLastReply is the text of the last model reply in an agy transcript:
+// the content of its last PLANNER_RESPONSE line that has one, within the
+// file's last agyTail bytes. agy writes the reply before it runs Stop.
+func agyLastReply(path string) string {
+	if path == "" {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > agyTail {
+		f.Seek(info.Size()-agyTail, io.SeekStart)
+	}
+	data, _ := io.ReadAll(io.LimitReader(f, agyTail))
+	lines := bytes.Split(data, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		var l struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+		}
+		if json.Unmarshal(lines[i], &l) == nil && l.Type == "PLANNER_RESPONSE" && strings.TrimSpace(l.Content) != "" {
+			return l.Content
+		}
+	}
+	return ""
+}
+
+// agyFooterModes and agyFooterEfforts are what agy 1.5.13's footer can
+// say: no mode word in its default mode.
+var (
+	agyFooterModes   = map[string]bool{"auto": true, "plan": true, "accept-edits": true}
+	agyFooterEfforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+)
+
+// AgyFooter reads the right end of agy's footer, "auto · Gemini 3.8 Flash
+// · low": the mode ("default" when it names none), the model's name and the
+// effort. ok is false for a screen without that footer, as while a picker
+// covers it.
+func AgyFooter(g vt.Grid) (mode, model, effort string, ok bool) {
+	for _, l := range bottomLines(g, 2) {
+		i := strings.LastIndex(l, "  ")
+		if i < 0 {
+			continue
+		}
+		parts := strings.Split(strings.TrimSpace(l[i:]), " · ")
+		switch len(parts) {
+		case 2:
+			mode, model, effort = "default", parts[0], parts[1]
+		case 3:
+			mode, model, effort = parts[0], parts[1], parts[2]
+			if !agyFooterModes[mode] {
+				continue
+			}
+		default:
+			continue
+		}
+		if model != "" && agyFooterEfforts[effort] {
+			return mode, model, effort, true
+		}
+	}
+	return "", "", "", false
+}
+
+// AntigravityTranscript is where agy 1.5.13 under home keeps conversation
+// conv's transcript, as its hooks name it, or "" for an id that is no
+// single path element. A pane resumed with --conversation conv runs that
+// conversation, so the daemon names its transcript before agy's first hook,
+// which comes only with the next prompt.
+func AntigravityTranscript(home, conv string) string {
+	if conv == "" || conv == "." || conv == ".." || strings.ContainsAny(conv, `/\`) {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli", "brain", conv, ".system_generated", "logs", "transcript_full.jsonl")
+}
+
+// AgyAlwaysOffered reports whether agy's prompt on g offers to allow a
+// command for the rest of the conversation, its option 2. Its folder-trust
+// question has no such row: there, 2 is "No, exit".
+func AgyAlwaysOffered(g vt.Grid) bool {
+	return strings.Contains(ScreenText(g, screenLines), "2. Yes, and always allow in this conversation")
+}
+
+// AgySettings is agy's own settings file under home, where it records the
+// folders the user trusted, as {"trustedWorkspaces": [absolute paths]}.
+func AgySettings(home string) string {
+	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+}
+
+// AgyTrust returns agy's settings, data, with dir added to its trusted
+// folders, written as agy writes the file; ok is false, and data stays
+// as it is, when dir is trusted already or main is not. agy trusts no
+// folder for its parent's sake, so a worktree under a trusted repo asks
+// again; this trusts it only for a repo the user trusted in agy.
+func AgyTrust(data []byte, main, dir string) (out []byte, ok bool, err error) {
+	root := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return data, false, err
+	}
+	var trusted []string
+	if raw, has := root["trustedWorkspaces"]; has {
+		if err := json.Unmarshal(raw, &trusted); err != nil {
+			return data, false, err
+		}
+	}
+	dir = filepath.Clean(dir)
+	has := func(path string) bool {
+		return slices.ContainsFunc(trusted, func(t string) bool { return samePath(t, path) })
+	}
+	if !has(main) || has(dir) {
+		return data, false, nil
+	}
+	root["trustedWorkspaces"], _ = json.Marshal(append(trusted, dir))
+	out, err = json.MarshalIndent(root, "", "  ")
+	return append(out, '\n'), err == nil, err
+}
+
+// WorktreeMain is the main worktree of the linked git worktree dir lies
+// in, read from the gitdir line of the worktree's .git file
+// ("gitdir: <main>/.git/worktrees/<name>"), or "" when dir is in none:
+// the main worktree itself, no repo, or a layout git worktree add did not
+// make. It reads files only, so it is cheap where a git process is not.
+func WorktreeMain(dir string) string {
+	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
+		info, err := os.Lstat(filepath.Join(d, ".git"))
+		switch {
+		case err == nil && info.IsDir():
+			return "" // a main worktree
+		case err == nil && info.Mode().IsRegular():
+			b, err := os.ReadFile(filepath.Join(d, ".git"))
+			if err != nil {
+				return ""
+			}
+			gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
+			if !ok {
+				return ""
+			}
+			if !filepath.IsAbs(gitdir) {
+				gitdir = filepath.Join(d, gitdir)
+			}
+			main, _, ok := strings.Cut(filepath.ToSlash(filepath.Clean(gitdir)), "/.git/worktrees/")
+			if !ok {
+				return ""
+			}
+			return filepath.FromSlash(main)
+		}
+		if parent := filepath.Dir(d); parent == d {
+			return ""
+		}
+	}
+}
+
+// AgyTrustAsked reports agy's question whether to trust the folder it
+// opened in, on g.
+func AgyTrustAsked(g vt.Grid) bool {
+	return strings.Contains(ScreenText(g, screenLines), "Do you trust the contents of this project?")
+}
+
+// Trust and DontTrust are the answers to agy's folder-trust question:
+// Enter on its first row, which the cursor starts on, and Esc, which
+// closes agy as its "No, exit" does.
+const (
+	Trust     = "Trust"
+	DontTrust = "Don't trust"
+)
+
+// agyOffers are the answers agy's form on g takes: Trust and Don't trust
+// on its folder-trust question, while the cursor is on Yes.
+func agyOffers(a model.Activity, g vt.Grid) []Offer {
+	if a.State != model.StateAwaitingInput || !AgyTrustAsked(g) || !strings.Contains(ScreenText(g, screenLines), "> Yes, I trust this folder") {
+		return nil
+	}
+	return []Offer{{Label: Trust, Key: "⏎"}, {Label: DontTrust, Key: "⎋"}}
+}
+
+// samePath reports whether a and b name one folder: both resolved through
+// symlinks where they exist, which on Windows also expands a short name
+// such as RUNNER~1, and cleaned; Windows compares them without case, and
+// either kind of slash is a separator there.
+func samePath(a, b string) bool {
+	a, b = resolvePath(a), resolvePath(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// resolvePath is p cleaned, through its symlinks when it exists.
+func resolvePath(p string) string {
+	p = filepath.Clean(filepath.FromSlash(p))
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return filepath.Clean(r)
+	}
+	return p
+}

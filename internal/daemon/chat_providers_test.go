@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -67,8 +68,21 @@ command = "missing-agent"
 func TestConfiguredFakeProviders(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("PITWALL_FAKE_PROVIDERS", "")
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
 	if got := configuredProviders(); len(got) != 1 || got[model.ProviderClaude] != (claude.Provider{}) {
 		t.Fatalf("without the opt-in, want the real Claude driver alone: %v", got)
+	}
+	// Antigravity's chats run agy acp, found on PATH.
+	agy := filepath.Join(bin, "agy")
+	if runtime.GOOS == "windows" {
+		agy += ".exe" // LookPath finds only a name with an executable extension
+	}
+	if err := os.WriteFile(agy, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := configuredProviders()[model.ProviderAntigravity]; !reflect.DeepEqual(got, agyACP{acp.Provider{Command: agy, Args: []string{"acp"}}}) {
+		t.Fatalf("agy on PATH: %#v", got)
 	}
 	t.Setenv("PITWALL_FAKE_PROVIDERS", "1")
 	got := configuredProviders()

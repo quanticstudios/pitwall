@@ -39,6 +39,12 @@ const (
 	icOpenCode = "M22 24H2V0h20zM17 4.8H7v14.4h10z"
 )
 
+// Antigravity's mark is pitwall's own arch, not Google's logo, in Google's
+// blue.
+const icAntigravity = "M3 20C3 10.5 7 4 12 4C17 4 21 10.5 21 20H16.5C16.5 13.5 14.5 9 12 9C9.5 9 7.5 13.5 7.5 20Z"
+
+var antigravityColor = color.NRGBA{R: 0x42, G: 0x85, B: 0xf4, A: 0xff}
+
 // Gemini's spark in its brand purple.
 var geminiColor = color.NRGBA{R: 0x8e, G: 0x75, B: 0xb2, A: 0xff}
 
@@ -126,13 +132,16 @@ func AgentName(p model.Provider) string {
 		return "Amp"
 	case model.ProviderAider:
 		return "Aider"
+	case model.ProviderAntigravity:
+		return "Antigravity"
 	}
 	return ""
 }
 
 // AgentMark draws the agent's logo in a size box: Claude's starburst,
 // OpenAI's knot for Codex, Cursor's cube and OpenCode's block in fg, pi's
-// blocks, omp's gradient π, Gemini's spark, or Amp's and Aider's letter marks.
+// blocks, omp's gradient π, Gemini's spark, Antigravity's arch, or Amp's and
+// Aider's letter marks.
 func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) layout.Dimensions {
 	switch p {
 	case model.ProviderCodex:
@@ -147,6 +156,8 @@ func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) l
 		return fillIcon(gtx, icAmp, size, ampColor)
 	case model.ProviderAider:
 		return fillIcon(gtx, icAider, size, aiderColor)
+	case model.ProviderAntigravity:
+		return fillIcon(gtx, icAntigravity, size, antigravityColor)
 	case model.ProviderOmp:
 		return gradientIcon(gtx, icOmp, size, ompFrom, ompTo)
 	case model.ProviderPi:
@@ -160,7 +171,8 @@ func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) l
 }
 
 // AgentColor is the agent's color in charts: Claude's orange, pi's blue
-// block, omp's purple, Gemini's purple, Amp's red, Aider's green, else fg.
+// block, omp's purple, Gemini's purple, Antigravity's blue, Amp's red,
+// Aider's green, else fg.
 func AgentColor(p model.Provider, fg color.NRGBA) color.NRGBA {
 	switch p {
 	case model.ProviderClaude:
@@ -175,6 +187,8 @@ func AgentColor(p model.Provider, fg color.NRGBA) color.NRGBA {
 		return ampColor
 	case model.ProviderAider:
 		return aiderColor
+	case model.ProviderAntigravity:
+		return antigravityColor
 	}
 	return fg
 }

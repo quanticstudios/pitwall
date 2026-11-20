@@ -101,6 +101,7 @@ func (d *Daemon) programReport(id string, r progstatus.Report, seq uint64, group
 	if pp.store.ApplyFrom(r, time.Now().UnixNano(), group) {
 		d.syncProgram(id)
 	}
+	d.agyProgram(id, r)
 }
 
 // syncProgram sets pane id's Program from its records. Callers hold d.mu.

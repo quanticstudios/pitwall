@@ -631,3 +631,47 @@ func TestTranscriptKeysOneFrame(t *testing.T) {
 		t.Fatalf("keys %v, text %q: want 3 then Enter", got, h.c.Text())
 	}
 }
+
+// TestAgyChoices: an Antigravity chat's chips offer agy's models, efforts
+// and modes, in the names its TUI and ACP options take.
+func TestAgyChoices(t *testing.T) {
+	agy := model.ProviderAntigravity
+	if m := ModelsOf(agy); !slices.Contains(m, "gemini-4-neon") || slices.Contains(m, "opus") {
+		t.Errorf("models %v", m)
+	}
+	if e := EffortsOf(agy); !slices.Equal(e, []string{"low", "medium", "high", "xhigh"}) || EffortsOf(model.ProviderCodex) != nil {
+		t.Errorf("efforts %v", e)
+	}
+	if got := NextModeOf(agy, "plan", false); got != ModeDefault {
+		t.Errorf("after plan: %q", got)
+	}
+	if got := NextModeOf(agy, "accept-edits", true); got != "auto" {
+		t.Errorf("after accept-edits: %q", got)
+	}
+	for id, want := range map[string]string{"gemini-4-neon": "Gemini 4 Neon", "gemini-3.8-flash": "Gemini 3.8 Flash", "claude-opus-5-5": "Opus 5.5"} {
+		if got := ModelName(id); got != want {
+			t.Errorf("ModelName(%q) = %q, want %q", id, got, want)
+		}
+	}
+	if ModeName("accept-edits") != "Accept edits" {
+		t.Error("accept-edits' label")
+	}
+}
+
+// TestModeUnknown: an agy pane chat shows no mode chip until it has read
+// agy's footer; other chats always show theirs.
+func TestModeUnknown(t *testing.T) {
+	for _, c := range []struct {
+		s    session.Snapshot
+		want bool
+	}{
+		{session.Snapshot{PaneID: "p", Provider: model.ProviderAntigravity}, true},
+		{session.Snapshot{PaneID: "p", Provider: model.ProviderAntigravity, PermissionMode: "auto"}, false},
+		{session.Snapshot{Provider: model.ProviderAntigravity}, false},
+		{session.Snapshot{PaneID: "p", Provider: model.ProviderClaude}, false},
+	} {
+		if got := modeUnknown(&c.s); got != c.want {
+			t.Errorf("%+v: %v", c.s, got)
+		}
+	}
+}

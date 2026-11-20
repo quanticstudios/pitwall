@@ -218,6 +218,11 @@ func TestRestoreCmd(t *testing.T) {
 			[]string{"opencode", "--agent", "plan", "--auto", "--port", "4096", "--session", "ses_new"}},
 		{"cursor", model.Pane{Provider: model.ProviderCursor, SessionID: "c1", Cmd: []string{"/home/u/.local/bin/agent", "--model", "x", "fix it"}}, []string{"/home/u/.local/bin/agent", "--resume", "c1"}},
 		{"cursor empty", model.Pane{Provider: model.ProviderCursor, SessionID: "c1"}, []string{"cursor-agent", "--resume", "c1"}},
+		{"agy", model.Pane{Provider: model.ProviderAntigravity, SessionID: "a1", Cmd: []string{"/opt/bin/agy", "--model", "gemini-3.8-flash-low", "--effort=high", "--mode", "plan", "-i", "fix it", "--dangerously-skip-permissions"}},
+			[]string{"/opt/bin/agy", "--model", "gemini-3.8-flash-low", "--effort=high", "--mode", "plan", "--dangerously-skip-permissions", "--conversation", "a1"}},
+		{"agy dropped", model.Pane{Provider: model.ProviderAntigravity, SessionID: "a1", Cmd: []string{"antigravity", "-c", "--conversation", "old", "-p", "hi", "--output-format", "stream-json", "--settings", "{}"}},
+			[]string{"antigravity", "--settings", "{}", "--conversation", "a1"}},
+		{"agy wrapper", model.Pane{Provider: model.ProviderAntigravity, SessionID: "a1", Cmd: []string{"sh", "-c", "agy"}}, []string{"agy", "--conversation", "a1"}},
 		{"aider has no resume", model.Pane{Provider: model.ProviderAider, SessionID: "x", Cmd: []string{"aider"}}, []string{"aider"}},
 		{"unknown provider", model.Pane{SessionID: "new", Cmd: []string{"custom"}}, []string{"custom"}},
 		{"empty", model.Pane{}, nil},
@@ -875,5 +880,24 @@ func TestSaveClaudeWithoutTranscriptStartsFresh(t *testing.T) {
 				t.Fatal("save mutated caller")
 			}
 		})
+	}
+}
+
+// TestAgyInteractive: agy refuses a bare prompt argument, so a worker's
+// brief goes behind -i; a command that names its prompt stays as it is.
+func TestAgyInteractive(t *testing.T) {
+	for _, c := range []struct{ in, want []string }{
+		{[]string{"agy", "fix the tests"}, []string{"agy", "-i", "fix the tests"}},
+		{[]string{"/opt/agy", "--model", "m", "--dangerously-skip-permissions", "fix", "it"}, []string{"/opt/agy", "--model", "m", "--dangerously-skip-permissions", "-i", "fix it"}},
+		{[]string{"agy", "--effort=high", "--", "-not a flag"}, []string{"agy", "--effort=high", "-i", "-not a flag"}},
+		{[]string{"agy", "-i", "already"}, []string{"agy", "-i", "already"}},
+		{[]string{"agy", "-p", "print it"}, []string{"agy", "-p", "print it"}},
+		{[]string{"agy", "--mode", "plan"}, []string{"agy", "--mode", "plan"}},
+		{[]string{"agy"}, []string{"agy"}},
+		{[]string{"claude", "fix it"}, []string{"claude", "fix it"}},
+	} {
+		if got := AgyInteractive(c.in); !slices.Equal(got, c.want) {
+			t.Errorf("AgyInteractive(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

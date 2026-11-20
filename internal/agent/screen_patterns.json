@@ -55,6 +55,18 @@
         "again to interrupt"
       ]
     },
+    "antigravity": {
+      "input": [
+        "esc skip",
+        "do you trust the contents of this project?"
+      ],
+      "approval": [
+        "requesting permission for:"
+      ],
+      "busy": [
+        "esc to cancel"
+      ]
+    },
     "aider": {
       "input": [
         "(y)es/(n)o"

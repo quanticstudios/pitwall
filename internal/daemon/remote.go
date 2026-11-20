@@ -281,7 +281,7 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	}
 	// A late hook can leave an approval card visible after its prompt closes.
 	g := p.Snapshot()
-	if agent.State(g) != model.StatePendingApproval {
+	if agent.StateOf(a.Provider, g) != model.StatePendingApproval {
 		return errors.New("the pane shows no permission prompt to answer")
 	}
 	if allow {
@@ -568,7 +568,7 @@ func press(k key.Name, m vt.Modes) []byte {
 }
 
 func confirmApproval(a model.Activity, asked string, g vt.Grid) error {
-	if agent.State(g) != model.StatePendingApproval {
+	if agent.StateOf(a.Provider, g) != model.StatePendingApproval {
 		return errors.New("the pane shows no permission prompt to confirm")
 	}
 	return sameCommand(a, asked, g)

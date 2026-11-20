@@ -1,0 +1,29 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/d04e4414-2d3c-45ef-bdb7-867f58855ae5",
+  "conversationId": "d04e4414-2d3c-45ef-bdb7-867f58855ae5",
+  "cwd": "/home/user/project",
+  "hookEventName": "PreToolUse",
+  "lastUserInput": "Use your ask_question tool to ask me which color I like, with options red and blue. Then tell me my answer.",
+  "modelName": "gemini-4-neon-high",
+  "stepIdx": 2,
+  "toolCall": {
+    "args": {
+      "questions": [
+        {
+          "is_multi_select": false,
+          "options": [
+            "red",
+            "blue"
+          ],
+          "question": "Which color do you like?"
+        }
+      ]
+    },
+    "id": "call_4783170440103390813",
+    "name": "ask_question"
+  },
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/d04e4414-2d3c-45ef-bdb7-867f58855ae5/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/home/user/project"
+  ]
+}

@@ -108,12 +108,39 @@ shows as a card whose Allow and Deny press Codex's own keys. The model and
 effort show under the box; change them, the mode, and answer Codex's
 questions in the TUI (Alt+T).
 
+## Antigravity
+
+New task starts Antigravity CLI (`agy`) as a desktop chat. pitwall runs
+`agy acp` and drives it with its ACP driver ([ACP agents](acp.md)): the
+model, effort and mode chips list agy's own models, efforts and modes and
+set its options, approvals are cards
+with Allow and Deny (agy offers no Always over ACP), images go with the
+prompt, Esc stops the turn, and the chat resumes its conversation after a
+restart. agy asks its
+questions as a message there, so answer one by replying. "Antigravity
+(terminal)" in New task starts the TUI instead.
+
+A pane running agy's TUI shows as the chat too, once agy's hooks name its
+conversation (`pitwall hooks install`); agy names it at your first prompt.
+A pane pitwall resumed with `--conversation` shows as the chat at once.
+pitwall never guesses from the newest folder under
+`~/.gemini/antigravity-cli/brain`. The chat reads agy's transcript: your
+prompts, replies, thinking, commands with their output and exit code,
+edits as diffs, writes and file reads, and agy's to-do list (the `task.md`
+in its conversation folder) as the task card. agy writes a call once it is
+done, so a running command shows when it ends. The composer types into
+the TUI, Esc stops the turn, and an approval is a card whose Allow, Always
+and Deny press agy's own keys. The mode, model and effort chips read agy's
+footer and set them the way you would: Shift+Tab, `/model` and `/effort`.
+Answer agy's questions in the TUI (Alt+T).
+
 ## Settings
 
 ```toml
 [chat]
 claude = "chat"     # or "terminal": show Claude Code panes as the TUI, Alt+T away from the chat
 codex = "chat"      # or "terminal": the same for Codex panes
+antigravity = "chat" # or "terminal": New task starts agy's TUI, and agy panes show as the TUI
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's column
 ```
 
