@@ -397,8 +397,12 @@ Some states are out of reach:
   them as Approval and Input, with Allow (its option 1), Always (option 2,
   for this conversation) and Deny (Esc, which interrupts the turn). Its
   plan mode never asks to approve a plan, so it never shows Plan. A turn
-  that ends with background work still running reads Done. A new
-  worktree asks agy to trust the folder once, shown as Approval.
+  that ends with background work still running reads Done.
+- agy asks to trust each new folder, a worker's worktree included, and
+  shows the question until you answer it. A brief given with `-i` runs
+  meanwhile: in the worktree when you trusted the repo in agy before, else
+  in agy's own scratch folder under `~/.gemini/antigravity-cli/scratch`.
+  Trust the repo once in agy before you start agy workers on it.
 - Amp and Aider have no hooks. Amp gets no state from pitwall's own rules,
   as its screen's text is not documented; turn on its notifications
   (`amp.notifications.enabled`, with `AMP_FORCE_BEL=1`) and its bell rings
