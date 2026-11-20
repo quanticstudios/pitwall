@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -255,4 +257,93 @@ func AntigravityTranscript(home, conv string) string {
 // question has no such row: there, 2 is "No, exit".
 func AgyAlwaysOffered(g vt.Grid) bool {
 	return strings.Contains(ScreenText(g, screenLines), "2. Yes, and always allow in this conversation")
+}
+
+// AgySettings is agy's own settings file under home, where it records the
+// folders the user trusted, as {"trustedWorkspaces": [absolute paths]}.
+func AgySettings(home string) string {
+	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
+}
+
+// AgyTrust returns agy's settings, data, with dir added to its trusted
+// folders, written as agy writes the file; ok is false, and data stays
+// as it is, when dir is trusted already or main is not. agy trusts no
+// folder for its parent's sake, so a worktree under a trusted repo asks
+// again; this trusts it only for a repo the user trusted in agy.
+func AgyTrust(data []byte, main, dir string) (out []byte, ok bool, err error) {
+	root := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return data, false, err
+	}
+	var trusted []string
+	if raw, has := root["trustedWorkspaces"]; has {
+		if err := json.Unmarshal(raw, &trusted); err != nil {
+			return data, false, err
+		}
+	}
+	main, dir = filepath.Clean(main), filepath.Clean(dir)
+	if !slices.Contains(trusted, main) || slices.Contains(trusted, dir) {
+		return data, false, nil
+	}
+	root["trustedWorkspaces"], _ = json.Marshal(append(trusted, dir))
+	out, err = json.MarshalIndent(root, "", "  ")
+	return append(out, '\n'), err == nil, err
+}
+
+// WorktreeMain is the main worktree of the linked git worktree dir lies
+// in, read from the gitdir line of the worktree's .git file
+// ("gitdir: <main>/.git/worktrees/<name>"), or "" when dir is in none:
+// the main worktree itself, no repo, or a layout git worktree add did not
+// make. It reads files only, so it is cheap where a git process is not.
+func WorktreeMain(dir string) string {
+	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
+		info, err := os.Lstat(filepath.Join(d, ".git"))
+		switch {
+		case err == nil && info.IsDir():
+			return "" // a main worktree
+		case err == nil && info.Mode().IsRegular():
+			b, err := os.ReadFile(filepath.Join(d, ".git"))
+			if err != nil {
+				return ""
+			}
+			gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
+			if !ok {
+				return ""
+			}
+			if !filepath.IsAbs(gitdir) {
+				gitdir = filepath.Join(d, gitdir)
+			}
+			main, _, ok := strings.Cut(filepath.ToSlash(filepath.Clean(gitdir)), "/.git/worktrees/")
+			if !ok {
+				return ""
+			}
+			return filepath.FromSlash(main)
+		}
+		if parent := filepath.Dir(d); parent == d {
+			return ""
+		}
+	}
+}
+
+// AgyTrustAsked reports agy's question whether to trust the folder it
+// opened in, on g.
+func AgyTrustAsked(g vt.Grid) bool {
+	return strings.Contains(ScreenText(g, screenLines), "Do you trust the contents of this project?")
+}
+
+// Trust and DontTrust are the answers to agy's folder-trust question:
+// Enter on its first row, which the cursor starts on, and Esc, which
+// closes agy as its "No, exit" does.
+const (
+	Trust     = "Trust"
+	DontTrust = "Don't trust"
+)
+
+// agyOffers are the answers agy's form on g takes: Trust and Don't trust
+// on its folder-trust question, while the cursor is on Yes.
+func agyOffers(a model.Activity, g vt.Grid) []Offer {
+	if a.State != model.StateAwaitingInput || !AgyTrustAsked(g) || !strings.Contains(ScreenText(g, screenLines), "> Yes, I trust this folder") {
+		return nil
+	}
+	return []Offer{{Label: Trust, Key: "⏎"}, {Label: DontTrust, Key: "⎋"}}
 }

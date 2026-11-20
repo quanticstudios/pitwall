@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -48,6 +49,8 @@ func (d *Daemon) agyProgram(id string, r progstatus.Report) {
 	var state model.AgentState
 	msg := agent.Summary(r.Msg)
 	switch {
+	case r.State == progstatus.Blocked && r.Kind == progstatus.Permission && r.Msg == agyTrustMsg:
+		state = model.StateAwaitingInput // Trust or Don't trust (agent.Offers)
 	case r.State == progstatus.Blocked && r.Kind == progstatus.Permission:
 		state = model.StatePendingApproval
 	case r.State == progstatus.Blocked && r.Kind == progstatus.Question:
@@ -133,13 +136,7 @@ func (d *Daemon) agyResumed(p model.Pane) {
 	if p.Provider != model.ProviderAntigravity || p.SessionID == "" {
 		return
 	}
-	home, _ := os.UserHomeDir()
-	for _, e := range p.Env {
-		if h, ok := strings.CutPrefix(e, "HOME="); ok {
-			home = h
-		}
-	}
-	t := agent.AntigravityTranscript(home, p.SessionID)
+	t := agent.AntigravityTranscript(homeOf(p.Env), p.SessionID)
 	if t == "" {
 		return
 	}
@@ -149,4 +146,82 @@ func (d *Daemon) agyResumed(p model.Pane) {
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == p.ID }); i >= 0 {
 		d.st.Panes[i].Transcript = t
 	}
+}
+
+// agyTrustMsg is what agy's terminal report says while it asks whether to
+// trust the folder it opened in.
+const agyTrustMsg = "Trust this folder?"
+
+// agyTrusting reports whether pane id's agy waits on its folder-trust
+// question, as its latest report says. Callers hold d.mu.
+func (d *Daemon) agyTrusting(id string) bool {
+	pp := d.prog[id]
+	if pp == nil {
+		return false
+	}
+	for _, r := range pp.store.Records() {
+		if r.ID == "" && r.EffectiveApp == agyApp {
+			return r.State == progstatus.Blocked && r.Kind == progstatus.Permission && r.Msg == agyTrustMsg
+		}
+	}
+	return false
+}
+
+// homeOf is the HOME a process started with env runs under: env's own,
+// else the daemon's.
+func homeOf(env []string) string {
+	home, _ := os.UserHomeDir()
+	for _, e := range env {
+		if h, ok := strings.CutPrefix(e, "HOME="); ok {
+			home = h
+		}
+	}
+	return home
+}
+
+// agyTrustWorktree adds dir, a linked git worktree such as pitwall's
+// worktrees under <repo>/.worktrees, to agy's trusted folders when agy
+// already trusts its main repo, before agy starts there: agy asks again
+// for every folder, a repo's worktrees included. A folder whose repo the
+// user has not trusted in agy is left to agy's own question. It returns
+// what it did, for the log, or "".
+func agyTrustWorktree(dir string, env []string) string {
+	if !filepath.IsAbs(dir) {
+		return ""
+	}
+	main := agent.WorktreeMain(dir)
+	if main == "" {
+		return ""
+	}
+	path := agent.AgySettings(homeOf(env))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "" // no settings: agy trusts nothing yet
+	}
+	out, ok, err := agent.AgyTrust(data, main, dir)
+	if err != nil {
+		return "agy's settings could not be read, so the worktree was not trusted: " + err.Error()
+	}
+	if !ok {
+		return ""
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
+	if err != nil {
+		return "agy's settings could not be written: " + err.Error()
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(out)
+	if err == nil {
+		err = tmp.Chmod(0o600)
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		return "agy's settings could not be written: " + err.Error()
+	}
+	return "added " + dir + " to agy's trusted folders, as agy trusts its repo " + main
 }

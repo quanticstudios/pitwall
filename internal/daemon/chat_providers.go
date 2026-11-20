@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"log"
 	"os/exec"
 	"slices"
@@ -28,7 +29,7 @@ func configuredProviders() map[model.Provider]session.Provider {
 	real := acpProviders(s.ACPAgents)
 	real[model.ProviderClaude] = claude.Provider{} // [chat] claude starts Claude Code on it
 	if path, err := exec.LookPath("agy"); err == nil {
-		real[model.ProviderAntigravity] = acp.Provider{Command: path, Args: []string{"acp"}}
+		real[model.ProviderAntigravity] = agyACP{acp.Provider{Command: path, Args: []string{"acp"}}}
 	}
 	return fake.ProvidersFromEnv(real, nil)
 }
@@ -48,4 +49,15 @@ func (d *Daemon) chatProviders() proto.ChatProviderList {
 	}
 	slices.SortFunc(out.Providers, func(a, b proto.ChatProvider) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	return out
+}
+
+// agyACP is the ACP driver for agy acp, which first trusts a worktree of a
+// repo agy trusts (agyTrustWorktree), as a pane running agy does.
+type agyACP struct{ acp.Provider }
+
+func (p agyACP) Start(ctx context.Context, cfg session.Config, from session.Origin, emit func(session.Event)) (session.Driver, error) {
+	if note := agyTrustWorktree(cfg.Cwd, cfg.Env); note != "" {
+		log.Printf("chat: %s", note)
+	}
+	return p.Provider.Start(ctx, cfg, from, emit)
 }

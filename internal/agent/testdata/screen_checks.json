@@ -44,7 +44,7 @@
   {"file": "gemini-idle.txt", "provider": "gemini", "state": ""},
   {"file": "antigravity-working.txt", "provider": "antigravity", "state": "working"},
   {"file": "antigravity-approval.txt", "provider": "antigravity", "state": "pending-approval"},
-  {"file": "antigravity-trust.txt", "provider": "antigravity", "state": "pending-approval"},
+  {"file": "antigravity-trust.txt", "provider": "antigravity", "state": "awaiting-input"},
   {"file": "antigravity-question.txt", "provider": "antigravity", "state": "awaiting-input"},
   {"file": "antigravity-idle.txt", "provider": "antigravity", "state": ""},
   {"file": "opencode-working.txt", "provider": "opencode", "state": "working"},

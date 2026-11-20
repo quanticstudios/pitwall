@@ -81,7 +81,7 @@ func TestConfiguredFakeProviders(t *testing.T) {
 	if err := os.WriteFile(agy, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := configuredProviders()[model.ProviderAntigravity]; !reflect.DeepEqual(got, acp.Provider{Command: agy, Args: []string{"acp"}}) {
+	if got := configuredProviders()[model.ProviderAntigravity]; !reflect.DeepEqual(got, agyACP{acp.Provider{Command: agy, Args: []string{"acp"}}}) {
 		t.Fatalf("agy on PATH: %#v", got)
 	}
 	t.Setenv("PITWALL_FAKE_PROVIDERS", "1")

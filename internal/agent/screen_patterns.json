@@ -57,11 +57,11 @@
     },
     "antigravity": {
       "input": [
-        "esc skip"
+        "esc skip",
+        "do you trust the contents of this project?"
       ],
       "approval": [
-        "requesting permission for:",
-        "do you trust the contents of this project?"
+        "requesting permission for:"
       ],
       "busy": [
         "esc to cancel"

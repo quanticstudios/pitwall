@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -209,5 +210,86 @@ func TestAgyAlwaysOffered(t *testing.T) {
 	}
 	if !AgyAlwaysOffered(read("antigravity-approval.txt")) || AgyAlwaysOffered(read("antigravity-trust.txt")) {
 		t.Error("option 2 read wrong")
+	}
+}
+
+// TestAgyTrust: a worktree is added the way agy records trust itself,
+// only when its main repo is trusted, and never twice.
+func TestAgyTrust(t *testing.T) {
+	data := []byte("{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    \"/src/app\"\n  ]\n}\n")
+	out, ok, err := AgyTrust(data, "/src/app", "/src/app/.worktrees/fix")
+	if err != nil || !ok {
+		t.Fatalf("trusted repo: %v %v", ok, err)
+	}
+	if want := "{\n  \"theme\": \"dark\",\n  \"trustedWorkspaces\": [\n    \"/src/app\",\n    \"/src/app/.worktrees/fix\"\n  ]\n}\n"; string(out) != want {
+		t.Fatalf("settings:\n%s\nwant\n%s", out, want)
+	}
+	if _, ok, _ := AgyTrust(out, "/src/app", "/src/app/.worktrees/fix"); ok {
+		t.Error("trusted twice")
+	}
+	for name, d := range map[string]string{
+		"repo not trusted": `{"trustedWorkspaces":["/src/other"]}`,
+		"nothing trusted":  `{}`,
+		"a parent of repo": `{"trustedWorkspaces":["/src"]}`,
+	} {
+		if out, ok, err := AgyTrust([]byte(d), "/src/app", "/src/app/.worktrees/fix"); ok || err != nil || string(out) != d {
+			t.Errorf("%s: trusted %v, %v, %s", name, ok, err, out)
+		}
+	}
+	if _, ok, err := AgyTrust([]byte(`{"trustedWorkspaces":"x"}`), "/src/app", "/w"); ok || err == nil {
+		t.Error("a bad trustedWorkspaces read as a list")
+	}
+}
+
+// TestWorktreeMain finds a linked worktree's main repo from its .git file.
+func TestWorktreeMain(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	main := t.TempDir()
+	run := func(dir string, args ...string) {
+		t.Helper()
+		c := exec.Command(git, args...)
+		c.Dir = dir
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run(main, "init", "-q")
+	run(main, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(main, ".worktrees", "fix")
+	run(main, "worktree", "add", "-q", wt)
+	os.MkdirAll(filepath.Join(wt, "sub"), 0o755)
+	real, _ := filepath.EvalSymlinks(main)
+	for dir, want := range map[string]string{wt: real, filepath.Join(wt, "sub"): real, main: "", t.TempDir(): ""} {
+		if got := WorktreeMain(dir); got != want && !(want != "" && got == main) {
+			t.Errorf("WorktreeMain(%s) = %q, want %q", dir, got, want)
+		}
+	}
+}
+
+// TestAgyTrustOffers: on agy's trust question the tab offers Trust (Enter)
+// and Don't trust (Esc, which closes agy as "No, exit" does).
+func TestAgyTrustOffers(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "antigravity-trust.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(100, 30, nil)
+	e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+	g := e.Snapshot()
+	a := model.Activity{Provider: model.ProviderAntigravity, State: model.StateAwaitingInput}
+	got := Offers(a, g)
+	if len(got) != 2 || got[0] != (Offer{Trust, "⏎"}) || got[1] != (Offer{DontTrust, "⎋"}) {
+		t.Fatalf("offers %+v", got)
+	}
+	if !AgyTrustAsked(g) || StateOf(model.ProviderAntigravity, g) != model.StateAwaitingInput {
+		t.Error("the trust question reads as no question")
+	}
+	a.State = model.StatePendingApproval
+	if Offers(a, g) != nil {
+		t.Error("offers for another state")
 	}
 }
