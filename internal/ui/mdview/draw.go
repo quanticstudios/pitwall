@@ -249,9 +249,11 @@ func (d *Doc) marker(gtx gl.Context, th *theme.Theme, b *Block) {
 		}
 		return
 	}
+	// why: "100." is wider than the gutter; it reaches left of it, as a browser's outside marker does, instead of cutting to "1…".
+	wide := 3 * gw
 	lg := gtx
-	lg.Constraints = gl.Constraints{Min: image.Pt(gw-gtx.Dp(6), 0), Max: image.Pt(gw-gtx.Dp(6), line)}
-	t := op.Offset(image.Pt(-gw, 0)).Push(gtx.Ops)
+	lg.Constraints = gl.Constraints{Min: image.Pt(wide, 0), Max: image.Pt(wide, line)}
+	t := op.Offset(image.Pt(-gtx.Dp(6)-wide, 0)).Push(gtx.Ops)
 	widget.Label{Alignment: text.End, MaxLines: 1, LineHeightScale: 1.4}.Layout(lg, th.Shaper, th.UIFont, d.size(th), b.Marker, colorCall(gtx, th.Muted))
 	t.Pop()
 }
