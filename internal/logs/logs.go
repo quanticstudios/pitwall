@@ -102,6 +102,10 @@ func Start(path, role, version string, stderr bool) (*Writer, error) {
 // disk, before the next one, so two log lines never share one. Unlike
 // Rotating it does not truncate the cut line: other processes append to
 // gui.log and daemon.log too, and truncating to a stale size would cut theirs.
+// When another process appends between the cut write and the next, its
+// line still joins the cut one, and the newline leaves a blank line after
+// it; telling those apart takes locking across processes, which a log that
+// must never block does not get.
 type lineEnder struct {
 	w    io.Writer
 	torn bool
