@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -270,7 +271,9 @@ func TestPromptParts(t *testing.T) {
 	// Real lines from a pane chat's transcript: the whole prompt went in as a paste.
 	for _, c := range [][2]string{
 		{"[Image #10] \n\n<pasted_content id=\"44ff\">\n[Image #1]  you did not complete this thing\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"44ff\">\n",
-			"[Image #1]  you did not complete this thing"},
+			"[Image #10] [Image #1]  you did not complete this thing"},
+		{"[Image #2] \n\n<pasted_content id=\"6b04\">\n[Image #1]  this looks like shit in the fucking message\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"6b04\">\n",
+			"[Image #2] [Image #1]  this looks like shit in the fucking message"},
 		{"\n\n<pasted_content id=\"44ff\">\n[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff\n</pasted_content id=\"44ff\">\n",
 			"[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff"},
 		{"[Image #3] \n\n<pasted_content id=\"1\">\nlook\nhere\n</pasted_content id=\"1\">", "[Image #3] look\nhere"},
@@ -278,6 +281,12 @@ func TestPromptParts(t *testing.T) {
 		if shown, ps := promptParts(c[0]); shown != c[1] || len(ps) != 0 {
 			t.Errorf("promptParts(%q) = %q, %+v; want %q", c[0], shown, ps, c[1])
 		}
+	}
+	// The bubble's chips read #2 then #1, and its thumbnails take their
+	// numbers from the same text: the first image is #2, the second #1.
+	shown, _ = promptParts("[Image #2] \n\n<pasted_content id=\"6b04\">\n[Image #1]  look\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"6b04\">\n")
+	if refs := imageRefs(shown); len(refs) != 2 || imageNo(refs, 1) != 2 || imageNo(refs, 2) != 1 || strings.Contains(shown, "evidence") || strings.Contains(shown, "pasted_content") {
+		t.Fatalf("shown %q, refs %+v", shown, refs)
 	}
 	shown, ps = promptParts("Explain this:\n\n<pasted_content id=\"2\">\na\nb\nc\n</pasted_content id=\"2\">")
 	if shown != "Explain this:" || len(ps) != 1 || ps[0].lines != 3 {

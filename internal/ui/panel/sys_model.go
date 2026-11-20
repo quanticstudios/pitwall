@@ -96,7 +96,7 @@ func promptParts(text string) (shown string, pastes []paste) {
 	outside = strings.TrimSpace(evidenceTail.ReplaceAllString(outside, ""))
 	if len(bodies) > 0 && strings.TrimSpace(imageToken.ReplaceAllString(outside, "")) == "" {
 		shown = strings.TrimSpace(strings.Join(bodies, "\n\n"))
-		if !imageToken.MatchString(shown) && outside != "" { // why: Claude Code's own tokens, when the block has none
+		if outside != "" { // Claude Code's tokens for the pasted images, before the words
 			shown = outside + " " + shown
 		}
 		return shown, nil
