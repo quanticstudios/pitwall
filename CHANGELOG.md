@@ -26,6 +26,8 @@ takes `--dry-run`.
 
 - A running turn's folded work log says what the turn is doing now after its counts: Claude's newest summary, else the running call, such as "Bash · go test ./...".
 - A New task chat no longer shows a summary's text in a Thinking row while it streams. The text now arrives whole, as a Summary row.
+- `pitwall report-agent --name` with a built-in agent's program name, such as `antigravity`, `agy`, `claude` or `codex`, no longer turns the pane into a self-reported agent with a plain dot for a mark. The pane stays that built-in agent, so its hooks, chat, mark and resume apply, including when the report comes before the agent is the pane's foreground. A pane saved as `agent:antigravity` loads as Antigravity.
+- Ctrl+Backspace or Alt+Backspace right after a picked `@` mention in the chat composer deletes the whole mention, as it does an `[Image #N]` token. A quoted path with a space, such as `@"my file.txt"`, used to lose only its last word.
 
 ## v0.3.0
 

@@ -257,3 +257,50 @@ func TestReportedAgentsQueueOnRestore(t *testing.T) {
 		}
 	}
 }
+
+// A report naming a built-in agent's program, as agy reports
+// "antigravity", never makes a self-reported agent: the pane stays the
+// built-in, so its hooks, chat, mark and resume apply. Sent before the
+// agent is the foreground, the poll still names it once it is.
+func TestReportNamingBuiltin(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "gemini", "pi", "opencode", "cursor-agent", "amp", "aider", "agy", "antigravity"} {
+		d, _, id := openLive(t, 400)
+		useReportHooks(d)
+		report(t, d, id, agent.Report{Name: name, State: "working", ResumeCmd: []string{name, "--resume", "s"}})
+		if p := reportedPane(d, id); model.ReportedName(p.Provider) != "" || len(p.ResumeCmd) != 0 {
+			t.Errorf("a report named %q made %+v", name, p)
+		}
+	}
+	d, lp, id := openLive(t, 400)
+	useReportHooks(d)
+	report(t, d, id, agent.Report{Name: "codex", State: "working"})
+	lp.fgGroup.Store(300) // codex is the foreground now
+	waitUntil(t, "the poll names the reporting agent", func() bool { return d.providerOf(id) == model.ProviderCodex })
+}
+
+// A pane a report made agent:antigravity, before reports naming a
+// built-in resolved to it, becomes Antigravity: on its next report, and
+// in a saved state on load.
+func TestReportedBuiltinMigrates(t *testing.T) {
+	d, _, id := openLive(t, 400)
+	useReportHooks(d)
+	d.mu.Lock()
+	d.st.Panes[0].Provider, d.st.Panes[0].ResumeCmd = "agent:antigravity", []string{"agy", "--resume", "s"}
+	d.mu.Unlock()
+	report(t, d, id, agent.Report{Name: "antigravity", State: "working"})
+	if p := reportedPane(d, id); model.ReportedName(p.Provider) != "" || len(p.ResumeCmd) != 0 {
+		t.Fatalf("next report kept %+v", p)
+	}
+
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	saved := model.State{Panes: []model.Pane{{ID: "p", Provider: "agent:antigravity", ResumeCmd: []string{"agy", "--resume", "s"}}}}
+	o.Load = func() (model.State, error) { return saved, nil }
+	o.RestoreCmd = store.RestoreCmd
+	loaded, err := NewWith(o)
+	must(t, err)
+	defer loaded.shutdown()
+	if p := reportedPane(loaded, "p"); p.Provider != model.ProviderAntigravity || len(p.ResumeCmd) != 0 {
+		t.Fatalf("loaded %+v", p)
+	}
+}

@@ -90,6 +90,22 @@ func TestMentionPopover(t *testing.T) {
 }
 
 // The branch chip copies the branch and shows its check for 1.5 s.
+// Ctrl+Backspace and Alt+Backspace right after a picked mention take the
+// whole chip, a quoted path with a space included, as Backspace does.
+func TestMentionWordDelete(t *testing.T) {
+	for _, mods := range []key.Modifiers{key.ModCtrl, key.ModAlt} {
+		for _, p := range []string{"main.go", "my file.txt"} {
+			h := newHarness(t)
+			h.paths = []string{p}
+			h.typ("look at @" + p[:2])
+			h.press(key.NameReturn, 0)
+			if h.press(key.NameDeleteBackward, mods); h.c.Text() != "look at " {
+				t.Errorf("%v+Backspace after @%s left %q", mods, p, h.c.Text())
+			}
+		}
+	}
+}
+
 func TestBranchChip(t *testing.T) {
 	h := newHarness(t)
 	h.branch = "v030-composer"

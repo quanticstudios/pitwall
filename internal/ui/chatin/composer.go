@@ -516,7 +516,9 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			for k > 0 && t[k-1] == ' ' {
 				k--
 			}
-			word = c.draft.TokenBefore(string(t), k)
+			if word = c.draft.TokenBefore(string(t), k); word < 0 {
+				word = c.mentionBefore(string(t), k)
+			}
 		}
 		if t := c.Text(); tok < 0 && start == end {
 			tok = c.mentionBefore(t, end)
