@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A rewind the chat refuses, as when Claude Code's rewind list shows the message like a later one, leaves the composer as it was; the prompt comes back into it only once a rewind went through.
 - A TUI pane chat rewound past a compaction stays rewound after a daemon restart. When a turn had followed the compaction, the chat's older history showed the turns the rewind left behind.
 - When a hook makes Claude Code ask, as a PreToolUse hook that returns ask does even under bypass, the pane chat's approval card shows the hook's reason under the command.
 - A TUI pane chat's approval card shows Allow for session only when Claude Code's or Codex's prompt offers it, and 2 then denies. A prompt from a hook that asks, or a protected path under bypass, offers only Yes and No, and the button used to fail with "the pane no longer offers Allow always".
