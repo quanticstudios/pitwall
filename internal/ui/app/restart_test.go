@@ -67,3 +67,41 @@ func TestDaemonBehind(t *testing.T) {
 		}
 	}
 }
+
+// A window older than its daemon's release, as after an update moved the
+// daemon onto the new binary, offers Restart to finish; the click reopens
+// only the window, on its session and tab, and never restarts the daemon.
+func TestRestartOlderWindow(t *testing.T) {
+	defer func(v string) { Version, Relaunch = v, nil }(Version)
+	Version = "v0.3.0"
+	var to [2]string
+	Relaunch = func(session, ws string) error { to = [2]string{session, ws}; return nil }
+	b := &linked{FakeBackend: NewFakeBackend(), link: Link{Epoch: 1, Level: proto.Level, Build: "v0.3.1"}}
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
+	u.nav.session, u.nav.workspace = "s1", "w1"
+	if !u.windowBehind() || u.daemonBehind() || u.updateLabel() != updated {
+		t.Fatalf("behind %v, daemon behind %v, label %q", u.windowBehind(), u.daemonBehind(), u.updateLabel())
+	}
+	u.sidebarEvent(&model.State{Sessions: []model.Session{{ID: "s1", Name: "main"}}}, sidebar.RunUpdate{})
+	if !u.relaunched || to != [2]string{"main", "w1"} || u.modal.kind == modalRestart || b.restarts != 0 {
+		t.Fatalf("relaunched %v on %v, modal %v, daemon restarts %d", u.relaunched, to, u.modal.kind, b.restarts)
+	}
+	for _, tc := range []struct {
+		name, build, host string
+		relaunch          bool
+	}{
+		{"same release", "v0.3.0", "", true},
+		{"dev daemon", "dev-abc123", "", true},
+		{"remote", "v0.3.1", "box", true},
+		{"no relaunch", "v0.3.1", "", false},
+	} {
+		b.link.Build, Host = tc.build, tc.host
+		if !tc.relaunch {
+			Relaunch = nil
+		}
+		if u.windowBehind() {
+			t.Errorf("%s: behind", tc.name)
+		}
+	}
+	Host = ""
+}

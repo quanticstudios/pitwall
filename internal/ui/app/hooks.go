@@ -251,34 +251,45 @@ func (u *ui) drawHooksNotice(gtx gl.Context, p *paneUI, r layout.Rect) {
 		u.hooks.hidden = true
 		u.hooks.mu.Unlock()
 	}
+	u.actionPill(gtx, r, false, "Install hooks for live status", &p.hooksInstall, "Install", &p.hooksHide, "Dismiss", &p.hooksBox, u.hooksShownAt(gtx))
+}
+
+// actionPill draws text with a primary button ok and a ghost button no in
+// a box centred in r, at its bottom or, with top, at its top, fading in
+// from shownAt. Presses on the box never reach what lies under it, which
+// tag stands for. It draws nothing when r is too narrow.
+func (u *ui) actionPill(gtx gl.Context, r layout.Rect, top bool, text string, ok *widget.Clickable, okLabel string, no *widget.Clickable, noLabel string, tag event.Tag, shownAt time.Time) {
 	th := u.th
-	msg, ms := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "Install hooks for live status")
+	msg, ms := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, text)
 	rec := func(c *widget.Clickable, k kit.Kind, label string) (op.CallOp, image.Point) {
 		m := op.Record(gtx.Ops)
 		d := kit.Button(gtx, th, c, k, kit.Small, label)
 		return m.Stop(), d.Size
 	}
-	install, is := rec(&p.hooksInstall, kit.Primary, "Install")
-	hide, hs := rec(&p.hooksHide, kit.Ghost, "Dismiss")
+	install, is := rec(ok, kit.Primary, okLabel)
+	hide, hs := rec(no, kit.Ghost, noLabel)
 	pad, gap := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceM)
 	box := image.Pt(pad+ms.X+gap+is.X+gtx.Dp(theme.SpaceXS)+hs.X+gtx.Dp(theme.SpaceS), max(ms.Y, is.Y)+2*gtx.Dp(theme.SpaceS))
 	if box.X+gtx.Dp(theme.SpaceXL) > r.W {
 		return
 	}
 	at := image.Pt(r.X+(r.W-box.X)/2, r.Y+r.H-box.Y-gtx.Dp(theme.SpaceL))
+	if top {
+		at.Y = r.Y + gtx.Dp(theme.SpaceL)
+	}
 	defer op.Offset(at).Push(gtx.Ops).Pop()
-	defer paint.PushOpacity(gtx.Ops, anim.At(gtx, u.hooksShownAt(gtx), anim.Fade)).Pop()
+	defer paint.PushOpacity(gtx.Ops, anim.At(gtx, shownAt, anim.Fade)).Pop()
 	rad := gtx.Dp(theme.RadiusPopover)
 	paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rad).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rad-1).Op(gtx.Ops))
 	// why: presses on the notice must not reach the terminal under it.
 	for {
-		if _, ok := gtx.Event(pointer.Filter{Target: &p.hooksBox, Kinds: pointer.Press}); !ok {
+		if _, ok := gtx.Event(pointer.Filter{Target: tag, Kinds: pointer.Press}); !ok {
 			break
 		}
 	}
 	area := clip.Rect{Max: box}.Push(gtx.Ops)
-	event.Op(gtx.Ops, &p.hooksBox)
+	event.Op(gtx.Ops, tag)
 	area.Pop()
 	o := op.Offset(image.Pt(pad, (box.Y-ms.Y)/2)).Push(gtx.Ops)
 	msg.Add(gtx.Ops)
