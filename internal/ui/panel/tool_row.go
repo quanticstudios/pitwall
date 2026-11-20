@@ -139,6 +139,9 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 		if bgOut != "" {
 			out = bgOut
 		}
+		if c.ToolName == "Monitor" {
+			out = monitorEvents(out)
+		}
 	}
 	pr, hasPR := prIn(out, d.t.PRs)
 	if d.linkClicked(gtx, it.ID, "link:"+it.ID) {

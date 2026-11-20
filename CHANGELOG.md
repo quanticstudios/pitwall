@@ -24,6 +24,11 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A work log's header counts its calls by kind where they fit, as Claude Code's TUI does: "Worked for 8s · Read 2 files, ran 4 commands", else "8 tools".
+- A Monitor call's row tracks its watch as a background shell's row does: Running in background, then Finished or Stopped, and opened, the events it saw.
+- A summary Claude Code tags "· summary", the server's short summary of Claude's words between calls, draws as a muted row with a Summary tag in the work log, where it came among the calls, not as a thinking row.
+- Claude Code's recap draws as a quiet Recap card where it came, its text as prose, without the "(turn off recaps in /config)" hint; `/recap` shows its chip and the card instead of a cut-off line of mono output.
+- The desktop chat reads more of what Claude Code's TUI prints: its recaps, from coming back to a session and from `/recap`; the server's short summaries between calls; each Monitor event and a watch's end; and a hook's `systemMessage`, which a New task chat dropped and a TUI pane chat never showed.
 - A chat turn that edited files ends with a card, "Edited 2 files +5 −5": a row per file with its own counts, each file counted once over all its edits, and View changes. Resting on a row shows its first diff lines; a click opens the Changes view at that file.
 - The chat has a Files and Changes panel at its right, opened from the card, the header's file button, or any path in the chat. Changes shows the turn's diff per file; File shows the file on disk, read-only, with line numbers, markdown rendered, and pictures. It reads at most 400 KB of a file and 5 MiB of a picture, refuses binary files and anything outside the chat's folder, reads again on Refresh, and closes with Esc. Open outside pitwall is a button in its header.
 - Code blocks in the chat read like an editor's: keywords, strings, numbers, functions, types and tags in the terminal palette's colors, comments muted and italic. pitwall lexes Go, JS and TS, Python, Rust, shell, JSON, YAML, TOML, SQL, CSS, HTML, Markdown and diffs itself, and C-like languages with one shared lexer. Each block is lexed once, so scrolling costs what it did. Plan cards, summaries and Read, Edit and Write previews get the same colors.

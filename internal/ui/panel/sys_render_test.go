@@ -172,7 +172,7 @@ func TestDrawHarnessItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	snaps := map[string]session.Snapshot{"rich": richSnap(), "senders": sendersSnap()}
-	for _, name := range []string{"tui-commands", "tui-tasks", "print-compact"} {
+	for _, name := range []string{"tui-commands", "tui-tasks", "print-compact", "tui-recap"} {
 		snaps[name] = renderSnap(t, filepath.Join("..", "..", "session", "claude", "testdata", "transcripts", name+".jsonl"))
 	}
 	dir := os.Getenv("PITWALL_RENDER_DIR")
