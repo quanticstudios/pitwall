@@ -1,4 +1,4 @@
-18.86
+18.87
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -169,7 +169,7 @@ sample.Mem{Total uint64; Used uint64; Available uint64; Cached uint64; Free uint
 sample.Net{Name string; Addr string; RxBps float64; TxBps float64; RxTotal uint64; TxTotal uint64}
 sample.Snapshot{Time time.Time; Host sample.Host; CPU sample.CPU; Mem sample.Mem; Drives []sample.Drive; Nets []sample.Net}
 session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
-session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill}
+session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; Error string}
 session.Skill{Provider model.Provider; ID string; Name string; Path string}
 skillshare.AuditResult{Unknown bool; Blocked []string; Findings []skillshare.Finding}
 skillshare.Call{Op string; Name string; Scope string; Dir string; Item skillshare.Item; Items []skillshare.Item; Scopes []string; Action string; All bool; Plugins bool; Force bool; Source string; Clone string; Picks []skillshare.Choice; Skills []string; Paths skillshare.Paths}

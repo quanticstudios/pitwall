@@ -131,4 +131,5 @@ type QueuedMessage struct {
 	// shortcut: images ride inline in config.json; move them to images/ if big queued images make config writes slow.
 	Attachments []Attachment `json:"attachments,omitempty"`
 	Skill       *Skill       `json:"skill,omitempty"`
+	Error       string       `json:"error,omitempty"` // as QueuedInput.Error
 }

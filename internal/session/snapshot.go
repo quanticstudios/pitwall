@@ -280,6 +280,9 @@ type QueuedInput struct {
 	CreatedAt   string       `json:"createdAt"`
 	Attachments []Attachment `json:"attachments"`
 	Recipients  []string     `json:"recipients"`
+	// Error is why the message could not be sent when its turn came; it
+	// waits for Send now (proto.ChatQueue Action "now") instead.
+	Error string `json:"error,omitempty"`
 }
 
 // UsageLimit is the rejected limit aide's thread banner displays.
