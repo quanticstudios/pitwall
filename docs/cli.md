@@ -175,8 +175,8 @@ already have.
 
 A chat is an agent that pitwall drives over the agent's own protocol (Claude
 Code's stream-json, Codex's app-server) instead of a terminal. Each chat has
-a tab of its own with no panes; the window shows a placeholder there until
-the transcript view lands. `pitwall ls` lists chat tabs in a section after
+a tab of its own with no panes, which the window draws as
+[the desktop chat](chat.md). `pitwall ls` lists chat tabs in a section after
 the other tabs. A chat is named by its id, a unique prefix of it, or its
 tab (`#N` or its title).
 

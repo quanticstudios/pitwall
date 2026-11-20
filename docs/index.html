@@ -84,6 +84,15 @@ ol.steps code { color: var(--fg); background: var(--surface-2); border-radius: 4
 
 .shot { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); width: fit-content; max-width: 100%; }
 .hero-shot { margin: 0 auto 56px; }
+.hero a.new {
+  display: inline-block; margin: 0 0 18px; padding: 4px 12px; border-radius: 999px;
+  font-size: 14px; font-weight: 600; text-decoration: none; color: var(--fg);
+  background: var(--surface-2); border: 1px solid var(--elevated);
+}
+.hero a.new:hover { border-color: var(--muted); }
+.chat-shot { margin: 28px 0; }
+.chat-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+.chat-points p { max-width: none; }
 
 section { padding: 56px 0; border-top: 1px solid var(--border); }
 section h2 { font-size: 26px; line-height: 1.25; margin: 0 0 12px; letter-spacing: -0.01em; font-weight: 650; }
@@ -137,7 +146,7 @@ footer a { color: var(--muted); }
   .feature, .feature:nth-child(even) { grid-template-columns: 1fr; gap: 20px; }
   .feature:nth-child(even) .text { order: 0; }
   .feature + .feature { margin-top: 56px; }
-  .install-grid { grid-template-columns: 1fr; }
+  .install-grid, .chat-points { grid-template-columns: 1fr; }
   .docs { grid-template-columns: 1fr 1fr; }
   section { padding: 40px 0; }
 }
@@ -173,6 +182,7 @@ footer a { color: var(--muted); }
       pitwall
     </a>
     <nav class="top">
+      <a href="#chat">Chat</a>
       <a href="#try">Try it</a>
       <a href="#features">Features</a>
       <a href="#install">Install</a>
@@ -183,13 +193,14 @@ footer a { color: var(--muted); }
   </header>
 
   <div class="hero">
+    <a class="new" href="#chat">New in 0.3: Claude Code as a desktop chat</a>
     <h1>A desktop terminal for running several coding agents at once.</h1>
     <p class="lede">Run five agents in five tabs and sooner or later one stops to wait on you, on a permission prompt or a question you have not seen. pitwall lights up that tab, notifies you, and takes you there with one key.</p>
     <ul class="facts">
+      <li><strong>Claude Code as a desktop chat</strong>, its TUI one key away.</li>
       <li><strong>Free and MIT licensed.</strong> No account.</li>
       <li><strong>Linux, macOS and Windows</strong>, x86_64 and arm64.</li>
       <li><strong>Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</strong></li>
-      <li><strong>One command</strong> to install.</li>
     </ul>
     <div class="actions">
       <a class="button primary" href="#install">Install</a>
@@ -199,7 +210,7 @@ footer a { color: var(--muted); }
   </div>
 
   <div class="shot hero-shot">
-    <img src="media/pitwall-hero.webp" width="1600" height="800" alt="The pitwall window cut into three views. Left, the panes of a shared session: this machine's tabs, Working, an Approval with Allow and Deny and an Input with Reply, then a box divider over box's tabs, the focused one a Codex agent shipping the billing API in a pane ringed in box's color with a box tag. Middle, the board: Needs you holds an approval with its full npm run migrate command and Allow and Deny, two questions with their answer buttons and a plan ready, beside Failed. Right, the review view: a diff of rateLimit.ts with two pending comments and Second opinion and Create pull request buttons">
+    <img src="media/pitwall-hero.webp" width="1600" height="800" alt="Three views of pitwall split by blue lines. On the left, the window: the sidebar of session acme lists five demo tabs, Retry failed webhooks done with its branch webhook-retry and +11 −4, Failed deliveries page working, Add rate limits waiting for approval with Allow and Deny, Queue for invoice PDFs asking a question with Reply, and npm run dev. Beside it, the Retry failed webhooks chat ends with Claude's reply: a sentence on retrying with exponential backoff and full jitter, a table of six attempts with their base delay, when each is sent and the total so far, a ts code block with a Copy button holding nextDelay, three bullets and a line about the migration, then Copy reply, Copy as Markdown and the turn's time, tokens and cost. The composer under it shows Bypass permissions in red, Opus 5.5, High and the context meter at 27%. Top right, the Failed deliveries page chat mid-turn: its open work log holds Thought for 4s, Start the dev server running npm run dev, and two Explore subagent cards, Find the dashboard's delivery queries with its answer and Find how the API could requeue a delivery with 4 calls, above a Tasks checklist with Start the dev server crossed off and Finding how the dashboard reads deliveries in progress. Bottom right, an Edit row of src/webhooks/deliver.ts, +11 −5, open to its diff with old and new line numbers, removed lines in red and added lines in green">
   </div>
 </div>
 
@@ -227,12 +238,28 @@ scoop install pitwall</code></pre>
     </div>
   </section>
 
+  <section id="chat" class="blurbs">
+    <div class="wrap">
+      <h2>Desktop chat for Claude Code</h2>
+      <p><strong>Every pane that runs Claude Code shows it as a desktop chat.</strong> Type <code>claude</code> in any shell, or <code>claude --dangerously-skip-permissions</code>, or your alias for it; start it from New task; let a worker start it. pitwall reads the session's transcript and draws it as a chat. The chat and the TUI are two views of the same running claude, so nothing restarts and its flags stay in effect, bypass permissions included. <kbd>Alt+T</kbd> flips the pane between them, even mid-turn.</p>
+      <div class="shot chat-shot"><img src="media/chat.webp" width="1600" height="1000" loading="lazy" alt="The pitwall window with a Claude Code chat mid-turn in the Failed deliveries page tab. An Effort set to high divider sits above the prompt, which asks for a Failed deliveries page with the dead-lettered webhooks, their last error and a Retry button. The open work log, Working for 3m 05s · 3 tools, holds Thought for 4s, Start the dev server running npm run dev in the background, and two Explore subagent cards: Find the dashboard's delivery queries, done in 22s with its answer, and Find how the API could requeue a delivery, running for 2m 54s with its 4 calls folded inside. Below it, a Tasks card reads 1 of 5, with Start the dev server crossed off and Finding how the dashboard reads deliveries in progress, then Claude's note that useDeliveries(status) already filters by status. Above the composer, a strip shows the task in progress, 1 of 5. The composer reads Type to queue a follow-up, with Bypass permissions in red, Opus 5.5, High, the context meter at 23% and a Stop button"></div>
+      <div class="chat-points">
+        <p><strong>The composer</strong>Chips for the model, the effort and the permission mode, Bypass in red, and a meter of how full the context is. A pasted image shows as a thumbnail and an <code>[Image #1]</code> token in your text. While Claude works, <kbd>Enter</kbd> queues a message and <kbd>Ctrl+Enter</kbd> sends it now. <code>/</code> lists the slash commands.</p>
+        <p><strong>The transcript</strong>It follows Claude as it writes. Each turn's tool calls fold into one work log, such as "Worked for 1m 23s · 8 tools". Replies render as markdown: tables, lists, code with a Copy button, diffs.</p>
+        <p><strong>Each tool call has its own view</strong>An edit's diff with line numbers, a command's colored output and its background shells, the paths Read, Grep and Glob touched, a web search's sources, an MCP call's arguments and result.</p>
+        <p><strong>The rest of the session shows too</strong>Todo checklists, subagents as cards, "Thought for 12s", your slash commands as chips, a divider where the conversation was compacted, notices, and each turn's time, tokens and cost. Huge old chats open at once.</p>
+      </div>
+      <div class="shot chat-shot"><img src="media/chat-tools.webp" width="992" height="810" loading="lazy" alt="An open work log in the chat: rows for Thought for 6s, Read src/webhooks/deliver.ts with 26 lines, Grep deliverWebhook|markFailed with 3 files, and Created src/webhooks/backoff.ts with +9. The Edit row of src/webhooks/deliver.ts, +11 −5, opens to its diff under a Copy diff button, with old and new line numbers, removed lines in red and added lines in green. Run the webhook tests, 4.0s with a green check, opens to $ npm test -- webhooks and vitest's colored output: two test files with their times, 2 passed, 9 tests passed, Duration 612ms"></div>
+      <p>Use the TUI for <code>/config</code>, <code>/login</code> and plugin menus, then <kbd>Alt+T</kbd> back. <code>[chat] claude = "terminal"</code> shows Claude Code panes as the TUI instead, still one key from the chat. <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/chat.md">The desktop chat page</a> has its keys and settings.</p>
+    </div>
+  </section>
+
   <section id="try">
     <div class="wrap">
       <h2>Try it</h2>
-      <p>Use a git repo you don't mind agents changing. On macOS the keys below are <kbd>Cmd+U</kbd>, <kbd>Cmd+Shift+Y</kbd>, <kbd>Cmd+Shift+N</kbd>, <kbd>Cmd+Shift+R</kbd> and <kbd>Cmd+T</kbd>.</p>
+      <p>Use a git repo you don't mind agents changing. On macOS the keys below are <kbd>Cmd+U</kbd>, <kbd>Cmd+Shift+Y</kbd>, <kbd>Cmd+Shift+N</kbd>, <kbd>Cmd+Shift+R</kbd>, <kbd>Cmd+T</kbd> and <kbd>Cmd+Option+T</kbd>.</p>
       <ol class="steps">
-        <li><strong>Start two or three agents.</strong> Run <code>pitwall</code> in the repo and press Install hooks on the welcome card (or in Settings, Agents), so the agents report their state. <kbd>Ctrl+Shift+T</kbd> opens a tab; run <code>claude</code> in one, <code>codex</code> in another, and give each a task that runs a command. In Codex, run <code>/hooks</code> once to trust the new hooks.</li>
+        <li><strong>Start two or three agents.</strong> Run <code>pitwall</code> in the repo and press Install hooks on the welcome card (or in Settings, Agents), so the agents report their state. <kbd>Ctrl+Shift+T</kbd> opens a tab; run <code>claude</code> in one, <code>codex</code> in another, and give each a task that runs a command. Claude Code shows as a desktop chat; <kbd>Alt+T</kbd> shows its TUI. In Codex, run <code>/hooks</code> once to trust the new hooks.</li>
         <li><strong>Watch the sidebar.</strong> Each tab's row reads Working, Input, Approval, Plan, Done or Error, with the branch and the lines changed.</li>
         <li><strong>Press <kbd>Ctrl+Shift+U</kbd>.</strong> When an agent stops to ask, its row lights up and a desktop notification arrives. The key takes you to the agent that started waiting most recently; press it again for the next one.</li>
         <li><strong>Answer from the row.</strong> A Claude Code or Codex permission prompt puts Allow and Deny on the row. Click them, or press <kbd>Ctrl+Shift+Y</kbd> or <kbd>Ctrl+Shift+D</kbd>. A Claude Code question pitwall recognizes in full puts its options there; otherwise the row offers Open tab or Reply. To answer from a phone, turn it on in Settings, Phone and give it an address the phone can reach, as <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">the phone page</a> shows with Tailscale, since by default only your computer can reach it. Then press Pair and scan the QR code.</li>
@@ -404,7 +431,7 @@ pitwall wait --children \
           <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab or from its row. pitwall never approves a terminal agent's permission prompt by itself. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
         </div>
         <div class="media stack">
-          <div class="shot"><img src="media/agents-talk.webp" width="1280" height="800" loading="lazy" alt="Claude Code and Codex in split panes of one pinned tab. Claude Code wrote plan.md and asked Codex to critique it with pitwall send; Codex's reply arrives under a pitwall header naming the sender and how to reply, raising three points. Claude Code accepts two, revises the plan, and Codex answers AGREE."></div>
+          <div class="shot"><img src="media/agents-talk.webp" width="1280" height="800" loading="lazy" alt="Claude Code and Codex in split panes of the Multi-currency invoices tab, which the sidebar shows with 2 agents · 1 working. On the left, Claude Code as a desktop chat: it wrote plan.md and asked Codex to critique it with pitwall send. Codex's points arrive as a message under a pitwall header naming the sender and the reply command: step 1 backfills before the column has a default, 0007 has no down migration, totals.ts sums floats. Claude's reply says plan.md now sets the default before the backfill and gives both migrations a down step, and that rounding is its own ticket. Codex answers AGREE. Ship it., and the open work log shows Codex agrees. Writing migration 0007 now. with a Write of migrations/0007_invoice_lines.sql running. On the right, Codex's TUI shows the same exchange from its side and ends with its pitwall send of AGREE. Ship it"></div>
           <pre class="term"><code><span class="c"># a second opinion from Codex, in a tab you can watch</span>
 tab=$(pitwall new -n "review auth" -- \
   codex "review origin/main..HEAD")
@@ -464,7 +491,7 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
       <table class="agents">
         <thead><tr><th>Agent</th><th>What pitwall shows</th></tr></thead>
         <tbody>
-          <tr><td>Claude Code</td><td>Every state, Allow, Deny and Always, question buttons, Approve plan, fork, resume, side panel, cost, plan limits</td></tr>
+          <tr><td>Claude Code</td><td>The desktop chat, every state, Allow, Deny and Always, question buttons, Approve plan, fork, resume, side panel, cost, plan limits</td></tr>
           <tr><td>Codex</td><td>Its state, Allow, Deny and Always, fork, resume, side panel, cost, plan limits</td></tr>
           <tr><td>Gemini CLI</td><td>Every state but Error, resume, side panel, cost</td></tr>
           <tr><td>OpenCode</td><td>Working, Input, Approval, Done and Error, resume</td></tr>
@@ -483,8 +510,8 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
       <h2>For creators and press</h2>
       <p>Quantic Studios makes pitwall. We don't pay for coverage and don't expect any. If you review it, say what you think, including what is broken.</p>
       <p><strong>One line</strong>pitwall is a free desktop terminal that shows what each of your coding agents is doing and takes you to the one waiting on you.</p>
-      <p><strong>One paragraph</strong>pitwall is a free, MIT-licensed desktop terminal for running several coding agents at once. A sidebar shows each agent's state, and one key jumps to the agent stuck on a question or a permission prompt.</p>
-      <p><strong>About 100 words</strong>pitwall is a free, MIT-licensed desktop terminal for Linux, macOS and Windows, built for running several coding agents at once. Each tab's row in the sidebar says whether its agent is working, waiting for input or approval, done or failed. When one stops to ask, Ctrl+Shift+U jumps to it, and Allow and Deny work from the sidebar or a paired phone. An agent can split a job across workers, each in its own git worktree, listed under its row. A review view sends line comments back to the agent. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</p>
+      <p><strong>One paragraph</strong>pitwall is a free, MIT-licensed desktop terminal for running several coding agents at once. A sidebar shows each agent's state, and one key jumps to the agent stuck on a question or a permission prompt. Claude Code shows as a desktop chat, with its TUI one key away.</p>
+      <p><strong>About 100 words</strong>pitwall is a free, MIT-licensed desktop terminal for Linux, macOS and Windows, built for running several coding agents at once. Each tab's row in the sidebar says whether its agent is working, waiting for input or approval, done or failed. When one stops to ask, Ctrl+Shift+U jumps to it, and Allow and Deny work from the sidebar or a paired phone. An agent can split a job across workers, each in its own git worktree, listed under its row. Claude Code shows as a desktop chat over the same running session. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</p>
       <p>The logo is <a href="https://github.com/quanticstudios/pitwall/blob/main/packaging/pitwall.svg">packaging/pitwall.svg</a>, and every screenshot and clip on this page is in <a href="https://github.com/quanticstudios/pitwall/tree/main/docs/media">docs/media</a>. Write to <a href="mailto:info@quanticstudios.io">info@quanticstudios.io</a>.</p>
     </div>
   </section>
@@ -493,6 +520,7 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
     <div class="wrap">
       <h2>Docs</h2>
       <ul class="docs">
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/chat.md">The desktop chat</a><span>Claude Code panes as a chat, Alt+T to the TUI, the composer's keys</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md">Using pitwall</a><span>First run, watching agents, sessions, review, worktrees, tasks</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/keys.md">Keybindings</a><span>The presets, tab mode, pane mode, find, copy mode, moving between vim and panes</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/cli.md">Command line</a><span>Every command, and driving tabs from scripts</span></li>
@@ -501,7 +529,6 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/hooks.md">Hooks</a><span>What the installer changes for each agent</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">Phone</a><span>The Android app, pairing, push notifications, what the page sends</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/remote.md">Remote hosts</a><span>Agents on another machine over ssh</span></li>
-        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/install.md">Install</a><span>Platforms, updates, building from source</span></li>
       </ul>
     </div>
   </section>
