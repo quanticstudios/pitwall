@@ -34,11 +34,15 @@ func InputReady(p model.Provider, g vt.Grid) bool {
 	if p == model.ProviderCodex {
 		return slices.ContainsFunc(raw, codexGlyph)
 	}
-	if p == model.ProviderClaude {
-		for i := len(raw) - 2; i >= 0; i-- {
-			if isRule(raw[i]) && strings.HasPrefix(strings.TrimSpace(raw[i+1]), "❯") {
-				return true
-			}
+	return p == model.ProviderClaude && claudeBox(raw)
+}
+
+// claudeBox reports whether raw shows Claude Code's input box: a rule with
+// the ❯ line under it, there mid-turn too.
+func claudeBox(raw []string) bool {
+	for i := len(raw) - 2; i >= 0; i-- {
+		if isRule(raw[i]) && strings.HasPrefix(strings.TrimSpace(raw[i+1]), "❯") {
+			return true
 		}
 	}
 	return false
