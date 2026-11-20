@@ -457,3 +457,34 @@ func TestTranscriptUnknownCommand(t *testing.T) {
 		t.Errorf("running %v, %d turns: want none", tr.Running(), len(snap.Turns))
 	}
 }
+
+// TestTranscriptAbsorbed: a message typed while Claude works, which Claude
+// Code 2.1.329 takes into the running turn as a queued_command attachment,
+// is a prompt bubble in that turn, ahead of the reply it got.
+func TestTranscriptAbsorbed(t *testing.T) {
+	tr := NewTranscript()
+	lines := []string{
+		`{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count to 30"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"seq 30"}}]}}`,
+		`{"type":"attachment","uuid":"q1","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"also say kiwi","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}`,
+		`{"type":"attachment","uuid":"q2","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"from a script","origin":{"kind":"coordinator"}}}`,
+		`{"type":"user","uuid":"r1","timestamp":"2026-11-20T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"1"}]}}`,
+		`{"type":"assistant","uuid":"a2","timestamp":"2026-11-20T10:00:07Z","message":{"id":"m2","content":[{"type":"text","text":"done. kiwi"}]}}`,
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T10:00:08Z"}`,
+	}
+	snap := base()
+	for _, l := range lines {
+		snap = apply(t, snap, tr.Line([]byte(l)))
+	}
+	var got []string
+	for _, it := range snap.Content {
+		got = append(got, string(it.Kind)+":"+it.Text+":"+*it.TurnID)
+	}
+	want := []string{"user-prompt:count to 30:p1", "tool-call::p1", "user-prompt:also say kiwi:p1", "assistant-text:done. kiwi:p1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("content:\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if len(snap.Turns) != 1 {
+		t.Errorf("turns %+v: want the one", snap.Turns)
+	}
+}

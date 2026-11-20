@@ -369,3 +369,26 @@ func TestPaneChatNotifiedTurn(t *testing.T) {
 		t.Fatalf("last item %+v in turns %+v: want done in the notified turn, completed", last, pc.snap.Turns)
 	}
 }
+
+// A message queued mid-turn that the running turn takes loses its queued
+// row then, not when the next turn starts.
+func TestPaneChatAbsorbed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count"}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := paneLive{p: &fakePane{}, act: model.Activity{State: model.StateWorking}}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(live)
+	pc.queued = []session.QueuedInput{{ID: "k", Text: "say kiwi"}, {ID: "l", Text: "say lime"}}
+	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"attachment","uuid":"q1","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"say kiwi","origin":{"kind":"human"}}}
+`)
+	fh.Close()
+	pc.catchUp(live)
+	if len(pc.snap.QueuedInputs) != 1 || pc.snap.QueuedInputs[0].ID != "l" {
+		t.Fatalf("queued %+v: want only lime's row", pc.snap.QueuedInputs)
+	}
+}

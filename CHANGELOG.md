@@ -40,6 +40,7 @@ takes `--dry-run`.
 - A chat tab shows its model and effort from the start: the ones it was started with, else the model and effortLevel in Claude Code's user settings, read only. Once Claude Code starts, the chip shows the model it runs.
 - A Claude Code pane's chat shows a sent picture as a thumbnail under the prompt, as a chat tab does, instead of only its chip.
 - A Claude Code pane's chat keeps a background task's reply in its own turn. When the task ended, the turn its notification started could end at once, so the reply took over the previous turn and folded that turn's answer into its work log.
+- A message you send while Claude Code works shows in its pane's chat when Claude takes it into the running turn, as Claude Code 2.1.329 does, and its queued row goes then. Before, it vanished, and only Claude's answer to it showed.
 - A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.

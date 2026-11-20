@@ -319,7 +319,14 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			switch {
 			case es[i].Type == session.EventTurnStarted:
 				pc.replied = false
-			case es[i].Type == session.EventContent && es[i].Kind != session.KindUserPrompt && es[i].Kind != session.KindSystem:
+			case es[i].Type == session.EventContent && es[i].Kind == session.KindUserPrompt:
+				// The running turn took a message typed mid-turn: its queued row goes.
+				if k := slices.IndexFunc(pc.queued, func(q session.QueuedInput) bool {
+					return strings.TrimSpace(imageToken.ReplaceAllString(q.Text, "")) == strings.TrimSpace(es[i].Text)
+				}); k >= 0 {
+					pc.queued = slices.Delete(pc.queued, k, k+1)
+				}
+			case es[i].Type == session.EventContent && es[i].Kind != session.KindSystem:
 				pc.replied = true
 			}
 			// A turn's usage report says the context as the meter reads it.

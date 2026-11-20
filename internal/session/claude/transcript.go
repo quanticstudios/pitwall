@@ -91,6 +91,9 @@ type transcriptLine struct {
 		Blocking *struct {
 			Error string `json:"blockingError"`
 		} `json:"blockingError"`
+		Origin *struct {
+			Kind string `json:"kind"`
+		} `json:"origin"`
 	} `json:"attachment"`
 }
 
@@ -200,9 +203,9 @@ func (t *Transcript) system(l transcriptLine) []session.Event {
 	return nil
 }
 
-// attachment is an attachment line: a notification Claude Code queued
-// mid-turn, or a hook that blocked or failed. The rest (reminders, file
-// and tool listings) speak to the model.
+// attachment is an attachment line: a notification or a message of the
+// user's that Claude Code queued mid-turn, or a hook that blocked or
+// failed. The rest (reminders, file and tool listings) speak to the model.
 func (t *Transcript) attachment(l transcriptLine) []session.Event {
 	a := l.Attachment
 	if a == nil {
@@ -211,8 +214,13 @@ func (t *Transcript) attachment(l transcriptLine) []session.Event {
 	switch a.Type {
 	case "queued_command":
 		var text string
-		if json.Unmarshal(a.Prompt, &text) == nil && strings.Contains(text, "<task-notification>") {
+		switch {
+		case json.Unmarshal(a.Prompt, &text) != nil:
+		case strings.Contains(text, "<task-notification>"):
 			return t.notified(l, harness(text), text)
+		case a.Origin != nil && a.Origin.Kind == "human" && strings.TrimSpace(text) != "":
+			// A message the user sent mid-turn, which the running turn took.
+			return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindUserPrompt, Text: text}}
 		}
 	case "hook_blocking_error", "hook_non_blocking_error", "hook_stopped_continuation", "hook_error_during_execution":
 		msg := cmp.Or(a.Message, a.Stderr)
