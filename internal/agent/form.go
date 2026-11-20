@@ -166,7 +166,8 @@ func Offers(a model.Activity, g vt.Grid) []Offer {
 			if a.Provider == model.ProviderCodex {
 				return strings.Contains(low, "don't ask again") || strings.Contains(low, "for this session")
 			}
-			return strings.Contains(low, "don't ask again") || strings.Contains(low, "always") || strings.Contains(low, "allow all")
+			// why: a file edit's prompt offers the session's edits as "switch to accept edits".
+			return strings.Contains(low, "don't ask again") || strings.Contains(low, "always") || strings.Contains(low, "allow all") || strings.Contains(low, "accept edits")
 		})
 	case model.StatePlanReady:
 		// why: the other yeses also raise the permission mode, which a button

@@ -42,6 +42,7 @@ takes `--dry-run`.
 - A Claude Code pane's chat keeps a background task's reply in its own turn. When the task ended, the turn its notification started could end at once, so the reply took over the previous turn and folded that turn's answer into its work log.
 - A message you send while Claude Code works shows in its pane's chat when Claude takes it into the running turn, as Claude Code 2.1.329 does, and its queued row goes then. Before, it vanished, and only Claude's answer to it showed.
 - A Claude Code pane's chat shows a question as its question card, with each option on its key, when the hook that it waits comes before Claude Code writes the AskUserQuestion call. It stayed a generic approval card with Allow and Deny.
+- Allow for session answers Claude Code's file edit prompt, whose second option now reads "Yes, and switch to accept edits … for this session". It failed with "the pane no longer offers Allow always".
 - A Claude Code pane's chat shows "Unknown command: /x" as a quiet system row when you send a slash command Claude Code doesn't have.
 - A pasted image in the chat composer is a crisp 64 dp square thumbnail with rounded corners, cropped to fill. Its remove x shows only under the pointer, and the `[Image #N]` chip in the text is its only label.
 - Image chips in the composer wrap to the next line as one word, so a chip no longer runs off the right edge or leaves an empty box under the text.
