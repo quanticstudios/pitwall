@@ -68,6 +68,10 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	}
 	// The tab's frame sits pane_margin in, as a tab of one terminal's does.
 	m := gtx.Dp(unit.Dp(u.cfg.PaneMargin))
+	tui := u.tuiShown(st, ws.Chat, gtx.Now)
+	if tui != nil { // over the chat: this defer runs after the others pop
+		defer u.layoutTUI(gtx, st, ws.Chat, tui, image.Rect(m, m, gtx.Constraints.Max.X-m, gtx.Constraints.Max.Y-m))
+	}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	defer op.Offset(image.Pt(m, m)).Push(gtx.Ops).Pop()
 	size := image.Pt(max(0, gtx.Constraints.Max.X-2*m), max(0, gtx.Constraints.Max.Y-2*m))
@@ -79,7 +83,7 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)
 	gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
-	u.chatBody(gtx, st, ch, ws.Chat, ws.Path, true, func() { u.toggleChatTerminal(st, ws) })
+	u.chatBody(gtx, st, ch, ws.Chat, ws.Path, tui == nil, func() { u.toggleChatTerminal(st, ws) })
 }
 
 // chatBody draws chat id's transcript with the composer under it, and
@@ -118,7 +122,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
-		env.Focus = env.Focus && focus && !t.Zoomed()
+		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing()
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.
@@ -127,6 +131,13 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		for _, m := range cmp.Messages() {
+			// A TUI-only command opens its dialog; a chat tab's goes to the
+			// TUI the dialog opens, not to the chat's driver.
+			if s, ok := m.(proto.ChatSend); ok && s.Skill == nil && len(s.Attachments) == 0 {
+				if cmd := tuiCommand(s.Text); cmd != "" && u.openTUI(st, id, cmd, gtx.Now) && u.tui[id].tab {
+					continue
+				}
+			}
 			if _, ok := m.(proto.ChatSend); ok {
 				t.ToEnd()
 				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before this
@@ -134,7 +145,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			u.send(m)
 		}
 		for _, a := range t.Answers() {
-			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision})
+			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision, Reason: a.Reason})
 		}
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
