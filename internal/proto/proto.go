@@ -225,7 +225,12 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 85
+const Level = 86
+
+// ChatPageLevel added ChatRead.Before and Item and ChatDeltas.Older, Page
+// and Item: a chat's history comes as its tail, then in pages, with long
+// fields cut until a window asks for the item whole.
+const ChatPageLevel = 86
 
 // PaneChatLevel is the first daemon that answers Chat* messages for a pane
 // running Claude Code's TUI; a window shows such a pane as a chat only then.
@@ -1374,10 +1379,17 @@ type ChatQueue struct {
 	Index            int                     // move destination
 }
 
-// ChatRead asks for a chat's transcript.
+// ChatRead asks for a chat's transcript. A snapshot holds its recent
+// history, its items cut by session.Clip; Before asks for the page before
+// it and Item for one item whole.
 type ChatRead struct {
 	Chat  string
 	After int64 // 0: a snapshot; else the deltas after seq After, or a snapshot when they are gone
+	// Before, when set, asks for the history before cursor Before, a
+	// ChatDeltas.Older, as a snapshot of those items alone.
+	Before int64
+	// Item, when set, asks for that item whole, as ChatDeltas.Item.
+	Item string
 }
 
 // ChatArchive closes a chat and its tab, as CloseTab does; refused for a
@@ -1434,6 +1446,11 @@ type ChatDeltas struct {
 	Snapshot []byte   // JSON Snapshot when the client needs a new base, else nil
 	Seq      int64    // Snapshot's seq
 	Deltas   [][]byte // JSON Deltas, in seq order, after Seq
+	// Older is the cursor of the history before Snapshot's items, for a
+	// ChatRead Before; 0 when there is none.
+	Older int64
+	Page  int64  // the ChatRead Before this answers; Snapshot is that page
+	Item  []byte // the JSON session.Item a ChatRead Item asked for
 }
 
 // ChatProviders lists the managed providers available to every client.

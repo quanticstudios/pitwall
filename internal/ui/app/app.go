@@ -367,6 +367,7 @@ type ui struct {
 	paneHeads   map[string]*chatHead         // the pane chats' headers, by pane id
 	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
+	load        chatLoad                     // the buttons of a chat that did not load
 	drawn       map[string]bool              // the chats whose composer layoutPanes drew this frame
 	usage       usageWatch                   // token use for the tabs' hover cards
 	invalidate  func()                       // the window's Invalidate; nil in tests

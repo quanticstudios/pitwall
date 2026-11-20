@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -109,6 +110,8 @@ func (c *Conn) Send(msg any) (err error) {
 	}
 	size := c.out.Len() - 4
 	if size > maxFrameSize {
+		// why: the connection closes over it, and nothing else would say why.
+		log.Printf("dropped a %T of %d bytes: over the %d byte frame limit; closing the connection", msg, size, maxFrameSize)
 		return fmt.Errorf("frame size %d exceeds limit %d", size, maxFrameSize)
 	}
 	binary.BigEndian.PutUint32(c.out.Bytes()[:4], uint32(size))
