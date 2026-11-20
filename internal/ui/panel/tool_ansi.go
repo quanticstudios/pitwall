@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/quanticstudios/pitwall/internal/ui/syntax"
 )
 
 // span is a styled run of a line, runes [a, b).
@@ -13,6 +15,7 @@ type span struct {
 	fg   int16       // a palette index 0-255, -1 for the default, -2 for rgb
 	rgb  color.NRGBA // fg -2's color
 	bold bool
+	syn  syntax.Kind // a code token's kind, colored by synColors; Plain for an escape's run
 }
 
 // sgr is the style the escapes so far set.

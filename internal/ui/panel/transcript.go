@@ -50,6 +50,9 @@ type Transcript struct {
 	// path under Dir, or a tool row's, a URL or a file's absolute path. Nil
 	// leaves links inert.
 	Open func(link string)
+	// Run, when set, takes the command of a shell code block's Run: it
+	// types it where the user presses Enter to run it, never runs it.
+	Run func(cmd string)
 	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
 	// whose output names one shows its live state.
 	PRs map[string]model.PR

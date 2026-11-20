@@ -97,6 +97,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			t.Full = func(item string) { p.ChatItem(id, item) }
 		}
 		t.PRs, t.Open, t.Invalidate = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }, u.invalidate
+		t.Run = func(cmd string) { u.runCode(st, id, cmd) }
 		cmp := u.composer(st, id)
 		if u.drawn == nil {
 			u.drawn = map[string]bool{}

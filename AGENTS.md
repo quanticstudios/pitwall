@@ -38,6 +38,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/ui/term`     | Grid renderer and pane input                                   |
 | `internal/ui/chatin`   | The chat composer, image tokens, model names, the phone shares |
 | `internal/ui/mdview`   | The markdown reader: parse, flowcharts, images, its overlay    |
+| `internal/ui/syntax`   | Code tokens for highlighting: a lexer per common language      |
 | `internal/ui/app`      | Window, splits, Alt navigation, switcher                       |
 | `cmd/pitwall`          | Entry point (orchestrator only)                                |
 

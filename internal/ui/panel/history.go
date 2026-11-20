@@ -3,6 +3,7 @@ package panel
 import (
 	"image"
 	"slices"
+	"strings"
 
 	"gioui.org/layout"
 
@@ -128,6 +129,7 @@ func (t *Transcript) forget(s *session.Snapshot) {
 			if t.frame-t.selAt[k] > keepFor && sl != t.picked {
 				delete(t.sels, k)
 				delete(t.selAt, k)
+				delete(t.tool.syn, strings.TrimPrefix(k, "box:"))
 			}
 		}
 	}
