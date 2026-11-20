@@ -237,3 +237,15 @@ func AgyFooter(g vt.Grid) (mode, model, effort string, ok bool) {
 	}
 	return "", "", "", false
 }
+
+// AntigravityTranscript is where agy 1.5.13 under home keeps conversation
+// conv's transcript, as its hooks name it, or "" for an id that is no
+// single path element. A pane resumed with --conversation conv runs that
+// conversation, so the daemon names its transcript before agy's first hook,
+// which comes only with the next prompt.
+func AntigravityTranscript(home, conv string) string {
+	if conv == "" || conv == "." || conv == ".." || strings.ContainsAny(conv, `/\`) {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli", "brain", conv, ".system_generated", "logs", "transcript_full.jsonl")
+}

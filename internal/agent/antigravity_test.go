@@ -181,3 +181,16 @@ func TestAgyFooter(t *testing.T) {
 		}
 	}
 }
+
+func TestAntigravityTranscript(t *testing.T) {
+	home := t.TempDir()
+	want := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "11111111-2222-3333-4444-555555555555", ".system_generated", "logs", "transcript_full.jsonl")
+	if got := AntigravityTranscript(home, "11111111-2222-3333-4444-555555555555"); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	for _, bad := range []string{"", ".", "..", "../x", `a\b`} {
+		if got := AntigravityTranscript(home, bad); got != "" {
+			t.Errorf("id %q gave %q", bad, got)
+		}
+	}
+}

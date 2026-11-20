@@ -46,6 +46,7 @@ func (d *Daemon) restorePane(p model.Pane, saved []model.Activity) error {
 		}
 		log.Printf("pane %s: resuming %q, mode %q", p.ID, p.Provider, p.AgentMode)
 		d.restartNudge(p.ID, saved)
+		d.agyResumed(p)
 	}
 	d.restoreLimitResume(p.ID, true)
 	return nil

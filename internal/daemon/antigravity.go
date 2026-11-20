@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
+	"strings"
 
 	"gioui.org/io/key"
 
@@ -120,4 +122,31 @@ func (d *Daemon) agyCommand(pane, command string) error {
 	}
 	d.noteUserKey(pane, nil)
 	return d.handle(context.Background(), proto.Input{Pane: pane, Data: append(input.Text(command), press(key.NameReturn, p.Modes())...)})
+}
+
+// agyResumed names the transcript of an agy pane resumed with
+// --conversation: agy fires no hook until the next prompt, and its pane
+// shows as a chat only once its transcript is known. The path is agy's own
+// for the conversation the daemon resumed, under the HOME the pane runs
+// with, and only a file that is there counts. Callers hold d.mu.
+func (d *Daemon) agyResumed(p model.Pane) {
+	if p.Provider != model.ProviderAntigravity || p.SessionID == "" {
+		return
+	}
+	home, _ := os.UserHomeDir()
+	for _, e := range p.Env {
+		if h, ok := strings.CutPrefix(e, "HOME="); ok {
+			home = h
+		}
+	}
+	t := agent.AntigravityTranscript(home, p.SessionID)
+	if t == "" {
+		return
+	}
+	if _, err := os.Stat(t); err != nil {
+		return
+	}
+	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == p.ID }); i >= 0 {
+		d.st.Panes[i].Transcript = t
+	}
 }
