@@ -29,15 +29,22 @@ func fakeMonitor(n *atomic.Int64) func() (sample.Snapshot, procs.Table, error) {
 func TestMonitorWatch(t *testing.T) {
 	var n atomic.Int64
 	f := &fakes{statsCalls: map[string]int{}}
-	sock, stop := runWith(t, f, func(o *Options) { o.Monitor = fakeMonitor(&n) })
+	d, sock, stop := runDaemon(t, f, func(o *Options) { o.Monitor = fakeMonitor(&n) })
 	defer stop()
+	stopped := func() bool {
+		d.mon.mu.Lock()
+		defer d.mon.mu.Unlock()
+		return !d.mon.running && len(d.mon.watchers) == 0
+	}
 
 	old := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.MonitorLevel - 1, Kind: "gui"})
 	old.waitState("old window", func(model.State) bool { return true })
 	old.send(proto.MonitorWatch{WorkspaceID: "w", Interval: time.Second})
 	old.send(proto.Sync{})
 	old.waitState("sync", func(model.State) bool { return true })
-	time.Sleep(100 * time.Millisecond)
+	if !stopped() {
+		t.Fatal("a window below MonitorLevel started the sampler")
+	}
 	if got := n.Load(); got != 0 {
 		t.Fatalf("%d readings with no watcher of MonitorLevel", got)
 	}
@@ -50,12 +57,16 @@ func TestMonitorWatch(t *testing.T) {
 		t.Fatalf("sample = %+v", s)
 	}
 	gui.send(proto.MonitorWatch{WorkspaceID: "w"})
-	waitUntil(t, "the loop to stop", func() bool { d := n.Load(); time.Sleep(1200 * time.Millisecond); return n.Load() == d })
+	waitUntil(t, "the loop to stop", stopped)
+	readings := n.Load()
 
 	gui.send(proto.MonitorWatch{WorkspaceID: "w", Interval: time.Second})
 	gui.waitFor("a sample again", func(m any) bool { _, ok := m.(proto.MonitorSample); return ok })
+	if n.Load() <= readings {
+		t.Fatal("the sampler did not restart")
+	}
 	gui.conn.Close()
-	waitUntil(t, "a disconnect to stop it", func() bool { d := n.Load(); time.Sleep(1200 * time.Millisecond); return n.Load() == d })
+	waitUntil(t, "a disconnect to stop it", stopped)
 	select {
 	case m, ok := <-old.in:
 		if _, isSample := m.(proto.MonitorSample); ok && isSample {
