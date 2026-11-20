@@ -288,3 +288,54 @@ func TestChatItemUpdated(t *testing.T) {
 		t.Fatalf("after it grew: %q", s.Content[0].Text)
 	}
 }
+
+// TestChatRewindDelta: a rewind's snapshot delta holds the whole chat, so
+// the pages read before it go and no item shows twice, with all pages
+// read or some; when it does not line up with them, the next read asks
+// for a snapshot, whose cursor pages on.
+func TestChatRewindDelta(t *testing.T) {
+	items := func(ids ...string) []session.Item {
+		out := []session.Item{}
+		for _, id := range ids {
+			out = append(out, session.Item{ID: id, Kind: session.KindAssistantText, Text: id})
+		}
+		return out
+	}
+	wire := func(ids ...string) []byte {
+		b, _ := json.Marshal(session.Snapshot{SessionID: "c", Content: items(ids...)})
+		return b
+	}
+	for _, tc := range []struct {
+		what   string
+		page   []string
+		older  int64 // the page's cursor
+		reread bool
+	}{
+		{"every page read", []string{"a", "b"}, 0, false},
+		{"some pages read", []string{"b"}, 1, true},
+	} {
+		b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+		b.link.Level = proto.Level
+		b.Chat("c")
+		b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire("c", "d"), Seq: 1, Older: 2})
+		b.ChatOlder("c")
+		b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: wire(tc.page...), Page: 2, Older: tc.older})
+		rewound := session.Snapshot{SessionID: "c", Content: items("a", "b", "c")}
+		d, _ := json.Marshal(session.Delta{Version: session.DeltaVersion, SessionID: "c", Seq: 2, Revision: 2, Type: session.DeltaSnapshot, Snapshot: &rewound})
+		b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 1, Deltas: [][]byte{d}})
+		s, _ := b.Chat("c")
+		var got []string
+		for _, it := range s.Content {
+			got = append(got, it.ID)
+		}
+		if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+			t.Errorf("%s: %v", tc.what, got)
+		}
+		if b.ChatOlder("c") {
+			t.Errorf("%s: pages on before the whole chat", tc.what)
+		}
+		if reread := b.chats["c"].seq == 0; reread != tc.reread {
+			t.Errorf("%s: asks for a snapshot %v, want %v", tc.what, reread, tc.reread)
+		}
+	}
+}

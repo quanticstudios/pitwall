@@ -317,6 +317,7 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 		c.seq = 0
 		return changed
 	}
+	reread := false
 	for _, raw := range m.Deltas {
 		var d session.Delta
 		err := json.Unmarshal(raw, &d)
@@ -329,9 +330,40 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 			c.seq = 0
 			return changed
 		}
+		// A snapshot delta, as a rewind commits, holds the daemon's whole
+		// snapshot: a managed chat's every item, a pane chat's tail.
+		if d.Type == session.DeltaSnapshot && !c.rebase(n) {
+			c.older, c.turns, c.base, c.more, c.paging = nil, nil, 0, 0, time.Time{}
+			reread = true // a snapshot's cursor tells where the history before it starts
+		}
 		c.snap, c.seq, c.view, changed = &n, d.Seq, nil, true
 	}
+	if reread {
+		c.seq = 0
+	}
 	return changed
+}
+
+// rebase keeps the history before n that the transcript holds, once n's
+// first item is in it, and reports whether it was. b.mu is held.
+func (c *chatCache) rebase(n session.Snapshot) bool {
+	if len(n.Content) == 0 || c.snap == nil {
+		return false
+	}
+	old := slices.Concat(c.older, c.snap.Content)
+	p := slices.IndexFunc(old, func(it session.Item) bool { return it.ID == n.Content[0].ID })
+	if p < 0 {
+		return false
+	}
+	turns := c.turns
+	if p > len(c.older) {
+		turns = slices.Concat(c.turns, c.snap.Turns)
+	}
+	c.older = old[:p:p]
+	c.turns = slices.DeleteFunc(slices.Clone(turns), func(t session.TurnSummary) bool {
+		return slices.ContainsFunc(n.Turns, func(u session.TurnSummary) bool { return u.ID == t.ID })
+	})
+	return true
 }
 
 // refused takes the daemon's refusal of read r: the first read's says why
