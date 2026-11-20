@@ -657,3 +657,21 @@ func TestAgyChoices(t *testing.T) {
 		t.Error("accept-edits' label")
 	}
 }
+
+// TestModeUnknown: an agy pane chat shows no mode chip until it has read
+// agy's footer; other chats always show theirs.
+func TestModeUnknown(t *testing.T) {
+	for _, c := range []struct {
+		s    session.Snapshot
+		want bool
+	}{
+		{session.Snapshot{PaneID: "p", Provider: model.ProviderAntigravity}, true},
+		{session.Snapshot{PaneID: "p", Provider: model.ProviderAntigravity, PermissionMode: "auto"}, false},
+		{session.Snapshot{Provider: model.ProviderAntigravity}, false},
+		{session.Snapshot{PaneID: "p", Provider: model.ProviderClaude}, false},
+	} {
+		if got := modeUnknown(&c.s); got != c.want {
+			t.Errorf("%+v: %v", c.s, got)
+		}
+	}
+}

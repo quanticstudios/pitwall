@@ -434,6 +434,12 @@ func (c *Composer) cycleMode(env Env, now time.Time) {
 	c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: next})
 }
 
+// modeUnknown reports an Antigravity pane chat that has not read agy's
+// mode from its footer yet: its chip waits rather than say Default.
+func modeUnknown(s *session.Snapshot) bool {
+	return s != nil && s.PaneID != "" && s.Provider == model.ProviderAntigravity && s.PermissionMode == ""
+}
+
 // fixedSettings reports a chat whose model, effort and mode the composer
 // cannot set: a Codex pane chat's are Codex's TUI's.
 func fixedSettings(s *session.Snapshot) bool {
@@ -946,7 +952,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, rowH)
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if fixed {
+				if fixed || modeUnknown(env.Snap) {
 					return layout.Dimensions{}
 				}
 				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, true)

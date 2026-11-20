@@ -193,9 +193,13 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		l.conf = ""
 	}
 	if pc == nil || pc.path != l.path || pc.prov != p.Provider { // a new session (claude again, /clear, /resume) starts over
+		mode := "default"
+		if p.Provider == model.ProviderAntigravity {
+			mode = "" // why: agy's mode is its footer's; until the chat has read it, the chip shows none rather than a guess
+		}
 		pc = &paneChat{id: id, path: l.path, prov: p.Provider,
 			snap: session.Snapshot{SessionID: id, PaneID: id, WorkspaceID: p.WorkspaceID, Provider: p.Provider,
-				SessionState: session.StateReady, Running: true, PermissionMode: "default", InteractionMode: "build"}}
+				SessionState: session.StateReady, Running: true, PermissionMode: mode, InteractionMode: "build"}}
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			pc.limit = d.claudeLimit(w.Profile)
 		} else {
