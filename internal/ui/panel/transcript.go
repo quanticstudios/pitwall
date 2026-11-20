@@ -53,6 +53,9 @@ type Transcript struct {
 	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
 	// whose output names one shows its live state.
 	PRs map[string]model.PR
+	// Invalidate asks for a frame from another goroutine: the side panel's
+	// markdown file and its pictures, read in the background.
+	Invalidate func()
 
 	list   layout.List
 	blocks []block
@@ -88,6 +91,8 @@ type Transcript struct {
 	items   int                             // len(Content) this frame
 	diffs   map[string]diffCache            // edits' lines by item id
 	tool    toolState                       // the tool rows' scroll, shells and images
+	side    side                            // the Files and Changes panel
+	changes map[string]changeCache          // turns' changed files by their first item id
 
 	more    widget.Clickable
 	menu    bool
@@ -169,11 +174,12 @@ type trow struct {
 type rowSeg uint8
 
 const (
-	segBlock rowSeg = iota // a prompt or a system line
-	segHead                // a turn's work log header
-	segItem                // an item in an open work log
-	segReply               // a turn's reply
-	segTodo                // a turn's task list, its last task-list call i
+	segBlock   rowSeg = iota // a prompt or a system line
+	segHead                  // a turn's work log header
+	segItem                  // an item in an open work log
+	segReply                 // a turn's reply
+	segTodo                  // a turn's task list, its last task-list call i
+	segChanges               // a finished turn's change card
 )
 
 // Answers returns the approvals answered since the last call, once each.
@@ -438,8 +444,13 @@ func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 }
 
 // Layout draws s filling gtx's constraints, with Open in aide in a quiet
-// menu when aide is set.
+// menu when aide is set, and the Files and Changes panel at its right
+// while it is open.
 func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
+	return t.withSide(gtx, th, s, func(gtx layout.Context) layout.Dimensions { return t.layoutChat(gtx, th, s, aide) })
+}
+
+func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
 	if t.open == nil {
 		t.init()
 	}

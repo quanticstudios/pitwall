@@ -173,3 +173,34 @@ func TestReadPreviewLimits(t *testing.T) {
 		t.Errorf("p.png: img %v", pv.img)
 	}
 }
+
+func TestLocalFileRoutesToPanel(t *testing.T) {
+	root, out := t.TempDir(), t.TempDir()
+	for _, p := range []string{filepath.Join(root, "a.go"), filepath.Join(out, "b.go")} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tr := &Transcript{Dir: root}
+	cases := map[string]string{
+		"a.go":                      filepath.Join(root, "a.go"),
+		filepath.Join(root, "a.go"): filepath.Join(root, "a.go"),
+		"file://" + root + "/a.go":  filepath.Join(root, "a.go"),
+		filepath.Join(out, "b.go"):  "", // outside: opens outside pitwall
+		"https://example.com/a.go":  "",
+		"gone.go":                   "",
+		root:                        "", // a folder
+	}
+	for in, want := range cases {
+		if got := tr.localFile(in); got != want {
+			t.Errorf("localFile(%q) = %q, want %q", in, got, want)
+		}
+	}
+	tr.openTarget("a.go")
+	if !tr.FilesOpen() || !tr.side.file || tr.side.pv == nil || tr.side.pv.kind != previewText {
+		t.Errorf("openTarget(a.go): open %v file %v preview %v, want the File view on a.go", tr.FilesOpen(), tr.side.file, tr.side.pv)
+	}
+	if !tr.CloseFiles() || tr.FilesOpen() || tr.CloseFiles() {
+		t.Error("CloseFiles: want true once, then false")
+	}
+}
