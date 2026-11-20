@@ -26,12 +26,14 @@ type Transcript struct {
 	asked   string     // the open request's id, "" for none
 	model   string     // the model of the last response
 	pending []*pending // the calls whose results have not come, oldest first
+	tasks   string     // the task list's text as agy last wrote it
 }
 
-// pending is a call a response made, waiting for its GENERIC step.
+// pending is a call a response made, waiting for its GENERIC step. A call
+// that wrote the task list shows as the list, so its result shows nothing.
 type pending struct {
 	call session.ToolCall
-	at   string
+	list bool
 }
 
 func NewTranscript() *Transcript { return &Transcript{} }
@@ -96,7 +98,11 @@ func (t *Transcript) Line(b []byte) []session.Event {
 			out = append(out, session.Event{Type: session.EventContent, ItemID: id, Kind: session.KindAssistantText, Model: t.model, Text: s.Content})
 		}
 		for i, c := range s.ToolCalls {
-			t.pending = append(t.pending, &pending{call: toolCall(id+"#"+strconv.Itoa(i), c.Name, c.Args)})
+			plan := t.taskList(c.Name, c.Args)
+			t.pending = append(t.pending, &pending{call: toolCall(id+"#"+strconv.Itoa(i), c.Name, c.Args), list: plan != nil})
+			if plan != nil {
+				out = append(out, *plan)
+			}
 		}
 		if len(s.ToolCalls) == 0 && s.Status == "DONE" {
 			out = append(out, t.End(session.TurnCompleted)...)
@@ -107,6 +113,9 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		}
 		p := t.pending[0]
 		t.pending = t.pending[1:]
+		if p.list {
+			return nil
+		}
 		c := p.call
 		c.Status = "completed"
 		text := strings.TrimSpace(stamps.ReplaceAllString(s.Content, ""))
@@ -167,6 +176,45 @@ func toolCall(id, name string, args map[string]json.RawMessage) session.ToolCall
 	return c
 }
 
+// checkbox is a line of agy's task list: "- [ ] todo", "- [/] doing",
+// "- [x] done".
+var checkbox = regexp.MustCompile(`(?m)^\s*[-*]\s+\[([ xX/-])\]\s+(.+?)\s*$`)
+
+// taskList is the turn's task list after call, when the call writes or
+// edits agy's task.md, its user-facing to-do list in the conversation's
+// artifact folder: one task-list call, updated in place, as Claude Code's
+// todos show. nil for any other call, and for an edit of a list this
+// reader has not seen whole.
+func (t *Transcript) taskList(name string, args map[string]json.RawMessage) *session.Event {
+	arg := func(k string) string {
+		var s string
+		_ = json.Unmarshal(args[k], &s)
+		return s
+	}
+	path := strings.ReplaceAll(arg("Path"), "\\", "/")
+	base := path[strings.LastIndexByte(path, '/')+1:]
+	if base != "task.md" && base != "tasks.md" || !strings.Contains(path, "/brain/") {
+		return nil
+	}
+	switch name {
+	case "write_file":
+		t.tasks = arg("Content")
+	case "edit_file":
+		if t.tasks == "" {
+			return nil
+		}
+		t.tasks = strings.ReplaceAll(t.tasks, arg("Target"), arg("Replacement"))
+	default:
+		return nil
+	}
+	status := map[string]string{" ": "pending", "x": "completed", "X": "completed", "/": "in_progress", "-": "in_progress"}
+	c := &session.ToolCall{CallID: "plan-" + t.turn, ToolName: "Plan", Status: "completed", Input: json.RawMessage("{}"), Tasks: []session.Task{}}
+	for _, m := range checkbox.FindAllStringSubmatch(t.tasks, -1) {
+		c.Tasks = append(c.Tasks, session.Task{Subject: m[2], Status: status[m[1]]})
+	}
+	return &session.Event{Type: session.EventContent, ItemID: c.CallID, Kind: session.KindToolCall, Model: t.model, Tool: c}
+}
+
 // Running reports whether a turn runs.
 func (t *Transcript) Running() bool { return t.turn != "" }
 
@@ -183,6 +231,9 @@ func (t *Transcript) End(state string) []session.Event {
 		return out
 	}
 	for _, p := range t.pending {
+		if p.list {
+			continue
+		}
 		c := p.call
 		c.Status = "failed"
 		out = append(out, session.Event{Type: session.EventContent, ItemID: c.CallID, Kind: session.KindToolCall, Model: t.model, Tool: &c})

@@ -2,7 +2,9 @@ package antigravity
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,5 +103,44 @@ func TestTranscriptAsk(t *testing.T) {
 	}
 	if es := tr.Ask("8", "Trust this folder?"); len(es) != 1 || es[0].RequestType != session.RequestUnknown {
 		t.Errorf("unknown ask %+v", es)
+	}
+}
+
+// TestTranscriptTasks: agy keeps its to-do list in task.md in the
+// conversation's folder. testdata/tasks.jsonl is agy 1.5.13 writing one;
+// an edit then ticks the next item, and the card follows in place.
+func TestTranscriptTasks(t *testing.T) {
+	data, err := os.ReadFile("testdata/tasks.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := NewTranscript()
+	var plans []*session.ToolCall
+	collect := func(es []session.Event) {
+		for _, e := range es {
+			if e.Tool != nil {
+				if e.Tool.ToolName != "Plan" {
+					t.Errorf("the task list's write showed as %s", e.Tool.ToolName)
+				}
+				plans = append(plans, e.Tool)
+			}
+		}
+	}
+	for line := range bytes.SplitSeq(bytes.TrimSpace(data), []byte("\n")) {
+		collect(tr.Line(line))
+	}
+	want := []session.Task{{Subject: "plan", Status: "completed"}, {Subject: "build", Status: "pending"}, {Subject: "test", Status: "pending"}}
+	if len(plans) != 1 || !slices.Equal(plans[0].Tasks, want) {
+		t.Fatalf("plans %+v", plans)
+	}
+	collect(tr.Line([]byte(`{"step_index":4,"type":"USER_INPUT","content":"<USER_REQUEST>\nnext\n</USER_REQUEST>"}`)))
+	collect(tr.Line([]byte(`{"step_index":5,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"edit_file","args":{"Path":"/home/user/.gemini/antigravity-cli/brain/22222222-3333-4444-5555-666666666666/tasks.md","Target":"- [ ] build","Replacement":"- [/] build"}}]}`)))
+	collect(tr.Line([]byte(`{"step_index":6,"type":"GENERIC","status":"DONE","content":"Made 1 replacement"}`)))
+	if len(plans) != 2 || plans[1].Tasks[1].Status != "in_progress" || plans[1].CallID != "plan-step-4" {
+		t.Fatalf("after the edit: %+v", plans)
+	}
+	// A task.md outside agy's conversation folders is a file of the project.
+	if tr.taskList("write_file", map[string]json.RawMessage{"Path": json.RawMessage(`"/home/user/project/task.md"`), "Content": json.RawMessage(`"- [ ] x"`)}) != nil {
+		t.Error("a project's task.md read as agy's list")
 	}
 }
