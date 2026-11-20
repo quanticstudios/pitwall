@@ -360,6 +360,27 @@ func TestPaneChatSettings(t *testing.T) {
 	}
 }
 
+// The model the TUI showed stays on the chip once the transcript appears:
+// reading it from the top builds a new snapshot, before any line names a
+// model.
+func TestPaneChatModelSurvivesTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	live := paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 5.5"}}
+	pc.catchUp(live)
+	if pc.snap.Model == nil || *pc.snap.Model != "Opus 5.5" {
+		t.Fatalf("before the transcript: model %v", pc.snap.Model)
+	}
+	prompt := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n"
+	if err := os.WriteFile(path, []byte(prompt), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.catchUp(live)
+	if pc.snap.Model == nil || *pc.snap.Model != "Opus 5.5" {
+		t.Errorf("after the first prompt: model %v, want the TUI's Opus 5.5", pc.snap.Model)
+	}
+}
+
 // A pane chat's context meter reads the last main-thread assistant line's
 // usage, input plus cache creation and reads, out of the model's window:
 // 1M when the TUI names the model's 1M version.

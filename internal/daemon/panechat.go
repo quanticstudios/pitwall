@@ -393,6 +393,7 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
 		pc.start, pc.off, pc.pages, pc.agents, pc.at, pc.lineAt, pc.tip = start, start, nil, nil, nil, nil, ""
+		pc.tui = phoneSettings{}                             // the new snapshot lacks the TUI's model until settings puts it back
 		defer func() { pc.recent, pc.recentSize = nil, 0 }() // no reader holds what this replays: each gets a snapshot
 	}
 	b := make([]byte, end-pc.off)
