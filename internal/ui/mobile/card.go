@@ -238,6 +238,10 @@ func cardButton(gtx C, th *theme.Theme, c *widget.Clickable, primary, live bool,
 	return c.Layout(gtx, draw)
 }
 
+// sessionOffered is whether r's card has Allow for this session: an
+// approval whose prompt offers it, not a plan.
+func sessionOffered(r remote.Request) bool { return r.Kind == "approval" && !r.NoSession }
+
 // request is a chat tab's approval, plan or question, as the page shows it.
 func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request, rs *reqState, agent string, done func(string) func(error)) []layout.Widget {
 	k := &c.card
@@ -269,7 +273,7 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		if rs.allow.Clicked(gtx) && !k.busy {
 			approve("allow", "Allowed.")
 		}
-		if rs.session.Clicked(gtx) && !k.busy {
+		if rs.session.Clicked(gtx) && !k.busy && sessionOffered(r) {
 			approve("allow-session", "Allowed for this session.")
 		}
 		if rs.deny.Clicked(gtx) && !k.busy {
@@ -281,7 +285,7 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		}
 		w = append(w, gap(12), func(gtx C) D { return cardField(gtx, th, &rs.reason, "Reason to deny (optional)") },
 			gap(10), func(gtx C) D { return twoButtons(gtx, th, &rs.deny, deny, &rs.allow, allow, !k.busy) })
-		if r.Kind != "plan" {
+		if sessionOffered(r) {
 			w = append(w, gap(10), func(gtx C) D { return cardButton(gtx, th, &rs.session, false, !k.busy, "Allow for this session") })
 		}
 		return w
