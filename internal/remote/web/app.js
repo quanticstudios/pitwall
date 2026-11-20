@@ -645,7 +645,7 @@ function request(chatID, r, done, failed) {
   allow.onclick = () => answer('allow', 'Allowed.');
   buttons.push(allow);
   row.append(allow);
-  if (r.kind !== 'plan') {
+  if (r.kind !== 'plan' && !r.noSession) { // noSession: the prompt has no such answer
     const session = el('button', 'btn', 'Allow for session');
     session.onclick = () => answer('allow-session', 'Allowed for this session.');
     buttons.push(session);

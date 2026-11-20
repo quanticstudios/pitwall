@@ -246,7 +246,32 @@ func TestQuietSettings(t *testing.T) {
 			t.Errorf("item %d %q: quiet %v, want %v", i, c[i].Text, q[i], want)
 		}
 	}
+	// Shift+Tab through the modes, then a model picked and picked back: the
+	// last mode stands, and the model changed nothing.
+	cycle := []session.Item{
+		{Kind: session.KindAssistantText, Model: &sonnet},
+		set("Default mode"), set("Accept edits mode"), set("Plan mode"), set("Bypass permissions mode"),
+		set("Switched to claude-haiku-5-5"), set("Switched to claude-sonnet-5-5"),
+		{Kind: session.KindUserPrompt},
+		set("Plan mode"),
+	}
+	q = quietSettings(cycle)
+	for i, want := range map[int]bool{1: true, 2: true, 3: true, 4: false, 5: true, 6: true, 8: false} {
+		if q[i] != want {
+			t.Errorf("cycle item %d %q: quiet %v, want %v", i, cycle[i].Text, q[i], want)
+		}
+	}
 	if got := settingLabel("Switched to opus-5-5Switched to claude-opus-5-5"); got != "Switched to Opus 5.5" {
 		t.Errorf("glued label %q", got)
+	}
+}
+
+// Only an API retry's warning says Retrying; an unknown command's has no title.
+func TestWarningTitle(t *testing.T) {
+	if got := warningTitle("API error 529: Overloaded · retrying in 3s (attempt 1 of 10)"); got != "Retrying" {
+		t.Errorf("retry: %q", got)
+	}
+	if got := warningTitle("Unknown command: /ux. Did you mean /run?"); got != "" {
+		t.Errorf("unknown command: %q", got)
 	}
 }

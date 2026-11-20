@@ -51,6 +51,7 @@ type Request struct {
 	Command   string             `json:"command,omitempty"`
 	Path      string             `json:"path,omitempty"`
 	Questions []session.Question `json:"questions,omitempty"`
+	NoSession bool               `json:"noSession,omitempty"` // the prompt offers no Allow for this session
 }
 
 // Requests are s's pending approvals, then its input requests, with
@@ -64,7 +65,7 @@ func Requests(s session.Snapshot, redact func(string) string) []Request {
 	}
 	var out []Request
 	for _, a := range s.PendingApprovals {
-		r := Request{ID: a.ID, Kind: "approval", Detail: deref(a.Detail)}
+		r := Request{ID: a.ID, Kind: "approval", Detail: deref(a.Detail), NoSession: a.NoSession}
 		if a.RequestType == session.RequestPlan {
 			r.Kind = "plan"
 		}

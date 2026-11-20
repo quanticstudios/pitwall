@@ -179,23 +179,34 @@ func settingKind(label string) string {
 
 // quietSettings are the setting dividers that change nothing: each names
 // the model, effort or mode the chat already showed, the model being the
-// one its last reply or call ran.
+// one its last reply or call ran. A change that a later one of its kind
+// replaced before anything else happened, as Shift+Tab through the modes,
+// is quiet too.
 func quietSettings(content []session.Item) map[int]bool {
-	var quiet map[int]bool
+	quiet := map[int]bool{}
 	shown := map[string]string{}
+	run := map[string]int{}      // by kind, the change a later one may still replace
+	prior := map[string]string{} // by kind, what showed before that change
 	for i := range content {
 		it := &content[i]
+		if it.Kind != session.KindSystem || it.Phase != session.PhaseSetting {
+			clear(run)
+		}
 		switch {
 		case it.Kind == session.KindSystem && it.Phase == session.PhaseSetting:
 			label := settingLabel(it.Text)
 			kind := settingKind(label)
 			if shown[kind] == label {
-				if quiet == nil {
-					quiet = map[int]bool{}
-				}
 				quiet[i] = true
+				break
 			}
-			shown[kind] = label
+			if j, ok := run[kind]; ok {
+				quiet[j] = true
+				quiet[i] = prior[kind] == label
+			} else {
+				prior[kind] = shown[kind]
+			}
+			shown[kind], run[kind] = label, i
 		case it.Model != nil && *it.Model != "" && (it.Kind == session.KindAssistantText || it.Kind == session.KindToolCall):
 			shown["model"] = "Switched to " + chatin.ModelName(*it.Model)
 		}

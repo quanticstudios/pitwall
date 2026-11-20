@@ -59,6 +59,9 @@ func TestDenyReason(t *testing.T) {
 	if len(tr.done) != 1 || tr.done[0].line != "Denied" || tr.done[0].what != "use echo instead" || !tr.done[0].prose {
 		t.Fatalf("answered line %+v", tr.done)
 	}
+	if resolvedIcon(&tr.done[0]) != "x" {
+		t.Errorf("a denial's line is marked %q, want x", resolvedIcon(&tr.done[0]))
+	}
 
 	s.PendingApprovals = []session.Approval{approval("r2")}
 	frame()
@@ -95,5 +98,35 @@ func TestDenyReason(t *testing.T) {
 	}
 	if l := tr.done[len(tr.done)-1]; l.line != "Sent back to refine" || l.what != "name it greeting.txt" {
 		t.Fatalf("refine line %+v", l)
+	}
+	if l := tr.done[len(tr.done)-1]; resolvedIcon(&l) != "check" {
+		t.Errorf("a plan sent back is marked %q, want check", resolvedIcon(&l))
+	}
+}
+
+// A rewind that takes away the turn a request was answered in takes the
+// answered line with it; one answered before it stays.
+func TestRewindDropsAnswers(t *testing.T) {
+	th := theme.Dark()
+	item := func(id string, kind session.ItemKind) session.Item {
+		return session.Item{ID: id, Kind: kind, Text: id}
+	}
+	s := &session.Snapshot{SessionID: "chat", SessionState: session.StateReady, Content: []session.Item{item("p1", session.KindUserPrompt), item("a1", session.KindAssistantText)}}
+	var tr Transcript
+	var ops op.Ops
+	frame := func() {
+		ops.Reset()
+		tr.Layout(layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 800)), Now: time.Now()}, th, s, false)
+	}
+	frame()
+	tr.decide("r1", "allow")
+	s.Content = append(s.Content, item("p2", session.KindUserPrompt), item("a2", session.KindAssistantText))
+	frame()
+	tr.decide("r2", "allow")
+	frame()
+	s.Content = s.Content[:2] // rewound to before p2
+	frame()
+	if len(tr.done) != 1 || tr.done[0].id != "r1" {
+		t.Fatalf("answered lines %+v: want only r1's, answered before the rewind point", tr.done)
 	}
 }

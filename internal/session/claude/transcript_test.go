@@ -508,3 +508,30 @@ func TestTranscriptAskBeforeLine(t *testing.T) {
 		t.Errorf("asked again: %+v, want nothing", out)
 	}
 }
+
+// A request whose call is not in the transcript yet reads its hook's
+// "Tool\ntarget" as that call: a Write is a file change on its path.
+func TestTranscriptBareRequest(t *testing.T) {
+	tr := NewTranscript()
+	snap := apply(t, base(), tr.Ask("9", "Write\n/repo/greeting.txt"))
+	if len(snap.PendingApprovals) != 1 {
+		t.Fatalf("approvals %+v", snap.PendingApprovals)
+	}
+	a := snap.PendingApprovals[0]
+	if a.RequestType != session.RequestFileChange || a.Request == nil || a.Request.ToolName != "Write" || a.Request.FilePath != "/repo/greeting.txt" {
+		t.Fatalf("approval %+v, request %+v: want a file change on /repo/greeting.txt", a, a.Request)
+	}
+	snap = apply(t, base(), NewTranscript().Ask("9", "Claude needs your permission to use Write"))
+	if a := snap.PendingApprovals[0]; a.RequestType != session.RequestUnknown || a.Request != nil {
+		t.Errorf("a notification's message read as a call: %+v", a)
+	}
+}
+
+// The placeholder reply Claude Code writes on a resume shows nothing.
+func TestTranscriptResumePlaceholder(t *testing.T) {
+	tr := NewTranscript()
+	l := `{"type":"assistant","uuid":"s1","timestamp":"2026-11-20T20:01:43Z","message":{"id":"x","model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"No response requested."}]}}`
+	if es := tr.Line([]byte(l)); len(es) != 0 {
+		t.Errorf("events %+v: want none for the resume placeholder", es)
+	}
+}

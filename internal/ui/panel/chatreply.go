@@ -66,7 +66,7 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 		src = mdview.Heal(src)
 	}
 	old := r
-	r = &reply{text: it.Text, live: live, blocks: mdview.Parse([]byte(src)), paras: map[int]para{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
+	r = &reply{text: it.Text, live: live, blocks: mdview.ParseChat([]byte(src)), paras: map[int]para{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
 	if old != nil {
 		r.wide, r.code = old.wide, old.code // a code block keeps its scroll and tokens as the reply grows
 	}

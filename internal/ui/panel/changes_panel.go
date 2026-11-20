@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"io"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gioui.org/font"
 	"gioui.org/gesture"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -28,6 +30,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
+	"github.com/quanticstudios/pitwall/internal/ui/syntax"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -60,7 +63,8 @@ type side struct {
 	pv    *preview
 	img   paint.ImageOp
 	lines []string
-	long  int // runes in pv's longest line
+	spans [][]span // each line's code tokens, nil for a language the lexers lack
+	long  int      // runes in pv's longest line
 	md    mdview.View
 
 	list, rows layout.List
@@ -119,7 +123,7 @@ func (t *Transcript) showFile(p string) {
 func (t *Transcript) readSide() {
 	s := &t.side
 	pv := readPreview(t.Dir, s.path)
-	s.pv, s.lines, s.long, s.hoff = &pv, nil, 0, 0
+	s.pv, s.lines, s.spans, s.long, s.hoff = &pv, nil, nil, 0, 0
 	s.rows.Position = layout.Position{}
 	s.md.Close()
 	switch pv.kind {
@@ -127,8 +131,13 @@ func (t *Transcript) readSide() {
 		s.img = paint.NewImageOp(pv.img)
 	case previewText:
 		s.lines = strings.Split(strings.TrimSuffix(pv.text, "\n"), "\n")
-		for _, l := range s.lines {
-			s.long = max(s.long, utf8.RuneCountInString(mdview.Detab(l)))
+		texts := make([]string, len(s.lines))
+		for i, l := range s.lines {
+			texts[i] = mdview.Detab(l)
+			s.long = max(s.long, utf8.RuneCountInString(texts[i]))
+		}
+		if lang := syntax.FromPath(pv.path); syntax.Lang(lang) != "" {
+			s.spans = lexLines(lang, texts, false)
 		}
 	case previewMD:
 		root := t.Dir
@@ -578,6 +587,7 @@ func (d *cdraw) changeDiff(gtx layout.Context, turn string, f fileChange, head i
 	if f.created && len(f.diffs) == 1 {
 		b.nums, b.copy = 1, newText(lines)
 	}
+	d.highlight(b.id, syntax.FromPath(f.path), b.lines, !f.created)
 	if head > 0 && len(b.lines) > head {
 		b.lines, b.copy = b.lines[:head], ""
 	}
@@ -735,10 +745,7 @@ func (t *Transcript) linesView(gtx layout.Context, d *cdraw, size image.Point) {
 		at(gtx, image.Pt(numW-gtx.Dp(theme.SpaceS)-nd.Size.X, y), func(gtx layout.Context) layout.Dimensions { nc.Add(gtx.Ops); return nd })
 		if l := s.lines[i]; l != "" {
 			cl := clip.Rect{Min: image.Pt(textX-gtx.Dp(2), 0), Max: image.Pt(size.X, lh)}.Push(gtx.Ops)
-			at(gtx, image.Pt(textX-s.hoff, y), func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Max.X = 1 << 20
-				return d.lbl(gtx, th.MonoFont, st.size, st.c, mdview.Detab(l))
-			})
+			t.codeLine(gtx, d, i, mdview.Detab(l), image.Pt(textX-s.hoff, y), cw)
 			cl.Pop()
 		}
 		return layout.Dimensions{Size: image.Pt(size.X, lh)}
@@ -798,4 +805,38 @@ func (t *Transcript) withSide(gtx layout.Context, th *theme.Theme, s *session.Sn
 		})
 	}
 	return layout.Dimensions{Size: full}
+}
+
+// codeLine draws the File view's line i, txt, at p: plain, or in its
+// tokens' colors, each run cw a rune along, as the font is mono.
+func (t *Transcript) codeLine(gtx layout.Context, d *cdraw, i int, txt string, p image.Point, cw int) {
+	th, st := d.th, d.mono()
+	draw := func(x int, f font.Font, c color.NRGBA, s string) {
+		at(gtx, image.Pt(x, p.Y), func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Max.X = 1 << 20
+			return d.lbl(gtx, f, st.size, c, s)
+		})
+	}
+	if i >= len(t.side.spans) || len(t.side.spans[i]) == 0 {
+		draw(p.X, th.MonoFont, st.c, txt)
+		return
+	}
+	runes := []rune(txt)
+	n, done := len(runes), 0
+	run := func(a, b int, f font.Font, c color.NRGBA) {
+		if b > a {
+			draw(p.X+a*cw, f, c, string(runes[a:b]))
+		}
+	}
+	for _, sp := range t.side.spans[i] {
+		a, b := min(sp.a, n), min(sp.b, n)
+		run(done, a, th.MonoFont, st.c)
+		f := th.MonoFont
+		if sp.syn == syntax.Comment {
+			f.Style = font.Italic
+		}
+		run(max(a, done), b, f, d.ansiColor(sp))
+		done = max(done, b)
+	}
+	run(done, n, th.MonoFont, st.c)
 }

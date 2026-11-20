@@ -71,6 +71,7 @@ type Composer struct {
 	note    string         // why the last image or send failed
 	noteAt  string         // the text when an image's note went up: taking its token out is no edit that clears it
 	last    *sent          // the last send, until it is answered
+	rewind  *rewinding     // a rewind sent, whose prompt fills the box once it succeeds
 
 	mode, model, effort held
 	bypass              bool // the chat has run in bypass permissions, so Shift+Tab may go back to it
@@ -183,15 +184,30 @@ type Result struct {
 	Message string
 }
 
+// rewinding is a rewind sent: its turn and the prompt it goes back to.
+type rewinding struct{ turn, text string }
+
+// AwaitRewind puts text, the prompt a rewind to turn goes back to, in the
+// box once the daemon says the rewind went through; a refused one leaves
+// the box as it is.
+func (c *Composer) AwaitRewind(turn, text string) { c.rewind = &rewinding{turn, text} }
+
 // Result takes the daemon's answer to a request at now. A refusal shows
 // its message. A ChatSend refused within moments, with the box still
-// empty, comes back into the box, and a refused queue removal brings its
-// row back.
+// empty, comes back into the box, a refused queue removal brings its
+// row back, and a rewind that went through puts its prompt in the box.
 func (c *Composer) Result(r Result, now time.Time) {
 	if r.Message != "" {
 		c.note = r.Message
 	}
 	switch m := r.Req.(type) {
+	case proto.ChatRewind:
+		if w := c.rewind; w != nil && w.turn == m.Turn {
+			if r.Message == "" {
+				c.SetText(w.text)
+			}
+			c.rewind = nil
+		}
 	case proto.ChatSend:
 		if l := c.last; r.Message != "" && l != nil && now.Sub(l.at) < holdFor && c.ed.Len() == 0 && len(c.draft.Images) == 0 {
 			c.draft = l.draft

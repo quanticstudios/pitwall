@@ -719,7 +719,7 @@ func chatOf(msg any) (string, bool) {
 }
 
 // chatAnswered keeps a ChatResult for the window when it answers a
-// ChatSend or refuses any request. b.mu is held.
+// ChatSend or a ChatRewind, or refuses any request. b.mu is held.
 func (b *backend) chatAnswered(m proto.ChatResult) {
 	req := b.chatReply(m.Chat)
 	if r, ok := req.(proto.ChatRead); ok && m.Code != "" && m.Code != "not-found" {
@@ -729,8 +729,9 @@ func (b *backend) chatAnswered(m proto.ChatResult) {
 		return
 	}
 	_, send := req.(proto.ChatSend)
+	_, rewind := req.(proto.ChatRewind) // the composer fills only once it went through
 	refused := m.Code != "" && m.Code != "not-found"
-	if !refused && !send {
+	if !refused && !send && !rewind {
 		return
 	}
 	r := chatin.Result{Req: req}

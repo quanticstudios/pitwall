@@ -265,13 +265,16 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 				return hrow(gtx, gtx.Dp(theme.SpaceS),
 					func(gtx layout.Context) layout.Dimensions { return d.keyButton(gtx, &bs[0], true, "Allow", "1", true) },
 					func(gtx layout.Context) layout.Dimensions {
+						if a.NoSession { // the prompt has no such answer
+							return layout.Dimensions{}
+						}
 						return d.keyButton(gtx, &bs[1], false, "Allow for session", "2", true)
 					},
 					func(gtx layout.Context) layout.Dimensions {
 						if e != nil {
 							return layout.Dimensions{}
 						}
-						return d.keyButton(gtx, &bs[2], false, "Deny", "3", true)
+						return d.keyButton(gtx, &bs[2], false, "Deny", denyKey(a), true)
 					},
 				)
 			},
@@ -283,6 +286,15 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 			},
 		)
 	})
+}
+
+// denyKey is the key that denies a's card: 3, or 2 when it has no Allow
+// for session.
+func denyKey(a session.Approval) string {
+	if a.NoSession {
+		return "2"
+	}
+	return "3"
 }
 
 // monoBox is a command in mono on the page's background.
@@ -480,14 +492,14 @@ func (d *cdraw) otherField(gtx layout.Context, e *widget.Editor) layout.Dimensio
 	return dims
 }
 
-// resolvedLine is a request answered here: a check, the decision, what it
-// was for and when.
+// resolvedLine is a request answered here: a check, or an x for a denial,
+// the decision, what it was for and when.
 func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions {
 	th := d.th
 	w, h := gtx.Constraints.Max.X, gtx.Dp(40)
 	rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(10), th.Bg, th.BorderStrong)
 	x := gtx.Dp(cardPadX)
-	icon(gtx, image.Pt(x, (h-gtx.Dp(14))/2), "check", 14, th.Muted)
+	icon(gtx, image.Pt(x, (h-gtx.Dp(14))/2), resolvedIcon(r), 14, th.Muted)
 	x += gtx.Dp(14) + gtx.Dp(theme.SpaceS)
 	tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, r.when.Local().Format("15:04"))
@@ -513,6 +525,14 @@ func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions 
 		at(gtx, image.Pt(x, onBase(base, wd)), func(gtx layout.Context) layout.Dimensions { wc.Add(gtx.Ops); return wd })
 	}
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// resolvedIcon is the mark before an answered request's line.
+func resolvedIcon(r *resolved) string {
+	if r.denied {
+		return "x"
+	}
+	return "check"
 }
 
 // moreMenu is the quiet ⋯ button at the top right and its menu, which

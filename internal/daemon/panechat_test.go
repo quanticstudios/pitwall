@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -360,6 +361,27 @@ func TestPaneChatSettings(t *testing.T) {
 	}
 }
 
+// The model the TUI showed stays on the chip once the transcript appears:
+// reading it from the top builds a new snapshot, before any line names a
+// model.
+func TestPaneChatModelSurvivesTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	live := paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 5.5"}}
+	pc.catchUp(live)
+	if pc.snap.Model == nil || *pc.snap.Model != "Opus 5.5" {
+		t.Fatalf("before the transcript: model %v", pc.snap.Model)
+	}
+	prompt := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n"
+	if err := os.WriteFile(path, []byte(prompt), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.catchUp(live)
+	if pc.snap.Model == nil || *pc.snap.Model != "Opus 5.5" {
+		t.Errorf("after the first prompt: model %v, want the TUI's Opus 5.5", pc.snap.Model)
+	}
+}
+
 // A pane chat's context meter reads the last main-thread assistant line's
 // usage, input plus cache creation and reads, out of the model's window:
 // 1M when the TUI names the model's 1M version.
@@ -380,6 +402,9 @@ func TestPaneChatContext(t *testing.T) {
 	pc.catchUp(paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 5.5 1M"}})
 	if u := pc.snap.Usage; *u.MaxTokens != 1_000_000 {
 		t.Errorf("window %d with the TUI on Opus 5.5 1M: want 1M", *u.MaxTokens)
+	}
+	if w := contextWindow("claude-sonnet-5-5", ""); w != 1_000_000 {
+		t.Errorf("window of Sonnet 5.5: %d, want 1M as its /context says", w)
 	}
 	if w := contextWindow("claude-opus-5-5[1m]", ""); w != 1_000_000 {
 		t.Errorf("window of a [1m] id: %d", w)
@@ -458,5 +483,107 @@ func TestPaneChatNotifiedTurn(t *testing.T) {
 	last := pc.snap.Content[len(pc.snap.Content)-1]
 	if last.Text != "done" || last.TurnID == nil || *last.TurnID != pc.snap.Turns[1].ID || pc.snap.Turns[1].State != session.TurnCompleted {
 		t.Fatalf("last item %+v in turns %+v: want done in the notified turn, completed", last, pc.snap.Turns)
+	}
+}
+
+// A background shell that ends while the next prompt's turn runs updates
+// its call from the earlier turn. That is no reply in the running turn, so
+// a Stop hook read before Claude Code wrote the turn's answer leaves it
+// running, and the answer stays its turn's own.
+func TestPaneChatBackgroundNoticeIsNoReply(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"sleep in the background"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t9","name":"Bash","input":{"command":"sleep 40","run_in_background":true}}],"usage":{"input_tokens":2,"output_tokens":3}}}
+{"type":"user","uuid":"r1","timestamp":"2026-11-20T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":"Command running in background with ID: b1."}]},"toolUseResult":{"stdout":"","stderr":"","backgroundTaskId":"b1"}}
+{"type":"assistant","uuid":"a2","timestamp":"2026-11-20T10:00:03Z","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"started"}],"usage":{"input_tokens":2,"output_tokens":3}}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T10:00:04Z"}
+{"type":"user","uuid":"p2","timestamp":"2026-11-20T10:00:40Z","origin":{"kind":"human"},"message":{"role":"user","content":"say A"}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-20T10:00:40.1Z","content":"<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>t9</tool-use-id>\n<status>completed</status>\n<summary>Background command \"sleep\" completed (exit code 0)</summary>\n</task-notification>"}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stopped := paneLive{p: &fakePane{}, act: model.Activity{State: model.StateCompleted, UpdatedAt: time.Date(2026, 11, 20, 10, 0, 41, 0, time.UTC)}}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(stopped)
+	if n := len(pc.snap.Turns); n != 2 || pc.snap.Turns[1].State != session.TurnRunning {
+		t.Fatalf("turns %+v: want the second running until its answer", pc.snap.Turns)
+	}
+	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"assistant","uuid":"a3","timestamp":"2026-11-20T10:00:41Z","message":{"id":"m3","model":"claude-sonnet-5-5","content":[{"type":"text","text":"A"}],"usage":{"input_tokens":2,"output_tokens":1}}}
+`)
+	fh.Close()
+	pc.catchUp(stopped)
+	last := pc.snap.Content[len(pc.snap.Content)-1]
+	if last.Text != "A" || last.TurnID == nil || *last.TurnID != pc.snap.Turns[1].ID {
+		t.Fatalf("last item %+v: want A in the second turn %+v", last, pc.snap.Turns)
+	}
+}
+
+// A pane chat's approval says when its prompt offers no Allow for this
+// session, as Claude Code's prompt for a hook that asks does not, and
+// stops saying so once the screen shows that answer.
+func TestPaneChatApprovalOffers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"touch a"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"touch a"}}]}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 20, 10, 0, 2, 0, time.UTC)
+	act := model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Detail: "Bash\ntouch a", UpdatedAt: at}
+	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}, act: act})
+	if n := len(pc.snap.PendingApprovals); n != 1 || !pc.snap.PendingApprovals[0].NoSession {
+		t.Fatalf("approvals %+v: want one with no Allow for session, the screen showing none", pc.snap.PendingApprovals)
+	}
+	act.Buttons = []string{agent.AllowAlways}
+	pc.catchUp(paneLive{p: &fakePane{}, act: act})
+	if n := len(pc.snap.PendingApprovals); n != 1 || pc.snap.PendingApprovals[0].NoSession {
+		t.Errorf("approvals %+v: want Allow for session once the screen offers it", pc.snap.PendingApprovals)
+	}
+	// A hook that asked prints its reason over the prompt: the card says it.
+	act.Buttons = nil
+	screen := []string{" Bash command", " touch a", " │ Hook PreToolUse:Bash requires confirmation for this command:",
+		" │ Ask before touching files [settings]", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"}
+	pc.catchUp(paneLive{p: &fakePane{screen: screen}, act: act})
+	if ap := pc.snap.PendingApprovals[0]; ap.Detail == nil || *ap.Detail != "PreToolUse hook: Ask before touching files" || !ap.NoSession {
+		t.Errorf("approval %+v: want the hook's reason as its detail, and no Allow for session", ap)
+	}
+}
+
+// A chat read afresh, as after a restart, drops the turns a rewind left
+// behind even when its tail starts after the line the rewind went back
+// to, as after a compaction on the abandoned branch with a turn after it:
+// the page before the tail would show them, since the prompt that
+// branched off is not the first line after it.
+func TestPaneChatRewindReadAfresh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","parentUuid":null,"timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"touch a"}}
+{"type":"assistant","uuid":"a1","parentUuid":"p1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"made a"}]}}
+{"type":"user","uuid":"p2","parentUuid":"a1","timestamp":"2026-11-20T10:00:10Z","origin":{"kind":"human"},"message":{"role":"user","content":"rm a"}}
+{"type":"assistant","uuid":"a2","parentUuid":"p2","timestamp":"2026-11-20T10:00:11Z","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"removed a"}]}}
+{"type":"system","subtype":"compact_boundary","uuid":"c1","parentUuid":null,"logicalParentUuid":"a2","timestamp":"2026-11-20T10:00:20Z","content":"Conversation compacted"}
+{"type":"user","uuid":"s1","parentUuid":"c1","isCompactSummary":true,"timestamp":"2026-11-20T10:00:21Z","message":{"role":"user","content":"Summary: touched and removed a."}}
+{"type":"user","uuid":"p4","parentUuid":"s1","timestamp":"2026-11-20T10:00:30Z","origin":{"kind":"human"},"message":{"role":"user","content":"remember cherry"}}
+{"type":"assistant","uuid":"a4","parentUuid":"p4","timestamp":"2026-11-20T10:00:31Z","message":{"id":"m4","model":"claude-sonnet-5-5","content":[{"type":"text","text":"noted cherry"}]}}
+{"type":"user","uuid":"p3","parentUuid":"a1","timestamp":"2026-11-20T10:01:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"list commands"}}
+{"type":"assistant","uuid":"a3","parentUuid":"p3","timestamp":"2026-11-20T10:01:01Z","message":{"id":"m3","model":"claude-sonnet-5-5","content":[{"type":"text","text":"only touch a"}]}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}})
+	var texts []string
+	for _, it := range pc.snap.Content {
+		if it.Text != "" {
+			texts = append(texts, it.Text)
+		}
+	}
+	got := strings.Join(texts, " | ")
+	if strings.Contains(got, "rm a") || strings.Contains(got, "removed a") || strings.Contains(got, "cherry") || !strings.Contains(got, "list commands") || !strings.Contains(got, "made a") {
+		t.Errorf("items %q: want the rewound branch's turns gone and the live ones kept", got)
 	}
 }

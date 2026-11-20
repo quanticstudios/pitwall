@@ -413,6 +413,7 @@ func (d *Daemon) setTitle(id string, p Pane, raw string) {
 	if i < 0 {
 		return
 	}
+	t = codexTitle(t, d.st.Panes[i].Cwd)
 	if d.st.Panes[i].TmuxTitle != "" {
 		t = d.st.Panes[i].TmuxTitle
 	}
@@ -553,6 +554,21 @@ func promptTitle(prompt string) string {
 }
 
 const promptRunes = 48
+
+// codexTitle is a Codex title without what the sidebar already says: the
+// status it puts first, "[ . ] Action Required | ", and the folder, cwd's
+// base name, it puts last.
+func codexTitle(t, cwd string) string {
+	if strings.HasPrefix(t, "[") {
+		if _, rest, ok := strings.Cut(t, " | "); ok && strings.Contains(t[:len(t)-len(rest)], "] ") {
+			t = rest
+		}
+	}
+	if base := filepath.Base(cwd); cwd != "" && base != "." && base != string(filepath.Separator) {
+		t = strings.TrimSuffix(t, " | "+base)
+	}
+	return t
+}
 
 // cleanTitle strips the spinner and status glyphs agents put before their
 // title (Codex a braille spinner, Claude Code ✳ and its kin) and spaces.

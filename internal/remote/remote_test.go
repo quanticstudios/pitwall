@@ -366,6 +366,7 @@ func TestRequests(t *testing.T) {
 			{ID: "r1", RequestType: session.RequestCommand, Detail: str("Run it"), Request: &session.ToolRequest{ToolName: "Bash", Command: "deploy --token=hunter2"}},
 			{ID: "r2", RequestType: session.RequestPlan, Detail: str("1. Fix\n2. Test")},
 			{ID: "r3", RequestType: session.RequestFileChange, Request: &session.ToolRequest{ToolName: "Edit", FilePath: "a.go"}},
+			{ID: "r4", RequestType: session.RequestCommand, Request: &session.ToolRequest{ToolName: "Bash", Command: "ls"}, NoSession: true},
 		},
 		PendingUserInputs: []session.InputRequest{{ID: "i1", Questions: []session.Question{{ID: "q", Prompt: "Use hunter2?", Options: []session.PromptOption{{ID: "y", Label: "Yes"}}}}}},
 	}
@@ -374,6 +375,7 @@ func TestRequests(t *testing.T) {
 		{ID: "r1", Kind: "approval", Detail: "Run it", Tool: "Bash", Command: "deploy --token=…"},
 		{ID: "r2", Kind: "plan", Detail: "1. Fix\n2. Test"},
 		{ID: "r3", Kind: "approval", Tool: "Edit", Path: "a.go"},
+		{ID: "r4", Kind: "approval", Tool: "Bash", Command: "ls", NoSession: true}, // the page leaves out Allow for session
 		{ID: "i1", Kind: "input", Questions: []session.Question{{ID: "q", Prompt: "Use …?", Options: []session.PromptOption{{ID: "y", Label: "Yes"}}}}},
 	}
 	if !reflect.DeepEqual(got, want) {

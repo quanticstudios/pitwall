@@ -21,6 +21,8 @@ func TestClaudeSettings(t *testing.T) {
 		{"  ⎿  Set model to Opus private text\n  ⎿  Set effort level to secret\n────────\n❯ \n────────", "", ""},
 		{"  ⎿  Set model to Opus 5.5 (1M context) and saved as your default for new sessions\n────────\n❯ \n────────", "Opus 5.5 1M", ""},
 		{"  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n────────\n❯ \n────────", "Haiku 5.5", "medium"},
+		// Claude Code 2.1.329: a space and a no-break space after ⎿.
+		{"  ⎿ \u00a0Set model to Sonnet 5.5 for this session only\n  ⎿ \u00a0Set effort level to high (this session only)\n────────\n❯ \n────────", "Sonnet 5.5", "high"},
 		{"  ⎿  Set model to Opus 5.5 (default) for this session only\n────────\n❯ \n────────", "Opus 5.5", ""},
 		{"  ⎿  Set model to Sonnet 5.5 for this session only\n  ⎿  Kept model as Opus 5.5 (default)\n────────\n❯ \n────────", "Opus 5.5", ""},
 		{"  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high\n  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n────────\n❯ \n────────", "Haiku 5.5", "medium"},

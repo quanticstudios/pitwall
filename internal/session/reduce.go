@@ -123,7 +123,7 @@ func next(s Snapshot, e Event) (Snapshot, bool) {
 			}
 		}
 	case EventRequestOpened:
-		a := Approval{ID: e.RequestID, Request: e.Request, RequestType: e.RequestType}
+		a := Approval{ID: e.RequestID, Request: e.Request, RequestType: e.RequestType, NoSession: e.NoSession}
 		if e.Detail != "" {
 			a.Detail = ptr(e.Detail)
 		}

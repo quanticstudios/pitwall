@@ -70,7 +70,7 @@ func (u *ui) chatActions(id string, acts []panel.MessageAction, pane bool, cmp *
 				turn = a.Item
 			}
 			u.send(proto.ChatRewind{Chat: id, Turn: turn, KeepFiles: true})
-			cmp.SetText(a.Text)
+			cmp.AwaitRewind(turn, a.Text) // a refused rewind leaves the box as it was
 		case panel.ActFork:
 			u.send(proto.ChatFork{Chat: id, Turn: a.Turn})
 		}

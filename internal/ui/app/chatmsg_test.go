@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -64,8 +65,18 @@ func TestChatActionsRewind(t *testing.T) {
 		if got := b.Sent(); len(got) != 1 || got[0] != (proto.ChatRewind{Chat: "c", Turn: tc.turn, KeepFiles: true}) {
 			t.Errorf("pane %v: sent %v, want a rewind of %s", tc.pane, got, tc.turn)
 		}
+		// The prompt comes back only once the rewind went through: a
+		// refused one leaves the box as it was.
+		cmp.SetText("my draft")
+		rewind := proto.ChatRewind{Chat: "c", Turn: tc.turn, KeepFiles: true}
+		cmp.Result(chatin.Result{Req: rewind, Message: "Claude Code's rewind list shows this message like a later one"}, time.Now())
+		if cmp.Text() != "my draft" {
+			t.Errorf("pane %v: composer %q after a refused rewind, want the draft kept", tc.pane, cmp.Text())
+		}
+		u.chatActions("c", acts, tc.pane, &cmp)
+		cmp.Result(chatin.Result{Req: rewind}, time.Now())
 		if cmp.Text() != "and also this" {
-			t.Errorf("pane %v: composer %q", tc.pane, cmp.Text())
+			t.Errorf("pane %v: composer %q after the rewind went through", tc.pane, cmp.Text())
 		}
 	}
 }

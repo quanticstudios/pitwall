@@ -346,3 +346,12 @@ func TestOneLine(t *testing.T) {
 		t.Fatalf("long header kept %d runes", len([]rune(long)))
 	}
 }
+
+// ExitPlanMode's row names the plan by its title, not its heading's #.
+func TestPlanRow(t *testing.T) {
+	c := &session.ToolCall{ToolName: "ExitPlanMode", Input: []byte(`{"plan":"# Plan: add greeting.txt\n\n## Steps\n1. write it"}`)}
+	v := describe(c, toolSummary{verb: c.ToolName}, "")
+	if v.verb != "Plan" || v.arg != "Plan: add greeting.txt" {
+		t.Errorf("row %q %q: want Plan and the plan's title", v.verb, v.arg)
+	}
+}

@@ -147,13 +147,18 @@ type keyAction struct {
 }
 
 // actionFor maps key name to an answer. An approval waiting takes 1, 2
-// and 3; else a question takes its option numbers, one more for the
-// free-text row, and Enter.
-func actionFor(name string, approval bool, options int) (keyAction, bool) {
+// and 3, or 1 and 2 when its prompt offers no Allow for this session
+// (noSession), as its card numbers them; else a question takes its
+// option numbers, one more for the free-text row, and Enter.
+func actionFor(name string, approval, noSession bool, options int) (keyAction, bool) {
 	no := keyAction{option: -1}
 	if approval {
-		switch name {
-		case "1", "2", "3":
+		switch {
+		case noSession && name == "2":
+			return keyAction{decision: "deny", option: -1}, true
+		case noSession && name == "3":
+			return no, false
+		case name == "1" || name == "2" || name == "3":
 			return keyAction{decision: decisions[name[0]-'1'], option: -1}, true
 		}
 		return no, false

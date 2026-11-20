@@ -135,6 +135,20 @@ func TestCleanTitle(t *testing.T) {
 	}
 }
 
+// Codex's title loses its status and its folder, which the sidebar shows.
+func TestCodexTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"[ . ] Action Required | Append a line | repo": "Append a line",
+		"Append a line | repo":                         "Append a line",
+		"Fix A | B":                                    "Fix A | B",
+		"[draft] notes":                                "[draft] notes",
+	} {
+		if got := codexTitle(in, "/src/repo"); got != want {
+			t.Errorf("codexTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestFolderTitleFallsBackToPrompt(t *testing.T) {
 	w := &model.Workspace{Path: "/src/repo"}
 	for _, title := range []string{"/src/repo", "/src/repo/internal", "~/src/repo", "./internal", "../repo", `C:\src\repo`, "C:/src/repo", `\\box\repo`} {

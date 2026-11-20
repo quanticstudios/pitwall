@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -328,6 +329,7 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	default:
 		pc.reduce(pc.tr.Resolve())
 	}
+	pc.offers(l)
 	// Claude Code marks a turn's end in the transcript; a hook saying the
 	// agent stopped after the turn began ends one it did not mark.
 	// why: a background task's end marks the agent done just as the turn its notification wakes begins.
@@ -373,6 +375,32 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	return rerr
 }
 
+// offers marks the approval the pane waits on with what its prompt
+// offers: one with no Allow for this session, as Claude Code's prompt for
+// a hook that asks, has the card leave that button out. l.act.Buttons are
+// the offers checkForms read off the screen. A hook's reason for asking,
+// which Claude Code prints over the prompt, becomes the approval's detail,
+// the card's line under the command. Callers hold pc.mu.
+func (pc *paneChat) offers(l paneLive) {
+	a := l.act
+	if a.State != model.StatePendingApproval {
+		return
+	}
+	no := !slices.Contains(a.Buttons, agent.AllowAlways)
+	reason := ""
+	if pc.prov == model.ProviderClaude && l.p != nil {
+		reason = agent.HookReason(l.p.Snapshot())
+	}
+	for _, ap := range pc.snap.PendingApprovals {
+		detail := cmp.Or(reason, value(ap.Detail))
+		if ap.RequestType == session.RequestPlan || ap.NoSession == no && value(ap.Detail) == detail {
+			continue
+		}
+		pc.reduce([]session.Event{{Type: session.EventRequestOpened, RequestID: ap.ID, RequestType: ap.RequestType,
+			Request: ap.Request, Detail: detail, NoSession: no}})
+	}
+}
+
 // A pane chat reads its transcript from the end: tailBytes back, to the
 // prompt of the turn with the tailItems-th chat line from the end or to
 // the last compaction, and the history before that in pages of the same
@@ -401,6 +429,9 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 	retail := pc.off == 0 || end < pc.off || end-pc.off > tailBytes || pc.off-pc.tailOff > retailBytes || len(pc.snap.Content)-pc.tailLen > retailItems
 	if retail {
 		start, err := tailStart(f, end, markOf(pc.prov))
+		if err == nil && pc.prov != model.ProviderCodex {
+			start, err = rewoundStart(f, start, end)
+		}
 		if err != nil {
 			return err
 		}
@@ -409,6 +440,7 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
 		pc.start, pc.off, pc.pages, pc.agents, pc.at, pc.lineAt, pc.tip = start, start, nil, nil, nil, nil, ""
+		pc.tui = phoneSettings{}                             // the new snapshot lacks the TUI's model until settings puts it back
 		defer func() { pc.recent, pc.recentSize = nil, 0 }() // no reader holds what this replays: each gets a snapshot
 	}
 	b := make([]byte, end-pc.off)
@@ -444,7 +476,8 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			case es[i].Type == session.EventTurnStarted:
 				pc.replied = false
 			case es[i].Type == session.EventContent && es[i].Kind != session.KindSystem:
-				pc.replied = true
+				// why: a background shell's end notice updates a call an earlier turn made; that is no reply in this one.
+				pc.replied = pc.replied || es[i].Kind != session.KindToolCall || !slices.ContainsFunc(pc.snap.Content, func(it session.Item) bool { return it.ID == es[i].ItemID })
 			}
 			// A turn's usage report says the context as the meter reads it.
 			if es[i].Type == session.EventUsage && pc.ctx > 0 {
@@ -715,11 +748,14 @@ func contextUsage(line []byte) (int64, string, bool) {
 	return t, l.Message.Model, t > 0
 }
 
-// contextWindow is a Claude model's context window: 1M for a [1m] model id
-// or one the TUI names "… 1M", else 200K.
-// shortcut: 200K is Claude Code's window for every other model today; read the TUI's own total if a model's differs.
+// contextWindow is a Claude model's context window: 1M for a [1m] model id,
+// one the TUI names "… 1M", or Sonnet 5.5, which Claude Code 2.1.329's
+// /context gives 1M; else 200K.
+// shortcut: a table of what Claude Code shows today; read the TUI's own total if a model's differs.
 func contextWindow(model, tui string) int64 {
-	if strings.HasSuffix(strings.ToLower(model), "[1m]") || strings.HasSuffix(tui, " 1M") {
+	m := strings.ToLower(model)
+	if strings.HasSuffix(m, "[1m]") || strings.HasSuffix(tui, " 1M") ||
+		strings.HasPrefix(m, "claude-sonnet-5-5") || strings.HasPrefix(tui, "Sonnet 5.5") {
 		return 1_000_000
 	}
 	return 200_000
