@@ -25,6 +25,11 @@ takes `--dry-run`.
 ## Unreleased
 
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
+- A TUI pane chat's snapshot and pages stay under 4 MB, as a New task chat's do, with older items a scroll up, and an item opened whole stays under 16 MB. A pane chat that grew large could send a reply so big that the window lost its connection to the daemon.
+- A chat whose newest item is over 4 MB even once cut, such as a call with a huge nested input, shows that item instead of an empty transcript that pages forever.
+- A TUI pane chat whose last turn holds thousands of calls reads its transcript once, not again on every refresh, and a slow chat read no longer holds up keys sent to the daemon after it.
+- The daemon no longer crashes, closing every pane, when a TUI pane chat's transcript is rewritten shorter: the chat reads it again from the start.
+- A subagent that makes hundreds of calls no longer fills the daemon's memory and a chat's event log: a subagent card keeps its newest 20 calls, and its count still says them all. A chat keeps 1 MB of recent changes at most.
 - A TUI pane chat shows the permission mode Claude Code runs in, Bypass included, while Claude works too: it read the footer only while Claude waited, so a chat opened mid-turn said Default. The mode picker cycles mid-turn too.
 - The desktop chat draws everything in a Claude Code conversation natively, in New task chats and TUI pane chats alike, and no markup shows as text:
   - A task list (TodoWrite, TaskCreate and TaskUpdate, Codex's plan) is a checklist card with "3 of 7" and the running task's active form. It updates in place. While a turn runs, a strip above the composer shows the task in progress; click it to see the whole list.

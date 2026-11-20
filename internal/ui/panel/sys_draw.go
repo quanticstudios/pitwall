@@ -656,7 +656,7 @@ func (d *cdraw) agentCalls(gtx layout.Context, it *session.Item, open bool) layo
 		icon(gtx, image.Pt(x+gtx.Dp(1), (hh-gtx.Dp(12))/2), chev, 12, th.Muted)
 		x += gtx.Dp(14) + gtx.Dp(theme.SpaceS)
 		last := c.SubagentCalls[len(c.SubagentCalls)-1]
-		txt := plural(len(c.SubagentCalls), "call")
+		txt := plural(agentCalls(c), "call") // SubagentCalls keeps only the newest
 		if c.Status == "running" {
 			txt += " · " + summarize(&last, nil, time.Time{}, d.t.now).verb
 		}

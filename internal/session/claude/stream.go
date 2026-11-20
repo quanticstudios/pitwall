@@ -418,8 +418,8 @@ func (s *stream) assistant(l line) []session.Event {
 }
 
 // subagent adds a subagent's tool calls to its Task call, as aide does,
-// and their inputs to its SubagentCalls; its text stays out of the
-// transcript.
+// and their inputs to its SubagentCalls, which keeps the newest
+// (session.KeepSubagentCalls); its text stays out of the transcript.
 func (s *stream) subagent(parent string, blocks []block) []session.Event {
 	t, ok := s.call(parent)
 	n := len(t.SubagentTools)
@@ -434,6 +434,7 @@ func (s *stream) subagent(parent string, blocks []block) []session.Event {
 	if !ok || len(t.SubagentTools) == n {
 		return nil
 	}
+	t.SubagentCalls = session.KeepSubagentCalls(t.SubagentCalls)
 	return s.put(t)
 }
 

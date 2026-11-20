@@ -698,7 +698,7 @@ goes unreported.
 | `assistant` text block | `content.delta` with only the text not yet streamed |
 | `assistant` `usage`, main thread, after a `result` | `session.usage.updated`: the last result's counts with the new `contextTokens`, when it changed |
 | `assistant` `tool_use` block | `content.delta` tool-call, item id the `tool_use` id, `Tool{status: running}`; `TodoWrite`, `TaskCreate` and `TaskUpdate` fill `Tool.Tasks` with the whole list after the call, which the session keeps for the last two |
-| `assistant` or `user` with `parent_tool_use_id` | the subagent's calls on its `Task`/`Agent` call: `SubagentTools` names them, `SubagentCalls` holds each with its status and up to 8 KB of output |
+| `assistant` or `user` with `parent_tool_use_id` | the subagent's calls on its `Task`/`Agent` call: `SubagentTools` names them, `SubagentCalls` holds the newest 20 (64 KB of inputs and outputs at most) with their status and up to 8 KB of output each |
 | `user` `tool_result` | that tool's `content.delta`: status completed, or failed when `is_error`, output the result text. A subagent whose `tool_use_result.status` is `async_launched` stays running until its `system/task_notification`, maybe turns later |
 | `user` text `<local-command-stdout>` | a `system` item, phase `output`; `/model` and `/effort`'s become phase `setting` ("Switched to …"), and `/compact`'s "Compacted" none |
 | `user` text after `system/compact_boundary` | the summary, added to the compaction's item |
