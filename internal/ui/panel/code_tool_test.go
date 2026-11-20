@@ -42,11 +42,14 @@ func TestToolHighlight(t *testing.T) {
 	}
 }
 
-// TestReadLinesTrimmedEnd: Read's empty last line, its tab trimmed away,
-// is line 8 with no text, not a line that reads "8".
+// TestReadLinesTrimmedEnd: Read's empty last line, which comes trimmed
+// to its number, is left out, as readRange leaves it out of the count.
 func TestReadLinesTrimmedEnd(t *testing.T) {
-	ls := readLines("     7\t}\n     8")
-	if len(ls) != 2 || ls[1].new != 8 || ls[1].text != "" {
+	ls := readLines("     6\t\tfmt.Println()\n     7\t}\n     8")
+	if len(ls) != 2 || ls[1].new != 7 || ls[1].text != "}" {
 		t.Fatalf("%+v", ls)
+	}
+	if ls := readLines("42"); len(ls) != 1 || ls[0].text != "42" {
+		t.Fatalf("a lone number is output, kept: %+v", ls)
 	}
 }

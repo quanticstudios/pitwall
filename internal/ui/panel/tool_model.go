@@ -430,7 +430,7 @@ var exitCodeLine = regexp.MustCompile(`^Exit code -?\d+$`)
 
 // readLine is a line of Read's output: cat -n's number, an arrow or a
 // tab, the text.
-var readLine = regexp.MustCompile(`^\s*(\d+)(?:(?:→|\t)(.*))?$`) // a last empty line comes trimmed to its number
+var readLine = regexp.MustCompile(`^\s*(\d+)(?:→|\t)(.*)$`)
 
 // readRange is the first and last line numbers Read's output shows,
 // false when it does not number its lines.
@@ -463,8 +463,13 @@ func readLines(out string) []monoLine {
 		}
 		ml = append(ml, monoLine{text: l})
 	}
+	if n := len(ml); n > 1 && ml[n-2].new > 0 && bareNumber.MatchString(ml[n-1].text) {
+		ml = ml[:n-1] // the empty line after the file's last newline, its tab trimmed
+	}
 	return ml
 }
+
+var bareNumber = regexp.MustCompile(`^\s*\d+$`)
 
 // prettyJSON is s indented when it is JSON, else s.
 func prettyJSON(s string) string {
