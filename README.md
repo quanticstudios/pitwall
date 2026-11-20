@@ -45,7 +45,7 @@ On a Linux server or in a container, `get.sh | sh -s -- --core` installs
 no GUI library to install. See
 [Servers and containers](docs/install.md#servers-and-containers).
 
-## Desktop chat for Claude Code
+## Desktop chat for Claude Code, Codex and Antigravity
 
 **Every pane that runs Claude Code shows it as a desktop chat.** Type
 `claude` in any shell, or `claude --dangerously-skip-permissions`, or your
@@ -54,6 +54,10 @@ session's transcript and draws it as a chat. The chat and the TUI are two
 views of the same running claude, so nothing restarts and its flags stay in
 effect, bypass permissions included. Alt+T flips the pane between them, even
 mid-turn.
+
+Codex and Antigravity panes become the chat the same way: type `codex` or
+`agy` in a shell, and the pane turns into a chat once its first hook names
+the session.
 
 <img src="docs/media/chat.webp" alt="The pitwall window with a Claude Code chat mid-turn in the Failed deliveries page tab. An Effort set to high divider sits above the prompt, which asks for a Failed deliveries page with the dead-lettered webhooks, their last error and a Retry button. The open work log, Working for 3m 05s · 3 tools, holds Thought for 4s, Start the dev server running npm run dev in the background, and two Explore subagent cards: Find the dashboard's delivery queries, done in 22s with its answer, and Find how the API could requeue a delivery, running for 2m 54s with its 4 calls folded inside. Below it, a Tasks card reads 1 of 5, with Start the dev server crossed off and Finding how the dashboard reads deliveries in progress, then Claude's note that useDeliveries(status) already filters by status. Above the composer, a strip shows the task in progress, 1 of 5. The composer reads Type to queue a follow-up, with Bypass permissions in red, Opus 5.5, High, the context meter at 23% and a Stop button" width="800">
 
