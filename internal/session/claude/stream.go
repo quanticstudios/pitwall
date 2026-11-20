@@ -165,9 +165,8 @@ type streamEvent struct {
 		Type string `json:"type"`
 	} `json:"content_block"`
 	Delta struct {
-		Type     string `json:"type"`
-		Text     string `json:"text"`
-		Thinking string `json:"thinking"`
+		Type string `json:"type"`
+		Text string `json:"text"`
 	} `json:"delta"`
 }
 
@@ -364,14 +363,12 @@ func (s *stream) streamEvent(l line) []session.Event {
 	if l.Event.Type != "content_block_delta" {
 		return nil
 	}
-	d := l.Event.Delta
-	switch {
-	case d.Type == "text_delta" && d.Text != "":
+	// A thinking block's text waits for its finished line: only that
+	// line's signature says whether the text is a summary, and a summary
+	// must never show as thinking, not even while it streams.
+	if d := l.Event.Delta; d.Type == "text_delta" && d.Text != "" {
 		s.streamed[id] += len(d.Text)
 		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindAssistantText, Model: s.contextModel, Text: d.Text}}
-	case d.Type == "thinking_delta" && d.Thinking != "":
-		s.streamed[id] += len(d.Thinking)
-		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindReasoningText, Model: s.contextModel, Text: d.Thinking}}
 	}
 	return nil
 }

@@ -149,9 +149,11 @@ func TestStreamHarness(t *testing.T) {
 	}
 }
 
-// TestPartialMessages: thinking and text deltas each grow their item in
-// order as they stream, and the finished assistant lines then add nothing:
-// one reasoning item and one text item, each with the whole block once.
+// TestPartialMessages: text deltas grow their item as they stream and its
+// finished line adds nothing; thinking deltas show nothing, as only the
+// finished line's signature tells a summary from thinking, so that line
+// adds the whole block: one reasoning item and one text item, each with
+// the whole block once.
 func TestPartialMessages(t *testing.T) {
 	s := newStream("SESSION")
 	s.turn = "turn-1"
@@ -162,6 +164,7 @@ func TestPartialMessages(t *testing.T) {
 	snap := base()
 	var grown []string
 	for _, l := range []string{
+		`{"type":"stream_event","api_message_id":"msg_1","session_id":"SESSION","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}}`,
 		delta(0, "thinking_delta", "thinking", "Let me "),
 		delta(0, "thinking_delta", "thinking", "count."),
 		delta(1, "text_delta", "text", "One, "),
@@ -169,16 +172,18 @@ func TestPartialMessages(t *testing.T) {
 		delta(1, "text_delta", "text", "three."),
 	} {
 		snap, _ = reduce(t, s, snap, l)
-		grown = append(grown, snap.Content[len(snap.Content)-1].Text)
+		for _, it := range snap.Content {
+			grown = append(grown, string(it.Kind)+":"+it.Text)
+		}
 	}
-	if want := []string{"Let me ", "Let me count.", "One, ", "One, two, ", "One, two, three."}; !reflect.DeepEqual(grown, want) {
+	if want := []string{"reasoning-text:", "reasoning-text:", "reasoning-text:", "reasoning-text:", "assistant-text:One, ", "reasoning-text:", "assistant-text:One, two, ", "reasoning-text:", "assistant-text:One, two, three."}; !reflect.DeepEqual(grown, want) {
 		t.Fatalf("grew %q, want %q", grown, want)
 	}
 	snap, events := reduce(t, s, snap,
 		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5-5","content":[{"type":"thinking","thinking":"Let me count."}]},"session_id":"SESSION","uuid":"a-1"}`,
 		`{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"One, two, three."}]},"session_id":"SESSION","uuid":"a-2"}`)
-	if len(events) != 0 {
-		t.Fatalf("finished lines emitted %+v", events)
+	if len(events) != 1 || events[0].Text != "Let me count." {
+		t.Fatalf("finished lines emitted %+v, want the thinking block once", events)
 	}
 	var got []string
 	for _, it := range snap.Content {

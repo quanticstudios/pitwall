@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -384,4 +385,64 @@ func TestTranscriptFollow(t *testing.T) {
 	s.Content[len(s.Content)-1].Text += "\n\ngrows after the send"
 	frame()
 	atEnd("growth after ToEnd")
+}
+
+// TestTranscriptRunningFold: a running turn's work log starts folded and
+// new calls, thinking and summaries do not open it. The user's click
+// sticks, open or closed, across new events, a reconnect's fresh
+// snapshot and the turn's end.
+func TestTranscriptRunningFold(t *testing.T) {
+	th := theme.Dark()
+	turn := "t1"
+	s := &session.Snapshot{SessionID: "0123456789abcdef", SessionState: session.StateRunning, Running: true, Turns: []session.TurnSummary{{ID: turn, State: session.TurnRunning}}}
+	add := func(s *session.Snapshot, it session.Item) {
+		it.TurnID = &turn
+		s.Content = append(s.Content, it)
+	}
+	s.Content = append(s.Content, session.Item{ID: "p", Kind: session.KindUserPrompt, Text: "fix the build"})
+	add(s, session.Item{ID: "r0", Kind: session.KindReasoningText})
+	add(s, session.Item{ID: "c0", Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: "go build ./...", Status: "running"}})
+	var tr Transcript
+	var ops op.Ops
+	now := time.Now()
+	frame := func(s *session.Snapshot) bool {
+		transcriptFrame(&tr, th, s, &ops, now)
+		transcriptFrame(&tr, th, s, &ops, now)
+		if len(tr.rows) < 2 || tr.rows[1].seg != segHead {
+			t.Fatalf("%d rows, want the prompt and the log's header", len(tr.rows))
+		}
+		return tr.rows[1].open
+	}
+	if frame(s) {
+		t.Fatal("a running turn's log starts open")
+	}
+	s.Content[2].Tool.Status = "completed"
+	add(s, session.Item{ID: "r1", Kind: session.KindReasoningText, Phase: session.PhaseSummary, Text: "The build fails in vt."})
+	add(s, session.Item{ID: "c1", Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: "go test ./internal/vt", Status: "running"}})
+	if frame(s) {
+		t.Fatal("new events opened the log")
+	}
+	click := func() { tr.clicks[logID(s, tr.rows[1].b)].Click() }
+	click()
+	if !frame(s) {
+		t.Fatal("the user's click did not open the log")
+	}
+	add(s, session.Item{ID: "r2", Kind: session.KindReasoningText})
+	if !frame(s) {
+		t.Fatal("a new event closed the log the user opened")
+	}
+	again := *s // a reconnect: the same chat in a fresh snapshot
+	again.Content = slices.Clone(s.Content)
+	if !frame(&again) {
+		t.Fatal("a reconnect closed the log the user opened")
+	}
+	click()
+	if frame(&again) {
+		t.Fatal("the user's second click did not close the log")
+	}
+	again.Turns = []session.TurnSummary{{ID: turn, State: session.TurnCompleted}}
+	again.SessionState, again.Running = session.StateReady, false
+	if frame(&again) {
+		t.Fatal("the turn's end opened the log the user closed")
+	}
 }

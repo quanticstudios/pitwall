@@ -3,6 +3,7 @@ package panel
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 )
@@ -84,4 +85,29 @@ func toolKinds(content []session.Item, lo, hi int) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// logStatus is the one line a running work log's header shows after its
+// counts: the turn's newest summary, else its newest running call as its
+// row says it, "Bash · go test ./...". dir shortens a call's path. "" for
+// neither.
+func logStatus(content []session.Item, lo, hi int, dir string) string {
+	call := ""
+	for i := hi - 1; i >= lo; i-- {
+		it := &content[i]
+		if isSummary(it) && strings.TrimSpace(it.Text) != "" {
+			return firstLine(it.Text)
+		}
+		if c := it.Tool; call == "" && it.Kind == session.KindToolCall && c != nil && c.Status == "running" && !isTodo(c) {
+			v := summarize(c, nil, time.Time{}, time.Time{})
+			if v.path {
+				v.arg = relPath(dir, v.arg)
+			}
+			call = v.verb
+			if a := firstLine(v.arg); a != "" {
+				call += " · " + a
+			}
+		}
+	}
+	return call
 }
