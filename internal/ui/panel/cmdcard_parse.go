@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // A local command's output read as a card: /context's window by
@@ -61,6 +63,9 @@ type useCard struct {
 	cost    string
 	models  []useModel
 	rows    []detailRow
+	// contrib is "What's contributing to your usage?": a section per
+	// period, a row per suggestion with its share.
+	contrib []detailSection
 }
 
 // statusCard is /status: its fields in order.
@@ -68,13 +73,14 @@ type statusCard struct{ rows []detailRow }
 
 var (
 	tokenNum  = `~?[0-9]+(?:\.[0-9]+)?[kKmM]?`
-	ctxCatRe  = regexp.MustCompile(`^(.+?): (` + tokenNum + `) tokens \(([0-9.]+)%\)$`)
+	ctxCatRe  = regexp.MustCompile(`^(.+?): (` + tokenNum + `) tokens \(<?([0-9.]+)%\)$`)
 	ctxTotRe  = regexp.MustCompile(`^(` + tokenNum + `) ?/ ?(` + tokenNum + `)(?: tokens)? \(([0-9.]+)%\)$`)
 	ctxRowRe  = regexp.MustCompile(`^[└├]\s*(.+?)(?::\s+(` + tokenNum + ` tokens))?$`)
 	kvRe      = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9 ()/.,'-]{0,40}?):\s+(\S.*)$`)
 	windowRe  = regexp.MustCompile(`^(.+?): ([0-9]+(?:\.[0-9]+)?)% used(?: · [Rr]esets (.+?))?$`)
 	zoneRe    = regexp.MustCompile(` \([A-Za-z_]+/[A-Za-z_/+-]+\)$`)
 	modelRe   = regexp.MustCompile(`^(\S+):\s+(` + tokenNum + `) input, (` + tokenNum + `) output, (` + tokenNum + `) cache read, (` + tokenNum + `) cache write(?: \((\$[0-9.]+)\))?$`)
+	shareRe   = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?%)\s+(\S.*)$`)
 	costRe    = regexp.MustCompile(`^(?:Estimated|Total) cost:\s+(\$[0-9.,]+)`)
 	gridRunes = "⛀⛁⛂⛃⛶⛝⛿"
 )
@@ -128,7 +134,7 @@ func (c ctxCard) ok() bool { return c.window > 0 && len(c.cats) > 0 }
 
 func contextTUI(ls []string) (ctxCard, bool) {
 	var c ctxCard
-	i := 0
+	i, inCats := 0, false
 	for ; i < len(ls); i++ {
 		t := strings.TrimSpace(strings.Trim(ls[i], gridRunes+" \t"))
 		if t == "" && strings.TrimSpace(ls[i]) == "" {
@@ -150,7 +156,11 @@ func contextTUI(ls []string) (ctxCard, bool) {
 			c.used, _ = parseTokens(m[1])
 			c.window, _ = parseTokens(m[2])
 			c.pct, _ = strconv.ParseFloat(m[3], 64)
-		case t == "" || t == "Estimated usage by category":
+		case t == "Estimated usage by category":
+			inCats = true
+		case t == "":
+		case inCats:
+			return ctxCard{}, false // a category in a shape not known
 		case c.model == "":
 			c.model = t
 		}
@@ -254,9 +264,33 @@ func contextMarkdown(ls []string) (ctxCard, bool) {
 // makes it no card.
 func parseUsage(out string) (useCard, bool) {
 	var c useCard
+	contrib := false // in "What's contributing to your usage?"
 	for _, l := range plainLines(out) {
 		t := strings.TrimSpace(l)
-		if t == "" || t == "Usage by model:" || t == "Session" {
+		if t == "" || t == "Session" {
+			continue
+		}
+		if t == "Usage by model:" || costRe.MatchString(t) || modelRe.MatchString(t) {
+			contrib = false
+		}
+		if t == "Usage by model:" {
+			continue
+		}
+		if t == "What's contributing to your usage?" {
+			contrib = true
+			continue
+		}
+		if contrib {
+			switch m := shareRe.FindStringSubmatch(t); {
+			case strings.HasPrefix(t, "Approximate"):
+				c.contrib = append(c.contrib, detailSection{title: "What's contributing", note: strings.TrimPrefix(strings.TrimPrefix(t, "Approximate"), " · ")})
+			case m != nil && len(c.contrib) > 0:
+				s := &c.contrib[len(c.contrib)-1]
+				s.rows = append(s.rows, detailRow{name: m[2], value: m[1]})
+			default:
+				title, note, _ := strings.Cut(t, " · ")
+				c.contrib = append(c.contrib, detailSection{title: title, note: note})
+			}
 			continue
 		}
 		if m := windowRe.FindStringSubmatch(t); m != nil {
@@ -307,4 +341,26 @@ func parseStatus(out string) (statusCard, bool) {
 		c.rows = append(c.rows, detailRow{name: m[1], value: strings.TrimSpace(m[2])})
 	}
 	return c, known && len(c.rows) >= 2
+}
+
+// aloneInTurn is whether item i, a command's output, is all its turn has
+// besides its prompt and other harness items: stream-json runs each local
+// command as a turn, whose output then stands on its own, not in a work
+// log.
+func aloneInTurn(content []session.Item, i int) bool {
+	t := deref(content[i].TurnID)
+	quiet := func(j int) bool {
+		return content[j].Kind == session.KindSystem || content[j].Kind == session.KindUserPrompt
+	}
+	for j := i - 1; j >= 0 && deref(content[j].TurnID) == t; j-- {
+		if !quiet(j) {
+			return false
+		}
+	}
+	for j := i + 1; j < len(content) && deref(content[j].TurnID) == t; j++ {
+		if !quiet(j) {
+			return false
+		}
+	}
+	return true
 }

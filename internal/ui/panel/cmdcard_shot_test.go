@@ -16,7 +16,7 @@ func cardChat(t *testing.T) *session.Snapshot {
 	at := func(s int) string { return time.Date(2026, 11, 19, 14, 0, s, 0, time.UTC).Format(time.RFC3339Nano) }
 	s := &session.Snapshot{SessionID: "c1", SessionState: session.StateReady}
 	for i, c := range []struct{ cmd, file string }{
-		{"/usage", "usage-stream.txt"}, {"/cost", "cost-tui.txt"}, {"/context", "context-tui.txt"},
+		{"/usage", "usage-stream.txt"}, {"/usage", "usage-history.txt"}, {"/cost", "cost-tui.txt"}, {"/context", "context-tui.txt"},
 		{"/context", "context-md.txt"}, {"/status", "status.txt"}, {"/doctor", ""},
 	} {
 		out := "All checks passed"

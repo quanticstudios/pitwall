@@ -428,6 +428,7 @@ func (d *cdraw) usageParts(id string, c useCard) []layout.Widget {
 	if len(c.rows) > 0 {
 		secs = append(secs, detailSection{title: "Session", rows: c.rows})
 	}
+	secs = append(secs, c.contrib...)
 	if len(secs) > 0 {
 		parts = append(parts, d.fold(id, d.details(id, secs)))
 	}

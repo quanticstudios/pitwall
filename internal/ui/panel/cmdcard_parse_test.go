@@ -2,6 +2,7 @@ package panel
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -47,6 +48,21 @@ func TestParseContextTUI(t *testing.T) {
 	}
 }
 
+// A share under 0.1% prints as "<0.1%".
+func TestParseContextMemory(t *testing.T) {
+	c, ok := parseContext(cardFixture(t, "context-tui-memory.txt"))
+	if !ok {
+		t.Fatal("no card")
+	}
+	i := slices.IndexFunc(c.cats, func(k ctxCat) bool { return k.name == "Memory files" })
+	if i < 0 || c.cats[i].tokens != 25 || c.cats[i].pct != 0.1 || len(c.cats) != 8 {
+		t.Errorf("categories %+v", c.cats)
+	}
+	if len(c.details) != 4 || c.details[2].title != "Memory files" || c.details[2].rows[0].name != "1 file · 25 tokens" {
+		t.Errorf("sections %+v", c.details)
+	}
+}
+
 func TestParseContextMarkdown(t *testing.T) {
 	c, ok := parseContext(cardFixture(t, "context-md.txt"))
 	if !ok {
@@ -77,6 +93,14 @@ func TestParseUsage(t *testing.T) {
 	if m := c.models[0]; m != (useModel{"claude-sonnet-5-5", 2, 7, 13_600, 4_100, "$0.0179"}) {
 		t.Errorf("model %+v", m)
 	}
+	c, ok = parseUsage(cardFixture(t, "usage-history.txt"))
+	if !ok || len(c.windows) != 2 || len(c.models) != 1 || c.cost != "$0.0432" || len(c.contrib) != 3 {
+		t.Fatalf("card with history %+v %v", c, ok)
+	}
+	if s := c.contrib[1]; s.title != "Last 24h" || s.note != "8 requests · 7 sessions" || len(s.rows) != 2 ||
+		s.rows[0] != (detailRow{name: "See what fills your context · run /context", value: "53%"}) {
+		t.Errorf("contributions %+v", s)
+	}
 	c, ok = parseUsage(cardFixture(t, "cost-tui.txt"))
 	if !ok || c.cost != "$0.0604" || len(c.models) != 2 || len(c.rows) != 4 || c.rows[3].name != "Prompt cache (main)" {
 		t.Fatalf("cost card %+v %v", c, ok)
@@ -100,6 +124,7 @@ func TestParseUnknown(t *testing.T) {
 		"Set model to Opus 5.5",
 		// A /context whose header stayed but whose categories changed shape.
 		"Context usage\n⛁ ⛁  Sonnet 5.5\n⛁ ⛁  42.6k/1m tokens (4%)\n⛁ ⛁  System prompt — 3k",
+		"Context usage\n⛁ ⛁  Sonnet 5.5\n⛁ ⛁  42.6k/1m tokens (4%)\n⛁ ⛁  Estimated usage by category\n⛁ ⛁  ⛁ System prompt: 3k tokens (0.3%)\n⛁ ⛁  ⛁ Messages: about 11k",
 		"## Context Usage\n\n**Model:** x\n**Tokens:** lots\n",
 		"## Context Usage\n\n**Model:** x\n**Tokens:** 1k / 2k (50%)\n\n### Estimated usage by category\n\n| Category | Tokens |\n|--|--|\n| A | 1k |\n",
 		// /usage with a line it does not know.

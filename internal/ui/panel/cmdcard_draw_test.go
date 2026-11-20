@@ -3,6 +3,8 @@ package panel
 import (
 	"fmt"
 	"testing"
+
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 func TestCardSummaries(t *testing.T) {
@@ -55,3 +57,24 @@ func TestOutCard(t *testing.T) {
 }
 
 func typeName(v any) string { return fmt.Sprintf("%T", v) }
+
+// stream-json runs a local command as a turn of its own: its output is
+// a block of its own, not a work log; one in a turn with work stays in it.
+func TestOutputBlock(t *testing.T) {
+	t1, t2 := "t1", "t2"
+	content := []session.Item{
+		{ID: "p1", Kind: session.KindUserPrompt, Text: "/context", TurnID: &t1},
+		{ID: "o1", Kind: session.KindSystem, Phase: session.PhaseOutput, Text: "x", TurnID: &t1},
+		{ID: "p2", Kind: session.KindUserPrompt, Text: "go", TurnID: &t2},
+		{ID: "o2", Kind: session.KindSystem, Phase: session.PhaseOutput, Text: "y", TurnID: &t2},
+		{ID: "r2", Kind: session.KindAssistantText, Text: "done", TurnID: &t2},
+	}
+	var kinds []string
+	for _, b := range blocks(content, nil) {
+		kinds = append(kinds, fmt.Sprint(b.kind, ":", content[b.lo].ID))
+	}
+	want := fmt.Sprint([]string{fmt.Sprint(blockPrompt, ":p1"), fmt.Sprint(blockSystem, ":o1"), fmt.Sprint(blockPrompt, ":p2"), fmt.Sprint(blockTurn, ":o2")})
+	if got := fmt.Sprint(kinds); got != want {
+		t.Errorf("blocks %s, want %s", got, want)
+	}
+}
