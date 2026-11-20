@@ -42,10 +42,15 @@ func paneTranscript(t *testing.T, s string) (*Daemon, string, func(proto.ChatRea
 // bigTurn is one turn's prompt and n Bash calls with their results, each
 // result out.
 func bigTurn(n int, out string) string {
+	return `{"type":"user","uuid":"p0","timestamp":"2026-11-18T10:00:00Z","message":{"role":"user","content":"go"}}` + "\n" + calls(0, n, out)
+}
+
+// calls are Bash calls from..from+n of a turn with their results, each
+// result out.
+func calls(from, n int, out string) string {
 	o, _ := json.Marshal(out)
 	var b strings.Builder
-	b.WriteString(`{"type":"user","uuid":"p0","timestamp":"2026-11-18T10:00:00Z","message":{"role":"user","content":"go"}}` + "\n")
-	for i := range n {
+	for i := from; i < from+n; i++ {
 		fmt.Fprintf(&b, `{"type":"assistant","uuid":"a%[1]d","timestamp":"2026-11-18T10:00:01Z","message":{"id":"m%[1]d","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"t%[1]d","name":"Bash","input":{"command":"echo %[1]d"}}]}}
 {"type":"user","uuid":"r%[1]d","timestamp":"2026-11-18T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t%[1]d","content":%[2]s}]}}
 `, i, o)
@@ -226,5 +231,66 @@ func TestWindowBigItem(t *testing.T) {
 	}
 	if from := window(items, 1); from != 0 {
 		t.Fatalf("page window from %d, want 0", from)
+	}
+}
+
+// TestPaneChatWindow: a pane chat's tail grown past snapBytes once cut
+// comes as its newest items up to snapBytes, and pages reach every item
+// once; the turn cut in two has one summary, the newer part's.
+func TestPaneChatWindow(t *testing.T) {
+	out := strings.Repeat("o\n", 20000) // 40 KB, cut to 16
+	_, path, read := paneTranscript(t, bigTurn(50, out))
+	read(proto.ChatRead{})
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 300
+	for i := 50; i < n; i += 50 { // under tailBytes unread a read: it reads on
+		f.WriteString(calls(i, 50, out))
+		read(proto.ChatRead{})
+	}
+	f.Close()
+	first := read(proto.ChatRead{})
+	var s session.Snapshot
+	json.Unmarshal(first.Snapshot, &s)
+	if len(first.Snapshot) > snapBytes+(64<<10) || first.Older == 0 || len(s.Content) == n+1 {
+		t.Fatalf("snapshot %d bytes, %d items, older %d", len(first.Snapshot), len(s.Content), first.Older)
+	}
+	all, turns := s.Content, s.Turns
+	for before := first.Older; before > 0; {
+		p := read(proto.ChatRead{Before: before})
+		var ps session.Snapshot
+		json.Unmarshal(p.Snapshot, &ps)
+		if p.Page != before || p.Older >= before || len(ps.Content) == 0 || len(p.Snapshot) > snapBytes+(64<<10) {
+			t.Fatalf("page before %d: older %d, %d items, %d bytes", before, p.Older, len(ps.Content), len(p.Snapshot))
+		}
+		all, turns, before = append(ps.Content, all...), append(ps.Turns, turns...), p.Older
+	}
+	seen := map[string]bool{}
+	for _, it := range all {
+		if seen[it.ID] {
+			t.Fatalf("%s came twice", it.ID)
+		}
+		seen[it.ID] = true
+	}
+	if len(all) != n+1 || all[0].ID != "p0" || all[len(all)-1].ID != fmt.Sprint("t", n-1) {
+		t.Fatalf("paged %d items, %s to %s", len(all), all[0].ID, all[len(all)-1].ID)
+	}
+	if len(turns) != 1 || turns[0].ID != "p0" {
+		t.Fatalf("turns %+v: want p0 once", turns)
+	}
+}
+
+// TestChatItemBytes: an item asked for whole stays within itemBytes in
+// all, however many of its fields are long.
+func TestChatItemBytes(t *testing.T) {
+	long := strings.Repeat("l", itemBytes)
+	in, _ := json.Marshal(map[string]string{"command": long, "description": long})
+	c := &chat{id: "c", snap: session.Snapshot{SessionID: "c", Content: []session.Item{{ID: "i", Kind: session.KindToolCall,
+		Tool: &session.ToolCall{ToolName: "Bash", Input: in, Output: long, Diff: long}}}}}
+	out, err := c.read(proto.ChatRead{Item: "i"})
+	if err != nil || len(out.Item) > itemBytes+(64<<10) {
+		t.Fatalf("item: %d bytes, %v", len(out.Item), err)
 	}
 }

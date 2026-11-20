@@ -1240,7 +1240,7 @@ func (c *chat) read(r proto.ChatRead) (proto.ChatDeltas, error) {
 		if i < 0 {
 			return out, chatError{"not-found", "item " + r.Item + " is gone from the chat"}
 		}
-		out.Item, _ = json.Marshal(session.Clip(items[i], itemBytes))
+		out.Item = itemJSON(items[i])
 		return out, nil
 	case r.Before > 0:
 		end := min(int(r.Before), len(items))
@@ -1294,6 +1294,17 @@ func keepRecent(recent []session.Delta, size int, dl session.Delta, owed int) ([
 		n, size = n+1, size+len(b)
 	}
 	return slices.Clone(recent[len(recent)-n:]), size
+}
+
+// itemJSON is it as a ChatRead Item reply: each field cut to itemBytes by
+// Clip, and tighter until the whole fits in itemBytes.
+func itemJSON(it session.Item) []byte {
+	for limit := itemBytes; ; limit /= 2 {
+		b, _ := json.Marshal(session.Clip(it, limit))
+		if len(b) <= itemBytes || limit <= session.ClipBytes {
+			return b
+		}
+	}
 }
 
 // deltaJSON is ds as JSON, false when they take more than deltaBytes.
