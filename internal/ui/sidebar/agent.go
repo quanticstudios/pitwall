@@ -192,6 +192,7 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 }
 
 // Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
+// "chevron-up",
 // "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
 // and for the phone app "chevron-left", "chevrons-up-down", "settings",
 // "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server", "panel-right", "ellipsis", and "skillshare", its mark in its own colors, and for
@@ -199,7 +200,7 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
-		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
+		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown, "chevron-up": "m18 15-6-6-6 6",
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
 		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "skillshare": icSkillshare,

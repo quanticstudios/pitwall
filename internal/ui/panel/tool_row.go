@@ -17,6 +17,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/syntax"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -547,6 +548,7 @@ func (d *cdraw) toolBody(it *session.Item, v toolView, out string) layout.Widget
 				plain = append(plain, l.text)
 			}
 			b := monoBox{id: id, lines: lines, nums: 1, head: readHead, copy: strings.Join(plain, "\n")}
+			d.highlight(id, syntax.FromPath(v.arg), b.lines, false)
 			return func(gtx layout.Context) layout.Dimensions { return d.box(gtx, b) }
 		}
 		return d.textBody(id, out)
@@ -646,6 +648,7 @@ func (d *cdraw) diffBox(gtx layout.Context, id string, v toolView, lines []diffL
 		b.title, b.titleMono = "New file · "+plural(len(lines), "line"), false
 		b.copyLabel, b.copy = "Copy", newText(lines)
 	}
+	d.highlight(id, syntax.FromPath(v.arg), b.lines, !v.created)
 	return d.box(gtx, b)
 }
 
