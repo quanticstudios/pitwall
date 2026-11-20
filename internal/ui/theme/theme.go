@@ -355,9 +355,10 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 			errs = append(errs, fmt.Errorf("font.mono_family: %q is not installed; using %s", monoFam, monoFamily))
 		}
 	}
-	for file, w := range map[string]font.Weight{
-		"JetBrainsMonoNerdFont-Regular.ttf": font.Normal,
-		"JetBrainsMonoNerdFont-Bold.ttf":    font.Bold,
+	for file, ff := range map[string]font.Font{ // the italic is code comments'
+		"JetBrainsMonoNerdFont-Regular.ttf": {Weight: font.Normal},
+		"JetBrainsMonoNerdFont-Bold.ttf":    {Weight: font.Bold},
+		"JetBrainsMonoNerdFont-Italic.ttf":  {Style: font.Italic},
 	} {
 		if mono.Typeface != monoFamily {
 			break
@@ -371,7 +372,8 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 			log.Printf("theme: %q: %q", file, err)
 			continue
 		}
-		monoFaces = append(monoFaces, font.FontFace{Font: font.Font{Typeface: monoFamily, Weight: w}, Face: f})
+		ff.Typeface = monoFamily
+		monoFaces = append(monoFaces, font.FontFace{Font: ff, Face: f})
 	}
 	if len(monoFaces) == 0 {
 		mono = font.Font{Typeface: "Go Mono"}
