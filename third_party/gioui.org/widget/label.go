@@ -5,6 +5,7 @@ package widget
 import (
 	"image"
 	"image/color"
+	"slices"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -139,21 +140,64 @@ type textIterator struct {
 	baseline int
 
 	// pitwall: colors are rune ranges painted in their own material, mats
-	// those materials; runes counts the runes before the glyph painted
-	// next, and lineMat is the index of the line's material, -1 for
-	// material.
+	// those materials, one per distinct color, and matOf each range's;
+	// runes counts the runes before the glyph painted next, and lineMat
+	// is the index of the line's material, -1 for material. sorted says
+	// the ranges come in order, and hint is the last one a glyph was in.
 	colors  []TextColor
 	mats    []op.CallOp
+	matOf   []int
 	runes   int
 	lineMat int
+	sorted  bool
+	hint    int
 }
 
-// colorAt is the index in it.colors of the range rune r is in, -1 for
-// none. pitwall.
+// setColors records a material per distinct color of colors. pitwall.
+func (it *textIterator) setColors(gtx layout.Context, colors []TextColor) {
+	it.colors, it.sorted = colors, true
+	var seen []color.NRGBA
+	for i, c := range colors {
+		if i > 0 && c.Start < colors[i-1].End {
+			it.sorted = false
+		}
+		j := slices.Index(seen, c.Color)
+		if j < 0 {
+			j = len(seen)
+			seen = append(seen, c.Color)
+			cm := op.Record(gtx.Ops)
+			paint.ColorOp{Color: c.Color}.Add(gtx.Ops)
+			it.mats = append(it.mats, cm.Stop())
+		}
+		it.matOf = append(it.matOf, j)
+	}
+}
+
+// colorAt is the index in it.mats of the material of the range rune r
+// is in, -1 for none. Glyphs come in rune order, so in sorted ranges
+// the search goes on from the last match and stops at the first range
+// past r: a highlighted block costs a glyph a step or two. pitwall.
 func (it *textIterator) colorAt(r int) int {
+	if it.sorted {
+		if it.hint < len(it.colors) && r < it.colors[it.hint].Start {
+			it.hint = 0 // a new paint, or a jump back
+		}
+		for i := it.hint; i < len(it.colors); i++ {
+			c := it.colors[i]
+			if r < c.Start {
+				return -1
+			}
+			if r < c.End {
+				it.hint = i
+				return it.matOf[i]
+			}
+			it.hint = i
+		}
+		return -1
+	}
 	for i, c := range it.colors {
 		if r >= c.Start && r < c.End {
-			return i
+			return it.matOf[i]
 		}
 	}
 	return -1
