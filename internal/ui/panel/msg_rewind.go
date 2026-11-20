@@ -73,10 +73,10 @@ func (t *Transcript) drawConfirm(gtx layout.Context, d *cdraw, x0 int, size imag
 				return layout.Inset{Top: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return kit.Row(gtx, theme.SpaceS,
 						func(gtx layout.Context) layout.Dimensions {
-							return kit.Button(gtx, th, &m.no, kit.Secondary, kit.Medium, "Cancel")
+							return kit.Button(gtx, th, &m.ok, kit.Primary, kit.Medium, "Rewind")
 						},
 						func(gtx layout.Context) layout.Dimensions {
-							return kit.Button(gtx, th, &m.ok, kit.Primary, kit.Medium, "Rewind")
+							return kit.Button(gtx, th, &m.no, kit.Secondary, kit.Medium, "Cancel")
 						})
 				})
 			})

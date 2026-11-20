@@ -127,7 +127,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 			}
 		}
 		env := u.chatEnv(st, id, &s, t)
-		env.Focus = env.Focus && focus && !t.Zoomed()
+		env.Focus = env.Focus && focus && !t.Zoomed() && !t.FindOpen()
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.
@@ -138,6 +138,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		for _, m := range cmp.Messages() {
 			if q, ok := asideOf(m); ok && aside {
 				u.send(proto.ChatAside{Chat: id, ID: t.Ask(q), Question: q})
+				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before its card
 				continue
 			}
 			if _, ok := m.(proto.ChatSend); ok {
@@ -152,7 +153,9 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id, dir strin
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
 		}
-		u.chatActions(id, t, cmp)
+		if u.chatActions(id, t, cmp) {
+			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the prompt came back
+		}
 	} else {
 		u.chatLoading(gtx, ch, id, term)
 	}

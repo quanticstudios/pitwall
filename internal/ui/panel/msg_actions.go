@@ -213,6 +213,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 				m.acts = append(m.acts, MessageAction{Kind: ActEdit, Text: promptText(it)})
 			case "rewind":
 				m.confirm = it.ID
+				gtx.Execute(op.InvalidateCmd{}) // its confirm draws over the rows laid out after this one
 			case "fork":
 				m.acts = append(m.acts, MessageAction{Kind: ActFork, Turn: turn})
 			}
@@ -299,7 +300,7 @@ func (d *cdraw) tipFor(gtx layout.Context, c *widget.Clickable, tip string, r im
 // in the transcript's area of size; x0 is the column's left edge.
 func (t *Transcript) drawTip(gtx layout.Context, d *cdraw, x0 int, size image.Point) {
 	m := &t.msg
-	if m.tipOf == nil || !m.tipOf.Hovered() || m.tip == "" {
+	if m.tipOf == nil || !m.tipOf.Hovered() || m.tip == "" || m.confirm != "" {
 		m.tipOf, m.tip = nil, ""
 		return
 	}

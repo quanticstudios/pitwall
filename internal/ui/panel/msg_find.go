@@ -342,10 +342,6 @@ func (t *Transcript) drawFind(gtx layout.Context, d *cdraw, size image.Point) {
 		return
 	}
 	th := d.th
-	if f.focus {
-		gtx.Execute(key.FocusCmd{Tag: &f.ed})
-		f.focus = false
-	}
 	m := gtx.Dp(theme.SpaceM)
 	w := min(gtx.Dp(findWidth), size.X-2*m)
 	h := gtx.Dp(hit) + 2*gtx.Dp(theme.SpaceXS)
@@ -388,18 +384,22 @@ func (t *Transcript) drawFind(gtx layout.Context, d *cdraw, size image.Point) {
 	}
 	ex := pad + isz + gtx.Dp(theme.SpaceS)
 	ew := max(0, x-cw-ex-gtx.Dp(theme.SpaceXS))
-	at(gtx, image.Pt(ex, 0), func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints = layout.Exact(image.Pt(ew, h))
-		return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.X = ew
-			hint := widget.Label{MaxLines: 1}
-			if f.ed.Len() == 0 {
-				st := d.small(th.Muted)
-				macro := op.Record(gtx.Ops)
-				hint.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), "Find in chat", material(gtx, st.c))
-				macro.Stop().Add(gtx.Ops)
-			}
-			return f.ed.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), material(gtx, th.Fg), material(gtx, d.selColor()))
-		})
+	g := gtx
+	g.Constraints = layout.Constraints{Min: image.Pt(ew, 0), Max: image.Pt(ew, h)}
+	call, ed := measure(g, func(gtx layout.Context) layout.Dimensions {
+		if f.ed.Len() == 0 {
+			m := op.Record(gtx.Ops)
+			widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), "Find in chat", material(gtx, th.Muted))
+			m.Stop().Add(gtx.Ops)
+		}
+		return f.ed.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), material(gtx, th.Fg), material(gtx, d.selColor()))
 	})
+	at(gtx, image.Pt(ex, (h-ed.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return ed })
+	// A focus asked for before the field was laid out is lost: ask until it holds.
+	if f.focus && gtx.Focused(&f.ed) {
+		f.focus = false
+	} else if f.focus {
+		gtx.Execute(key.FocusCmd{Tag: &f.ed})
+		gtx.Execute(op.InvalidateCmd{})
+	}
 }

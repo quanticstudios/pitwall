@@ -50,9 +50,11 @@ func asideOf(m any) (string, bool) {
 }
 
 // chatActions acts on the prompts' hover buttons clicked on chat id's
-// transcript t: Edit and Rewind put the prompt in composer cmp.
-func (u *ui) chatActions(id string, t *panel.Transcript, cmp *chatin.Composer) {
-	for _, a := range t.Actions() {
+// transcript t: Edit and Rewind put the prompt in composer cmp. It
+// reports whether there were any.
+func (u *ui) chatActions(id string, t *panel.Transcript, cmp *chatin.Composer) bool {
+	acts := t.Actions()
+	for _, a := range acts {
 		switch a.Kind {
 		case panel.ActEdit:
 			cmp.SetText(a.Text)
@@ -63,4 +65,5 @@ func (u *ui) chatActions(id string, t *panel.Transcript, cmp *chatin.Composer) {
 			u.send(proto.ChatFork{Chat: id, Turn: a.Turn})
 		}
 	}
+	return len(acts) > 0
 }
