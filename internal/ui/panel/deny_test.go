@@ -59,6 +59,9 @@ func TestDenyReason(t *testing.T) {
 	if len(tr.done) != 1 || tr.done[0].line != "Denied" || tr.done[0].what != "use echo instead" || !tr.done[0].prose {
 		t.Fatalf("answered line %+v", tr.done)
 	}
+	if resolvedIcon(&tr.done[0]) != "x" {
+		t.Errorf("a denial's line is marked %q, want x", resolvedIcon(&tr.done[0]))
+	}
 
 	s.PendingApprovals = []session.Approval{approval("r2")}
 	frame()
@@ -95,5 +98,8 @@ func TestDenyReason(t *testing.T) {
 	}
 	if l := tr.done[len(tr.done)-1]; l.line != "Sent back to refine" || l.what != "name it greeting.txt" {
 		t.Fatalf("refine line %+v", l)
+	}
+	if l := tr.done[len(tr.done)-1]; resolvedIcon(&l) != "check" {
+		t.Errorf("a plan sent back is marked %q, want check", resolvedIcon(&l))
 	}
 }

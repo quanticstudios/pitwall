@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A denied permission's line in the desktop chat starts with an x, not a check.
 - The /usage, /cost and /status cards name models as the composer does, Sonnet 5.5 rather than claude-sonnet-5-5.
 - A TUI pane chat on Sonnet 5.5 meters its context out of 1M, as Claude Code's /context does, not 200K.
 - The chat's Changes panel and File view highlight code as the chat's own diffs and code blocks do.

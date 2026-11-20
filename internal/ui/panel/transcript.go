@@ -150,6 +150,7 @@ var decisionLine = map[string]string{"allow": "Allowed", "allow-session": "Allow
 type resolved struct {
 	id, line, what string
 	prose          bool // what is words, not a command
+	denied         bool // a permission denied, not a plan sent back
 	at             int  // len(Content) when answered
 	when           time.Time
 }
@@ -402,7 +403,7 @@ func (t *Transcript) decideWhy(id, decision, reason string) {
 	if reason != "" {
 		what, prose = reason, true
 	}
-	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, at: t.items, when: t.now})
+	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, denied: decision == "deny" && !t.plans[id], at: t.items, when: t.now})
 }
 
 // Refused takes back the answer to request id that the daemon refused:
