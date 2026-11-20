@@ -179,10 +179,12 @@ func cutOut(s string) string {
 // tab gets it as a turn, or queued behind one, with id 0. A shell never
 // gets it.
 func (d *Daemon) phoneSend(pane, text string) (uint64, error) {
-	return d.phoneSendPaths(pane, text, nil)
+	return d.phoneSendPaths(pane, text, nil, nil)
 }
 
-func (d *Daemon) phoneSendPaths(pane, text string, images []string) (uint64, error) {
+// phoneSendPaths is phoneSend with image paths typed before text and quoted
+// texts pasted after it.
+func (d *Daemon) phoneSendPaths(pane, text string, images, quoted []string) (uint64, error) {
 	d.mu.Lock()
 	c := d.chats[pane]
 	prov := d.paneProvider(pane)
@@ -201,7 +203,7 @@ func (d *Daemon) phoneSendPaths(pane, text string, images []string) (uint64, err
 	}
 	d.mu.Lock()
 	d.phoneSeq++
-	l := letter{text: text, images: images, plain: true, window: true, phone: d.phoneSeq, owner: prov}
+	l := letter{text: text, images: images, quoted: quoted, plain: true, window: true, phone: d.phoneSeq, owner: prov}
 	d.mu.Unlock()
 	return l.phone, d.userDeliver(pane, l)
 }

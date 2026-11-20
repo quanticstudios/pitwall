@@ -25,7 +25,14 @@ takes `--dry-run`.
 ## Unreleased
 
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
+- A TUI pane chat's snapshot and pages stay under 4 MB, as a New task chat's do, with older items a scroll up, and an item opened whole stays under 16 MB. A pane chat that grew large could send a reply so big that the window lost its connection to the daemon.
+- A chat whose newest item is over 4 MB even once cut, such as a call with a huge nested input, shows that item instead of an empty transcript that pages forever.
+- A TUI pane chat whose last turn holds thousands of calls reads its transcript once, not again on every refresh, and a slow chat read no longer holds up keys sent to the daemon after it.
+- The daemon no longer crashes, closing every pane, when a TUI pane chat's transcript is rewritten shorter: the chat reads it again from the start.
+- A subagent that makes hundreds of calls no longer fills the daemon's memory and a chat's event log: a subagent card keeps its newest 20 calls, and its count still says them all. A chat keeps 1 MB of recent changes at most.
 - A TUI pane chat shows the permission mode Claude Code runs in, Bypass included, while Claude works too: it read the footer only while Claude waited, so a chat opened mid-turn said Default. The mode picker cycles mid-turn too.
+- A message another agent or a script sent with `pitwall send` shows its sender as a quiet line at the top of its bubble, such as the Codex mark and "Codex · #6.2", instead of pitwall's raw header with its reply command. Copying the whole bubble still gives the full text, and Claude still reads the header.
+- What you type in a TUI pane chat, and what `pitwall send` and `pitwall prompt` type into a Claude Code pane, reach Claude as your own words. Claude Code 2.1 recorded every paste of four lines or more, or over 800 characters, as pasted content, which Claude treats as quoted material. pitwall now pastes each line on its own, in pieces of 400 characters, joined by Ctrl+J, and puts a space before a leading `!` so it opens no bash mode. Attached text and files go in as a paste after your words, with no "Explicit evidence" line. Old prompts that went in as a paste show their words in the bubble, with image chips, and without that line.
 - The desktop chat draws everything in a Claude Code conversation natively, in New task chats and TUI pane chats alike, and no markup shows as text:
   - A task list (TodoWrite, TaskCreate and TaskUpdate, Codex's plan) is a checklist card with "3 of 7" and the running task's active form. It updates in place. While a turn runs, a strip above the composer shows the task in progress; click it to see the whole list.
   - A subagent (Task, Agent, Workflow) is a card with its description, type, state, time and tool count. Its calls fold inside it, and its result shows its first lines with Show all. A background subagent stays running until it reports, and parallel ones stack.
@@ -77,6 +84,7 @@ takes `--dry-run`.
 - Every chat read stays small: long tool output, inputs and replies come as their head and tail with a line counting what is left out, and the whole item loads when you open it. Images come as references and load when shown.
 - A chat that does not load says why, with Try again and Open terminal view, instead of waiting forever. The daemon and the window log a dropped oversized message with its size.
 - Scrolling through a long chat keeps memory flat: the window drops parsed text far off screen.
+- Alt+T reaches a shell or Codex pane again, so Meta-T transposes words. Since chat tabs came, the window kept Alt+T in every pane; it now takes it only in a chat tab or a Claude Code pane chat with the keys.
 
 ## v0.2.18
 

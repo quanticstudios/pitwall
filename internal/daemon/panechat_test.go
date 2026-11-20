@@ -219,6 +219,22 @@ func TestPaneChat(t *testing.T) {
 			t.Errorf("send %q typed %q: want the text, Esc %v, then Enter", c.text, typed, c.menu)
 		}
 	}
+	// Several lines go in as a paste each, joined by Ctrl+J, a Tab as a
+	// space; a pasted-text attachment is one paste after a blank line, with
+	// no evidence line.
+	fp.mu.Lock()
+	fp.screen = []string{"────────", "❯ ", "────────"}
+	fp.mu.Unlock()
+	before = len(fp.got())
+	send = proto.ChatSend{Chat: "a", Text: "fix\tthis\nplease", Attachments: []session.Attachment{
+		{ID: "t", Kind: "pasted-text", Name: "log.txt", Text: "l1\nl2\nl3\nl4"}}}
+	if r, _ := d.chatRequest(context.Background(), send); r.(proto.ChatResult).Code != "" {
+		t.Fatalf("multi-line send: %+v", r)
+	}
+	want := "\x1b[200~fix this\x1b[201~\n\x1b[200~please\x1b[201~\n\n\x1b[200~l1\nl2\nl3\nl4\x1b[201~\r"
+	if got := gotAfter(t, fp, before, len(want)); got != want {
+		t.Errorf("multi-line send typed %q, want %q", got, want)
+	}
 	fp.mu.Lock()
 	fp.screen, fp.modes.BracketedPaste = nil, false
 	fp.mu.Unlock()

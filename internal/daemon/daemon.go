@@ -889,6 +889,16 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	done := make(chan struct{})
 	defer close(done)
 	go d.writeLoop(c, done)
+	// ChatReads run in order off the loop: one that reads a big transcript
+	// must not hold up the keys sent after it.
+	reads := make(chan proto.ChatRead, 64)
+	defer close(reads)
+	go func() {
+		for r := range reads {
+			reply, _ := d.chatRequest(ctx, r)
+			c.queue(reply)
+		}
+	}()
 
 	if hello.Kind == "gui" {
 		if err := d.firstSession(ctx, hello.Cwd, hello.Session); err != nil {
@@ -1018,6 +1028,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if p, ok := m.(proto.PasteImage); ok {
 			c.queue(d.pasteImage(p)) // a reply to this client alone
+			continue
+		}
+		if r, ok := m.(proto.ChatRead); ok {
+			reads <- r // a reply to this client alone
 			continue
 		}
 		if reply, ok := d.chatRequest(ctx, m); ok {

@@ -208,7 +208,7 @@ func TestRemoteReply(t *testing.T) {
 	if reportedPane(d, "a").LastPromptAt.IsZero() {
 		t.Fatal("phone reply did not set prompt destination")
 	}
-	want := "\x1b[200~yes[201~rm -rf ~\nand more[200~\x1b[201~\r"
+	want := "\x1b[200~yes[201~rm -rf ~\x1b[201~\n\x1b[200~and more[200~\x1b[201~\r"
 	if got := gotAfter(t, f.pane(0), 0, len(want)); got != want {
 		t.Errorf("bracketed reply %q, want %q", got, want)
 	}
@@ -1125,5 +1125,42 @@ func TestPhoneOpenDesktop(t *testing.T) {
 	focus, ok := c.msgs[0].(proto.FocusSession)
 	if !ok || focus.WorkspaceID != "w" || focus.Pane != "a" {
 		t.Fatalf("focus: %#v", c.msgs[0])
+	}
+}
+
+// typeLines types for Claude Code: a paste per line, and per pasteChunk
+// runes of a long line, joined by Ctrl+J, so that it records typed words,
+// not <pasted_content>.
+func TestTypeLines(t *testing.T) {
+	bp := vt.Modes{BracketedPaste: true}
+	p := func(s string) string { return "\x1b[200~" + s + "\x1b[201~" }
+	long := strings.Repeat("é", pasteChunk) + "tail"
+	for _, c := range []struct {
+		text string
+		m    vt.Modes
+		want string
+	}{
+		{"one\ntwo\n\nthree", bp, p("one") + "\n" + p("two") + "\n\n" + p("three")},
+		{"/model opus", bp, p("/model opus")},
+		{"!rm -rf ~", bp, p(" !rm -rf ~")},
+		{"see @main.go\nand ? #x", bp, p("see @main.go") + "\n" + p("and ? #x")},
+		{long, bp, p(strings.Repeat("é", pasteChunk)) + p("tail")},
+		{"a\nb", vt.Modes{BracketedPaste: true, KittyKeyboard: 1}, p("a") + "\x1b[106;5u" + p("b")},
+		{"a\nb", vt.Modes{}, "a\nb"},
+	} {
+		if got := string(typeLines(c.text, c.m)); got != c.want {
+			t.Errorf("typeLines(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+	// A long text goes in whole, in pastes Claude Code keeps as typed.
+	big := strings.Repeat("word ", 4000)
+	got := string(typeLines(big, bp))
+	if strings.ReplaceAll(strings.ReplaceAll(got, "\x1b[200~", ""), "\x1b[201~", "") != big {
+		t.Fatal("a long text lost runes")
+	}
+	for _, s := range strings.Split(got, "\x1b[201~") {
+		if n := len([]rune(strings.TrimPrefix(s, "\x1b[200~"))); n > pasteChunk {
+			t.Fatalf("a paste of %d runes", n)
+		}
 	}
 }

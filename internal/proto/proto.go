@@ -232,6 +232,10 @@ const Level = 86
 // fields cut until a window asks for the item whole.
 const ChatPageLevel = 86
 
+// ChatNowLevel is the first daemon sure to take ChatSend How "now": level
+// 85 daemons came both before and after it, and the older ones refuse it.
+const ChatNowLevel = 86
+
 // PaneChatLevel is the first daemon that answers Chat* messages for a pane
 // running Claude Code's TUI; a window shows such a pane as a chat only then.
 const PaneChatLevel = 85

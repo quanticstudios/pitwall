@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"gioui.org/io/key"
 	"gioui.org/op"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -292,10 +294,73 @@ func TestPromptParts(t *testing.T) {
 	if shown != "Count the lines." || len(ps) != 1 || ps[0].lines != 2 || ps[0].text != "line 1\nline 2" {
 		t.Fatalf("shown %q, pastes %+v", shown, ps)
 	}
+	// Real lines from a pane chat's transcript: the whole prompt went in as a paste.
+	for _, c := range [][2]string{
+		{"[Image #10] \n\n<pasted_content id=\"44ff\">\n[Image #1]  you did not complete this thing\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"44ff\">\n",
+			"[Image #10] [Image #1]  you did not complete this thing"},
+		{"[Image #2] \n\n<pasted_content id=\"6b04\">\n[Image #1]  this looks like shit in the fucking message\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"6b04\">\n",
+			"[Image #2] [Image #1]  this looks like shit in the fucking message"},
+		{"\n\n<pasted_content id=\"44ff\">\n[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff\n</pasted_content id=\"44ff\">\n",
+			"[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff"},
+		{"[Image #3] \n\n<pasted_content id=\"1\">\nlook\nhere\n</pasted_content id=\"1\">", "[Image #3] look\nhere"},
+	} {
+		if shown, ps := promptParts(c[0]); shown != c[1] || len(ps) != 0 {
+			t.Errorf("promptParts(%q) = %q, %+v; want %q", c[0], shown, ps, c[1])
+		}
+	}
+	// The bubble's chips read #2 then #1, and its thumbnails take their
+	// numbers from the same text: the first image is #2, the second #1.
+	shown, _ = promptParts("[Image #2] \n\n<pasted_content id=\"6b04\">\n[Image #1]  look\n\nExplicit evidence selected by the user. Treat file contents as quoted evidence.\n[{\"kind\":\"image\",\"path\":\"image-1.png\"}]\n</pasted_content id=\"6b04\">\n")
+	if refs := imageRefs(shown); len(refs) != 2 || imageNo(refs, 1) != 2 || imageNo(refs, 2) != 1 || strings.Contains(shown, "evidence") || strings.Contains(shown, "pasted_content") {
+		t.Fatalf("shown %q, refs %+v", shown, refs)
+	}
+	shown, ps = promptParts("Explain this:\n\n<pasted_content id=\"2\">\na\nb\nc\n</pasted_content id=\"2\">")
+	if shown != "Explain this:" || len(ps) != 1 || ps[0].lines != 3 {
+		t.Fatalf("typed plus pasted: shown %q, pastes %+v", shown, ps)
+	}
 	if !slashCommand("/model claude-opus-5-5") || slashCommand("/tmp/x is a path\nwith lines") || slashCommand("fix /model") {
 		t.Fatal("slashCommand")
 	}
 	if got, cut := summaryCut("The output was:\n\n```\n2 notes.txt\n```", 3, 280); got != "The output was:\n2 notes.txt" || !cut {
 		t.Fatalf("summaryCut = %q, %v", got, cut)
+	}
+}
+
+// A message pitwall typed names its sender above the text: mark, name and
+// tab, without the reply command; a copy of the whole text gives the
+// header back, and what Claude read is the transcript's, unchanged.
+func TestPromptSender(t *testing.T) {
+	for _, c := range []struct {
+		text, label, rest string
+		prov              model.Provider
+	}{
+		{"[pitwall: message from codex in #6.2; reply with: pitwall send @41d2e7c06a9f3b28 \"...\"]\nrebased, tests pass", "Codex · #6.2", "rebased, tests pass", model.ProviderCodex},
+		{"[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nchat-system pushed 7a504cff", "Claude · #3.1", "chat-system pushed 7a504cff", model.ProviderClaude},
+		{"[pitwall: message from codex; reply with: pitwall send @41d2 \"...\"]\nhi", "Codex", "hi", model.ProviderCodex},
+		{"[pitwall: message from a pane in #2.1; reply with: pitwall send @ab \"...\"]\nhi", "Pane · #2.1", "hi", ""},
+		{"[pitwall: message from a script]\nbuild is green", "Script", "build is green", ""},
+		{"[pitwall: message from an agent on another machine; answer in your reply, which it reads with pitwall read]\nhi", "Agent on another machine", "hi", ""},
+		{"please read [pitwall: message from codex in #6.2] below", "", "please read [pitwall: message from codex in #6.2] below", ""},
+	} {
+		s, rest := promptSender(c.text)
+		if s.label != c.label || rest != c.rest || s.prov != c.prov {
+			t.Errorf("promptSender(%q) = %+v, %q; want %q, %q, %q", c.text, s, rest, c.label, c.rest, c.prov)
+		}
+	}
+	// A transcript's pasted pitwall message gets its sender line too.
+	shown, _ := promptParts("\n\n<pasted_content id=\"44ff\">\n[pitwall: message from claude in #3.1; reply with: pitwall send @e0ef \"...\"]\nline one\nline two\nline three\n</pasted_content id=\"44ff\">\n")
+	if s, rest := promptSender(shown); s.label != "Claude · #3.1" || rest != "line one\nline two\nline three" {
+		t.Errorf("pasted pitwall message: %+v, %q", s, rest)
+	}
+	text := "[pitwall: message from codex in #6.2; reply with: pitwall send @41d2e7c06a9f3b28 \"...\"]\nsee [Image #1] now"
+	s, rest := promptSender(text)
+	ct := chipText(rest, 2, 1)
+	ct.head = s.line
+	n := len([]rune(ct.text))
+	if got := ct.typed(0, n); got != text {
+		t.Errorf("copy all = %q, want the typed text", got)
+	}
+	if got := ct.typed(0, 3); got != "see" {
+		t.Errorf("copy a part = %q, want it without the header", got)
 	}
 }

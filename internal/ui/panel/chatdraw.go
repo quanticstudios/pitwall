@@ -276,6 +276,7 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	g.Constraints = layout.Constraints{Max: image.Pt(max(0, maxW-2*px), gtx.Constraints.Max.Y)}
 	call, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
 		return vstack(gtx, gtx.Dp(theme.SpaceS),
+			func(gtx layout.Context) layout.Dimensions { return d.senderLine(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.attachments(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.pastes(gtx, it) },
@@ -292,18 +293,45 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(d.col, bh)}
 }
 
+// senderLine names who sent a message pitwall typed, above its text:
+// the agent's mark and name and its tab, quiet, without the header's
+// reply command.
+func (d *cdraw) senderLine(gtx layout.Context, it *session.Item) layout.Dimensions {
+	shown, _ := promptParts(it.Text)
+	s, _ := promptSender(shown)
+	if s.label == "" {
+		return layout.Dimensions{}
+	}
+	st := d.small(d.th.Muted)
+	label := func(gtx layout.Context) layout.Dimensions {
+		return widget.Label{MaxLines: 1}.Layout(gtx, d.th.Shaper, st.f, st.size, s.label, material(gtx, st.c))
+	}
+	if s.prov == "" {
+		return label(gtx)
+	}
+	return layout.Flex{Alignment: layout.Middle, Spacing: layout.SpaceEnd}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return sidebar.AgentMark(gtx, s.prov, gtx.Sp(st.size), st.c)
+		}),
+		layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
+		layout.Rigid(label),
+	)
+}
+
 // promptText is a prompt's selectable text. Each [Image #N] token draws
 // as a chip: the text widens the token to make room for the chip's icon
 // and padding, and a copy gives back the token as typed.
 func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensions {
 	shown, _ := promptParts(it.Text)
-	txt := mdview.Detab(shown)
+	s, rest := promptSender(shown)
+	txt := mdview.Detab(rest)
 	if txt == "" {
 		return layout.Dimensions{}
 	}
 	st := d.promptStyle()
 	lead, trail := d.chipPad(gtx, st)
 	ct := chipText(txt, lead, trail)
+	ct.head = s.line
 	sl := d.t.sel(it.ID)
 	d.copyAs(gtx, sl, ct)
 	dims := d.selectable(gtx, sl, st, ct.text)
@@ -349,7 +377,8 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 		return layout.Dimensions{}
 	}
 	var ws []layout.Widget
-	refs := imageRefs(it.Text)
+	shown, _ := promptParts(it.Text)
+	refs := imageRefs(shown)
 	n := 0
 	for i := range it.Attachments {
 		a := &it.Attachments[i]

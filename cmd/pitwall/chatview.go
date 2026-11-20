@@ -15,7 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 )
 
-// chatCache is the transcript of the one chat the window shows, kept up
+// chatCache is the transcript of a chat the window shows, kept up
 // to date with proto.ChatRead: the daemon's snapshot of its newest items,
 // the pages of older history read as the reader scrolls up, and the items
 // read whole that the snapshot cut.
@@ -35,12 +35,11 @@ type chatCache struct {
 
 	older  []session.Item // the pages read, oldest first
 	turns  []session.TurnSummary
-	base   int64     // the cursor snap came with: the history before its items
 	more   int64     // the cursor before older; 0 when they reach the start
 	paging time.Time // when the page read that is out went out, zero for none
 
 	full  map[string]session.Item // the items read whole, by id
-	asked map[string]bool         // the whole items asked for
+	asked map[string]string       // the whole items asked for, by id: the UpdatedAt asked at
 
 	view *session.Snapshot // snap with older and full, made when it is nil
 }
@@ -55,16 +54,30 @@ const readWait = 15 * time.Second
 // answers, and a reply that changes nothing draws no frame.
 const chatStream = time.Second / 60
 
+// chatShown is how long a chat counts as shown after the window last
+// asked for it: it draws every chat on screen each frame.
+const chatShown = time.Second
+
 // Chat implements app.Chatter: the chat's transcript as last read, and a
-// ChatRead for what came since (chatRead). Asking for another chat drops
-// the one kept.
+// ChatRead for what came since (chatRead). A chat new to the window drops
+// the ones it no longer shows, so the window keeps one per chat on screen.
 func (b *backend) Chat(id string) (session.Snapshot, bool) {
 	b.mu.Lock()
-	c := &b.chat
-	if c.id != id {
-		*c = chatCache{id: id}
+	now := time.Now()
+	c := b.chats[id]
+	if c == nil {
+		for k, o := range b.chats {
+			if now.Sub(o.shown) > chatShown {
+				delete(b.chats, k)
+			}
+		}
+		if b.chats == nil {
+			b.chats = map[string]*chatCache{}
+		}
+		c = &chatCache{id: id}
+		b.chats[id] = c
 	}
-	c.shown = time.Now()
+	c.shown = now
 	var s session.Snapshot
 	ok := c.snap != nil
 	if ok {
@@ -80,9 +93,13 @@ func (b *backend) Chat(id string) (session.Snapshot, bool) {
 // chatStream while a turn runs.
 func (b *backend) chatRead(id string) {
 	b.mu.Lock()
-	c := &b.chat
+	c := b.chats[id]
+	if c == nil {
+		b.mu.Unlock()
+		return
+	}
 	now := time.Now()
-	if c.id == id && c.out && now.Sub(c.at) >= readWait {
+	if c.out && now.Sub(c.at) >= readWait {
 		log.Printf("chat %s: no reply to a read in %v", id, readWait)
 		if c.snap == nil {
 			c.err = fmt.Sprintf("The daemon sent no transcript in %d seconds.", int(readWait.Seconds()))
@@ -94,7 +111,7 @@ func (b *backend) chatRead(id string) {
 	if c.snap != nil && c.snap.Busy() {
 		every = chatStream
 	}
-	if c.id != id || c.out || c.err != "" || now.Sub(c.at) < every || now.Sub(c.shown) > time.Second {
+	if c.out || c.err != "" || now.Sub(c.at) < every || now.Sub(c.shown) > chatShown {
 		b.mu.Unlock()
 		return
 	}
@@ -106,9 +123,7 @@ func (b *backend) chatRead(id string) {
 	b.mu.Unlock()
 	if err := b.Send(read); err != nil {
 		b.mu.Lock()
-		if b.chat.id == id {
-			b.chat.out = false
-		}
+		c.out = false
 		b.mu.Unlock()
 	}
 }
@@ -117,18 +132,19 @@ func (b *backend) chatRead(id string) {
 func (b *backend) ChatWait(id string) (time.Time, string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.chat.id != id {
+	c := b.chats[id]
+	if c == nil {
 		return time.Time{}, ""
 	}
-	return b.chat.first, b.chat.err
+	return c.first, c.err
 }
 
 // ChatRetry implements app.ChatLoader.
 func (b *backend) ChatRetry(id string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.chat.id == id {
-		b.chat.err, b.chat.out, b.chat.seq, b.chat.first = "", false, 0, time.Time{}
+	if c := b.chats[id]; c != nil {
+		c.err, c.out, c.seq, c.first = "", false, 0, time.Time{}
 	}
 }
 
@@ -136,8 +152,8 @@ func (b *backend) ChatRetry(id string) {
 // item, when none is out.
 func (b *backend) ChatOlder(id string) bool {
 	b.mu.Lock()
-	c := &b.chat
-	if c.id != id || c.more == 0 {
+	c := b.chats[id]
+	if c == nil || c.more == 0 {
 		b.mu.Unlock()
 		return false
 	}
@@ -150,26 +166,46 @@ func (b *backend) ChatOlder(id string) bool {
 	b.mu.Unlock()
 	if send && b.Send(read) != nil {
 		b.mu.Lock()
-		b.chat.paging = time.Time{}
+		c.paging = time.Time{}
 		b.mu.Unlock()
 	}
 	return true
 }
 
-// ChatItem implements app.ChatPager: it reads item whole, once.
+// ChatItem implements app.ChatPager: it reads item whole, once per
+// UpdatedAt, since merged shows a whole copy only at its cut copy's.
 func (b *backend) ChatItem(id, item string) {
 	b.mu.Lock()
-	c := &b.chat
-	if c.id != id || c.asked[item] {
+	c := b.chats[id]
+	if c == nil {
+		b.mu.Unlock()
+		return
+	}
+	at := c.stamp(item)
+	if was, ok := c.asked[item]; ok && was == at {
 		b.mu.Unlock()
 		return
 	}
 	if c.asked == nil {
-		c.asked = map[string]bool{}
+		c.asked = map[string]string{}
 	}
-	c.asked[item] = true
+	c.asked[item] = at
 	b.mu.Unlock()
 	b.Send(proto.ChatRead{Chat: id, Item: item})
+}
+
+// stamp is item's UpdatedAt in the transcript, "" when it holds no item.
+// b.mu is held.
+func (c *chatCache) stamp(item string) string {
+	if c.snap == nil {
+		return ""
+	}
+	for _, items := range [][]session.Item{c.snap.Content, c.older} {
+		if i := slices.IndexFunc(items, func(it session.Item) bool { return it.ID == item }); i >= 0 {
+			return items[i].UpdatedAt
+		}
+	}
+	return ""
 }
 
 // merged is snap with the pages before it and the items read whole, made
@@ -190,6 +226,21 @@ func (c *chatCache) merged() *session.Snapshot {
 	}
 	c.view = &s
 	return c.view
+}
+
+// chatTook applies a ChatRead's reply to its chat's transcript (take),
+// schedules the next read (again) and reports whether it changed. b.mu
+// is held.
+func (b *backend) chatTook(m proto.ChatDeltas) bool {
+	c := b.chats[m.Chat]
+	if c == nil {
+		return false
+	}
+	changed := c.take(m)
+	if after, ok := c.again(m.Chat, changed); ok {
+		time.AfterFunc(after, func() { b.chatRead(m.Chat) })
+	}
+	return changed
 }
 
 // again is when to read chat id next without waiting for a frame:
@@ -217,7 +268,8 @@ func (b *backend) ChatResults(id string) []chatin.Result {
 
 // take applies a ChatRead's reply and reports whether the transcript
 // changed: a page goes before the items, an item read whole stands in for
-// its cut copy, and a snapshot with another cursor drops the pages. A
+// its cut copy, and a snapshot whose first item is not in the transcript
+// drops the pages. A
 // delta that does not apply makes the next read ask for a snapshot, and
 // the old transcript stays on screen until it comes.
 func (c *chatCache) take(m proto.ChatDeltas) bool {
@@ -256,8 +308,8 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 			c.seq = 0
 			return false
 		}
-		if m.Older != c.base {
-			c.older, c.turns, c.base, c.more, c.paging = nil, nil, m.Older, m.Older, time.Time{}
+		if !c.rebase(s) { // a managed chat's cursor is an index that moves with each new item
+			c.older, c.turns, c.more, c.paging = nil, nil, m.Older, time.Time{}
 		}
 		c.snap, c.seq, c.view, changed = &s, m.Seq, nil, true
 	}
@@ -265,6 +317,7 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 		c.seq = 0
 		return changed
 	}
+	reread := false
 	for _, raw := range m.Deltas {
 		var d session.Delta
 		err := json.Unmarshal(raw, &d)
@@ -277,14 +330,45 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 			c.seq = 0
 			return changed
 		}
+		// A snapshot delta, as a rewind commits, holds the daemon's whole
+		// snapshot: a managed chat's every item, a pane chat's tail.
+		if d.Type == session.DeltaSnapshot && !c.rebase(n) {
+			c.older, c.turns, c.more, c.paging = nil, nil, 0, time.Time{}
+			reread = true // a snapshot's cursor tells where the history before it starts
+		}
 		c.snap, c.seq, c.view, changed = &n, d.Seq, nil, true
+	}
+	if reread {
+		c.seq = 0
 	}
 	return changed
 }
 
+// rebase keeps the history before n that the transcript holds, once n's
+// first item is in it, and reports whether it was. b.mu is held.
+func (c *chatCache) rebase(n session.Snapshot) bool {
+	if len(n.Content) == 0 || c.snap == nil {
+		return false
+	}
+	old := slices.Concat(c.older, c.snap.Content)
+	p := slices.IndexFunc(old, func(it session.Item) bool { return it.ID == n.Content[0].ID })
+	if p < 0 {
+		return false
+	}
+	turns := c.turns
+	if p > len(c.older) {
+		turns = slices.Concat(c.turns, c.snap.Turns)
+	}
+	c.older = old[:p:p]
+	c.turns = slices.DeleteFunc(slices.Clone(turns), func(t session.TurnSummary) bool {
+		return slices.ContainsFunc(n.Turns, func(u session.TurnSummary) bool { return u.ID == t.ID })
+	})
+	return true
+}
+
 // refused takes the daemon's refusal of read r: the first read's says why
 // the chat shows no transcript; a page's ends the paging until the next
-// snapshot; an item's stays asked, so it is not asked again.
+// snapshot; an item's stays asked until the item changes.
 func (c *chatCache) refused(r proto.ChatRead, why string) {
 	log.Printf("chat %s: read %+v refused: %s", c.id, r, why)
 	switch {

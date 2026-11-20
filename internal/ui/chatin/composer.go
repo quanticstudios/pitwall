@@ -92,6 +92,9 @@ type Env struct {
 	// Key, when set, offers a digit typed into the empty box, or Enter on
 	// it, to the transcript's pending request; true when it took the key.
 	Key func(name string) bool
+	// Now is whether the daemon takes ChatSend How "now" (proto.ChatNowLevel);
+	// Ctrl+Enter sends "steer" to one that does not.
+	Now bool
 }
 
 type imageRead struct {
@@ -376,8 +379,10 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 	m := proto.ChatSend{Chat: env.Chat, Text: text, Attachments: Attachments(imgs)}
 	if env.Snap.Busy() || Pending(env.Snap) {
 		m.How = "queue"
-		if now {
+		if now && env.Now {
 			m.How = "now"
+		} else if now {
+			m.How = "steer"
 		}
 	}
 	c.out = append(c.out, m)

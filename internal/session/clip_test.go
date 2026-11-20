@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -49,5 +50,25 @@ func TestClip(t *testing.T) {
 	wide := strings.Repeat("é", 2000) // no newlines, two bytes a rune
 	if c := Clip(Item{Text: wide}, 1001); !utf8.ValidString(c.Text) || !strings.Contains(c.Text, "… 0 more lines …") {
 		t.Fatalf("one long line: %q", c.Text)
+	}
+}
+
+// TestKeepSubagentCalls: a Task keeps its subagent's newest calls, by
+// count and by bytes, at least one however big, and Clip keeps the same.
+func TestKeepSubagentCalls(t *testing.T) {
+	calls := make([]ToolCall, 600)
+	for i := range calls {
+		calls[i] = ToolCall{CallID: strconv.Itoa(i), Output: "ok"}
+	}
+	if k := KeepSubagentCalls(calls); len(k) != SubagentCallsKept || k[len(k)-1].CallID != "599" {
+		t.Fatalf("kept %d calls, the newest %s", len(k), k[len(k)-1].CallID)
+	}
+	calls[599].Output, calls[598].Output = strings.Repeat("o", subagentBytes), strings.Repeat("o", subagentBytes)
+	if k := KeepSubagentCalls(calls); len(k) != 1 || k[0].CallID != "599" {
+		t.Fatalf("kept %d calls: want the one big newest", len(k))
+	}
+	it := Item{Tool: &ToolCall{SubagentCalls: calls[:500]}}
+	if c := Clip(it, ClipBytes); len(c.Tool.SubagentCalls) != SubagentCallsKept || c.Tool.SubagentCalls[0].CallID != "480" {
+		t.Fatalf("clipped to %d calls", len(c.Tool.SubagentCalls))
 	}
 }
