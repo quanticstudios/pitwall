@@ -100,6 +100,7 @@ type Transcript struct {
 	what    map[string]string               // pending approvals' commands, for their line
 	plans   map[string]bool                 // pending approvals that are plans
 	items   int                             // len(Content) this frame
+	last    string                          // Content's last item's id this frame
 	diffs   map[string]diffCache            // edits' lines by item id
 	tool    toolState                       // the tool rows' scroll, shells and images
 	side    side                            // the Files and Changes panel
@@ -149,9 +150,10 @@ var decisionLine = map[string]string{"allow": "Allowed", "allow-session": "Allow
 // last when it was answered.
 type resolved struct {
 	id, line, what string
-	prose          bool // what is words, not a command
-	denied         bool // a permission denied, not a plan sent back
-	at             int  // len(Content) when answered
+	prose          bool   // what is words, not a command
+	denied         bool   // a permission denied, not a plan sent back
+	after          string // the item before it when answered, "" for none
+	at             int    // len(Content) when answered
 	when           time.Time
 }
 
@@ -403,7 +405,7 @@ func (t *Transcript) decideWhy(id, decision, reason string) {
 	if reason != "" {
 		what, prose = reason, true
 	}
-	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, denied: decision == "deny" && !t.plans[id], at: t.items, when: t.now})
+	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, denied: decision == "deny" && !t.plans[id], after: t.last, at: t.items, when: t.now})
 }
 
 // Refused takes back the answer to request id that the daemon refused:
@@ -432,7 +434,7 @@ func (t *Transcript) sendAsk(id string) {
 		picked = append(picked, v...)
 	}
 	slices.Sort(picked)
-	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, at: t.items, when: t.now})
+	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, after: t.last, at: t.items, when: t.now})
 }
 
 // answers are the card's picks by question id, false while a question
@@ -635,7 +637,16 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 // clicks on the cards' buttons.
 func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	pending := map[string]bool{}
+	if len(s.Content) < t.items { // a rewind took items away: so go the answers given after them
+		t.done = slices.DeleteFunc(t.done, func(r resolved) bool {
+			return r.after != "" && !slices.ContainsFunc(s.Content, func(it session.Item) bool { return it.ID == r.after })
+		})
+	}
 	t.keyReq, t.keyAsk, t.keyPlan, t.items = "", "", false, len(s.Content)
+	t.last = ""
+	if n := len(s.Content); n > 0 {
+		t.last = s.Content[n-1].ID
+	}
 	if t.what == nil {
 		t.what, t.plans = map[string]string{}, map[string]bool{}
 	}

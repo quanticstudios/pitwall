@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Rewind in the desktop chat takes away the Allowed, Denied and Answered lines of the turns it removes, instead of leaving them stacked at the end.
 - The work log shows an ExitPlanMode call as Plan and the plan's title, without the markdown heading's #.
 - The turn change card and Changes panel leave out the plan Claude Code writes under ~/.claude/plans in plan mode.
 - A TUI pane chat's permission card for a call Claude Code has not written yet, as a Write often is, says what it runs or touches ("Claude wants to edit a file" and the path) instead of a generic "asks for approval" with the tool name twice.
