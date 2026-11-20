@@ -24,6 +24,11 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Rewind on a prompt sent mid-turn rewinds to that prompt in a TUI pane chat, not to the turn's first prompt. A New task chat rewinds and forks whole turns, so it offers both only on the prompt that opened a turn.
+- A TUI pane chat refuses a rewind when a later prompt reads the same in Claude Code's rewind list, as two long prompts cut to one label do, instead of rewinding the newer one. Rewind in the terminal to pick it yourself.
+- Scrolling up in a TUI pane chat after a rewind no longer shows the rewound turns again, nor does a chat read again after a daemon restart.
+- A long Monitor watch keeps its newest 64 KB of events instead of every event, which grew the daemon's memory with each one.
+- Run in a code block types into a shell in the chat's own tab, not one in the tab the workspace shows.
 - Hover a prompt in the desktop chat for Copy, Edit, Rewind to here and, in a New task chat, Fork from here. Edit puts the prompt back in the composer. Rewind asks first, then takes the chat back to before the prompt and puts it in the composer; the files stay as they are. A TUI pane chat rewinds through Claude Code's own rewind picker.
 - Ctrl+F, or the search button in the chat's header, finds text in the desktop chat's prompts and replies, with a count, Enter and Shift+Enter to step, and Esc to close. It reads the chat's older pages as it searches.
 - `/btw <question>` in the desktop chat's composer asks Claude a side question about the conversation. The answer shows in a card over the chat that you can copy or close; the chat's agent neither stops nor sees it.
