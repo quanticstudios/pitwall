@@ -39,11 +39,8 @@ const (
 	icOpenCode = "M22 24H2V0h20zM17 4.8H7v14.4h10z"
 )
 
-// Antigravity's mark is pitwall's own arch, not Google's logo, in Google's
-// blue.
-const icAntigravity = "M3 20C3 10.5 7 4 12 4C17 4 21 10.5 21 20H16.5C16.5 13.5 14.5 9 12 9C9.5 9 7.5 13.5 7.5 20Z"
-
-var antigravityColor = color.NRGBA{R: 0x42, G: 0x85, B: 0xf4, A: 0xff}
+// Antigravity's color in charts: the blue of its mark (antigravityMark).
+var antigravityColor = color.NRGBA{R: 0x31, G: 0x86, B: 0xff, A: 0xff}
 
 // Gemini's spark in its brand purple.
 var geminiColor = color.NRGBA{R: 0x8e, G: 0x75, B: 0xb2, A: 0xff}
@@ -157,7 +154,7 @@ func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) l
 	case model.ProviderAider:
 		return fillIcon(gtx, icAider, size, aiderColor)
 	case model.ProviderAntigravity:
-		return fillIcon(gtx, icAntigravity, size, antigravityColor)
+		return antigravityRaster.draw(gtx, size)
 	case model.ProviderOmp:
 		return gradientIcon(gtx, icOmp, size, ompFrom, ompTo)
 	case model.ProviderPi:
