@@ -246,3 +246,45 @@ func TestChatCacheSideBySide(t *testing.T) {
 		t.Fatalf("kept %v", b.chats)
 	}
 }
+
+// TestChatItemUpdated: an item read whole that grows after, as a long
+// reply streams or a big Write lands, is read whole again at its new
+// UpdatedAt instead of going back to its cut copy for good.
+func TestChatItemUpdated(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	b.Chat("c")
+	s, _ := json.Marshal(session.Snapshot{SessionID: "c", Content: []session.Item{{ID: "r", Kind: session.KindAssistantText, Text: "cut", Cut: true, UpdatedAt: "1"}}})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: s, Seq: 1})
+	itemReads := func() (n int) {
+		for _, m := range b.out {
+			if r, ok := m.(proto.ChatRead); ok && r.Item == "r" {
+				n++
+			}
+		}
+		b.out = nil
+		return n
+	}
+	whole := func(text, at string) {
+		w, _ := json.Marshal(session.Item{ID: "r", Kind: session.KindAssistantText, Text: text, UpdatedAt: at})
+		b.chatTook(proto.ChatDeltas{Chat: "c", Item: w})
+	}
+	b.ChatItem("c", "r")
+	b.ChatItem("c", "r")
+	whole("whole", "1")
+	if s, _ := b.Chat("c"); s.Content[0].Text != "whole" || itemReads() != 1 {
+		t.Fatalf("first read: %q", s.Content[0].Text)
+	}
+	d, _ := json.Marshal(session.Delta{Version: session.DeltaVersion, SessionID: "c", Seq: 2, Revision: 2, Type: session.DeltaItemTextAppend,
+		ItemID: "r", Text: " more", ItemUpdatedAt: "2"})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 1, Deltas: [][]byte{d}})
+	b.ChatItem("c", "r")
+	b.ChatItem("c", "r")
+	if n := itemReads(); n != 1 {
+		t.Fatalf("%d reads of the grown item, want 1", n)
+	}
+	whole("whole more", "2")
+	if s, _ := b.Chat("c"); s.Content[0].Text != "whole more" {
+		t.Fatalf("after it grew: %q", s.Content[0].Text)
+	}
+}

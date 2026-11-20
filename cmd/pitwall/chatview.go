@@ -40,7 +40,7 @@ type chatCache struct {
 	paging time.Time // when the page read that is out went out, zero for none
 
 	full  map[string]session.Item // the items read whole, by id
-	asked map[string]bool         // the whole items asked for
+	asked map[string]string       // the whole items asked for, by id: the UpdatedAt asked at
 
 	view *session.Snapshot // snap with older and full, made when it is nil
 }
@@ -173,20 +173,40 @@ func (b *backend) ChatOlder(id string) bool {
 	return true
 }
 
-// ChatItem implements app.ChatPager: it reads item whole, once.
+// ChatItem implements app.ChatPager: it reads item whole, once per
+// UpdatedAt, since merged shows a whole copy only at its cut copy's.
 func (b *backend) ChatItem(id, item string) {
 	b.mu.Lock()
 	c := b.chats[id]
-	if c == nil || c.asked[item] {
+	if c == nil {
+		b.mu.Unlock()
+		return
+	}
+	at := c.stamp(item)
+	if was, ok := c.asked[item]; ok && was == at {
 		b.mu.Unlock()
 		return
 	}
 	if c.asked == nil {
-		c.asked = map[string]bool{}
+		c.asked = map[string]string{}
 	}
-	c.asked[item] = true
+	c.asked[item] = at
 	b.mu.Unlock()
 	b.Send(proto.ChatRead{Chat: id, Item: item})
+}
+
+// stamp is item's UpdatedAt in the transcript, "" when it holds no item.
+// b.mu is held.
+func (c *chatCache) stamp(item string) string {
+	if c.snap == nil {
+		return ""
+	}
+	for _, items := range [][]session.Item{c.snap.Content, c.older} {
+		if i := slices.IndexFunc(items, func(it session.Item) bool { return it.ID == item }); i >= 0 {
+			return items[i].UpdatedAt
+		}
+	}
+	return ""
 }
 
 // merged is snap with the pages before it and the items read whole, made
@@ -316,7 +336,7 @@ func (c *chatCache) take(m proto.ChatDeltas) bool {
 
 // refused takes the daemon's refusal of read r: the first read's says why
 // the chat shows no transcript; a page's ends the paging until the next
-// snapshot; an item's stays asked, so it is not asked again.
+// snapshot; an item's stays asked until the item changes.
 func (c *chatCache) refused(r proto.ChatRead, why string) {
 	log.Printf("chat %s: read %+v refused: %s", c.id, r, why)
 	switch {
