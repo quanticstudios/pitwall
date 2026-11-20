@@ -129,9 +129,10 @@ func TestTranscriptAnswers(t *testing.T) {
 	}
 	s.PendingApprovals = append(s.PendingApprovals, session.Approval{ID: "r2", RequestType: session.RequestCommand, Request: &session.ToolRequest{ToolName: "Bash", Command: "git push"}})
 	transcriptFrame(&tr, th, s, &ops, now)
-	if !tr.Key("3") {
-		t.Fatal("3 did not answer the newest approval")
+	if !tr.Key("3") || len(tr.Answers()) != 0 {
+		t.Fatal("3 did not open the newest approval's reason field, or denied at once")
 	}
+	tr.Key("3") // Deny again sends the field as it is
 	if got := tr.Answers(); len(got) != 1 || got[0] != (Answer{Request: "r2", Decision: "deny"}) {
 		t.Fatalf("key answer %+v", got)
 	}

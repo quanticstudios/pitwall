@@ -114,7 +114,8 @@ func (d *cdraw) tail() []layout.Widget {
 }
 
 // planCard is a plan waiting for approval: the plan as markdown, then
-// Approve 1 and Refine 2, which sends it back for Claude to plan more.
+// Approve 1 and Refine 2, which opens a field for what to change and
+// sends it back for Claude to plan more.
 func (d *cdraw) planCard(gtx layout.Context, p *session.PlanApproval) layout.Dimensions {
 	bs := d.t.answer[p.ID]
 	if bs == nil {
@@ -122,6 +123,7 @@ func (d *cdraw) planCard(gtx layout.Context, p *session.PlanApproval) layout.Dim
 		d.t.answer[p.ID] = bs
 	}
 	plan := session.Item{ID: "plan:" + p.ID, Text: strings.TrimSpace(deref(p.Detail))}
+	e := d.t.reasonField(p.ID)
 	return d.card(gtx, "map", "Plan ready for review", func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return vstack(gtx, gtx.Dp(theme.SpaceM),
@@ -137,9 +139,18 @@ func (d *cdraw) planCard(gtx layout.Context, p *session.PlanApproval) layout.Dim
 						return d.keyButton(gtx, &bs[0], true, "Approve", "1", true)
 					},
 					func(gtx layout.Context) layout.Dimensions {
+						if e != nil {
+							return layout.Dimensions{}
+						}
 						return d.keyButton(gtx, &bs[2], false, "Refine", "2", true)
 					},
 				)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				if e == nil {
+					return layout.Dimensions{}
+				}
+				return d.reasonRow(gtx, e, &bs[2], "Tell "+d.agent()+" what to change", "Refine")
 			},
 		)
 	})
@@ -224,7 +235,8 @@ func (d *cdraw) card(gtx layout.Context, ic, title string, body layout.Widget) l
 }
 
 // approvalCard is a pending approval: what it runs in mono, why it asks
-// when the request says, and Allow 1, Allow for session 2, Deny 3.
+// when the request says, and Allow 1, Allow for session 2, Deny 3, which
+// opens a field for the reason.
 func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dimensions {
 	th := d.th
 	bs := d.t.answer[a.ID]
@@ -233,6 +245,7 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 		d.t.answer[a.ID] = bs
 	}
 	what, why := requestWhat(a, d.t.Dir), approvalWhy(a)
+	e := d.t.reasonField(a.ID)
 	return d.card(gtx, "shield", d.requestTitle(a), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return vstack(gtx, gtx.Dp(theme.SpaceS),
@@ -254,8 +267,19 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 					func(gtx layout.Context) layout.Dimensions {
 						return d.keyButton(gtx, &bs[1], false, "Allow for session", "2", true)
 					},
-					func(gtx layout.Context) layout.Dimensions { return d.keyButton(gtx, &bs[2], false, "Deny", "3", true) },
+					func(gtx layout.Context) layout.Dimensions {
+						if e != nil {
+							return layout.Dimensions{}
+						}
+						return d.keyButton(gtx, &bs[2], false, "Deny", "3", true)
+					},
 				)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				if e == nil {
+					return layout.Dimensions{}
+				}
+				return d.reasonRow(gtx, e, &bs[2], "Tell "+d.agent()+" what to do instead", "Deny")
 			},
 		)
 	})

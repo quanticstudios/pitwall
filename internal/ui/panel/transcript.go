@@ -50,9 +50,15 @@ type Transcript struct {
 	// path under Dir, or a tool row's, a URL or a file's absolute path. Nil
 	// leaves links inert.
 	Open func(link string)
+	// Run, when set, takes the command of a shell code block's Run: it
+	// types it where the user presses Enter to run it, never runs it.
+	Run func(cmd string)
 	// PRs are the pull requests pitwall tracks, as State.PRs: a tool row
 	// whose output names one shows its live state.
 	PRs map[string]model.PR
+	// Invalidate asks for a frame from another goroutine: the side panel's
+	// markdown file and its pictures, read in the background.
+	Invalidate func()
 
 	list   layout.List
 	blocks []block
@@ -66,6 +72,7 @@ type Transcript struct {
 	clicks map[string]*widget.Clickable
 	sels   map[string]*widget.Selectable
 	docs   map[string]*reply    // parsed replies by item id
+	cards  map[string]cardCache // command outputs' cards by item id
 	copied map[string]time.Time // copy buttons, while they show Copied
 	thumbs thumbs
 	focus  int // the transcript's own key focus tag
@@ -75,6 +82,7 @@ type Transcript struct {
 	answer  map[string]*[3]widget.Clickable // per pending approval, one per decisions entry
 	sent    map[string]bool                 // requests answered here that the chat has not resolved yet
 	answers []Answer                        // not taken by Answers yet
+	reasons map[string]*widget.Editor       // approvals whose Deny or Refine opened the reason field
 	inputs  []InputAnswer                   // not taken by Inputs yet
 	asks    map[string]*ask                 // per pending question request
 	done    []resolved                      // requests answered here, as one line each
@@ -88,6 +96,8 @@ type Transcript struct {
 	items   int                             // len(Content) this frame
 	diffs   map[string]diffCache            // edits' lines by item id
 	tool    toolState                       // the tool rows' scroll, shells and images
+	side    side                            // the Files and Changes panel
+	changes map[string]changeCache          // turns' changed files by their first item id
 
 	more    widget.Clickable
 	menu    bool
@@ -109,6 +119,7 @@ type Transcript struct {
 type Answer struct {
 	Request  string
 	Decision string // allow, allow-session, deny
+	Reason   string // what a denial tells the agent to do instead, "" for none
 }
 
 // InputAnswer is a question answered on its card: question id to the
@@ -169,11 +180,12 @@ type trow struct {
 type rowSeg uint8
 
 const (
-	segBlock rowSeg = iota // a prompt or a system line
-	segHead                // a turn's work log header
-	segItem                // an item in an open work log
-	segReply               // a turn's reply
-	segTodo                // a turn's task list, its last task-list call i
+	segBlock   rowSeg = iota // a prompt or a system line
+	segHead                  // a turn's work log header
+	segItem                  // an item in an open work log
+	segReply                 // a turn's reply
+	segTodo                  // a turn's task list, its last task-list call i
+	segChanges               // a finished turn's change card
 )
 
 // Answers returns the approvals answered since the last call, once each.
@@ -204,7 +216,11 @@ func (t *Transcript) OpenAide() bool {
 func (t *Transcript) Key(name string) bool {
 	if t.keyPlan {
 		if dec, ok := planKey(name); ok {
-			t.decide(t.keyReq, dec)
+			if dec == "deny" {
+				t.openReason(t.keyReq)
+			} else {
+				t.decide(t.keyReq, dec)
+			}
 			return true
 		}
 		return false
@@ -218,6 +234,8 @@ func (t *Transcript) Key(name string) bool {
 		return false
 	}
 	switch {
+	case act.decision == "deny":
+		t.openReason(t.keyReq)
 	case act.decision != "":
 		t.decide(t.keyReq, act.decision)
 	case act.submit:
@@ -297,6 +315,7 @@ func (t *Transcript) init() {
 	t.open, t.clicks, t.sels, t.selAt = map[string]bool{}, map[string]*widget.Clickable{}, map[string]*widget.Selectable{}, map[string]int{}
 	t.docs, t.copied = map[string]*reply{}, map[string]time.Time{}
 	t.answer, t.sent, t.asks = map[string]*[3]widget.Clickable{}, map[string]bool{}, map[string]*ask{}
+	t.reasons = map[string]*widget.Editor{}
 	t.list.Axis = layout.Vertical
 }
 
@@ -355,12 +374,15 @@ func (t *Transcript) isCopied(key string) bool {
 }
 
 // decide answers approval id once.
-func (t *Transcript) decide(id, decision string) {
+func (t *Transcript) decide(id, decision string) { t.decideWhy(id, decision, "") }
+
+// decideWhy answers approval id once, a denial with reason.
+func (t *Transcript) decideWhy(id, decision, reason string) {
 	if id == "" || t.sent[id] {
 		return
 	}
 	t.sent[id] = true
-	t.answers = append(t.answers, Answer{Request: id, Decision: decision})
+	t.answers = append(t.answers, Answer{Request: id, Decision: decision, Reason: reason})
 	if t.keyReq == id {
 		t.keyReq = ""
 	}
@@ -368,7 +390,11 @@ func (t *Transcript) decide(id, decision string) {
 	if t.plans[id] {
 		line = planLine[decision]
 	}
-	t.done = append(t.done, resolved{id: id, line: line, what: t.what[id], prose: t.plans[id], at: t.items, when: t.now})
+	what, prose := t.what[id], t.plans[id]
+	if reason != "" {
+		what, prose = reason, true
+	}
+	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, at: t.items, when: t.now})
 }
 
 // Refused takes back the answer to request id that the daemon refused:
@@ -438,8 +464,13 @@ func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 }
 
 // Layout draws s filling gtx's constraints, with Open in aide in a quiet
-// menu when aide is set.
+// menu when aide is set, and the Files and Changes panel at its right
+// while it is open.
 func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
+	return t.withSide(gtx, th, s, func(gtx layout.Context) layout.Dimensions { return t.layoutChat(gtx, th, s, aide) })
+}
+
+func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
 	if t.open == nil {
 		t.init()
 	}
@@ -549,6 +580,8 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		case r.seg == segItem:
 			t.laid++
 			dims = d.logItem(gtx, r.i, r.last)
+		case r.seg == segChanges:
+			dims = d.changeCard(gtx, r.b)
 		case r.seg == segTodo:
 			t.laid++
 			dims = d.todoCard(gtx, &s.Content[r.i])
@@ -630,7 +663,11 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	}
 	for id, bs := range t.answer {
 		for i := range bs {
-			if bs[i].Clicked(gtx) && pending[id] {
+			switch {
+			case !bs[i].Clicked(gtx) || !pending[id]:
+			case decisions[i] == "deny":
+				t.openReason(id)
+			default:
 				t.decide(id, decisions[i])
 			}
 		}
@@ -638,6 +675,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 			delete(t.answer, id)
 		}
 	}
+	t.reasonEvents(gtx, pending)
 	for id, a := range t.asks {
 		for qi := range a.opts {
 			for oi := range a.opts[qi] {
@@ -771,6 +809,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 				t.rows = append(t.rows, trow{res: &t.done[k]})
 			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
+		}
+		if !run && len(t.changesOf(d, b)) > 0 {
+			t.rows = append(t.rows, trow{b: b, seg: segChanges})
 		}
 	}
 	if n := len(t.blocks); n > 0 && stopped[t.blocks[n-1].turn] {

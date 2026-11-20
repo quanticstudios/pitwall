@@ -71,6 +71,7 @@ func (u *ui) flipPaneChat(id string) {
 		u.paneFlip = map[string]bool{}
 	}
 	u.paneFlip[id] = !u.paneFlip[id]
+	delete(u.tui, id)        // the full TUI shows a TUI command's screen itself
 	if u.invalidate != nil { // why: the flip lands after this frame drew the pane
 		u.invalidate()
 	}
@@ -102,11 +103,18 @@ func (u *ui) paneChatKey(st *model.State) bool {
 // rect's size and the TUI drawn right for a flip back, then the chat's
 // header, transcript and composer. focused is whether it takes the keys.
 func (u *ui) layoutPaneChat(gtx gl.Context, st *model.State, ws *model.Workspace, p *paneUI, id string, r layout.Rect, focused, sole bool) {
-	unseen := op.Record(gtx.Ops)
-	u.layoutPane(gtx, st, p, id, r, false, false, sole, nil)
-	unseen.Stop()
-
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
+	// A TUI command's dialog lays the pane out itself, over the chat: this
+	// defer runs after the others pop.
+	tui := u.tuiShown(st, id, gtx.Now)
+	if tui != nil {
+		defer u.layoutTUI(gtx, st, id, tui, rect)
+	} else {
+		unseen := op.Record(gtx.Ops)
+		u.layoutPane(gtx, st, p, id, r, false, false, sole, nil)
+		unseen.Stop()
+	}
+
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	lit := focused || (u.nav.paneMode || u.hints.on) && id == u.nav.focused()
 	in, cl := u.chatFrame(gtx, rect.Size(), lit, sole)
@@ -129,5 +137,5 @@ func (u *ui) layoutPaneChat(gtx gl.Context, st *model.State, ws *model.Workspace
 	head := u.chatStrip(gtx, h, ws, paneChatOf(st, id), func() { u.flipPaneChat(id) })
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(image.Pt(in.Dx(), max(0, in.Dy()-head)))
-	u.chatBody(gtx, st, u.b.(Chatter), id, ws.Path, focused, func() { u.flipPaneChat(id) })
+	u.chatBody(gtx, st, u.b.(Chatter), id, ws.Path, focused && tui == nil, func() { u.flipPaneChat(id) })
 }

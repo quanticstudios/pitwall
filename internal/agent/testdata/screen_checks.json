@@ -26,6 +26,7 @@
   {"file": "claude-permission-accept-edits.txt", "provider": "claude", "screen": 2, "state": "pending-approval"},
   {"file": "claude-question.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-plan.txt", "provider": "claude", "screen": 2, "state": "plan-ready"},
+  {"file": "claude-plan-feedback.txt", "provider": "claude", "screen": 2, "state": "plan-ready"},
   {"file": "claude-empty-plan.txt", "provider": "claude", "screen": 2, "state": "plan-ready"},
   {"file": "claude-plan-quote.txt", "provider": "claude", "screen": 0, "state": ""},
   {"file": "tuios-claude-code-working.txt", "provider": "claude", "screen": 1, "state": "working"},
