@@ -95,7 +95,7 @@ agent. A command pane that exits also loses its resume command.
 ## Built-in agents
 
 Built-in hooks and process detection keep authority over Claude, Codex,
-pi, Oh My Pi, Gemini, OpenCode, Cursor, Amp and Aider. pitwall ignores a
+pi, Oh My Pi, Gemini, Antigravity, OpenCode, Cursor, Amp and Aider. pitwall ignores a
 self-report when the pane has a built-in agent identity or its foreground
 process identifies as a built-in agent. A built-in hook takes authority
 from a self-reported agent and clears its resume command.

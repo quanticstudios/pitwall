@@ -24,6 +24,8 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Antigravity CLI (`agy`) joins the agents: its mark in the sidebar and chat header, its states through `pitwall hooks install` (a `pitwall` hook in `~/.gemini/config/hooks.json`) and the status agy reports to its terminal, Allow, Always and Deny on its permission prompts, resume with `agy --conversation` after a restart, workers whose brief goes in with `-i`, New task chats over `agy acp`, and its TUI panes as the desktop chat. `[chat] antigravity = "terminal"` keeps the TUI.
+
 - Rewind on a prompt sent mid-turn rewinds to that prompt in a TUI pane chat, not to the turn's first prompt. A New task chat rewinds and forks whole turns, so it offers both only on the prompt that opened a turn.
 - A TUI pane chat refuses a rewind when a later prompt reads the same in Claude Code's rewind list, as two long prompts cut to one label do, instead of rewinding the newer one. Rewind in the terminal to pick it yourself.
 - Scrolling up in a TUI pane chat after a rewind no longer shows the rewound turns again, nor does a chat read again after a daemon restart.

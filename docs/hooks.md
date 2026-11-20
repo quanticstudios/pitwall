@@ -1,7 +1,7 @@
 # Hooks
 
-Hooks are how Claude Code, Codex, pi, Oh My Pi, Gemini CLI, OpenCode and Cursor CLI
-tell pitwall exactly what they are doing. Amp and Aider have no hooks;
+Hooks are how Claude Code, Codex, pi, Oh My Pi, Gemini CLI, Antigravity CLI,
+OpenCode and Cursor CLI tell pitwall exactly what they are doing. Amp and Aider have no hooks;
 pitwall recognizes them and reads what it can from their screens (see
 [Watching agents](usage.md#watching-agents)).
 
@@ -13,11 +13,20 @@ path. See [Add pitwall support to your agent](agent-report.md).
 | Claude     | hooks in `~/.claude/settings.json`, the skill                                  | always                                        |
 | Codex      | hooks in `~/.codex/hooks.json`, the skill                                      | always                                        |
 | Gemini CLI | hooks in `~/.gemini/settings.json`                                             | `gemini` is on `PATH` or the dir exists       |
+| Antigravity | a hook named `pitwall` in `~/.gemini/config/hooks.json`                       | `agy` is on `PATH` or the dir exists          |
 | Cursor CLI | hooks in `~/.cursor/hooks.json`                                                | `cursor-agent` is on `PATH` or the dir exists |
 | pi         | an extension, `~/.pi/agent/extensions/pitwall.ts`                              | `pi` is on `PATH` or the dir exists           |
 | Oh My Pi   | the same, `~/.omp/agent/extensions/pitwall.ts`                                 | `omp` is on `PATH` or the dir exists          |
 | OpenCode   | a plugin, `~/.config/opencode/plugins/pitwall.js` and `plugins/pitwall/tui.js` | `opencode` is on `PATH` or the dir exists     |
 | Amp, Aider | nothing: they have no hooks                                                    |                                               |
+
+Antigravity CLI (`agy`) runs pitwall's hook on SessionStart, PreInvocation,
+PostToolUse and Stop. pitwall leaves PreToolUse alone: agy blocks a tool
+call whose PreToolUse hook fails, so a moved or deleted pitwall binary
+would stop every command. agy has no hook for a permission prompt or a
+question; pitwall reads those from the status agy reports to the terminal
+(OSC 7501). The install owns only the `pitwall` entry of `hooks.json`, and
+leaves one you edited alone.
 
 For the JSON configs (Gemini's is in `$GEMINI_CLI_HOME` when set):
 

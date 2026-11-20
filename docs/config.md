@@ -72,6 +72,7 @@ settle_on_merge = true                  # settle a tab once its pull request mer
 [chat]
 claude = "chat"                         # or "terminal": how Claude Code panes show; Alt+T flips between chat and TUI
 codex = "chat"                          # or "terminal": the same for Codex panes
+antigravity = "chat"                    # or "terminal": New task starts agy's TUI; agy panes show as the TUI
 width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
 
 [git]

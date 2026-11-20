@@ -10,8 +10,8 @@ tab, notifies you, and takes you there with one key.
 
 - Free and open source, under the MIT license. No account.
 - A desktop app for Linux, macOS and Windows, on x86_64 and arm64.
-- Works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and
-  Oh My Pi.
+- Works with Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI,
+  Cursor CLI, pi and Oh My Pi.
 - Shows Claude Code as a desktop chat, with its TUI one key away.
 - Installs with one command.
 
@@ -475,6 +475,7 @@ corner while you work in another tab.
 | OpenCode    | Working, Input, Approval, Done and Error, resume; [managed driver](internal/session/opencode/README.md) |
 | pi          | Working, Done and Error, resume, side panel, cost                    |
 | Oh My Pi    | Working, Done and Error, resume, side panel                          |
+| Antigravity | Every state but Plan, Allow, Deny and Always, resume, desktop chat over `agy acp`, its TUI as a chat |
 | Cursor CLI  | Working, Done and Error, resume                                      |
 | Aider, Amp  | Aider's state read from its screen; Amp's logo, and its bell rings   |
 
@@ -525,8 +526,8 @@ input or approval, done or failed. When one stops to ask, Ctrl+Shift+U
 jumps to it, and Allow and Deny work from the sidebar or a paired phone. An
 agent can split a job across workers, each in its own git worktree, listed
 under its row. Claude Code shows as a desktop chat over the same running
-session. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI,
-pi and Oh My Pi.
+session. It works with Claude Code, Codex, OpenCode, Gemini CLI, Antigravity
+CLI, Cursor CLI, pi and Oh My Pi.
 
 - Logo: [packaging/pitwall.svg](packaging/pitwall.svg)
 - Screenshots and clips: [docs/media](docs/media)

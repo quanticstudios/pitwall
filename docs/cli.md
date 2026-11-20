@@ -117,7 +117,7 @@ and does not survive a restart.
 sequences. Pitwall infers the provider from a file name such as
 `codex-working.txt`; pass `--provider` when the name does not identify one.
 Providers are `claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
-`cursor`, `amp` and `aider`. A live `--provider` supplies only a missing
+`cursor`, `amp`, `aider` and `antigravity`. A live `--provider` supplies only a missing
 screen provider; it does not override the daemon's decision.
 
 Each screen trace names the deciding pattern and its matched line, then
