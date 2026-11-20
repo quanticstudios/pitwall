@@ -87,3 +87,18 @@ func TestMessageIdentity(t *testing.T) {
 		t.Fatal("ACP message ids were lost")
 	}
 }
+
+// TestExecuteCommand: an execute call is drawn as a shell command. The
+// line is Antigravity CLI 1.5.13's own, which names it CommandLine.
+func TestExecuteCommand(t *testing.T) {
+	s := newStream()
+	s.turn = "turn"
+	ev := s.update([]byte(`{"sessionUpdate":"tool_call","toolCallId":"call_1","name":"run_command","args":{"CommandLine":"mkdir -p ./junk2","WaitMsBeforeAsync":5000},"status":"in_progress","kind":"execute","title":"mkdir -p ./junk2","rawInput":{"CommandLine":"mkdir -p ./junk2","WaitMsBeforeAsync":5000}}`))
+	if len(ev) != 1 || ev[0].Tool.ToolName != "Bash" || ev[0].Tool.Command != "mkdir -p ./junk2" || string(ev[0].Tool.Input) != `{"command":"mkdir -p ./junk2"}` {
+		t.Fatalf("execute: %+v", ev)
+	}
+	other := s.update([]byte(`{"sessionUpdate":"tool_call","toolCallId":"call_2","name":"view_file","status":"in_progress","kind":"read","rawInput":{"CommandLine":"not a command"}}`))
+	if other[0].Tool.ToolName != "view_file" || other[0].Tool.Command != "" {
+		t.Fatalf("read: %+v", other)
+	}
+}

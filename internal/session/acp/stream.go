@@ -149,7 +149,7 @@ func (d *driver) line(b []byte) []session.Event {
 			case "read":
 				rt = session.RequestFileRead
 			}
-			return []session.Event{e, {Type: session.EventRequestOpened, TurnID: d.s.turn, RequestID: key, RequestType: rt, Detail: t.Progress, Request: &session.ToolRequest{ToolName: t.ToolName, Input: t.Input}}}
+			return []session.Event{e, {Type: session.EventRequestOpened, TurnID: d.s.turn, RequestID: key, RequestType: rt, Detail: t.Progress, Request: &session.ToolRequest{ToolName: t.ToolName, Input: t.Input, Command: t.Command}}}
 		}
 		if m.Method == "elicitation/create" {
 			return d.elicit(m)
@@ -258,6 +258,18 @@ func (s *stream) tool(u toolUpdate) session.Event {
 	}
 	if len(u.RawInput) > 0 {
 		t.Input = u.RawInput
+	}
+	// why: an execute call is a shell command; drawn as Bash, its card and row show the command, not the agent's tool name.
+	if s.kinds[u.ToolCallID] == "execute" && t.Command == "" {
+		var in map[string]any
+		_ = json.Unmarshal(t.Input, &in)
+		for _, k := range []string{"command", "CommandLine"} { // Antigravity names it CommandLine
+			if c, _ := in[k].(string); c != "" {
+				t.ToolName, t.Command = "Bash", c
+				t.Input, _ = json.Marshal(map[string]string{"command": c})
+				break
+			}
+		}
 	}
 	switch u.Status {
 	case "pending", "in_progress":
