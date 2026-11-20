@@ -59,6 +59,9 @@ type Transcript struct {
 	// CanRewind and CanFork show the prompts' Rewind and Fork buttons,
 	// for a chat whose daemon and agent take them.
 	CanRewind, CanFork bool
+	// TurnRewind says the chat rewinds and forks whole turns: they show only
+	// on a prompt that opened its turn.
+	TurnRewind bool
 	// Invalidate asks for a frame from another goroutine: the side panel's
 	// markdown file and its pictures, read in the background.
 	Invalidate func()

@@ -160,4 +160,9 @@ func TestRewindRank(t *testing.T) {
 	if rewindTarget(content, "t2") != 2 || rewindTarget(content, "nope") != -1 || rewindTarget(content, "") != -1 {
 		t.Error("rewindTarget")
 	}
+	// A prompt sent mid-turn shares its turn's id: its own id picks it.
+	content[3].ID, content[3].TurnID = "mid", &turn
+	if rewindTarget(content, "mid") != 3 || rewindTarget(content, "t2") != 2 {
+		t.Error("rewindTarget of a mid-turn prompt")
+	}
 }

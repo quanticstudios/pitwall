@@ -24,8 +24,9 @@ type ChatAsker interface {
 func (u *ui) chatTools(st *model.State, id string, t *panel.Transcript) bool {
 	c := findChat(st, id)
 	claude := c != nil && c.Provider == model.ProviderClaude
-	pane := !slices.ContainsFunc(st.Chats, func(c model.Chat) bool { return c.ID == id })
+	pane := paneChat(st, id)
 	level := u.link().Level
+	t.TurnRewind = !pane
 	t.CanRewind = claude && (pane && level >= proto.PaneRewindLevel || !pane && level >= proto.ChatForkLevel)
 	t.CanFork = claude && !pane && level >= proto.ChatForkLevel
 	if a, ok := u.b.(ChatAsker); ok {
@@ -34,6 +35,11 @@ func (u *ui) chatTools(st *model.State, id string, t *panel.Transcript) bool {
 		}
 	}
 	return claude && level >= proto.ChatAsideLevel
+}
+
+// paneChat reports whether chat id is a pane's, not a chat tab's.
+func paneChat(st *model.State, id string) bool {
+	return !slices.ContainsFunc(st.Chats, func(c model.Chat) bool { return c.ID == id })
 }
 
 // asideOf is the side question composer message m asks with /btw, typed
@@ -50,16 +56,20 @@ func asideOf(m any) (string, bool) {
 }
 
 // chatActions acts on the prompts' hover buttons clicked on chat id's
-// transcript t: Edit and Rewind put the prompt in composer cmp. It
-// reports whether there were any.
-func (u *ui) chatActions(id string, t *panel.Transcript, cmp *chatin.Composer) bool {
-	acts := t.Actions()
+// transcript, acts: Edit and Rewind put the prompt in composer cmp. A pane
+// chat rewinds to the prompt itself; a chat tab, pane false, rewinds whole
+// turns. It reports whether there were any.
+func (u *ui) chatActions(id string, acts []panel.MessageAction, pane bool, cmp *chatin.Composer) bool {
 	for _, a := range acts {
 		switch a.Kind {
 		case panel.ActEdit:
 			cmp.SetText(a.Text)
 		case panel.ActRewind:
-			u.send(proto.ChatRewind{Chat: id, Turn: a.Turn, KeepFiles: true})
+			turn := a.Turn
+			if pane {
+				turn = a.Item
+			}
+			u.send(proto.ChatRewind{Chat: id, Turn: turn, KeepFiles: true})
 			cmp.SetText(a.Text)
 		case panel.ActFork:
 			u.send(proto.ChatFork{Chat: id, Turn: a.Turn})

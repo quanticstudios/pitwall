@@ -173,7 +173,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
 		}
-		if u.chatActions(id, t, cmp) {
+		if u.chatActions(id, t.Actions(), paneChat(st, id), cmp) {
 			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the prompt came back
 		}
 	} else {

@@ -173,3 +173,21 @@ func TestSpans(t *testing.T) {
 		t.Errorf("spans %v, want %v", m.ys, want)
 	}
 }
+
+// A chat that rewinds and forks whole turns offers them on the prompt
+// that opened a turn, not on one sent into it mid-turn.
+func TestOpensTurn(t *testing.T) {
+	t1, t2 := "t1", "t2"
+	content := []session.Item{
+		{ID: "p1", Kind: session.KindUserPrompt, TurnID: &t1},
+		{ID: "a1", Kind: session.KindAssistantText, TurnID: &t1},
+		{ID: "p1b", Kind: session.KindUserPrompt, TurnID: &t1}, // sent now, mid-turn
+		{ID: "p2", Kind: session.KindUserPrompt, TurnID: &t2},
+		{ID: "none", Kind: session.KindUserPrompt},
+	}
+	for i, want := range []bool{true, false, false, true, false} {
+		if got := opensTurn(content, &content[i]); got != want {
+			t.Errorf("opensTurn(%s) = %v", content[i].ID, got)
+		}
+	}
+}
