@@ -743,7 +743,7 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	d.mu.Lock()
 	d.chatHold(pc.id, false)
 	d.mu.Unlock()
-	if !busy(l.act.State) || m.How == "now" || m.How == "steer" {
+	if !busy(l.act.State) || l.act.Background || m.How == "now" || m.How == "steer" {
 		_, err := d.phoneSendPaths(pc.id, sm.Text, paths, texts)
 		return "", err
 	}

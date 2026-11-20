@@ -297,7 +297,8 @@ func (d *Daemon) readyWindow(pane string, phone bool) (Pane, error) {
 		return nil, fmt.Errorf("no running pane %s", pane)
 	case phone && (a.State == model.StatePendingApproval || a.State == model.StatePlanReady):
 		return nil, fmt.Errorf("%s waits on the user", prov)
-	case a.State != "" && !remote.Replies(a.State) && !(steer && a.State == model.StateWorking):
+	// why: a turn that ended with a background shell running reads Working, Background, with the agent at its prompt.
+	case a.State != "" && !remote.Replies(a.State) && !(steer && a.State == model.StateWorking) && !a.Background:
 		return nil, fmt.Errorf("%s is busy", prov)
 	case drafting && agent.Draft(prov, p.Snapshot()):
 		return nil, errDraft

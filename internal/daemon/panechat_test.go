@@ -191,6 +191,22 @@ func TestPaneChat(t *testing.T) {
 	if snap, seq = paneRead(t, d, "a", snap, seq); len(snap.QueuedInputs) != 0 {
 		t.Fatalf("queue %q after delivery", texts(snap))
 	}
+	// A turn that ended with a background shell running takes a send at
+	// once: Claude Code sits at its prompt.
+	d.mu.Lock()
+	ai := d.activityIndex("a")
+	d.st.Activities[ai].State, d.st.Activities[ai].Background = model.StateWorking, true
+	d.mu.Unlock()
+	before = len(f.pane(0).got())
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: "while it sleeps"}); r.(proto.ChatResult).Message == "queued" {
+		t.Fatalf("a send after the turn queued: %+v", r)
+	}
+	if got := gotAfter(t, f.pane(0), before, len("while it sleeps")); !strings.Contains(got, "while it sleeps") {
+		t.Fatalf("background send typed %q", got)
+	}
+	d.mu.Lock()
+	d.st.Activities[ai].Background = false
+	d.mu.Unlock()
 
 	d.mu.Lock()
 	d.st.Activities[d.activityIndex("a")].State = model.StateCompleted
