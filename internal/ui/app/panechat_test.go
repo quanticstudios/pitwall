@@ -77,15 +77,20 @@ func TestPaneChat(t *testing.T) {
 }
 
 // TestPaneChatAltTAfterClick: after a click anywhere in a pane chat, the
-// transcript or the composer, also coming from a shell pane of the split,
-// the first Alt+T flips the pane to the TUI and types nothing into it.
+// transcript or the composer, also coming from a shell pane of the split
+// and with the Alt+T in the click's own batch, the first Alt+T flips the
+// pane to the TUI and types nothing into it or the shell.
 func TestPaneChatAltTAfterClick(t *testing.T) {
 	old := findAide
 	findAide = func() []string { return nil }
 	t.Cleanup(func() { findAide = old })
-	for _, c := range []struct{ ws, pane, first, where string }{
-		{"w6", "h", "h", "transcript"}, {"w6", "h", "h", "composer"},
-		{"w1", "b", "a", "transcript"}, {"w1", "b", "a", "composer"},
+	for _, c := range []struct {
+		ws, pane, first, where string
+		batch                  bool
+	}{
+		{"w6", "h", "h", "transcript", false}, {"w6", "h", "h", "composer", false},
+		{"w1", "b", "a", "transcript", false}, {"w1", "b", "a", "composer", false},
+		{"w1", "b", "a", "transcript", true}, {"w1", "b", "a", "composer", true},
 	} {
 		b := &chatBackend{FakeBackend: NewFakeBackend()}
 		u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
@@ -121,16 +126,18 @@ func TestPaneChatAltTAfterClick(t *testing.T) {
 		if c.where == "composer" {
 			at.Y = float32(rect.Max.Y - 40)
 		}
+		before := len(b.Sent())
 		r.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: at},
 			pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: at})
-		frame() // why: one frame, as a window draws for a click when nothing asks for another
-		if st = b.State(); !u.paneChatShown(&st, st.Workspace(c.ws), c.pane) {
-			t.Fatalf("%s: not a chat before Alt+T", c.pane)
+		if !c.batch {
+			frame() // why: one frame, as a window draws for a click when nothing asks for another
+			if st = b.State(); !u.paneChatShown(&st, st.Workspace(c.ws), c.pane) {
+				t.Fatalf("%s: not a chat before Alt+T", c.pane)
+			}
+			if f := u.nav.focused(); f != c.pane {
+				t.Fatalf("%s %s click: focus on %s", c.pane, c.where, f)
+			}
 		}
-		if f := u.nav.focused(); f != c.pane {
-			t.Fatalf("%s %s click: focus on %s", c.pane, c.where, f)
-		}
-		before := len(b.Sent())
 		// As X11 sends a quick Alt+T: Alt down on its own first, the whole
 		// chord in one batch, before a frame has run since the click.
 		r.Queue(key.Event{Name: key.NameAlt, Modifiers: key.ModAlt, State: key.Press},
@@ -141,12 +148,61 @@ func TestPaneChatAltTAfterClick(t *testing.T) {
 		frame()
 		st = b.State()
 		if u.paneChatShown(&st, st.Workspace(c.ws), c.pane) {
-			t.Errorf("%s %s click: the first Alt+T did not flip the pane", c.pane, c.where)
+			t.Errorf("%s %s click, batch %v: the first Alt+T did not flip the pane", c.pane, c.where, c.batch)
 		}
 		for _, m := range b.Sent()[before:] {
 			if in, ok := m.(proto.Input); ok {
-				t.Errorf("%s %s click: Alt+T typed %q into %s", c.pane, c.where, in.Data, in.Pane)
+				t.Errorf("%s %s click, batch %v: Alt+T typed %q into %s", c.pane, c.where, c.batch, in.Data, in.Pane)
 			}
 		}
+	}
+}
+
+// TestPaneChatAltTInShell: Alt+T in a shell pane of a split whose other
+// pane is a pane chat reaches the shell and flips nothing; the window
+// takes it only while a pane chat has the keys.
+func TestPaneChatAltTInShell(t *testing.T) {
+	old := findAide
+	findAide = func() []string { return nil }
+	t.Cleanup(func() { findAide = old })
+	b := &chatBackend{FakeBackend: NewFakeBackend()}
+	b.mu.Lock()
+	i := slices.IndexFunc(b.st.Panes, func(p model.Pane) bool { return p.ID == "b" })
+	b.st.Panes[i].Provider, b.st.Panes[i].Transcript = model.ProviderClaude, "/tmp/s.jsonl"
+	b.mu.Unlock()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
+	u.cfg.Chat.Claude = true
+	var r input.Router
+	var ops op.Ops
+	frame := func() {
+		ops.Reset()
+		u.layout(gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(1600, 800)), Now: time.Now()})
+		r.Frame(&ops)
+	}
+	st := b.State()
+	u.nav.sync(&st)
+	u.nav.selectWorkspace(&st, "w1", "")
+	u.nav.setFocus("a")
+	frame()
+	frame()
+	before := len(b.Sent())
+	r.Queue(key.Event{Name: key.NameAlt, Modifiers: key.ModAlt, State: key.Press},
+		key.Event{Name: "T", Modifiers: key.ModAlt, State: key.Press},
+		key.Event{Name: "T", Modifiers: key.ModAlt, State: key.Release},
+		key.Event{Name: key.NameAlt, State: key.Release})
+	frame()
+	frame()
+	if st = b.State(); !u.paneChatShown(&st, st.Workspace("w1"), "b") {
+		t.Error("Alt+T in the shell flipped the pane chat")
+	}
+	typed := false
+	for _, m := range b.Sent()[before:] {
+		if in, ok := m.(proto.Input); ok && in.Pane == "a" && string(in.Data) == "\x1bt" {
+			typed = true
+		}
+	}
+	if !typed {
+		t.Error("Alt+T never reached the shell")
 	}
 }
