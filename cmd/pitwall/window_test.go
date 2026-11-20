@@ -152,6 +152,9 @@ func TestDialOrStartAsksBeforeRestart(t *testing.T) {
 }
 
 func TestDialOrStartHealthyDaemon(t *testing.T) {
+	old := handshakeWait
+	handshakeWait = 250 * time.Millisecond
+	t.Cleanup(func() { handshakeWait = old })
 	t.Setenv("PITWALL_SOCKET", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
@@ -189,7 +192,7 @@ func TestDialOrStartHealthyDaemon(t *testing.T) {
 			return
 		}
 		// The handshake deadline must not close a healthy connection later.
-		time.Sleep(2100 * time.Millisecond)
+		time.Sleep(handshakeWait + 100*time.Millisecond)
 		served <- conn.Send(proto.Frame{Pane: "healthy"})
 	}()
 	conn, initial, err := dialOrStart("work", false)
