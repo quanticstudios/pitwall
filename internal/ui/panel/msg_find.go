@@ -176,7 +176,8 @@ func (t *Transcript) findUpdate(gtx layout.Context, s *session.Snapshot) {
 		f.cur = ((f.cur+step)%len(f.hits) + len(f.hits)) % len(f.hits)
 		f.jump = true
 	}
-	if len(f.q) > 0 && t.older && t.Older != nil {
+	// why: the view may never have scrolled near the top, so nothing asked yet whether older pages exist.
+	if len(f.q) > 0 && t.Older != nil {
 		t.older = t.Older()
 	}
 }

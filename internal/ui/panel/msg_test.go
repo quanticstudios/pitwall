@@ -191,3 +191,28 @@ func TestOpensTurn(t *testing.T) {
 		}
 	}
 }
+
+// A search reads older pages from a chat opened at its tail, which has
+// not scrolled near its top, so nothing has asked for them yet.
+func TestFindReadsOlderFromTail(t *testing.T) {
+	th := theme.Dark()
+	s := longChat(400)
+	var tr Transcript
+	asked := 0
+	tr.Older = func() bool { asked++; return true }
+	var ops op.Ops
+	now := time.Now()
+	for i := range 4 {
+		transcriptFrame(&tr, th, s, &ops, now.Add(time.Duration(i)*time.Millisecond))
+	}
+	before := asked
+	tr.OpenFind()
+	tr.msg.find.ed.SetText("needle")
+	transcriptFrame(&tr, th, s, &ops, now.Add(time.Second))
+	if asked == before {
+		t.Fatal("the search did not ask for older pages")
+	}
+	if got := tr.msg.find.counted(tr.older); got != "Searching…" {
+		t.Errorf("bar says %q while older pages are read, want Searching…", got)
+	}
+}

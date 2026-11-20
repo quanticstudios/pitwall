@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Ctrl+F in a long desktop chat searches its older pages right after the chat opens; before, it said No results until you had scrolled near the top once.
 - Rewind in the desktop chat takes away the Allowed, Denied and Answered lines of the turns it removes, instead of leaving them stacked at the end.
 - The work log shows an ExitPlanMode call as Plan and the plan's title, without the markdown heading's #.
 - The turn change card and Changes panel leave out the plan Claude Code writes under ~/.claude/plans in plan mode.
