@@ -129,3 +129,18 @@ func TestChatRecentBytes(t *testing.T) {
 		t.Fatalf("recent holds %d deltas, a publish owes %d", len(c.recent), c.seq-c.published)
 	}
 }
+
+// TestPaneChatShrunk: a transcript rewritten shorter reads as a new chat
+// instead of panicking.
+func TestPaneChatShrunk(t *testing.T) {
+	_, path, read := paneTranscript(t, turnLines(0, "ok")+turnLines(1, strings.Repeat("o", 10000)))
+	first := read(proto.ChatRead{})
+	if err := os.WriteFile(path, []byte(turnLines(7, "ok")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := read(proto.ChatRead{After: first.Seq})
+	var s session.Snapshot
+	if json.Unmarshal(got.Snapshot, &s); len(s.Content) == 0 || s.Content[0].ID != "p7" {
+		t.Fatalf("after the rewrite: %+v", s.Content)
+	}
+}

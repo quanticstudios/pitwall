@@ -25,6 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
+- The daemon no longer crashes, closing every pane, when a TUI pane chat's transcript is rewritten shorter: the chat reads it again from the start.
 - A subagent that makes hundreds of calls no longer fills the daemon's memory and a chat's event log: a subagent card keeps its newest 20 calls, and its count still says them all. A chat keeps 1 MB of recent changes at most.
 - A TUI pane chat shows the permission mode Claude Code runs in, Bypass included, while Claude works too: it read the footer only while Claude waited, so a chat opened mid-turn said Default. The mode picker cycles mid-turn too.
 - The desktop chat draws everything in a Claude Code conversation natively, in New task chats and TUI pane chats alike, and no markup shows as text:

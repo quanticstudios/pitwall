@@ -280,7 +280,8 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 		return err
 	}
 	end := fi.Size()
-	if pc.off == 0 || end-pc.off > tailBytes || pc.off-pc.start > retailBytes || len(pc.snap.Content) > retailItems {
+	// A transcript shorter than what was read was rewritten: a new chat.
+	if pc.off == 0 || end < pc.off || end-pc.off > tailBytes || pc.off-pc.start > retailBytes || len(pc.snap.Content) > retailItems {
 		start, err := tailStart(f, end)
 		if err != nil {
 			return err
@@ -413,11 +414,12 @@ func (pc *paneChat) page(before int64) (session.Snapshot, int64, error) {
 // their own, its last turn ended.
 func (pc *paneChat) reduceRange(f io.ReaderAt, from, to int64) (session.Snapshot, error) {
 	b := make([]byte, to-from)
-	if _, err := f.ReadAt(b, from); err != nil && err != io.EOF {
+	n, err := f.ReadAt(b, from)
+	if err != nil && err != io.EOF {
 		return session.Snapshot{}, err
 	}
 	p := &paneChat{id: pc.id, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: pc.id, Provider: model.ProviderClaude}}
-	p.lines(b, "")
+	p.lines(b[:n], "") // a transcript that shrank since gives fewer
 	p.reduce(p.tr.End(session.TurnCompleted))
 	return p.snap, nil
 }
