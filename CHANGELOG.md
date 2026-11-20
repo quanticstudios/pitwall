@@ -24,6 +24,8 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A chat turn that edited files ends with a card, "Edited 2 files +5 −5": a row per file with its own counts, each file counted once over all its edits, and View changes. Resting on a row shows its first diff lines; a click opens the Changes view at that file.
+- The chat has a Files and Changes panel at its right, opened from the card, the header's file button, or any path in the chat. Changes shows the turn's diff per file; File shows the file on disk, read-only, with line numbers, markdown rendered, and pictures. It reads at most 400 KB of a file and 5 MiB of a picture, refuses binary files and anything outside the chat's folder, reads again on Refresh, and closes with Esc. Open outside pitwall is a button in its header.
 - Settings, Timing no longer counts an idle agent as model time. A turn that ended with a background shell still running stayed open until the next prompt, so 12 Claude turns put about 49 idle hours into "model". The timed turn now ends when the agent stops, background work or not.
 - A line a full disk cut short in `daemon.log` or `gui.log` no longer runs into the next one.
 - The README and the site lead with the desktop chat: a new hero shows a Claude Code chat beside the sidebar, a Desktop chat for Claude Code section shows it mid-turn and its tool views, the agents-talk image shows Claude Code as the chat, and a new page, docs/chat.md, covers where the chat shows, Alt+T, the composer's keys and `[chat]`.
