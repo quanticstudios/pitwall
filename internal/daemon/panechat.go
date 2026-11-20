@@ -21,20 +21,24 @@ import (
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
+	"github.com/quanticstudios/pitwall/internal/session/codex"
 )
 
-// A pane chat is the desktop chat of a Claude Code TUI running in a pane,
-// whatever started it: the chat id is the pane's id. Nothing starts or
-// stops claude for it. Its transcript, read as it grows, and the pane's
-// hooks and screen make the snapshot; what the chat sends goes into the
-// PTY as keys, as the phone's do. It lasts while the pane's hooks name
-// Claude and its transcript; then the window shows the pane again.
+// A pane chat is the desktop chat of a Claude Code or Codex TUI running in
+// a pane, whatever started it: the chat id is the pane's id. Nothing
+// starts or stops the agent for it. Its transcript (Codex's rollout),
+// read as it grows, and the pane's hooks and screen make the snapshot;
+// what the chat sends goes into the PTY as keys, as the phone's do. It
+// lasts while the pane's hooks name the agent and its transcript; then the
+// window shows the pane again. Only a hook's transcript_path names the
+// file: a pane whose hooks have not named one stays a terminal.
 
 // paneChat is one pane chat's snapshot and how far it read the transcript.
 type paneChat struct {
@@ -53,7 +57,8 @@ type paneChat struct {
 	// was last read: the chat reads it again only once it outgrows them.
 	tailOff int64
 	tailLen int
-	tr      *claude.Transcript
+	prov    model.Provider
+	tr      paneReader
 	snap    session.Snapshot
 	seq     int64
 	recent  []session.Delta
@@ -72,6 +77,55 @@ type paneChat struct {
 	// and how far each was read.
 	agents  map[string]*agentFile
 	scanned time.Time // when subagents last looked for transcripts it lacked
+	// limit is the pane's Claude plan limit, which /usage shows; nil for none.
+	limit func() (flow.Limit, bool)
+}
+
+// transcript is a new reader of pc's transcript.
+func (pc *paneChat) transcript() paneReader {
+	if pc.prov == model.ProviderCodex {
+		return codex.NewRollout()
+	}
+	t := claude.NewTranscript()
+	t.Limit = pc.limit
+	return t
+}
+
+// claudeLimit finds profile's Claude plan limit, for a pane chat's /usage.
+// Callers hold d.mu.
+func (d *Daemon) claudeLimit(profile string) func() (flow.Limit, bool) {
+	limits := d.o.Limits
+	if limits == nil {
+		return nil
+	}
+	return func() (flow.Limit, bool) {
+		for _, l := range limits() {
+			if l.Provider == model.ProviderClaude && l.Name == "" && l.Profile == profile {
+				return l, true
+			}
+		}
+		return flow.Limit{}, false
+	}
+}
+
+// paneReader turns a pane chat's transcript lines into events:
+// claude.Transcript for Claude Code, codex.Rollout for Codex.
+type paneReader interface {
+	Line([]byte) []session.Event
+	Running() bool
+	End(state string) []session.Event
+	Ask(id, detail string) []session.Event
+	Resolve() []session.Event
+	Subagents() map[string]bool
+	Subagent(call string, line []byte) []session.Event
+}
+
+// markOf is prov's claude.MarkOf, which tailStart pages by.
+func markOf(prov model.Provider) func([]byte) claude.Mark {
+	if prov == model.ProviderCodex {
+		return codex.MarkOf
+	}
+	return claude.MarkOf
 }
 
 // agentFile is a subagent's transcript and how far it was read; done once
@@ -91,6 +145,7 @@ type paneLive struct {
 	act  model.Activity // zero State when the pane has none
 	tui  phoneSettings  // the model and effort its screen showed (keepClaudeSettings)
 	conf string         // Claude Code's config dir for it
+	prov model.Provider // the agent its hooks named
 	// queued is what the chat queued mid-turn (chatQueue), held whether
 	// an interrupt holds it.
 	queued []session.QueuedInput
@@ -98,7 +153,7 @@ type paneLive struct {
 }
 
 // paneChatOf is pane id's chat, made on first use, and its pane's state;
-// false when the pane runs no Claude Code with a transcript.
+// false when the pane runs no Claude Code or Codex with a transcript.
 func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -113,16 +168,25 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		return nil, paneLive{}, false
 	}
 	p := d.st.Panes[i]
-	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode, tui: d.phoneSettings[id], conf: claudeConfigDir(p)}
+	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode, tui: d.phoneSettings[id], conf: claudeConfigDir(p), prov: p.Provider}
 	if ai := d.activityIndex(id); ai >= 0 {
 		l.act = d.st.Activities[ai]
 	}
 	l.queued, l.held = d.chatQueued(id)
 	pc := d.paneChats[id]
-	if pc == nil || pc.path != l.path { // a new session (claude again, /clear, /resume) starts over
-		pc = &paneChat{id: id, path: l.path, tr: claude.NewTranscript(),
-			snap: session.Snapshot{SessionID: id, PaneID: id, WorkspaceID: p.WorkspaceID, Provider: model.ProviderClaude,
+	if p.Provider == model.ProviderCodex {
+		l.conf = ""
+	}
+	if pc == nil || pc.path != l.path || pc.prov != p.Provider { // a new session (claude again, /clear, /resume) starts over
+		pc = &paneChat{id: id, path: l.path, prov: p.Provider,
+			snap: session.Snapshot{SessionID: id, PaneID: id, WorkspaceID: p.WorkspaceID, Provider: p.Provider,
 				SessionState: session.StateReady, Running: true, PermissionMode: "default", InteractionMode: "build"}}
+		if w := d.workspace(p.WorkspaceID); w != nil {
+			pc.limit = d.claudeLimit(w.Profile)
+		} else {
+			pc.limit = d.claudeLimit("")
+		}
+		pc.tr = pc.transcript()
 		if d.paneChats == nil {
 			d.paneChats = map[string]*paneChat{}
 		}
@@ -178,7 +242,7 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		pc.mu.Lock()
 		defer pc.mu.Unlock()
 		if err := pc.catchUp(l); err != nil && pc.off == 0 {
-			return chatResult(id, "", "", fmt.Errorf("Pitwall could not read Claude's transcript: %w", err)), true
+			return chatResult(id, "", "", fmt.Errorf("Pitwall could not read the agent's transcript: %w", err)), true
 		}
 		return pc.read(r.After), true
 	}
@@ -236,8 +300,12 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		rerr = err
 	}
 	a := l.act
+	isCodex := pc.prov == model.ProviderCodex
 	switch {
-	case waits(a.State) && (a.State != model.StateAwaitingInput || agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot()) != nil):
+	case isCodex && a.State == model.StatePendingApproval:
+		// shortcut: Codex's questions and plans stay in the terminal; only its approvals reach the chat.
+		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
+	case !isCodex && waits(a.State) && (a.State != model.StateAwaitingInput || agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot()) != nil):
 		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
 	default:
 		pc.reduce(pc.tr.Resolve())
@@ -250,10 +318,13 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	}
 	// The footer says the mode the TUI runs in now; the hooks' mode stands
 	// in only until it does, as AgentMode keeps bypass across Shift+Tab.
-	mode := agent.ClaudeMode(l.p.Snapshot())
+	mode := ""
+	if !isCodex {
+		mode = agent.ClaudeMode(l.p.Snapshot())
+	}
 	if mode != "" {
 		pc.footer = true
-	} else if !pc.footer {
+	} else if !pc.footer && !isCodex {
 		mode = l.mode
 	}
 	if mode != "" && mode != pc.snap.PermissionMode {
@@ -264,6 +335,9 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		}
 	}
 	pc.moded = pc.moded || mode != ""
+	if r, ok := pc.tr.(*codex.Rollout); ok {
+		l.tui.model, l.tui.effort = r.Settings()
+	}
 	pc.settings(l)
 	if !slices.EqualFunc(l.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
 		return a.ID == b.ID && a.Text == b.Text && a.Error == b.Error
@@ -301,12 +375,12 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 	// A transcript shorter than what was read was rewritten: a new chat.
 	retail := pc.off == 0 || end < pc.off || end-pc.off > tailBytes || pc.off-pc.tailOff > retailBytes || len(pc.snap.Content)-pc.tailLen > retailItems
 	if retail {
-		start, err := tailStart(f, end)
+		start, err := tailStart(f, end, markOf(pc.prov))
 		if err != nil {
 			return err
 		}
 		s := pc.snap
-		pc.tr, pc.snap = claude.NewTranscript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
+		pc.tr, pc.snap = pc.transcript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
 		pc.start, pc.off, pc.pages, pc.agents, pc.at = start, start, nil, nil, nil
@@ -362,7 +436,7 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 // (see tailBytes): a prompt line's offset; the first whole line when none
 // is in reach; 0 when the reach takes in the whole file. Whole lines in
 // reach that show nothing, as when one line is longer than it, widen it.
-func tailStart(r io.ReaderAt, end int64) (int64, error) {
+func tailStart(r io.ReaderAt, end int64, markOf func([]byte) claude.Mark) (int64, error) {
 	for reach := int64(tailBytes); ; reach *= 2 {
 		from := max(0, end-reach)
 		b := make([]byte, end-from)
@@ -376,7 +450,7 @@ func tailStart(r io.ReaderAt, end int64) (int64, error) {
 			if lo == 0 && from > 0 { // b[:hi] may start mid-line
 				break
 			}
-			switch claude.MarkOf(b[lo:hi]) {
+			switch markOf(b[lo:hi]) {
 			case claude.MarkPrompt:
 				start = from + int64(lo)
 				if items >= tailItems {
@@ -423,7 +497,7 @@ func (pc *paneChat) page(before int64) (session.Snapshot, int64, error) {
 		return session.Snapshot{}, 0, err
 	}
 	defer f.Close()
-	start, err := tailStart(f, before)
+	start, err := tailStart(f, before, markOf(pc.prov))
 	if err != nil {
 		return session.Snapshot{}, 0, err
 	}
@@ -456,7 +530,7 @@ func (pc *paneChat) reduceRange(f io.ReaderAt, from, to int64) (session.Snapshot
 	if err != nil && err != io.EOF {
 		return session.Snapshot{}, nil, err
 	}
-	p := &paneChat{id: pc.id, off: from, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: pc.id, Provider: model.ProviderClaude}}
+	p := &paneChat{id: pc.id, off: from, prov: pc.prov, tr: pc.transcript(), snap: session.Snapshot{SessionID: pc.id, Provider: pc.prov}}
 	p.lines(b[:n], "") // a transcript that shrank since gives fewer
 	p.reduce(p.tr.End(session.TurnCompleted))
 	return p.snap, p.at, nil
@@ -714,6 +788,10 @@ var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 // to end; one sent "now" goes in at once, and Claude Code takes it into
 // the running turn. A send lets a held queue go.
 func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
+	// why: Claude Code's dialog for these needs Esc and writes nothing the chat could show.
+	if dialogCommand(m) && pc.dialog(l, strings.TrimSpace(m.Text)) {
+		return "", nil
+	}
 	sm, quoted, err := gather(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
 		return "", err
@@ -761,6 +839,33 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	return "queued", nil
 }
 
+// dialogCommand reports whether m is /usage, /cost or /status alone, which
+// a pane chat answers itself.
+func dialogCommand(m proto.ChatSend) bool {
+	switch strings.TrimSpace(m.Text) {
+	case "/usage", "/cost", "/status":
+		return len(m.Attachments) == 0 && m.Skill == nil
+	}
+	return false
+}
+
+// dialog adds cmd's chip and card to pc; false when the transcript knows
+// nothing to show.
+func (pc *paneChat) dialog(l paneLive, cmd string) bool {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	if pc.catchUp(l) != nil {
+		return false
+	}
+	t, ok := pc.tr.(*claude.Transcript) // Codex's commands stay in its TUI
+	if !ok {
+		return false
+	}
+	es := t.Dialog(cmd, time.Now())
+	pc.reduce(es)
+	return es != nil
+}
+
 // paneKey presses data into pane id, as the user's own key.
 func (d *Daemon) paneKey(id string, p Pane, data []byte) error {
 	d.noteUserKey(id, nil)
@@ -769,13 +874,16 @@ func (d *Daemon) paneKey(id string, p Pane, data []byte) error {
 
 // paneApprove answers the permission prompt or plan on screen: Allow is
 // its first Yes, Allow for the session its don't-ask-again, a plan's
-// Allow its manual-approve Yes, and Deny Esc.
+// Allow its manual-approve Yes, and Deny Esc, or with a reason the
+// prompt's own field for one (pressFeedback).
 func (d *Daemon) paneApprove(id string, l paneLive, m proto.ChatApprove) error {
 	at, err := strconv.ParseInt(m.Request, 10, 64)
 	if err != nil {
 		return errResolved
 	}
 	switch {
+	case m.Decision == "deny" && strings.TrimSpace(m.Reason) != "":
+		return d.pressFeedback(id, at, m.Reason)
 	case m.Decision == "deny":
 		p, _, _, err := d.waiting(id, at)
 		if err != nil {
@@ -843,6 +951,9 @@ func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
 // paneSet sets the model or effort through Claude Code's own pickers, for
 // this session only, and the mode through Shift+Tab (paneMode).
 func (d *Daemon) paneSet(id string, l paneLive, m proto.ChatSet) error {
+	if l.prov == model.ProviderCodex {
+		return chatError{"unsupported", "set Codex's model, effort and mode in its terminal (Alt+T)"}
+	}
 	if m.Provider != "" && m.Provider != model.ProviderClaude {
 		return chatError{"unsupported", "this chat is Claude Code in a pane; it cannot switch provider"}
 	}

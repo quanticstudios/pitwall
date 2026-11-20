@@ -13,7 +13,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// logHead is a work log's header, "Worked for 48s · 4 tools", that a
+// logHead is a work log's header, "Worked for 48s · Read 2 files, ran 2
+// commands" or, where that does not fit, "Worked for 48s · 4 tools", that a
 // click folds or opens: the box's top, and its bottom too when nothing
 // is under it. Each of the log's rows is a list row of its own, so a
 // running turn of 2,000 calls lays out only the rows in view.
@@ -55,16 +56,30 @@ func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) l
 			})
 			x += gtx.Dp(11) + gtx.Dp(theme.SpaceS)
 		}
-		tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, logTitle(took, b.tools, running))
-		})
-		at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
+		room := w - x - gtx.Dp(10)
 		if n := turnTokens(d.s, b.turn); n > 0 {
 			kc, kd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, tokens(n))
 			})
 			at(gtx, image.Pt(w-gtx.Dp(10)-kd.Size.X, (hh-kd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { kc.Add(gtx.Ops); return kd })
+			room -= kd.Size.X + gtx.Dp(theme.SpaceM)
 		}
+		title := func(t string) (op.CallOp, layout.Dimensions) {
+			return measure(gtx, func(gtx layout.Context) layout.Dimensions {
+				return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, t)
+			})
+		}
+		// The calls by kind, as Claude Code counts them, when that fits;
+		// else how many.
+		var tc op.CallOp
+		var td layout.Dimensions
+		if k := toolKinds(d.s.Content, b.lo, b.hi); k != "" {
+			tc, td = title(logTitle(took, 0, running) + " · " + k)
+		}
+		if td.Size.X == 0 || td.Size.X > room {
+			tc, td = title(logTitle(took, b.tools, running))
+		}
+		at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
 		return layout.Dimensions{Size: image.Pt(w, hh)}
 	})
 	return layout.Dimensions{Size: image.Pt(w, h)}

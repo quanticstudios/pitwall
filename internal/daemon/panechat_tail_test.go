@@ -11,6 +11,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 )
 
 // turnLines is turn i of a transcript: its prompt, a Bash call whose
@@ -31,7 +32,7 @@ func turnLines(i int, out string) string {
 func TestTailStart(t *testing.T) {
 	start := func(s string) int64 {
 		t.Helper()
-		n, err := tailStart(strings.NewReader(s), int64(len(s)))
+		n, err := tailStart(strings.NewReader(s), int64(len(s)), claude.MarkOf)
 		if err != nil {
 			t.Fatal(err)
 		}

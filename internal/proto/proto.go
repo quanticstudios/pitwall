@@ -48,9 +48,11 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
-// Level 87 added QueuedMessage.Error and ChatQueue Action "now", and a
+// Level 88 added QueuedMessage.Error and ChatQueue Action "now", and a
 // pane chat holds what is queued mid-turn and takes queue actions
 // (QueueLevel).
+// Level 87 added no message: a daemon at CodexPaneChatLevel answers the
+// Chat* messages for a pane running Codex's TUI too.
 // Level 85 added no message: a daemon at PaneChatLevel answers the Chat*
 // messages for a pane running Claude Code's TUI (model.PaneChat), with the
 // pane's id as the chat's, so a window can show that pane as a chat.
@@ -228,12 +230,12 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 87
+const Level = 88
 
 // QueueLevel is the first daemon that takes ChatQueue Action "now" and
 // queue actions on a pane chat, whose mid-turn messages it holds until
 // the turn ends.
-const QueueLevel = 87
+const QueueLevel = 88
 
 // ChatPageLevel added ChatRead.Before and Item and ChatDeltas.Older, Page
 // and Item: a chat's history comes as its tail, then in pages, with long
@@ -243,6 +245,10 @@ const ChatPageLevel = 86
 // ChatNowLevel is the first daemon sure to take ChatSend How "now": level
 // 85 daemons came both before and after it, and the older ones refuse it.
 const ChatNowLevel = 86
+
+// CodexPaneChatLevel is the first daemon that answers Chat* messages for a
+// pane running Codex's TUI; a window shows such a pane as a chat only then.
+const CodexPaneChatLevel = 87
 
 // PaneChatLevel is the first daemon that answers Chat* messages for a pane
 // running Claude Code's TUI; a window shows such a pane as a chat only then.

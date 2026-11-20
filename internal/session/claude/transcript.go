@@ -25,12 +25,22 @@ type Transcript struct {
 	last  string // the latest tool call's id
 	asked string // the open request's id, "" for none
 	bare  bool   // the open request came with no tool call to show
-	// cmd is a /model or /effort command waiting for its output, which
-	// turns the two into one divider; cmdID is its line's uuid.
+	// cmd is a /model, /effort or /recap command waiting for its output,
+	// which turns the two into one divider, or a chip and a recap card;
+	// cmdID is its line's uuid.
 	cmd, cmdID string
 	compacted  bool              // a compaction since the last prompt: its /compact needs no chip
 	used       map[string]msgUse // the running turn's API messages' usage, by message id
 	usedOrder  []string
+	total      map[string]flow.Tokens // the ended turns' tokens, by model
+	info       statusInfo             // what the lines so far said, for /status
+	// synthed is a /usage, /cost or /status whose output the transcript
+	// wrote itself: what Claude Code writes after it, its dialog's
+	// "dismissed" say, shows nothing.
+	synthed bool
+	// Limit is Claude's plan limit as last reported, for /usage; nil or
+	// false for none.
+	Limit func() (flow.Limit, bool)
 }
 
 // msgUse is one API message's usage, which each of its lines repeats.
@@ -39,7 +49,9 @@ type msgUse struct {
 	t     flow.Tokens
 }
 
-func NewTranscript() *Transcript { return &Transcript{s: newStream(""), used: map[string]msgUse{}} }
+func NewTranscript() *Transcript {
+	return &Transcript{s: newStream(""), used: map[string]msgUse{}, total: map[string]flow.Tokens{}}
+}
 
 // transcriptLine is the fields of a transcript line Transcript reads on
 // top of the stream's.
@@ -69,6 +81,12 @@ type transcriptLine struct {
 			CacheCreation int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
+	Version        string `json:"version"`
+	SessionID      string `json:"sessionId"`
+	Cwd            string `json:"cwd"`
+	GitBranch      string `json:"gitBranch"`
+	PermissionMode string `json:"permissionMode"`
+
 	IsAPIError bool  `json:"isApiErrorMessage"`
 	ThinkingMS int64 `json:"thinkingDurationMs"`
 
@@ -86,6 +104,7 @@ type transcriptLine struct {
 		Type     string          `json:"type"`
 		Prompt   json.RawMessage `json:"prompt"`
 		HookName string          `json:"hookName"`
+		Content  json.RawMessage `json:"content"`
 		Message  string          `json:"message"`
 		Stderr   string          `json:"stderr"`
 		ExitCode *int            `json:"exitCode"`
@@ -105,6 +124,7 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		return nil
 	}
 	cmd := t.cmd
+	t.note(l)
 	var out []session.Event
 	switch l.Type {
 	case "user":
@@ -142,6 +162,9 @@ func (t *Transcript) Line(b []byte) []session.Event {
 	default:
 		return nil // summaries, snapshots, queue operations: nothing a chat shows
 	}
+	if l.Type == "user" || l.Type == "assistant" {
+		t.synthed = false
+	}
 	// A command whose output did not follow it shows as itself; attachment
 	// and system lines may come between the two.
 	if cmd != "" && t.cmd == cmd && (l.Type == "user" || l.Type == "assistant") {
@@ -168,7 +191,8 @@ func (t *Transcript) Line(b []byte) []session.Event {
 }
 
 // system is a system line: a turn's end, a local command, a compaction,
-// a notice, an API error Claude Code retries, a Stop hook's verdict.
+// a notice, an API error Claude Code retries, a Stop hook's verdict, a
+// recap.
 func (t *Transcript) system(l transcriptLine) []session.Event {
 	switch l.Subtype {
 	case "turn_duration":
@@ -179,18 +203,12 @@ func (t *Transcript) system(l transcriptLine) []session.Event {
 		t.s.compact, t.compacted = cmp.Or(l.UUID, "compact:"+l.Timestamp), true
 		return []session.Event{{Type: session.EventContent, ItemID: t.s.compact, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
 	case "informational":
-		text := str(l.Content)
-		if text == "" {
-			return nil
-		}
-		phase := session.PhaseNotice
-		if l.Level == "warning" {
-			phase = session.PhaseWarning
-		}
-		return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: phase, Text: text}}
+		return informational(l.UUID, str(l.Content), l.Level)
 	case "api_error":
 		return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindSystem, Phase: session.PhaseWarning,
 			Text: retryLine(nil, errText(l.Error), int64(l.RetryInMS), l.RetryAttempt, l.MaxRetries)}}
+	case "away_summary":
+		return recap(cmp.Or(l.UUID, "recap:"+l.Timestamp), str(l.Content))
 	case "stop_hook_summary":
 		switch {
 		case l.PreventedStop:
@@ -205,8 +223,9 @@ func (t *Transcript) system(l transcriptLine) []session.Event {
 }
 
 // attachment is an attachment line: a notification or a message of the
-// user's that Claude Code queued mid-turn, or a hook that blocked or
-// failed. The rest (reminders, file and tool listings) speak to the model.
+// user's that Claude Code queued mid-turn, a hook's message, or a hook
+// that blocked or failed. The rest (reminders, file and tool listings)
+// speak to the model.
 func (t *Transcript) attachment(l transcriptLine) []session.Event {
 	a := l.Attachment
 	if a == nil {
@@ -223,6 +242,12 @@ func (t *Transcript) attachment(l transcriptLine) []session.Event {
 			// A message the user sent mid-turn, which the running turn took.
 			return []session.Event{{Type: session.EventContent, ItemID: l.UUID, Kind: session.KindUserPrompt, Text: text}}
 		}
+	case "hook_system_message": // a hook's systemMessage, which stream-json gives as an informational line
+		text := str(a.Content)
+		if a.HookName != "" && text != "" {
+			text = a.HookName + " says: " + text
+		}
+		return informational(l.UUID, text, "notice")
 	case "hook_blocking_error", "hook_non_blocking_error", "hook_stopped_continuation", "hook_error_during_execution":
 		msg := cmp.Or(a.Message, a.Stderr)
 		if a.Blocking != nil {
@@ -245,7 +270,7 @@ func (t *Transcript) attachment(l transcriptLine) []session.Event {
 // nothing.
 func (t *Transcript) harness(l transcriptLine, text string) []session.Event {
 	n := harness(text)
-	if n.notified != "" {
+	if n.notified != "" || n.event != "" {
 		return t.notified(l, n, text)
 	}
 	item := func(phase, text string) session.Event {
@@ -254,18 +279,36 @@ func (t *Transcript) harness(l transcriptLine, text string) []session.Event {
 	switch n.phase {
 	case session.PhaseCommand:
 		switch {
-		case strings.HasPrefix(n.text, "/model") || strings.HasPrefix(n.text, "/effort"):
+		case strings.HasPrefix(n.text, "/model") || strings.HasPrefix(n.text, "/effort") || n.text == "/recap":
 			t.cmd, t.cmdID = n.text, l.UUID
 			return nil
 		case strings.HasPrefix(n.text, "/compact") && t.compacted:
 			return nil
 		}
-		return []session.Event{t.command(l.UUID, n.text)}
+		out := []session.Event{t.command(l.UUID, n.text)}
+		t.synthed = false
+		at, err := time.Parse(time.RFC3339Nano, l.Timestamp)
+		if err != nil {
+			at = time.Now()
+		}
+		if text := t.local(n.text, at); text != "" {
+			t.synthed = true
+			out = append(out, item(session.PhaseOutput, text))
+			out[1].ItemID += ":out"
+		}
+		return out
 	case session.PhaseOutput:
+		if t.synthed {
+			t.synthed = false
+			return nil
+		}
 		cmd := t.cmd
 		t.cmd = ""
 		if s, ok := settingNote(n.text); ok && cmd != "" {
 			return []session.Event{item(session.PhaseSetting, s)}
+		}
+		if cmd == "/recap" && n.text != "" {
+			return append([]session.Event{t.command(t.cmdID, cmd)}, recap(l.UUID, n.text)...)
 		}
 		var out []session.Event
 		if cmd != "" {
@@ -292,12 +335,13 @@ func (t *Transcript) command(id, text string) session.Event {
 	return session.Event{Type: session.EventContent, ItemID: cmp.Or(id, "cmd:"+text), Kind: session.KindSystem, Phase: session.PhaseCommand, Text: text}
 }
 
-// notified is a <task-notification>: a background shell's call takes its
-// state, a background subagent's card ends. One that reaches an idle
+// notified is a <task-notification>: a background shell's or a Monitor's
+// call takes its state or an event, a background subagent's card ends. One that reaches an idle
 // Claude starts a turn of its own, which Claude Code runs without a
 // prompt.
 func (t *Transcript) notified(l transcriptLine, n note, text string) []session.Event {
 	out := t.s.notice(text)
+	out = append(out, t.s.monitorEvent(n.task, n.event)...)
 	out = append(out, t.s.taskDone(n.notified, n.status, n.summary, n.result, n.result != "")...)
 	if l.Origin != nil && l.Origin.Kind == "task-notification" {
 		out = append(t.End(session.TurnCompleted), out...)
@@ -457,6 +501,9 @@ func (t *Transcript) usage() (session.Event, bool) {
 		k := by[m.model]
 		k.Input, k.Output, k.CacheRead, k.CacheWrite = k.Input+m.t.Input, k.Output+m.t.Output, k.CacheRead+m.t.CacheRead, k.CacheWrite+m.t.CacheWrite
 		by[m.model] = k
+	}
+	for name, k := range by {
+		t.total[name] = addTokens(t.total[name], k)
 	}
 	clear(t.used)
 	t.usedOrder = t.usedOrder[:0]

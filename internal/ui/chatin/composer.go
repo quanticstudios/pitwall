@@ -94,6 +94,9 @@ type Env struct {
 	// Key, when set, offers a digit typed into the empty box, or Enter on
 	// it, to the transcript's pending request; true when it took the key.
 	Key func(name string) bool
+	// Esc, when set, takes Escape before it stops the turn; true when it
+	// closed something, as the transcript's side panel.
+	Esc func() bool
 	// Now is whether the daemon takes ChatSend How "now" (proto.ChatNowLevel);
 	// Ctrl+Enter sends "steer" to one that does not.
 	Now bool
@@ -407,10 +410,19 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 
 // cycleMode moves the mode on from what the chat shows.
 func (c *Composer) cycleMode(env Env, now time.Time) {
+	if fixedSettings(env.Snap) {
+		return
+	}
 	cur := ModeOf(env.Snap)
 	next := NextMode(c.mode.show(cur, now), c.bypass)
 	c.mode = held{next, cur, now.Add(holdFor)}
 	c.out = append(c.out, proto.ChatSet{Chat: env.Chat, Mode: next})
+}
+
+// fixedSettings reports a chat whose model, effort and mode the composer
+// cannot set: a Codex pane chat's are Codex's TUI's.
+func fixedSettings(s *session.Snapshot) bool {
+	return s != nil && s.PaneID != "" && s.Provider == model.ProviderCodex
 }
 
 func deref(s *string) string {
@@ -514,9 +526,11 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		switch e.Name {
 		case key.NameEscape:
-			if c.menu {
+			switch {
+			case c.menu:
 				c.setMenu(gtx.Now, false)
-			} else if env.Snap.Busy() {
+			case env.Esc != nil && env.Esc(): // the transcript closed its side panel
+			case env.Snap.Busy():
 				c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 			}
 		case key.NameTab:
@@ -900,6 +914,8 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		label = ModelName(mdl)
 	}
 	used, total, metered := Meter(env.Snap.Usage)
+	// The row says a fixedSettings chat's model and effort, with no picker.
+	fixed := fixedSettings(env.Snap)
 	if c.anchors == nil {
 		c.anchors = map[*widget.Clickable]image.Rectangle{}
 	}
@@ -915,6 +931,9 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, rowH)
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if fixed {
+					return layout.Dimensions{}
+				}
 				d := c.pick(gtx, th, &c.modeBtn, modeIcon, ModeName(mode), modeCol, true)
 				c.tip(gtx, th, &c.modeBtn, d.Size, modeTip, false)
 				anchor(&c.modeBtn, d.Size, gtx.Dp(theme.SpaceXS))
@@ -922,6 +941,18 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if fixed {
+					if mdl == "" {
+						return layout.Dimensions{}
+					}
+					s := ModelName(mdl)
+					if e := deref(env.Snap.Effort); e != "" {
+						s += " · " + EffortName(e)
+					}
+					return layout.Inset{Left: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, s)
+					})
+				}
 				d := c.pick(gtx, th, &c.modelBtn, "", label, pickFg(th), true)
 				c.tip(gtx, th, &c.modelBtn, d.Size, "Model", false)
 				anchor(&c.modelBtn, d.Size, gtx.Dp(theme.SpaceXS))

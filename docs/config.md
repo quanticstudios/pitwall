@@ -71,6 +71,7 @@ settle_on_merge = true                  # settle a tab once its pull request mer
 
 [chat]
 claude = "chat"                         # or "terminal": how Claude Code panes show; Alt+T flips between chat and TUI
+codex = "chat"                          # or "terminal": the same for Codex panes
 width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
 
 [git]
@@ -183,7 +184,8 @@ awake off to release the lock.
 
 `[chat] claude` decides how a pane running Claude Code shows: `chat`, the
 default, draws it as [the desktop chat](chat.md), and `terminal` shows the
-TUI. Alt+T flips either way.
+TUI. Alt+T flips either way. `[chat] codex` does the same for a pane
+running Codex, once Codex's hooks name its session.
 
 `[chat] width` sets how wide a chat tab's transcript grows: `comfortable`
 is 736 dp, `standard` (the default) is 960 dp, enough for a 120-column diff at
