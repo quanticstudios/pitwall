@@ -17,6 +17,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
+	"github.com/quanticstudios/pitwall/internal/ui/syntax"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -57,6 +58,7 @@ type toolState struct {
 	shells  shells
 	views   map[string]viewCache
 	zoom    zoomed
+	syn     map[string]synLines // code boxes' tokens by box id
 }
 
 // viewCache is a call's view, worked out once per update of its item.
@@ -293,33 +295,34 @@ func (d *cdraw) monoText(gtx layout.Context, sl *widget.Selectable, st tstyle, s
 		a, b int
 		c    color.NRGBA
 		bold bool
+		it   bool // a code comment, italic
 	}
 	var segs []seg
 	n := utf8.RuneCountInString(txt)
 	switch {
 	case l.kind == '$':
 		p := min(2, n)
-		segs = []seg{{0, p, th.TextQuiet, false}, {p, n, th.Fg, false}}
+		segs = []seg{{0, p, th.TextQuiet, false, false}, {p, n, th.Fg, false, false}}
 	case l.kind == '@':
-		segs = []seg{{0, n, th.Muted, false}}
+		segs = []seg{{0, n, th.Muted, false, false}}
 	case l.kind == 'q':
-		segs = []seg{{0, n, th.TextQuiet, false}}
+		segs = []seg{{0, n, th.TextQuiet, false, false}}
 	case len(l.spans) == 0:
-		segs = []seg{{0, n, st.c, false}}
+		segs = []seg{{0, n, st.c, false, false}}
 	default:
 		at := 0
 		for _, s := range l.spans {
 			a, b := min(s.a, n), min(s.b, n)
 			if a > at {
-				segs = append(segs, seg{at, a, st.c, false})
+				segs = append(segs, seg{at, a, st.c, false, false})
 			}
 			if b > a {
-				segs = append(segs, seg{a, b, d.ansiColor(s), s.bold})
+				segs = append(segs, seg{a, b, d.ansiColor(s), s.bold, s.syn == syntax.Comment})
 			}
 			at = max(at, b)
 		}
 		if at < n {
-			segs = append(segs, seg{at, n, st.c, false})
+			segs = append(segs, seg{at, n, st.c, false, false})
 		}
 	}
 	runes := []rune(txt)
@@ -335,6 +338,9 @@ func (d *cdraw) monoText(gtx layout.Context, sl *widget.Selectable, st tstyle, s
 		f := th.MonoFont
 		if s.bold {
 			f = semibold(f)
+		}
+		if s.it {
+			f.Style = font.Italic
 		}
 		d.onBaseAt(gtx, f, st, s.c, string(runes[s.a:s.b]), rg[0].Bounds.Min.X, base, false)
 	}
@@ -359,6 +365,8 @@ func (d *cdraw) ansiColor(s span) color.NRGBA {
 	th := d.th
 	var c color.NRGBA
 	switch {
+	case s.syn != syntax.Plain:
+		return d.synColors()[s.syn]
 	case s.fg == -2:
 		c = s.rgb
 	case s.fg >= 0 && s.fg < 16:

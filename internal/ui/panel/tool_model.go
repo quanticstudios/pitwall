@@ -430,7 +430,7 @@ var exitCodeLine = regexp.MustCompile(`^Exit code -?\d+$`)
 
 // readLine is a line of Read's output: cat -n's number, an arrow or a
 // tab, the text.
-var readLine = regexp.MustCompile(`^\s*(\d+)(?:→|\t)(.*)$`)
+var readLine = regexp.MustCompile(`^\s*(\d+)(?:(?:→|\t)(.*))?$`) // a last empty line comes trimmed to its number
 
 // readRange is the first and last line numbers Read's output shows,
 // false when it does not number its lines.
