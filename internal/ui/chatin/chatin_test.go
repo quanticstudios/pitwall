@@ -225,6 +225,11 @@ type harness struct {
 	now  time.Time
 	key  func(string) bool // the transcript's, nil when it takes no keys
 	old  bool              // the daemon predates ChatSend How "now"
+	// paths are the chat's files for @ mentions; a query matches those
+	// that contain it. branch and copied are the branch chip's.
+	paths  []string
+	branch string
+	copied []string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -239,6 +244,16 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) env() Env {
 	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old,
+		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) },
+		Mentions: func(q string) []string {
+			var out []string
+			for _, p := range h.paths {
+				if strings.Contains(p, q) {
+					out = append(out, p)
+				}
+			}
+			return out
+		},
 		ReadImage: func(context.Context) ([]byte, error) {
 			if h.gate != nil {
 				<-h.gate

@@ -51,6 +51,8 @@ type Composer struct {
 	effortBtn         widget.Clickable
 	meterBtn          widget.Clickable // the context meter, for its hover card
 	q                 queueState
+	mention           mentionState
+	branch            branchChip
 	rm                map[int]*widget.Clickable // per image, its remove x
 	hov               map[int]*gesture.Hover    // per image, the pointer on its thumbnail
 	side              int                       // a thumbnail's side in pixels, as the last frame drew it
@@ -98,6 +100,14 @@ type Env struct {
 	// Queue is whether the daemon takes every queue action on this chat
 	// (proto.QueueLevel): without it a queued row has Edit and Remove only.
 	Queue bool
+	// Mentions is the chat's project's files and folders that match an @
+	// word's query, best first; nil while they are listed, and Mentions
+	// itself nil where the files can't be listed.
+	Mentions func(query string) []string
+	// Branch is the git branch the chat's folder is on, "" outside a
+	// repo; Copy puts text on the clipboard.
+	Branch string
+	Copy   func(string)
 }
 
 type imageRead struct {
@@ -475,8 +485,16 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			}
 			word = c.draft.TokenBefore(string(t), k)
 		}
+		if t := c.Text(); tok < 0 && start == end {
+			tok = c.mentionBefore(t, end)
+		}
 		if tok >= 0 {
 			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward})
+		}
+		if c.mention.open() {
+			for _, n := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameTab, key.NameReturn, key.NameEnter} {
+				fs = append(fs, key.Filter{Focus: ed, Name: n})
+			}
 		}
 		if word >= 0 {
 			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModCtrl},
@@ -488,6 +506,10 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		e, ok := ev.(key.Event)
 		if !ok || e.State != key.Press {
+			continue
+		}
+		if c.mention.open() && e.Modifiers == 0 && e.Name != key.NameDeleteBackward {
+			c.mentionKey(gtx, e)
 			continue
 		}
 		switch e.Name {
@@ -537,6 +559,9 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 	if t := c.Text(); empty && env.Key != nil && len(t) == 1 && t >= "1" && t <= "9" && env.Key(t) {
 		ed.SetText("")
 	}
+	c.mentionClicks(gtx)
+	c.mentionUpdate(gtx, env)
+	c.branchEvents(gtx, env)
 	for n, b := range c.rm {
 		if b.Clicked(gtx) {
 			c.RemoveImage(n)
@@ -649,6 +674,9 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	call.Add(gtx.Ops)
 	if t := c.popT.Get(gtx); c.menu || t > 0 {
 		c.popover(gtx, th, env, t)
+	}
+	if c.mention.open() {
+		c.mentionPop(gtx, th)
 	}
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(full, h)}
@@ -800,6 +828,8 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 		}
 		d := c.ed.Layout(gtx, th.Shaper, th.UIFont, size, colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.Surface, th.Primary, 0.35)))
 		c.tokens(gtx, th)
+		c.mentionChips(gtx, th)
+		c.mentionAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
 		return d
 	})
 }
@@ -909,6 +939,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 					return d
 				})
 			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.branchLayout(gtx, th, env) }),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
 			}),
