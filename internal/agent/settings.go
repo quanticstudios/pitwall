@@ -34,7 +34,8 @@ func ClaudeSettings(g vt.Grid) (model, effort string) {
 		return cleanClaudeSettings(model, effort)
 	}
 	for i := len(rows) - 1; i >= 0; i-- {
-		row := strings.TrimSpace(withWrapped(g, rows, i))
+		// why: Claude Code 2.1.329 draws the gap after ⎿ as a space and a no-break space.
+		row := strings.TrimSpace(strings.ReplaceAll(withWrapped(g, rows, i), "\u00a0", " "))
 		if model == "" && strings.HasPrefix(row, "⎿  Set model to ") {
 			var tail string
 			model, _, _ = strings.Cut(strings.TrimPrefix(row, "⎿  Set model to "), " and saved")

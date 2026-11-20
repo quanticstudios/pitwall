@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A TUI pane chat's model and effort chips follow a /model or /effort change again with Claude Code 2.1.329, which draws its acknowledgement with a no-break space; the chip no longer falls back to the last reply's model mid-turn.
 - A TUI pane chat's model chip keeps the model through the first prompt instead of reading "Model" until Claude replies.
 - Rewind on a prompt sent mid-turn rewinds to that prompt in a TUI pane chat, not to the turn's first prompt. A New task chat rewinds and forks whole turns, so it offers both only on the prompt that opened a turn.
 - A TUI pane chat refuses a rewind when a later prompt reads the same in Claude Code's rewind list, as two long prompts cut to one label do, instead of rewinding the newer one. Rewind in the terminal to pick it yourself.
