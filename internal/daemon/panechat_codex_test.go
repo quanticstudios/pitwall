@@ -102,3 +102,21 @@ func TestPaneChatCodex(t *testing.T) {
 		t.Errorf("after the third turn: turns %+v, last %+v", snap.Turns, snap.Content[len(snap.Content)-1])
 	}
 }
+
+// When the agent leaves the pane's foreground, its transcript goes with
+// it: a Codex started after it shows no chat until its own hook names one.
+func TestPaneChatForgetsTranscript(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	d.mu.Lock()
+	d.st.Panes[1].Transcript = filepath.Join(t.TempDir(), "rollout-old.jsonl")
+	d.setProvider("b", "")
+	d.setProvider("b", model.ProviderCodex)
+	got := d.st.Panes[1].Transcript
+	d.mu.Unlock()
+	if got != "" {
+		t.Errorf("transcript %q after codex left and came back", got)
+	}
+	if r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "b"}); r.(proto.ChatResult).Code != "not-found" {
+		t.Errorf("read: %+v, want no chat", r)
+	}
+}

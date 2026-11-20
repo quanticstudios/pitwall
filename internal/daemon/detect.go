@@ -245,10 +245,12 @@ func (d *Daemon) setHooksMissing(id string, missing bool) {
 }
 
 // setProvider records which agent runs in a pane's foreground now, ""
-// for none, pushing state only on a change. Callers hold d.mu.
+// for none, pushing state only on a change. A transcript belongs to the
+// agent whose hook named it: the next agent's pane chat waits for its own
+// hook, never showing the last one's session. Callers hold d.mu.
 func (d *Daemon) setProvider(id string, prov model.Provider) {
 	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 && d.st.Panes[i].Provider != prov {
-		d.st.Panes[i].Provider = prov
+		d.st.Panes[i].Provider, d.st.Panes[i].Transcript = prov, ""
 		delete(d.phoneSettings, id)
 		d.changed()
 	}

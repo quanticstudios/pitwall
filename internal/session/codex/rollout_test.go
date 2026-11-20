@@ -135,8 +135,13 @@ func TestRolloutEdges(t *testing.T) {
 	if len(es) != 1 || es[0].Tool.Output != big || es[0].Tool.Command != "yes" {
 		t.Errorf("huge output: %d events", len(es))
 	}
-	if es := r.Ask("1", "Run rm -rf build?"); len(es) != 1 || es[0].Type != session.EventRequestOpened {
+	if es := r.Ask("1", "Run rm -rf build?"); len(es) != 1 || es[0].Type != session.EventRequestOpened || es[0].Request != nil {
 		t.Errorf("ask: %+v", es)
+	}
+	// A hook's "tool\ncommand" is a command request the card shows whole.
+	es = r.Ask("2", "Bash\ncurl -sI https://example.com")
+	if len(es) != 2 || es[1].RequestType != session.RequestCommand || es[1].Request.Command != "curl -sI https://example.com" || es[1].Detail != "Bash: curl -sI https://example.com" {
+		t.Errorf("ask a command: %+v", es)
 	}
 	if es := r.End(session.TurnCompleted); len(es) != 2 || es[0].Type != session.EventRequestResolved || es[1].Type != session.EventTurnCompleted {
 		t.Errorf("end: %+v", es)

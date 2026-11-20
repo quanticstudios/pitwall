@@ -383,15 +383,32 @@ func (r *Rollout) End(state string) []session.Event {
 	return out
 }
 
-// Ask opens request id, an approval the Codex TUI shows, which says only
-// detail: Codex logs the call it asks about once it runs.
+// Ask opens request id, an approval the Codex TUI shows. Codex logs the
+// call it asks about only once it runs, so detail, the hook's tool and
+// "\n" and its command or file, is all the request says.
 func (r *Rollout) Ask(id, detail string) []session.Event {
 	if id == r.asked {
 		return nil
 	}
 	out := r.Resolve()
 	r.asked = id
-	return append(out, session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail})
+	e := session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail}
+	if tool, target, ok := strings.Cut(detail, "\n"); ok && tool != "" {
+		e.Detail = tool + ": " + target
+		e.Request = &session.ToolRequest{ToolName: tool}
+		switch tool {
+		case "Bash", "shell", "exec_command":
+			e.RequestType, e.Request.Command = session.RequestCommand, target
+		case "apply_patch", "Edit", "Write":
+			e.RequestType, e.Request.FilePath = session.RequestFileChange, target
+		}
+		key := "command"
+		if e.Request.FilePath != "" {
+			key = "file_path"
+		}
+		e.Request.Input, _ = json.Marshal(map[string]string{key: target})
+	}
+	return append(out, e)
 }
 
 // Resolve withdraws the open request, if any.
