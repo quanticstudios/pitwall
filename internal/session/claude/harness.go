@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"html"
 	"regexp"
 	"strings"
 
@@ -74,6 +75,7 @@ func harness(text string) note {
 		n.result, _ = tag(in, "result")
 		n.task, _ = tag(in, "task-id")
 		n.event, _ = tag(in, "event")
+		n.summary, n.result, n.event = html.UnescapeString(n.summary), html.UnescapeString(n.result), html.UnescapeString(n.event)
 		return n
 	}
 	if strings.HasPrefix(t, compactLead) {

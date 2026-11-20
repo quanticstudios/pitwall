@@ -147,3 +147,43 @@ func TestTimingFirstCursorFailure(t *testing.T) {
 		t.Errorf("ended turn folders %+v", d.turnCwd)
 	}
 }
+
+// TestTimingBackgroundEndsTurn: a Stop that leaves a background shell
+// running ends the timed turn there, so the idle hours until the next
+// prompt never count as model time.
+func TestTimingBackgroundEndsTurn(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Name: "fix", Path: "/home/u/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/home/u/repo"}},
+	}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	path := filepath.Join(t.TempDir(), "timing.jsonl")
+	l, err := timelog.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Timing = l
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const head = `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/home/u/repo",`
+	hookJSON(t, d, head+`"hook_event_name":"UserPromptSubmit","prompt":"start the dev server"}`)
+	hookJSON(t, d, head+`"hook_event_name":"Stop","last_assistant_message":"Running.","background_tasks":[{"type":"shell","status":"running"}]}`)
+	d.mu.Lock()
+	open := d.turns.Has("a")
+	d.mu.Unlock()
+	if open {
+		t.Error("the turn stayed open behind a background shell")
+	}
+	l.Close(time.Second)
+	evs, err := timelog.Read(path, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[1].Kind != timelog.Turn || evs[1].End != timelog.Completed {
+		t.Fatalf("events %+v", evs)
+	}
+}

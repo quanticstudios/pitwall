@@ -67,6 +67,9 @@ type paneChat struct {
 	ctx    int64         // tokens in context at the last assistant message, 0 before one
 	model  string        // that message's model
 	moded  bool          // the chat showed a mode: a change after it gets a divider
+	// replied: the running turn has Claude's own output, so a hook saying
+	// the agent stopped can end it.
+	replied bool
 	// agents are the subagents' own transcripts, by their tool call's id,
 	// and how far each was read.
 	agents  map[string]*agentFile
@@ -235,7 +238,8 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	}
 	// Claude Code marks a turn's end in the transcript; a hook saying the
 	// agent stopped after the turn began ends one it did not mark.
-	if pc.tr.Running() && a.State != "" && !busy(a.State) && a.UpdatedAt.After(pc.turnStart()) {
+	// why: a background task's end marks the agent done just as the turn its notification wakes begins.
+	if pc.tr.Running() && pc.replied && a.State != "" && !busy(a.State) && a.UpdatedAt.After(pc.turnStart()) {
 		pc.reduce(pc.tr.End(session.TurnCompleted))
 	}
 	// The footer says the mode the TUI runs in now; the hooks' mode stands
@@ -331,6 +335,19 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 		}
 		es := pc.tr.Line(line)
 		for i := range es {
+			switch {
+			case es[i].Type == session.EventTurnStarted:
+				pc.replied = false
+			case es[i].Type == session.EventContent && es[i].Kind == session.KindUserPrompt:
+				// The running turn took a message typed mid-turn: its queued row goes.
+				if k := slices.IndexFunc(pc.queued, func(q session.QueuedInput) bool {
+					return strings.TrimSpace(imageToken.ReplaceAllString(q.Text, "")) == strings.TrimSpace(es[i].Text)
+				}); k >= 0 {
+					pc.queued = slices.Delete(pc.queued, k, k+1)
+				}
+			case es[i].Type == session.EventContent && es[i].Kind != session.KindSystem:
+				pc.replied = true
+			}
 			// A turn's usage report says the context as the meter reads it.
 			if es[i].Type == session.EventUsage && pc.ctx > 0 {
 				ctx, w := pc.ctx, contextWindow(pc.model, tui)
@@ -373,7 +390,8 @@ func tailStart(r io.ReaderAt, end int64) (int64, error) {
 			case claude.MarkCompact:
 				if items > 0 {
 					if start < 0 {
-						start = from + int64(hi) + 1
+						// why: with no prompt after it, the boundary leads the tail, so its divider, summary and /compact read as one.
+						start = from + int64(lo)
 					}
 					return start, nil
 				}

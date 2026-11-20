@@ -353,3 +353,58 @@ func TestPaneChatSubagents(t *testing.T) {
 		}
 	}
 }
+
+// A background task's end marks the agent done just as Claude Code starts
+// the turn its notification wakes: that turn runs on until Claude Code
+// ends it, and its reply stays its own, not the previous turn's.
+func TestPaneChatNotifiedTurn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"say banana"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-20T10:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"banana"}],"usage":{"input_tokens":2,"output_tokens":3}}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T10:00:02Z"}
+{"type":"user","uuid":"n1","timestamp":"2026-11-20T10:00:20Z","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>t9</tool-use-id>\n<output-file>/tmp/b1.output</output-file>\n<status>completed</status>\n<summary>Background command \"sleep\" completed (exit code 0)</summary>\n</task-notification>"}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ended := time.Date(2026, 11, 20, 10, 0, 20, 500_000_000, time.UTC)
+	live := paneLive{p: &fakePane{}, act: model.Activity{State: model.StateCompleted, UpdatedAt: ended}}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(live)
+	if n := len(pc.snap.Turns); n != 2 || pc.snap.Turns[1].State != session.TurnRunning {
+		t.Fatalf("turns %+v: want the notified one running", pc.snap.Turns)
+	}
+	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"assistant","uuid":"a2","timestamp":"2026-11-20T10:00:21Z","message":{"id":"m2","model":"claude-opus-5-5","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":2,"output_tokens":1}}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-11-20T10:00:22Z"}
+`)
+	fh.Close()
+	pc.catchUp(live)
+	last := pc.snap.Content[len(pc.snap.Content)-1]
+	if last.Text != "done" || last.TurnID == nil || *last.TurnID != pc.snap.Turns[1].ID || pc.snap.Turns[1].State != session.TurnCompleted {
+		t.Fatalf("last item %+v in turns %+v: want done in the notified turn, completed", last, pc.snap.Turns)
+	}
+}
+
+// A message queued mid-turn that the running turn takes loses its queued
+// row then, not when the next turn starts.
+func TestPaneChatAbsorbed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-20T10:00:00Z","origin":{"kind":"human"},"message":{"role":"user","content":"count"}}
+`
+	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live := paneLive{p: &fakePane{}, act: model.Activity{State: model.StateWorking}}
+	pc := &paneChat{id: "a", path: path, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(live)
+	pc.queued = []session.QueuedInput{{ID: "k", Text: "say kiwi"}, {ID: "l", Text: "say lime"}}
+	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"attachment","uuid":"q1","timestamp":"2026-11-20T10:00:05Z","attachment":{"type":"queued_command","prompt":"say kiwi","origin":{"kind":"human"}}}
+`)
+	fh.Close()
+	pc.catchUp(live)
+	if len(pc.snap.QueuedInputs) != 1 || pc.snap.QueuedInputs[0].ID != "l" {
+		t.Fatalf("queued %+v: want only lime's row", pc.snap.QueuedInputs)
+	}
+}

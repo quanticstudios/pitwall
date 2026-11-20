@@ -371,6 +371,14 @@ func (t *Transcript) decide(id, decision string) {
 	t.done = append(t.done, resolved{id: id, line: line, what: t.what[id], prose: t.plans[id], at: t.items, when: t.now})
 }
 
+// Refused takes back the answer to request id that the daemon refused:
+// the line saying it was answered goes, and its card comes back while the
+// request waits.
+func (t *Transcript) Refused(id string) {
+	delete(t.sent, id)
+	t.done = slices.DeleteFunc(t.done, func(r resolved) bool { return r.id == id })
+}
+
 // sendAsk answers question request id with its card's picks, once each
 // question has one.
 func (t *Transcript) sendAsk(id string) {

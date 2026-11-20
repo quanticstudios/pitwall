@@ -60,6 +60,17 @@ func TestTailStart(t *testing.T) {
 		t.Errorf("before the compaction: start %d, want a page that goes past it", got)
 	}
 
+	// A /compact as the last thing: no prompt after the compaction, so the
+	// tail starts at its boundary, which keeps the divider with its summary
+	// and the command it ends.
+	tail := `{"type":"system","subtype":"compact_boundary","uuid":"c"}` + "\n" +
+		`{"type":"user","isCompactSummary":true,"uuid":"cs","message":{"role":"user","content":"This session is being continued"}}` + "\n" +
+		`{"type":"user","uuid":"cmd","message":{"role":"user","content":"<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"}}` + "\n" +
+		`{"type":"user","uuid":"out","message":{"role":"user","content":"<local-command-stdout>Compacted</local-command-stdout>"}}` + "\n"
+	if got, want := start(s+tail), int64(len(s)); got != want {
+		t.Errorf("compacted last: start %d, want the boundary at %d", got, want)
+	}
+
 	big := turnLines(0, strings.Repeat("x", tailBytes+1000)) // one line longer than the reach
 	if got := start(big); got != 0 {
 		t.Errorf("long line: start %d, want 0", got)

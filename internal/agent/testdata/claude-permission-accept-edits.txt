@@ -1,0 +1,31 @@
+
+● Running 1 shell command…
+  ⎿  $ go run main.go; go run main.go --name Ada; go run main.go -name=Ada; go run main.go -h; echo "gofmt:"; gofmt -l
+     main.go
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Overwrite file
+ main.go
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+   1  package main
+   2
+   3 -import "fmt"
+   3 +import (
+   4 +  "flag"
+   5 +  "fmt"
+   6 +)
+   7
+   8  func main() {
+   6 -  fmt.Println("hello")
+   9 +  name := flag.String("name", "gopher", "name to greet")
+  10 +  flag.Parse()
+  11 +  fmt.Printf("hello, %s\n", *name)
+  12  }
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to overwrite main.go?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)
+   3. No
+
+ Esc to cancel · Tab to amend
+─────────────────────────────────────────────────────────────────────────────────────────────────────── add-name-flag ─

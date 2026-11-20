@@ -86,6 +86,7 @@ func TestOffers(t *testing.T) {
 		{"plan", plan, "claude-plan.txt", []Offer{{ApprovePlan, "3"}}},
 		{"plan on a permission screen", plan, "claude-permission.txt", nil},
 		{"permission", perm, "claude-permission.txt", []Offer{{AllowAlways, "2"}}},
+		{"edit permission", perm, "claude-permission-accept-edits.txt", []Offer{{AllowAlways, "2"}}},
 		{"permission on a plan screen", perm, "claude-plan.txt", nil},
 		{"permission on an idle screen", perm, "claude-idle.txt", nil},
 		{"codex permission", codex, "tuios-codex-approval.txt", []Offer{{AllowAlways, "A"}}},

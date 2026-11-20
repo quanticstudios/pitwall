@@ -50,7 +50,7 @@ func (d *Daemon) hookTurn(p *model.Pane, payload []byte, now time.Time) {
 func (d *Daemon) syncTurn(p *model.Pane, now time.Time) {
 	var s model.AgentState
 	if i := d.activityIndex(p.ID); i >= 0 {
-		s = d.st.Activities[i].State
+		s = turnState(d.st.Activities[i])
 	}
 	// Hooks, screen detection and process exit can each end a turn.
 	// changed already publishes this transition, so no extra notification.
@@ -67,6 +67,16 @@ func (d *Daemon) syncTurn(p *model.Pane, now time.Time) {
 	if !d.turns.Has(p.ID) {
 		delete(d.turnCwd, p.ID)
 	}
+}
+
+// turnState is a's state as a timed turn sees it: an agent that ended its
+// turn with background work still running is done, or the hours until the
+// next prompt would count as model time.
+func turnState(a model.Activity) model.AgentState {
+	if a.State == model.StateWorking && a.Background {
+		return model.StateCompleted
+	}
+	return a.State
 }
 
 // where names p and its tab for a timing line. Callers hold d.mu.

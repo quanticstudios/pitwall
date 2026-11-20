@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"gioui.org/io/key"
+	"gioui.org/op"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func turnItem(id string, kind session.ItemKind, turn string) session.Item {
@@ -115,6 +117,29 @@ func TestImageNo(t *testing.T) {
 	}
 	if got := imageNo(nil, 1); got != 1 {
 		t.Errorf("no tokens: #%d", got)
+	}
+}
+
+// TestPromptThumbZoom: a click on a prompt's thumbnail shows the picture
+// large, as a tool's picture does.
+func TestPromptThumbZoom(t *testing.T) {
+	th := theme.Dark()
+	a := session.Attachment{ID: "image-1", Kind: "image", MimeType: "image/png", Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}
+	s := &session.Snapshot{Content: []session.Item{{ID: "p1", Kind: session.KindUserPrompt, Text: "[Image #1] what is it", Attachments: []session.Attachment{a}}}}
+	var tr Transcript
+	var ops op.Ops
+	now := time.Now()
+	for range 20 { // the picture decodes off this goroutine
+		transcriptFrame(&tr, th, s, &ops, now)
+		if tr.thumbs.snapshot(tr.thumbs.get("p1/image-1", &a, nil)).ready {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	tr.click("img:p1/image-1").Click()
+	transcriptFrame(&tr, th, s, &ops, now)
+	if tr.tool.zoom.key != "p1/image-1" {
+		t.Fatalf("zoom %q: want the prompt's picture", tr.tool.zoom.key)
 	}
 }
 

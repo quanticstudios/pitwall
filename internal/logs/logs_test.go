@@ -2,6 +2,7 @@ package logs
 
 import (
 	"bytes"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -149,5 +150,36 @@ func TestLimiter(t *testing.T) {
 	}
 	if ok, held := l.Allow("a", t0.Add(10*time.Second)); !ok || held != 3 {
 		t.Fatalf("after the interval: %v, held %d, want 3", ok, held)
+	}
+}
+
+// shortWriter writes the first n bytes of each call, then fails, as a full
+// disk does.
+type shortWriter struct {
+	buf  []byte
+	fail bool
+}
+
+func (s *shortWriter) Write(p []byte) (int, error) {
+	if s.fail {
+		s.fail = false
+		n := len(p) / 2
+		s.buf = append(s.buf, p[:n]...)
+		return n, errors.New("no space left on device")
+	}
+	s.buf = append(s.buf, p...)
+	return len(p), nil
+}
+
+// A line a full disk cut short ends before the next, so two lines never
+// share one.
+func TestLineEnderEndsTornLine(t *testing.T) {
+	w := &shortWriter{fail: true}
+	l := &lineEnder{w: w}
+	l.Write([]byte("first line\n"))
+	l.Write([]byte("second line\n"))
+	l.Write([]byte("third line\n"))
+	if got, want := string(w.buf), "first\nsecond line\nthird line\n"; got != want {
+		t.Fatalf("wrote %q, want %q", got, want)
 	}
 }

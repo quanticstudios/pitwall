@@ -137,6 +137,12 @@ func TestConventional(t *testing.T) {
 // keyWindow drives the real window through Gio's router and returns a
 // function that sends keys and the text the panes received so far.
 func keyWindow(t *testing.T, keys *config.Bindings) (*ui, func(...key.Event) string) {
+	return keyWindowClock(t, keys, time.Now)
+}
+
+// keyWindowClock lets timing tests advance Gio's frame time without sleeping.
+func keyWindowClock(t *testing.T, keys *config.Bindings, now func() time.Time) (*ui, func(...key.Event) string) {
+	t.Helper()
 	b := NewFakeBackend()
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: keys}}
 	var r input.Router
@@ -144,7 +150,7 @@ func keyWindow(t *testing.T, keys *config.Bindings) (*ui, func(...key.Event) str
 	frame := func() {
 		ops.Reset()
 		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
-			Constraints: gl.Exact(image.Pt(1280, 800)), Now: time.Now()}
+			Constraints: gl.Exact(image.Pt(1280, 800)), Now: now()}
 		u.layout(gtx)
 		r.Frame(&ops)
 	}

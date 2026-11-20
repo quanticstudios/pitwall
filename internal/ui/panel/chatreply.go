@@ -522,7 +522,8 @@ func (d *cdraw) marker(gtx layout.Context, b *mdview.Block, x int, st tstyle, td
 		}
 		return
 	}
-	mw := gtx.Dp(listIndent)
+	// why: "100." is wider than the gutter; it reaches left of it, as a browser's outside marker does, instead of cutting to "1…".
+	mw := 3 * gtx.Dp(listIndent)
 	call, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints = layout.Constraints{Min: image.Pt(mw, 0), Max: image.Pt(mw, 1<<20)}
 		return widget.Label{Alignment: text.End, MaxLines: 1}.Layout(gtx, th.Shaper, st.f, st.size, b.Marker, material(gtx, c))

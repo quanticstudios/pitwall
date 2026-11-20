@@ -372,6 +372,10 @@ func (d *Daemon) checkForms() {
 // why: a TUI may read an Enter that arrives in the same read as a paste as part of it.
 var replyDelay = newTiming(100 * time.Millisecond)
 
+// imageWait is how long a Claude Code pane gets to show a pasted image's
+// token before the next image's path goes in.
+var imageWait = newTiming(3 * time.Second)
+
 // remoteReply pastes text into pane, cleaned of control characters, and
 // presses Enter.
 func (d *Daemon) remoteReply(pane string, at int64, text string) error {
@@ -530,9 +534,19 @@ func formAnnounced(a model.Activity) bool {
 func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string, quoted []string) error {
 	m := p.Modes()
 	ctx := context.Background()
-	for _, img := range images {
+	d.mu.Lock()
+	claude := d.paneProvider(pane) == model.ProviderClaude
+	d.mu.Unlock()
+	for i, img := range images {
+		shown := strings.Count(screenText(p.Snapshot()), "[Image #")
 		if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.PastePaths([]string{img}, m)}); err != nil {
 			return err
+		}
+		// why: Claude Code numbers a pasted image once it has read the file, so a smaller one pasted next could take this one's number.
+		for end := time.Now().Add(imageWait.get()); claude && i < len(images)-1 && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+			if strings.Count(screenText(p.Snapshot()), "[Image #") > shown {
+				break
+			}
 		}
 	}
 	if len(images) > 0 && remote.Clean(text) == "" && len(quoted) == 0 {
