@@ -89,6 +89,27 @@ func blocks(content []session.Item, out []block) []block {
 	return out
 }
 
+// outside is whether it is written for the reader rather than a log of
+// the work, so it draws in the transcript between the work log's folds:
+// Claude's summary of its words, the assistant's text between calls, a
+// recap, an error that ended the turn, and the lines Claude Code draws as
+// dividers or as the user's own. Thinking, calls, their output, hooks,
+// retries and notices stay in the fold.
+func outside(it *session.Item) bool {
+	switch it.Kind {
+	case session.KindAssistantText:
+		return true
+	case session.KindReasoningText:
+		return isSummary(it)
+	case session.KindSystem:
+		switch it.Phase {
+		case session.PhaseRecap, session.PhaseError, session.PhaseCompact, session.PhaseSetting, session.PhaseCommand, session.PhaseOutput:
+			return true
+		}
+	}
+	return false
+}
+
 // toolOpen is whether a tool row starts open: only a failed call does.
 func toolOpen(c *session.ToolCall) bool { return c != nil && c.Status == "failed" }
 

@@ -1,15 +1,11 @@
 package panel
 
 import (
-	"image"
 	"strings"
 
 	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/session"
-	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // isSummary is whether it is the server's summary of Claude's words
@@ -19,29 +15,24 @@ func isSummary(it *session.Item) bool {
 	return it.Kind == session.KindReasoningText && it.Phase == session.PhaseSummary
 }
 
-// summaryRow is a summary in a work log: a Summary tag, then the summary
-// as quiet prose, where it came among the turn's calls.
-func (d *cdraw) summaryRow(gtx layout.Context, it *session.Item) layout.Dimensions {
-	th := d.th
+// proseRow is item i between a turn's folds, where it came among the calls:
+// a summary as quiet prose, the reply's type in a muted color, wrapped at
+// the reply's width; the assistant's text as its reply is; a system line
+// as it draws outside a work log.
+func (d *cdraw) proseRow(gtx layout.Context, i int) layout.Dimensions {
+	it := &d.s.Content[i]
+	switch {
+	case it.Kind == session.KindAssistantText:
+		return d.markdown(gtx, it.ID, d.t.reply(it, false))
+	case it.Kind == session.KindSystem:
+		return d.sysItem(gtx, it, false)
+	}
 	txt := strings.TrimSpace(it.Text)
-	return layout.Inset{Top: 7, Bottom: 7, Left: rowPad, Right: rowPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		iw := gtx.Constraints.Max.X
-		bg, fg := th.Chip(th.Muted, th.Bg)
-		px, tagH := gtx.Dp(theme.SpaceXS+theme.Space2XS), gtx.Dp(18)
-		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), fg, "Summary")
-		})
-		tw := ld.Size.X + 2*px
-		paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(0, 0, tw, tagH), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-		at(gtx, image.Pt(px, (tagH-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
-		x := tw + gtx.Dp(theme.SpaceS)
-		g := gtx
-		g.Constraints = layout.Constraints{Max: image.Pt(max(0, iw-x), gtx.Constraints.Max.Y)}
-		// The text's first line sits on the tag's middle.
-		line := gtx.Sp(th.Sp(theme.Body)) * 145 / 100
-		bd := at(g, image.Pt(x, (tagH-line)/2), func(gtx layout.Context) layout.Dimensions {
-			return d.selectable(gtx, d.t.sel(it.ID), d.body(th.Muted), txt)
-		})
-		return layout.Dimensions{Size: image.Pt(iw, max(tagH, bd.Size.Y+(tagH-line)/2))}
-	})
+	if txt == "" {
+		return layout.Dimensions{}
+	}
+	st := d.prose()
+	st.c = d.th.Muted
+	gtx.Constraints.Max.X = min(d.proseW, gtx.Constraints.Max.X)
+	return d.selectable(gtx, d.t.sel(it.ID), st, txt)
 }

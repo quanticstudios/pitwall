@@ -26,8 +26,6 @@ import (
 func (d *cdraw) logEntry(gtx layout.Context, i int) layout.Dimensions {
 	it := &d.s.Content[i]
 	switch {
-	case isSummary(it):
-		return d.summaryRow(gtx, it)
 	case it.Kind == session.KindReasoningText || it.Kind == session.KindReasoningSummaryText:
 		return d.thinkRow(gtx, i)
 	case it.Kind == session.KindSystem:
