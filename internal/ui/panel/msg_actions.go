@@ -15,6 +15,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -25,17 +26,22 @@ import (
 type MessageKind uint8
 
 const (
-	ActEdit   MessageKind = iota + 1 // put Text in the composer
-	ActRewind                        // rewind to before Turn's prompt, Text back in the composer
-	ActFork                          // fork the chat from the end of Turn
+	ActEdit        MessageKind = iota + 1 // put Text in the composer
+	ActRewind                             // rewind to before Turn's prompt, Text and Attachments back in the composer
+	ActFork                               // fork the chat from the end of Turn
+	ActRewindCheck                        // ask the daemon what reverting the files to before Turn's prompt does
 )
 
 // MessageAction is a prompt's hover button the window acts on.
 type MessageAction struct {
-	Kind MessageKind
-	Turn string // the prompt's turn
-	Item string // the prompt's own id: one sent mid-turn shares its turn's
-	Text string // the prompt's text, without its image tokens
+	Kind        MessageKind
+	Turn        string               // the prompt's turn
+	Item        string               // the prompt's own id: one sent mid-turn shares its turn's
+	Text        string               // the prompt's text, without its image tokens
+	Attachments []session.Attachment // ActRewind: the prompt's attachments
+	// KeepFiles and Stash are ActRewind's: leave the files as they are, or
+	// stash the files changed after the agent's last turn before reverting.
+	KeepFiles, Stash bool
 }
 
 // Lucide's rotate-ccw, git-fork and chevron-up, for the prompts' buttons
@@ -65,8 +71,12 @@ type msgState struct {
 	confirmTurn string // the prompt's turn, id and text
 	confirmItem string
 	confirmText string
-	ok, no      widget.Clickable // the confirm's buttons
-	confirmBg   int              // the confirm's own area, so a press in it does not close it
+	confirmAtts []session.Attachment
+	checked     *proto.ChatRewindFiles // what Revert files too changes, once the daemon answered
+	files       layout.List            // the confirm's list of them
+	ok, no      widget.Clickable       // the confirm's buttons: keep the changes, cancel
+	revert      widget.Clickable       // and revert the files too
+	confirmBg   int                    // the confirm's own area, so a press in it does not close it
 
 	tipOf    *widget.Clickable // the button hovered for a tooltip
 	tipSince time.Time
@@ -226,7 +236,8 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 			case "edit":
 				m.acts = append(m.acts, MessageAction{Kind: ActEdit, Text: promptText(it)})
 			case "rewind":
-				m.confirm = it.ID
+				m.confirmTurn, m.confirmItem = turn, it.ID
+				t.openConfirm(it.ID, turn)
 				gtx.Execute(op.InvalidateCmd{}) // its confirm draws over the rows laid out after this one
 			case "fork":
 				m.acts = append(m.acts, MessageAction{Kind: ActFork, Turn: turn})
@@ -234,7 +245,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 		}
 	}
 	if m.confirm == it.ID {
-		m.confirmTurn, m.confirmItem, m.confirmText = turn, it.ID, promptText(it)
+		m.confirmTurn, m.confirmItem, m.confirmText, m.confirmAtts = turn, it.ID, promptText(it), it.Attachments
 	}
 	if on {
 		bs, gap := gtx.Dp(hit), gtx.Dp(theme.Space2XS)

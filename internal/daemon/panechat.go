@@ -340,7 +340,7 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatQueue:
 		err = d.paneQueue(id, m)
 	case proto.ChatRewind:
-		err = d.paneRewind(pc, m)
+		note, err = d.paneRewind(pc, m)
 	}
 	return chatResult(id, "", note, err), true
 }

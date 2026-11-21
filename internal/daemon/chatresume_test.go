@@ -25,6 +25,7 @@ import (
 // message, as Claude's --resume of a session it cannot find does.
 type spyProvider struct {
 	fail string
+	edit func(n int) // what turn n does to the files, while it runs
 
 	mu    sync.Mutex
 	froms []session.Origin
@@ -70,7 +71,11 @@ type spyDriver struct {
 func (d spyDriver) Send(ctx context.Context, m session.Message) (string, error) {
 	d.p.mu.Lock()
 	d.p.sends = append(d.p.sends, m.Text)
+	n, edit := len(d.p.sends), d.p.edit
 	d.p.mu.Unlock()
+	if edit != nil {
+		edit(n)
+	}
 	return d.Driver.Send(ctx, m)
 }
 

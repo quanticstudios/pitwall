@@ -185,6 +185,8 @@ func TestChatCLI(t *testing.T) {
 		{[]string{"chat", "read", "0f3e"}, 0, "Hi.\n\n", proto.ChatRead{Chat: id}, ""},
 		{[]string{"chat", "fork", "0f3e", "1", "--worktree", "try"}, 0, "fork-id\n", proto.ChatFork{Chat: id, Turn: "1", Worktree: "try"}, ""},
 		{[]string{"chat", "rewind", "#2", "2"}, 0, "rewound to before turn 2\n", proto.ChatRewind{Chat: id, Turn: "2"}, ""},
+		{[]string{"chat", "rewind", "#2", "2", "--stash"}, 0, "rewound to before turn 2\n", proto.ChatRewind{Chat: id, Turn: "2", Stash: true}, ""},
+		{[]string{"chat", "rewind", "#2", "2", "--keep-files"}, 0, "rewound to before turn 2\n", proto.ChatRewind{Chat: id, Turn: "2", KeepFiles: true}, ""},
 		{[]string{"chat", "ls", "--json"}, 0, "", nil, ""},
 		{[]string{"chat", "providers"}, 0, "acp:grok\tgrok\n", proto.ChatProviders{}, ""},
 		{[]string{"chat", "providers", "--json"}, 0, "[{\"id\":\"acp:grok\",\"name\":\"grok\"}]\n", proto.ChatProviders{}, ""},

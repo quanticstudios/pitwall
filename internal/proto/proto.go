@@ -48,6 +48,13 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 96 added ChatRewindCheck, ChatRewindFiles and ChatRewind.Stash:
+// a window lists the files a rewind puts back before it asks, and a
+// daemon at RewindFilesLevel refuses a rewind of the files while another
+// agent works in the folder or files changed after the agent's last turn,
+// unless Stash, and keeps the files in a backup ref first. It also added
+// ChatFind and ChatFindResult: a find in a whole chat, its history not
+// loaded yet too (ChatFindLevel).
 // Level 95 added no message: a daemon at LimitQueueLevel queues a pane
 // chat's ChatSend How "queue" at an idle prompt, and drops a chat's limit
 // resume when a message is queued.
@@ -252,7 +259,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 95
+const Level = 96
 
 // PastedFileLevel is the first daemon that saves a ChatSend's pasted-text
 // attachment to a file in the tab's paste folder and puts the file's path
@@ -270,6 +277,14 @@ const MaxPastedText = 8 << 20
 // when a message is queued, so a continue queued at a usage limit goes
 // once, when the limit resets.
 const LimitQueueLevel = 95
+
+// RewindFilesLevel added ChatRewindCheck, ChatRewindFiles and
+// ChatRewind.Stash; a window offers Revert files too only from it.
+const RewindFilesLevel = 96
+
+// ChatFindLevel added ChatFind and ChatFindResult. Below it a window
+// finds in what it has loaded of a chat.
+const ChatFindLevel = 96
 
 // SmartQueueLevel is the first daemon that joins a chat's queue into one
 // prompt, takes ChatQueue Actions "separate" and "together", and steers a
@@ -548,6 +563,10 @@ func Since(msg any) int {
 		return InboxLevel
 	case Image, ImageResult:
 		return ImageLevel
+	case ChatRewindCheck, ChatRewindFiles:
+		return RewindFilesLevel
+	case ChatFind, ChatFindResult:
+		return ChatFindLevel
 	case ChatAside, ChatAsideResult:
 		return ChatAsideLevel
 	case ChatTerminal:
@@ -1387,6 +1406,8 @@ var Messages = []any{
 	RemoteWorkers{}, Reparent{},
 	HostCheck{}, HostCheckResult{},
 	ChatTerminal{},
+	ChatRewindCheck{}, ChatRewindFiles{},
+	ChatFind{}, ChatFindResult{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -1512,11 +1533,35 @@ type ChatFork struct{ Chat, Turn, Worktree string }
 // ChatRewind drops Turn (its id, or its number from 1) and every turn
 // after it: the files go back to Turn's checkpoint, refused as Undo turn
 // refuses, and the provider continues from the turn before. KeepFiles
-// leaves the files as they are; a daemon below Level 44 ignores it.
+// leaves the files as they are; a daemon below Level 44 ignores it. From
+// RewindFilesLevel, a rewind of the files is refused while files changed
+// after the agent's last turn, unless Stash, which keeps them in the
+// backup the daemon takes before it writes a file.
 type ChatRewind struct {
 	Chat, Turn string
 	KeepFiles  bool
+	Stash      bool
 }
+
+// ChatRewindCheck asks what rewinding Chat to before Turn would do to the
+// files. The daemon answers ChatRewindFiles to the asking client alone.
+type ChatRewindCheck struct{ Chat, Turn string }
+
+// ChatRewindFiles answers ChatRewindCheck. Files is what a rewind of the
+// files changes, each with what it does to the file; Unsaved is the files
+// changed after the agent's last turn, which no checkpoint holds and the
+// rewind stashes first. Refused says why the files cannot go back, ""
+// when they can.
+type ChatRewindFiles struct {
+	Chat, Turn     string
+	Files, Unsaved []RewindFile
+	Refused        string
+}
+
+// RewindFile is a file a rewind changes. Status is what the rewind does:
+// added, deleted, modified, renamed, copied or type-changed; From is a
+// renamed file's path before the rewind.
+type RewindFile struct{ Path, From, Status string }
 
 // ChatAside asks a side question about Chat: a one-off agent reads the
 // conversation through a fork of its session that is never saved, so the
@@ -1526,6 +1571,21 @@ type ChatAside struct{ Chat, ID, Question string }
 
 // ChatAsideResult answers ChatAside ID: Answer, or Err when there is none.
 type ChatAsideResult struct{ Chat, ID, Answer, Err string }
+
+// ChatFind finds Query in all of Chat, the history a window has not
+// read yet and the long fields a snapshot cuts too, case folded as
+// session.Fold folds: its prompts, the assistant's text and reasoning,
+// and plans (session.FindText). The daemon answers with ChatFindResult.
+type ChatFind struct{ Chat, Query string }
+
+// ChatFindResult answers ChatFind Query: the matches by item, oldest
+// first; More says it left older ones out. Err says why there are none.
+type ChatFindResult struct {
+	Chat, Query string
+	Hits        []session.FindHit
+	More        bool
+	Err         string
+}
 
 // ChatResult answers a Chat* request.
 type ChatResult struct {

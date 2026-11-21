@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // A checkpoint is a tab's work tree as a commit object on HEAD, taken when
@@ -253,10 +254,50 @@ func Checkpoint(ctx context.Context, worktree, ws string) (string, error) {
 	if redo.name != "" {
 		fmt.Fprintf(&b, "delete %s\n", redo.name)
 	}
+	if end, _ := endOf(ctx, root, prefix); end.rev != "" {
+		fmt.Fprintf(&b, "delete %s\n", end.name) // the turn before's: this turn has not ended
+	}
 	if _, err := gitWith(ctx, root, nil, b.String(), "update-ref", "--stdin"); err != nil {
 		return "", err
 	}
 	return rev, nil
+}
+
+// EndTurn snapshots worktree's files as tab ws's turn end, once its agent
+// ends a turn, so a rewind can tell the turn's changes from those made
+// after it, which no checkpoint holds. The next Checkpoint drops it.
+func EndTurn(ctx context.Context, worktree, ws string) (string, error) {
+	prefix, err := turnsRef(ws)
+	if err != nil {
+		return "", err
+	}
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return "", notRepo(ctx, worktree)
+	}
+	parent, err := head(ctx, root)
+	if err != nil {
+		return "", err
+	}
+	tree, err := snapshot(ctx, root)
+	if err != nil {
+		return "", err
+	}
+	rev, err := commitTree(ctx, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn end", ws))
+	if err != nil {
+		return "", err
+	}
+	_, err = git(ctx, root, "update-ref", prefix+"end", rev)
+	return rev, err
+}
+
+// endOf is the turn end EndTurn took under prefix, a zero turnRef for none.
+func endOf(ctx context.Context, root, prefix string) (turnRef, error) {
+	out, err := git(ctx, root, "for-each-ref", "--format=%(objectname) %(tree) %(parent)", prefix+"end")
+	if f := strings.Fields(out); err == nil && len(f) == 3 {
+		return turnRef{name: prefix + "end", rev: f[0], tree: f[1], parent: f[2]}, nil
+	}
+	return turnRef{}, err
 }
 
 // LatestTurn is tab ws's latest checkpoint in worktree's repository, a
@@ -316,6 +357,47 @@ func Checkpoints(ctx context.Context, worktree, ws string) ([]string, error) {
 	return revs, err
 }
 
+// nearTurn is how far a checkpoint's time may be from the prompt it was
+// taken for: the prompt's hook takes it, within turnWait of the prompt,
+// though a slow one finishes later.
+const nearTurn = 20 * time.Second
+
+// CheckpointNear is tab ws's checkpoint taken nearest time at, within
+// nearTurn, for a turn known by its prompt's time, as an agent pane's is;
+// "" for none.
+func CheckpointNear(ctx context.Context, worktree, ws string, at time.Time) (string, error) {
+	prefix, err := turnsRef(ws)
+	if err != nil {
+		return "", err
+	}
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return "", notRepo(ctx, worktree)
+	}
+	out, err := git(ctx, root, "for-each-ref", "--format=%(refname) %(objectname) %(committerdate:unix)", prefix)
+	if err != nil {
+		return "", err
+	}
+	best, gap := "", nearTurn+time.Second
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) != 3 {
+			continue
+		}
+		if _, err := strconv.Atoi(strings.TrimPrefix(f[0], prefix)); err != nil {
+			continue // the redo snapshot or the turn end
+		}
+		sec, err := strconv.ParseInt(f[2], 10, 64)
+		if err != nil {
+			continue
+		}
+		if d := at.Sub(time.Unix(sec, 0)).Abs(); d <= nearTurn && d < gap {
+			best, gap = f[1], d
+		}
+	}
+	return best, nil
+}
+
 // Change is a file CheckpointDiff lists. Status is aide's word for git's
 // letter: added, deleted, modified, renamed, copied or type-changed. From
 // is a renamed or copied file's old path.
@@ -344,10 +426,20 @@ func CheckpointDiff(ctx context.Context, worktree, a, b string) (patch string, f
 	if err != nil {
 		return "", nil, err
 	}
-	out, err := git(ctx, root, "diff-tree", "-r", "-M", "--name-status", "-z", a, b)
+	files, err = nameStatus(ctx, root, a, b)
 	if err != nil {
 		return "", nil, err
 	}
+	return patch, files, nil
+}
+
+// nameStatus is the files that differ from tree-ish a to b, renames found.
+func nameStatus(ctx context.Context, root, a, b string) ([]Change, error) {
+	out, err := git(ctx, root, "diff-tree", "-r", "-M", "--name-status", "-z", a, b)
+	if err != nil {
+		return nil, err
+	}
+	var files []Change
 	f := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
 	for i := 0; i+1 < len(f); i += 2 {
 		c := Change{Status: statuses[f[i][0]], Path: f[i+1]}
@@ -360,7 +452,7 @@ func CheckpointDiff(ctx context.Context, worktree, a, b string) (patch string, f
 		}
 		files = append(files, c)
 	}
-	return patch, files, nil
+	return files, nil
 }
 
 // UndoTurn puts worktree's files back as they were at tab ws's latest
@@ -370,22 +462,170 @@ func CheckpointDiff(ctx context.Context, worktree, a, b string) (patch string, f
 // parent, when the files already match the checkpoint, and as restore
 // does; it never touches HEAD, the index or a commit.
 func UndoTurn(ctx context.Context, worktree, ws string) error {
-	return undo(ctx, worktree, ws, "")
+	return undo(ctx, worktree, ws)
 }
+
+// ErrNoCheckpoint is a rewind's refusal when its turn has no checkpoint.
+var ErrNoCheckpoint = errors.New("no checkpoint to go back to")
+
+// UnsavedError is RewindTurn's refusal when files changed after the
+// agent's last turn ended, or since its latest checkpoint when no turn
+// end was taken: no checkpoint holds those changes. Stashing them first
+// keeps them in the backup.
+type UnsavedError struct{ Files []Change }
+
+func (e *UnsavedError) Error() string {
+	names := make([]string, len(e.Files))
+	for i, c := range e.Files {
+		names[i] = c.Path
+	}
+	return fmt.Sprintf("%d %s changed after the agent's last turn, and no checkpoint holds %s: %s",
+		len(e.Files), plural(len(e.Files), "file", "files"), plural(len(e.Files), "it", "them"), strings.Join(names, ", "))
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// RewindPlan is what RewindTurn would do now: Files, each with what the
+// rewind does to it (Status is the change from the files now to the
+// checkpoint, so a file the turns added is "deleted"), and Unsaved, the
+// files changed since the agent's last turn ended, which it stashes first.
+type RewindPlan struct {
+	Files, Unsaved []Change
+}
+
+// PlanRewind is what RewindTurn to tab ws's checkpoint rev would change,
+// and refuses as RewindTurn does, short of the unsaved files, without
+// touching a file or a ref.
+func PlanRewind(ctx context.Context, worktree, ws, rev string) (RewindPlan, error) {
+	r, err := rewindAt(ctx, worktree, ws, rev)
+	if err != nil {
+		return RewindPlan{}, err
+	}
+	return r.plan, nil
+}
+
+// rewind is a rewind looked at and checked: the checkpoints, rev's index
+// in them, the files now as a tree, and the plan.
+type rewind struct {
+	root, prefix string
+	list         []turnRef
+	i            int
+	now          string
+	plan         RewindPlan
+}
+
+// rewindAt reads and checks a rewind of tab ws to checkpoint rev.
+func rewindAt(ctx context.Context, worktree, ws, rev string) (rewind, error) {
+	r := rewind{}
+	if rev == "" {
+		return r, ErrNoCheckpoint
+	}
+	var err error
+	if r.prefix, err = turnsRef(ws); err != nil {
+		return r, err
+	}
+	var ok bool
+	if r.root, ok = RepoRoot(ctx, worktree); !ok {
+		return r, notRepo(ctx, worktree)
+	}
+	if err := refuseRepoFilter(ctx, r.root); err != nil {
+		return r, err
+	}
+	if r.list, _, err = turns(ctx, r.root, r.prefix); err != nil {
+		return r, err
+	}
+	if r.i = slices.IndexFunc(r.list, func(t turnRef) bool { return t.rev == rev }); r.i < 0 {
+		return r, fmt.Errorf("the turn's checkpoint is gone: a tab keeps its last %d", KeepTurns)
+	}
+	if err := onHead(ctx, r.root, r.list[r.i].parent); err != nil {
+		return r, err
+	}
+	if r.now, err = snapshot(ctx, r.root); err != nil {
+		return r, err
+	}
+	if r.now == r.list[r.i].tree {
+		return r, nil
+	}
+	if err := check(ctx, r.root, r.now, rev); err != nil {
+		return r, err
+	}
+	if r.plan.Files, err = nameStatus(ctx, r.root, r.now, rev); err != nil {
+		return r, err
+	}
+	// The latest turn's changes end at its turn end; without one, at its
+	// checkpoint, which counts the turn's own edits as unsaved: safe, not exact.
+	base := r.list[len(r.list)-1].tree
+	end, err := endOf(ctx, r.root, r.prefix)
+	if err != nil {
+		return r, err
+	}
+	if end.rev != "" {
+		base = end.tree
+	}
+	if base != r.now {
+		if r.plan.Unsaved, err = nameStatus(ctx, r.root, base, r.now); err != nil {
+			return r, err
+		}
+	}
+	return r, nil
+}
+
+// BackupRef is the ref folder of the snapshots RewindTurn keeps of a
+// tab's files before it puts them back; no checkpoint pruning or tab
+// close drops them.
+const BackupRef = "refs/pitwall/backup/"
 
 // RewindTurn is UndoTurn to tab ws's checkpoint rev, which need not be the
 // latest, for a chat's rewind: the checkpoints after rev go, so rev's is
-// the latest and RedoTurn puts back what the rewind replaced. Files that
-// already match rev change nothing, and that is no refusal.
-func RewindTurn(ctx context.Context, worktree, ws, rev string) error {
-	if rev == "" {
-		return errors.New("no checkpoint to go back to")
+// the latest and RedoTurn puts back what the rewind replaced. It refuses
+// as PlanRewind does, and with an UnsavedError unless stash. Before it
+// writes a file it keeps the files as a commit under BackupRef, and it
+// returns that commit, "" when the files already match rev, which is no
+// refusal.
+func RewindTurn(ctx context.Context, worktree, ws, rev string, stash bool) (string, error) {
+	restoring.Lock()
+	defer restoring.Unlock()
+	r, err := rewindAt(ctx, worktree, ws, rev)
+	if err != nil {
+		return "", err
 	}
-	return undo(ctx, worktree, ws, rev)
+	last := r.list[r.i]
+	var refs strings.Builder
+	for _, t := range r.list[r.i+1:] {
+		fmt.Fprintf(&refs, "delete %s\n", t.name)
+	}
+	if end, _ := endOf(ctx, r.root, r.prefix); end.rev != "" {
+		fmt.Fprintf(&refs, "delete %s\n", end.name) // rev's turn starts over
+	}
+	if r.now == last.tree {
+		if refs.Len() == 0 {
+			return "", nil
+		}
+		_, err := gitWith(ctx, r.root, nil, refs.String(), "update-ref", "--stdin")
+		return "", err
+	}
+	if len(r.plan.Unsaved) > 0 && !stash {
+		return "", &UnsavedError{Files: r.plan.Unsaved}
+	}
+	backup, err := commitTree(ctx, r.root, last.parent, r.now, fmt.Sprintf("pitwall backup: tab %s, before rewinding to turn %d", ws, last.n))
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(&refs, "update %sredo %s\n", r.prefix, backup)
+	fmt.Fprintf(&refs, "create %s%s/%d %s\n", BackupRef, ws, time.Now().UnixNano(), backup)
+	if _, err := gitWith(ctx, r.root, nil, refs.String(), "update-ref", "--stdin"); err != nil {
+		return "", err
+	}
+	return backup, restore(ctx, r.root, r.now, last.rev)
 }
 
-// undo is UndoTurn to checkpoint rev, "" for the latest.
-func undo(ctx context.Context, worktree, ws, rev string) error {
+// undo is UndoTurn: the files back to tab ws's latest checkpoint.
+func undo(ctx context.Context, worktree, ws string) error {
 	restoring.Lock()
 	defer restoring.Unlock()
 	prefix, err := turnsRef(ws)
@@ -404,15 +644,9 @@ func undo(ctx context.Context, worktree, ws, rev string) error {
 		return err
 	}
 	if len(list) == 0 {
-		return errors.New("no checkpoint to go back to")
+		return ErrNoCheckpoint
 	}
-	i := len(list) - 1
-	if rev != "" {
-		if i = slices.IndexFunc(list, func(t turnRef) bool { return t.rev == rev }); i < 0 {
-			return fmt.Errorf("the turn's checkpoint is gone: a tab keeps its last %d", KeepTurns)
-		}
-	}
-	last := list[i]
+	last := list[len(list)-1]
 	if err := onHead(ctx, root, last.parent); err != nil {
 		return err
 	}
@@ -420,20 +654,9 @@ func undo(ctx context.Context, worktree, ws, rev string) error {
 	if err != nil {
 		return err
 	}
-	var refs strings.Builder
-	for _, t := range list[i+1:] {
-		fmt.Fprintf(&refs, "delete %s\n", t.name)
-	}
 	if now == last.tree {
-		if rev == "" {
-			// why: a second undo would replace the redo snapshot with these.
-			return errors.New("the files are already as the turn started")
-		}
-		if refs.Len() == 0 {
-			return nil
-		}
-		_, err := gitWith(ctx, root, nil, refs.String(), "update-ref", "--stdin")
-		return err
+		// why: a second undo would replace the redo snapshot with these.
+		return errors.New("the files are already as the turn started")
 	}
 	if err := check(ctx, root, now, last.rev); err != nil {
 		return err
@@ -442,8 +665,7 @@ func undo(ctx context.Context, worktree, ws, rev string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(&refs, "update %sredo %s\n", prefix, redo)
-	if _, err := gitWith(ctx, root, nil, refs.String(), "update-ref", "--stdin"); err != nil {
+	if _, err := git(ctx, root, "update-ref", prefix+"redo", redo); err != nil {
 		return err
 	}
 	return restore(ctx, root, now, last.rev)
@@ -499,15 +721,13 @@ func DropTurns(ctx context.Context, dir, ws string) error {
 	if err != nil {
 		return err
 	}
-	list, redo, err := turns(ctx, dir, prefix)
+	out, err := git(ctx, dir, "for-each-ref", "--format=%(refname)", prefix)
 	if err != nil {
 		return err
 	}
 	var b strings.Builder
-	for _, t := range append(list, redo) {
-		if t.name != "" {
-			fmt.Fprintf(&b, "delete %s\n", t.name)
-		}
+	for _, name := range strings.Fields(out) {
+		fmt.Fprintf(&b, "delete %s\n", name)
 	}
 	if b.Len() == 0 {
 		return nil

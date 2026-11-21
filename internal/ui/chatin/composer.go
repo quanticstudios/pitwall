@@ -85,6 +85,7 @@ type Composer struct {
 	reading int            // clipboard or dropped images on their way
 	reads   chan imageRead // their results, read on the UI goroutine
 	note    string         // why the last image or send failed
+	noteOK  bool           // note is news, not a failure: drawn quiet
 	noteAt  string         // the text when an image's note went up: taking its token out is no edit that clears it
 	last    *sent          // the last send, until it is answered
 	rewind  *rewinding     // a rewind sent, whose prompt fills the box once it succeeds
@@ -242,19 +243,27 @@ func (c *Composer) Slash() (string, bool) {
 }
 
 // Result is the daemon's answer to one of the window's Chat* requests:
-// the request, and why it was refused, "" when it went through.
+// the request, and why it was refused, "" when it went through. Note is
+// what a request that went through says, as where a rewind kept the files.
 type Result struct {
 	Req     any
 	Message string
+	Note    string
 }
 
 // rewinding is a rewind sent: its turn and the prompt it goes back to.
-type rewinding struct{ turn, text string }
+type rewinding struct {
+	turn, text string
+	atts       []session.Attachment
+}
 
-// AwaitRewind puts text, the prompt a rewind to turn goes back to, in the
-// box once the daemon says the rewind went through; a refused one leaves
-// the box as it is.
-func (c *Composer) AwaitRewind(turn, text string) { c.rewind = &rewinding{turn, text} }
+// AwaitRewind puts text and atts, the prompt and attachments a rewind to
+// turn goes back to, in the box once the daemon says the rewind went
+// through, under any draft, which stays; a refused one leaves the box as
+// it is.
+func (c *Composer) AwaitRewind(turn, text string, atts []session.Attachment) {
+	c.rewind = &rewinding{turn, text, atts}
+}
 
 // Result takes the daemon's answer to a request at now. A refusal shows
 // its message. A ChatSend refused within moments, with the box still
@@ -262,13 +271,16 @@ func (c *Composer) AwaitRewind(turn, text string) { c.rewind = &rewinding{turn, 
 // row back, and a rewind that went through puts its prompt in the box.
 func (c *Composer) Result(r Result, now time.Time) {
 	if r.Message != "" {
-		c.note = r.Message
+		c.note, c.noteOK = r.Message, false
 	}
 	switch m := r.Req.(type) {
 	case proto.ChatRewind:
 		if w := c.rewind; w != nil && w.turn == m.Turn {
 			if r.Message == "" {
-				c.SetText(w.text)
+				c.PullBack(session.QueuedInput{Text: w.text, Attachments: w.atts})
+				if r.Note != "" {
+					c.note, c.noteAt, c.noteOK = r.Note, c.Text(), true
+				}
 			}
 			c.rewind = nil
 		}
@@ -289,7 +301,7 @@ func (c *Composer) Result(r Result, now time.Time) {
 // chip above the text, or notes why it can't.
 func (c *Composer) AddImage(b []byte) {
 	if c.attached() >= maxImages {
-		c.note = "A message takes 8 images at most"
+		c.note, c.noteOK = "A message takes 8 images at most", false
 		return
 	}
 	c.ed.Insert(glue(c.draft.Add(Image{})) + " ")
@@ -315,10 +327,10 @@ func (c *Composer) fill(n int, b []byte, err error) {
 	}
 	if err != nil {
 		c.RemoveImage(n)
-		c.note, c.noteAt = "Can't attach the image: "+err.Error(), c.Text()
+		c.note, c.noteAt, c.noteOK = "Can't attach the image: "+err.Error(), c.Text(), false
 		return
 	}
-	c.note = ""
+	c.note, c.noteOK = "", false
 	c.draft.Images[i] = Image{N: n, Data: data, Mime: mime, Thumb: paint.NewImageOp(thumb), side: side}
 }
 
@@ -332,14 +344,14 @@ func (c *Composer) waiting() bool {
 // env.Images it only notes that the daemon takes no images.
 func (c *Composer) Reading(env Env, read func(context.Context) ([]byte, error)) {
 	if !env.Images {
-		c.note = "Update the daemon to send images"
+		c.note, c.noteOK = "Update the daemon to send images", false
 		return
 	}
 	if c.reads == nil {
 		c.reads = make(chan imageRead, maxImages)
 	}
 	if c.attached() >= maxImages || c.reading >= maxImages {
-		c.note = "A message takes 8 images at most"
+		c.note, c.noteOK = "A message takes 8 images at most", false
 		return
 	}
 	c.ed.Insert(glue(c.draft.Add(Image{})) + " ")
@@ -449,23 +461,23 @@ func (c *Composer) submit(env Env, at time.Time, other bool) {
 		return
 	}
 	if c.waiting() {
-		c.note = "Wait for the image to attach"
+		c.note, c.noteOK = "Wait for the image to attach", false
 		return
 	}
 	if len(imgs) == 0 && len(c.draft.Parts) == 0 && !other && env.Answer != nil && asking(env.Snap) && c.typedFor == asked(env.Snap) && !SlashCommand(text) && env.Answer(text) {
-		c.note = ""
+		c.note, c.noteOK = "", false
 		c.ed.SetText("")
 		c.draft.Clear()
 		return
 	}
 	out := c.draft.Expand(text)
 	if n := utf8.RuneCountInString(out); n > MessageLimit {
-		c.note = "The message is " + itoa(n) + " characters, over " + itoa(MessageLimit) + ": shorten it or send it in parts"
+		c.note, c.noteOK = "The message is "+itoa(n)+" characters, over "+itoa(MessageLimit)+": shorten it or send it in parts", false
 		return
 	}
 	atts := append(Attachments(imgs), c.draft.Pasted(text)...)
 	if len(atts) > maxImages {
-		c.note = "A message takes 8 attachments at most: remove some"
+		c.note, c.noteOK = "A message takes 8 attachments at most: remove some", false
 		return
 	}
 	m := proto.ChatSend{Chat: env.Chat, Text: out, Attachments: atts}
@@ -480,7 +492,7 @@ func (c *Composer) submit(env Env, at time.Time, other bool) {
 	kept := c.draft
 	kept.Images = imgs
 	c.last = &sent{text: text, draft: kept, at: at}
-	c.note, c.hist = "", recall{}
+	c.note, c.noteOK, c.hist = "", false, recall{}
 	c.ed.SetText("")
 	c.draft.Clear()
 	c.editing, c.confirm = "", 0
@@ -930,7 +942,11 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: theme.SpaceS, Left: theme.SpaceL}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Readable(th.Red, th.Bg), c.note)
+					col := th.Readable(th.Red, th.Bg)
+					if c.noteOK {
+						col = th.Muted
+					}
+					return text(gtx, th, th.UIFont, th.Sp(theme.Small), col, c.note)
 				})
 			}),
 		)

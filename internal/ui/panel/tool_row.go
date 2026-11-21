@@ -570,6 +570,12 @@ func (d *cdraw) toolBody(it *session.Item, v toolView, out string) layout.Widget
 		return func(gtx layout.Context) layout.Dimensions {
 			return d.markdown(gtx, item.ID, d.t.reply(item, false))
 		}
+	case c.ToolName == "ExitPlanMode" && strings.TrimSpace(session.FindText(it)) != "":
+		// The plan, as its card showed it; keyed by the item, so find marks it.
+		plan := &session.Item{ID: id, Text: session.FindText(it)}
+		return func(gtx layout.Context) layout.Dimensions {
+			return d.markdown(gtx, plan.ID, d.t.reply(plan, false))
+		}
 	case c.ToolName == "Skill":
 		return nil
 	case v.kind == "search", c.ToolName == "LS", c.ToolName == "WebSearch":

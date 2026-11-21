@@ -47,6 +47,10 @@ type Transcript struct {
 	// Full, when set, reads an item that came cut (session.Item.Cut)
 	// whole, once it is laid out.
 	Full func(item string)
+	// Find, when set, asks the daemon for a query's matches in the whole
+	// chat, which come back through Found; nil finds in the items the
+	// window holds, reading the history back to its start.
+	Find func(query string)
 	// Open opens a link: one clicked in a reply, a URL or a file URL for a
 	// path under Dir, or a tool row's, a URL or a file's absolute path. Nil
 	// leaves links inert.
@@ -63,6 +67,10 @@ type Transcript struct {
 	// TurnRewind says the chat rewinds and forks whole turns: they show only
 	// on a prompt that opened its turn.
 	TurnRewind bool
+	// FilesRewind says the daemon checks and reverts the files on a rewind
+	// (proto.RewindFilesLevel): the confirm lists them and offers Revert
+	// files too.
+	FilesRewind bool
 	// Invalidate asks for a frame from another goroutine: the side panel's
 	// markdown file and its pictures, read in the background.
 	Invalidate func()

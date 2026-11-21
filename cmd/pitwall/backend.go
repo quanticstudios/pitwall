@@ -56,6 +56,11 @@ type backend struct {
 	chatOut map[string][]chatin.Result        // per chat, the answers to the window's requests, not yet taken
 	// asides are, per chat, the side questions answered and not yet taken.
 	asides map[string][]proto.ChatAsideResult
+	// rewinds is the daemon's answers to ChatRewindCheck, per chat, not
+	// taken yet.
+	rewinds map[string][]proto.ChatRewindFiles
+	// finds are, per chat, the newest find result not yet taken.
+	finds map[string]proto.ChatFindResult
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
 	// stays across a reconnect, for the view's stale state.
 	mon     proto.MonitorSample
@@ -558,11 +563,21 @@ func (b *backend) recvLoop() {
 				c.out = false
 			}
 			b.chatAnswered(m)
+		case proto.ChatRewindFiles:
+			if b.rewinds == nil {
+				b.rewinds = map[string][]proto.ChatRewindFiles{}
+			}
+			b.rewinds[m.Chat] = append(b.rewinds[m.Chat], m)
 		case proto.ChatAsideResult:
 			if b.asides == nil {
 				b.asides = map[string][]proto.ChatAsideResult{}
 			}
 			b.asides[m.Chat] = append(b.asides[m.Chat], m)
+		case proto.ChatFindResult:
+			if b.finds == nil {
+				b.finds = map[string]proto.ChatFindResult{}
+			}
+			b.finds[m.Chat] = m // an older one the window did not take is stale
 		case proto.FaviconResult:
 			b.icons[m.Dir] = &m
 			if m.Root != "" {
@@ -737,6 +752,8 @@ func (b *backend) chatAnswered(m proto.ChatResult) {
 	r := chatin.Result{Req: req}
 	if refused {
 		r.Message = m.Message
+	} else if rewind {
+		r.Note = m.Message // where a rewind kept the files, for a pane chat, whose transcript cannot say
 	}
 	b.chatOut[m.Chat] = append(b.chatOut[m.Chat], r)
 }

@@ -4,7 +4,7 @@ import (
 	"image"
 	"strconv"
 	"strings"
-	"unicode"
+	"time"
 
 	gioevent "gioui.org/io/event"
 	"gioui.org/io/key"
@@ -21,29 +21,244 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// finder is the chat's find bar. It finds a query in the prompts and
-// Claude's text, older pages too: while it is open with a query it reads
-// the chat's history back to its start. Matches count top to bottom;
-// the current one starts at the newest, and Enter walks up.
-type finder struct {
+// FindBar is a find bar: its query field, keys and buttons, and how it
+// draws at the top right of an area. The chat, the Changes panel and the
+// review view each keep one.
+type FindBar struct {
+	// EnterUp makes Enter go to the match before, up, and Shift+Enter to
+	// the one after, for a list whose first match is its newest, at its
+	// end; else Enter goes down.
+	EnterUp bool
+
 	on, focus bool
 	ed        widget.Editor
-	q         []rune // the query, folded; nil for none
-	hits      []findHit
-	cur       int // the current hit; -1 for none
-	sig       string
-	counts    map[string]itemHits // per item, its hits as last counted, for countQ
-	countQ    string
-	jump      bool           // bring the current hit into view
-	jumped    bool           // the view went to its row; one more frame places it in the row
-	drawn     map[string]int // per item, the matches drawn this frame
 	prev      widget.Clickable
 	next      widget.Clickable
 	shut      widget.Clickable
 	bg        int // the bar's own area
 }
 
-// findHit is one match: the n-th in item i, at rune at of its len runes.
+// Open opens the bar, its query selected, or focuses it again.
+func (b *FindBar) Open() {
+	if !b.on {
+		b.on = true
+		b.ed.SingleLine, b.ed.Submit = true, true
+	}
+	b.focus = true
+	b.ed.SetCaret(b.ed.Len(), 0)
+}
+
+// On reports whether the bar is open.
+func (b *FindBar) On() bool { return b.on }
+
+// Close closes the bar; its query stays for the next Open.
+func (b *FindBar) Close() { b.on = false }
+
+// Query is the bar's query, trimmed and folded as session.Fold folds;
+// empty for none.
+func (b *FindBar) Query() []rune { return session.Fold(strings.TrimSpace(b.ed.Text())) }
+
+// SetQuery types q into the bar.
+func (b *FindBar) SetQuery(q string) { b.ed.SetText(q) }
+
+// Update takes the bar's keys and buttons: the matches to move by, down
+// positive, and whether Escape or Close shut the bar, which gives the
+// keys back.
+func (b *FindBar) Update(gtx layout.Context) (step int, shut bool) {
+	if !b.on {
+		return 0, false
+	}
+	for {
+		ev, ok := gtx.Event(
+			key.Filter{Focus: &b.ed, Name: key.NameEscape},
+			key.Filter{Focus: &b.ed, Name: key.NameReturn, Optional: key.ModShift},
+			key.Filter{Focus: &b.ed, Name: key.NameEnter, Optional: key.ModShift},
+			key.Filter{Focus: &b.ed, Name: key.NameUpArrow},
+			key.Filter{Focus: &b.ed, Name: key.NameDownArrow},
+			pointer.Filter{Target: &b.bg, Kinds: pointer.Press},
+		)
+		if !ok {
+			break
+		}
+		e, ok := ev.(key.Event)
+		if !ok || e.State != key.Press {
+			continue
+		}
+		switch {
+		case e.Name == key.NameEscape:
+			b.on = false
+			gtx.Execute(key.FocusCmd{Tag: nil})
+			return 0, true
+		case e.Name == key.NameDownArrow:
+			step++
+		case e.Name == key.NameUpArrow:
+			step--
+		case e.Modifiers.Contain(key.ModShift) != b.EnterUp:
+			step--
+		default:
+			step++
+		}
+	}
+	for b.prev.Clicked(gtx) {
+		step--
+	}
+	for b.next.Clicked(gtx) {
+		step++
+	}
+	for b.shut.Clicked(gtx) {
+		b.on = false
+		return 0, true
+	}
+	for {
+		if _, ok := b.ed.Update(gtx); !ok {
+			break
+		}
+	}
+	return step, false
+}
+
+// findWidth is the find bar's width at most.
+const findWidth = 360
+
+// Layout draws the bar at the top right of an area of size: the query,
+// placeholder while it is empty, count, previous, next and close.
+func (b *FindBar) Layout(gtx layout.Context, th *theme.Theme, size image.Point, placeholder, count string) {
+	if !b.on {
+		return
+	}
+	d := &cdraw{th: th}
+	m := gtx.Dp(theme.SpaceM)
+	w := min(gtx.Dp(findWidth), size.X-2*m)
+	h := gtx.Dp(hit) + 2*gtx.Dp(theme.SpaceXS)
+	rect := image.Rect(size.X-m-w, m, size.X-m, m+h)
+	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
+	area := clip.Rect(rect).Push(gtx.Ops)
+	pointer.CursorDefault.Add(gtx.Ops)
+	gioevent.Op(gtx.Ops, &b.bg)
+	area.Pop()
+	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
+	pad, bs := gtx.Dp(theme.SpaceS), gtx.Dp(hit)
+	isz := gtx.Dp(theme.SpaceM + theme.Space2XS)
+	y := (h - bs) / 2
+	at(gtx, image.Pt(pad, (h-isz)/2), func(gtx layout.Context) layout.Dimensions {
+		return sidebar.IconPath(gtx, icSearch, isz, th.Muted)
+	})
+	prevTip, nextTip := "Previous (Shift+Enter)", "Next (Enter)"
+	if b.EnterUp {
+		prevTip, nextTip = "Previous (Enter)", "Next (Shift+Enter)"
+	}
+	// The buttons from the right: close, next, previous, then the count.
+	x := w - gtx.Dp(theme.SpaceXS)
+	for _, bt := range []struct {
+		c       *widget.Clickable
+		ic, tip string
+	}{{&b.shut, icClose, "Close (Esc)"}, {&b.next, icChevDn, nextTip}, {&b.prev, icChevUp, prevTip}} {
+		x -= bs
+		r := image.Rect(x, y, x+bs, y+bs)
+		at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
+			return d.toolButton(gtx, bt.c, bt.ic, th.Muted, false)
+		})
+		if bt.c.Hovered() {
+			defer d.tooltip(gtx, bt.tip, r.Add(rect.Min), size)
+		}
+	}
+	cw := 0
+	if count != "" {
+		call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, count)
+		})
+		cw = td.Size.X + gtx.Dp(theme.SpaceS)
+		at(gtx, image.Pt(x-cw, (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return td })
+	}
+	ex := pad + isz + gtx.Dp(theme.SpaceS)
+	ew := max(0, x-cw-ex-gtx.Dp(theme.SpaceXS))
+	g := gtx
+	g.Constraints = layout.Constraints{Min: image.Pt(ew, 0), Max: image.Pt(ew, h)}
+	call, ed := measure(g, func(gtx layout.Context) layout.Dimensions {
+		if b.ed.Len() == 0 {
+			m := op.Record(gtx.Ops)
+			widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), placeholder, material(gtx, th.Muted))
+			m.Stop().Add(gtx.Ops)
+		}
+		return b.ed.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), material(gtx, th.Fg), material(gtx, d.selColor()))
+	})
+	at(gtx, image.Pt(ex, (h-ed.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return ed })
+	// A focus asked for before the field was laid out is lost: ask until it holds.
+	if b.focus && gtx.Focused(&b.ed) {
+		b.focus = false
+	} else if b.focus {
+		gtx.Execute(key.FocusCmd{Tag: &b.ed})
+		gtx.Execute(op.InvalidateCmd{})
+	}
+}
+
+// Height is the bar's height with its margin above, which a view keeps a
+// match it scrolls to under.
+func (b *FindBar) Height(gtx layout.Context) int {
+	return gtx.Dp(theme.SpaceM+theme.SpaceS) + gtx.Dp(hit) + 2*gtx.Dp(theme.SpaceXS)
+}
+
+// Mark paints the matches of q, folded, in a line of mono text drawn at
+// x, y, cw a rune along and lh high: the current one, at rune cur, in the
+// accent, the others quieter; cur -1 for none.
+func Mark(gtx layout.Context, th *theme.Theme, text string, q []rune, cur, x, y, cw, lh int) {
+	if len(q) == 0 {
+		return
+	}
+	other, now := theme.Mix(th.Bg, th.Yellow, 0.28), theme.Mix(th.Bg, th.Yellow, 0.62)
+	for _, a := range session.FindRunes(session.Fold(text), q) {
+		c := other
+		if a == cur {
+			c = now
+		}
+		r := image.Rect(x+a*cw, y, x+(a+len(q))*cw, y+lh)
+		paint.FillShape(gtx.Ops, c, clip.UniformRRect(r, gtx.Dp(theme.Space2XS)).Op(gtx.Ops))
+	}
+}
+
+// finder is the chat's find bar. It finds a query in the prompts,
+// replies, thinking and plans (session.FindText). With a daemon that
+// finds (Transcript.Find), the daemon searches the whole chat and a match
+// in history not read yet reads older pages until it is; with an older
+// one it searches what the window holds while it reads the history back
+// to its start. Matches count top to bottom; the current one starts at
+// the newest, and Enter walks up.
+type finder struct {
+	FindBar
+	q      []rune // the query, folded; nil for none
+	hits   []findHit
+	cur    int // the current hit; -1 for none
+	sig    string
+	counts map[string]itemHits // per item, its hits as last counted, for countQ
+	countQ string
+	jump   bool           // bring the current hit into view
+	jumped bool           // the view went to its row; one more frame places it in the row
+	drawn  map[string]int // per item, the matches drawn this frame
+
+	// What the daemon found: asked is the query asked last, at askAt,
+	// when the chat was askSig; typed is when the query last changed.
+	remote       bool
+	asked        string
+	askSig       string
+	askAt, typed time.Time
+	waiting      bool
+	found        []session.FindHit
+	more         bool
+	err          string
+}
+
+// wrap is match cur moved by step among n, past either end to the other.
+func wrap(cur, step, n int) int { return ((cur+step)%n + n) % n }
+
+// findDebounce is how long the query rests before the daemon is asked;
+// findRefresh, how often a chat that changed is asked again.
+const (
+	findDebounce = 150 * time.Millisecond
+	findRefresh  = time.Second
+)
+
+// findHit is one match: the n-th in item i, at rune at of its len runes;
+// i is -1 for an item the window has not read yet.
 type findHit struct {
 	item     string
 	i, n     int
@@ -58,61 +273,55 @@ type itemHits struct {
 	runes   int
 }
 
-// fold is s with each rune lower-cased: as many runes as s, so a match's
-// offsets in it are its offsets in s.
-func fold(s string) []rune {
-	r := []rune(s)
-	for i, c := range r {
-		r[i] = unicode.ToLower(c)
-	}
-	return r
-}
-
-// findRunes is the rune offset of each match of q in text, both folded,
-// left to right, not overlapping.
-func findRunes(text, q []rune) []int {
-	var out []int
-	if len(q) == 0 {
-		return nil
-	}
-	for i := 0; i+len(q) <= len(text); {
-		if text[i] == q[0] && string(text[i:i+len(q)]) == string(q) {
-			out = append(out, i)
-			i += len(q)
-			continue
-		}
-		i++
-	}
-	return out
-}
-
-// searchable is whether the find bar looks in item it: a prompt or
-// Claude's text.
-func searchable(it *session.Item) bool {
-	return it.Kind == session.KindUserPrompt || it.Kind == session.KindAssistantText
-}
-
-// OpenFind opens the find bar, its query selected, or focuses it again.
+// OpenFind opens a find bar, its query selected, or focuses it again:
+// the Changes panel's when the pointer is on it, else the chat's.
 func (t *Transcript) OpenFind() {
+	if t.side.on && !t.side.file && t.side.find.over {
+		t.side.find.Open()
+		return
+	}
 	f := &t.msg.find
 	if !f.on {
-		f.on, f.cur = true, -1
-		f.ed.SingleLine, f.ed.Submit = true, true
+		f.cur = -1
+		f.EnterUp = true
 	}
-	f.focus = true
-	f.ed.SetCaret(f.ed.Len(), 0)
+	f.Open()
 }
 
-// FindOpen reports whether the find bar is open.
-func (t *Transcript) FindOpen() bool { return t.msg.find.on }
+// FindOpen reports whether a find bar is open.
+func (t *Transcript) FindOpen() bool { return t.msg.find.on || t.side.find.on }
 
-// closeFind closes the find bar and drops its matches.
+// Found takes the daemon's matches of query, as Find asked for them: the
+// hits by item, more when it left older ones out, err for none. A
+// result for another query is stale and dropped.
+func (t *Transcript) Found(query string, hits []session.FindHit, more bool, err string) {
+	f := &t.msg.find
+	if query != f.asked {
+		return
+	}
+	f.found, f.more, f.err, f.waiting, f.sig = hits, more, err, false, ""
+}
+
+// close closes the find bar and drops its matches.
 func (f *finder) close() {
 	f.on, f.q, f.hits, f.cur, f.sig, f.jump = false, nil, nil, -1, "", false
+	f.asked, f.found, f.waiting, f.err = "", nil, false, ""
 }
 
-// update takes the bar's keys and buttons, recounts the matches when the
-// query or the chat changed, and reads older pages while there are some.
+// chatSig is what the find counts change with: the chat's first and last
+// items and the last's length.
+func chatSig(s *session.Snapshot) string {
+	n := len(s.Content)
+	if n == 0 {
+		return ""
+	}
+	last := &s.Content[n-1]
+	return strconv.Itoa(n) + s.Content[0].ID + last.ID + last.UpdatedAt + strconv.Itoa(len(last.Text))
+}
+
+// findUpdate takes the bar's keys and buttons, asks the daemon or
+// recounts the matches when the query or the chat changed, and without a
+// daemon that finds reads older pages while there are some.
 func (t *Transcript) findUpdate(gtx layout.Context, s *session.Snapshot) {
 	f := &t.msg.find
 	clear(f.drawn)
@@ -122,75 +331,63 @@ func (t *Transcript) findUpdate(gtx layout.Context, s *session.Snapshot) {
 	if f.drawn == nil {
 		f.drawn = map[string]int{}
 	}
-	step := 0
-	for {
-		ev, ok := gtx.Event(
-			key.Filter{Focus: &f.ed, Name: key.NameEscape},
-			key.Filter{Focus: &f.ed, Name: key.NameReturn, Optional: key.ModShift},
-			key.Filter{Focus: &f.ed, Name: key.NameEnter, Optional: key.ModShift},
-			key.Filter{Focus: &f.ed, Name: key.NameUpArrow},
-			key.Filter{Focus: &f.ed, Name: key.NameDownArrow},
-			pointer.Filter{Target: &f.bg, Kinds: pointer.Press},
-		)
-		if !ok {
-			break
-		}
-		e, ok := ev.(key.Event)
-		if !ok || e.State != key.Press {
-			continue
-		}
-		switch {
-		case e.Name == key.NameEscape:
-			f.close()
-			gtx.Execute(key.FocusCmd{Tag: nil})
-			return
-		case e.Name == key.NameDownArrow || e.Modifiers.Contain(key.ModShift):
-			step++
-		default:
-			step--
-		}
-	}
-	for f.prev.Clicked(gtx) {
-		step--
-	}
-	for f.next.Clicked(gtx) {
-		step++
-	}
-	for f.shut.Clicked(gtx) {
+	step, shut := f.Update(gtx)
+	if shut {
 		f.close()
 		return
 	}
-	for {
-		if _, ok := f.ed.Update(gtx); !ok {
-			break
-		}
-	}
-	q := fold(strings.TrimSpace(f.ed.Text()))
+	f.remote = t.Find != nil
+	q := f.Query()
 	if string(q) != string(f.q) {
-		f.q, f.cur, f.sig = q, -1, ""
+		f.q, f.cur, f.sig, f.typed = q, -1, "", gtx.Now
+		f.found, f.more, f.err, f.waiting = nil, false, "", len(q) > 0
+	}
+	if f.remote {
+		t.findAsk(gtx, s, step != 0)
 	}
 	if f.recount(s) && f.cur < 0 && len(f.hits) > 0 {
 		f.cur, f.jump = len(f.hits)-1, true
 	}
 	if step != 0 && len(f.hits) > 0 {
-		f.cur = ((f.cur+step)%len(f.hits) + len(f.hits)) % len(f.hits)
-		f.jump = true
+		f.cur, f.jump = wrap(f.cur, step, len(f.hits)), true
 	}
 	// why: the view may never have scrolled near the top, so nothing asked yet whether older pages exist.
-	if len(f.q) > 0 && t.Older != nil {
+	if !f.remote && len(f.q) > 0 && t.Older != nil {
 		t.older = t.Older()
 	}
 }
 
-// recount finds the query in s again when s or the query changed since
-// the last count, recounting only the items that changed, and reports
-// whether it did. The current hit stays on its item and match.
-func (f *finder) recount(s *session.Snapshot) bool {
-	sig := string(f.q)
-	if n := len(s.Content); n > 0 {
-		last := &s.Content[n-1]
-		sig += "\x00" + strconv.Itoa(n) + s.Content[0].ID + last.ID + last.UpdatedAt + strconv.Itoa(len(last.Text))
+// findAsk asks the daemon for the query's matches once it rested
+// findDebounce, again when the chat changed since, at most every
+// findRefresh, and when retry follows a failed search.
+func (t *Transcript) findAsk(gtx layout.Context, s *session.Snapshot, retry bool) {
+	f := &t.msg.find
+	q, sig := string(f.q), chatSig(s)
+	if q == "" {
+		return
 	}
+	switch {
+	case q != f.asked:
+		if wait := f.typed.Add(findDebounce); gtx.Now.Before(wait) {
+			gtx.Execute(op.InvalidateCmd{At: wait})
+			return
+		}
+	case retry && f.err != "":
+	case sig == f.askSig || f.waiting:
+		return
+	case gtx.Now.Before(f.askAt.Add(findRefresh)):
+		gtx.Execute(op.InvalidateCmd{At: f.askAt.Add(findRefresh)})
+		return
+	}
+	f.asked, f.askSig, f.askAt, f.waiting, f.err = q, sig, gtx.Now, true, ""
+	t.Find(q)
+}
+
+// recount finds the query in s again when s, the query or the daemon's
+// matches changed since the last count, and reports whether it did. The
+// current hit stays on its item and match.
+func (f *finder) recount(s *session.Snapshot) bool {
+	sig := string(f.q) + "\x00" + chatSig(s)
 	if sig == f.sig {
 		return false
 	}
@@ -204,32 +401,50 @@ func (f *finder) recount(s *session.Snapshot) bool {
 		f.cur = -1
 		return true
 	}
-	if f.counts == nil || f.countQ != string(f.q) {
-		f.counts, f.countQ = map[string]itemHits{}, string(f.q)
-	}
-	seen := map[string]bool{}
-	for i := range s.Content {
-		it := &s.Content[i]
-		if !searchable(it) {
-			continue
-		}
-		seen[it.ID] = true
-		c, ok := f.counts[it.ID]
-		if !ok || c.size != len(it.Text) || c.updated != it.UpdatedAt {
-			txt := fold(it.Text)
-			c = itemHits{size: len(it.Text), updated: it.UpdatedAt, at: findRunes(txt, f.q), runes: len(txt)}
-			f.counts[it.ID] = c
-		}
-		for n, at := range c.at {
-			if keep.item == it.ID && keep.n == n {
+	add := func(id string, i int, at []int, runes int) {
+		for n, a := range at {
+			if keep.item == id && keep.n == n {
 				f.cur = len(f.hits)
 			}
-			f.hits = append(f.hits, findHit{item: it.ID, i: i, n: n, at: at, runs: c.runes})
+			f.hits = append(f.hits, findHit{item: id, i: i, n: n, at: a, runs: runes})
 		}
 	}
-	for id := range f.counts {
-		if !seen[id] {
-			delete(f.counts, id)
+	if f.remote {
+		idx := make(map[string]int, len(s.Content))
+		for i := range s.Content {
+			idx[s.Content[i].ID] = i
+		}
+		for _, h := range f.found {
+			i, ok := idx[h.Item]
+			if !ok {
+				i = -1
+			}
+			add(h.Item, i, h.At, h.Runes)
+		}
+	} else {
+		if f.counts == nil || f.countQ != string(f.q) {
+			f.counts, f.countQ = map[string]itemHits{}, string(f.q)
+		}
+		seen := map[string]bool{}
+		for i := range s.Content {
+			it := &s.Content[i]
+			txt := session.FindText(it)
+			if txt == "" {
+				continue
+			}
+			seen[it.ID] = true
+			c, ok := f.counts[it.ID]
+			if !ok || c.size != len(txt) || c.updated != it.UpdatedAt {
+				folded := session.Fold(txt)
+				c = itemHits{size: len(txt), updated: it.UpdatedAt, at: session.FindRunes(folded, f.q), runes: len(folded)}
+				f.counts[it.ID] = c
+			}
+			add(it.ID, i, c.at, c.runes)
+		}
+		for id := range f.counts {
+			if !seen[id] {
+				delete(f.counts, id)
+			}
 		}
 	}
 	if f.cur >= len(f.hits) {
@@ -241,6 +456,17 @@ func (f *finder) recount(s *session.Snapshot) bool {
 // counted is the bar's count: "3 of 12", "No results", "" without a
 // query; more says older history is still being read.
 func (f *finder) counted(more bool) string {
+	if f.remote {
+		more = f.more
+		switch {
+		case len(f.q) == 0:
+			return ""
+		case f.err != "":
+			return "Search failed"
+		case len(f.hits) == 0 && f.waiting:
+			return "Searching…"
+		}
+	}
 	switch {
 	case len(f.q) == 0:
 		return ""
@@ -256,29 +482,74 @@ func (f *finder) counted(more bool) string {
 	return s
 }
 
-// findRow is the row that draws content item i, opening the work log it
-// is in when it is closed; -1 while no row draws it.
+// unfold opens what hides content item i: its turn's work, its own fold,
+// a thought's or a call's, and the <details> in its text. It reports
+// whether it opened any, which the next frame's rows show.
+func (t *Transcript) unfold(s *session.Snapshot, i int) bool {
+	opened := false
+	open := func(id string, def bool) {
+		if !isOpen(t.open, id, def) {
+			t.open[id], opened = true, true
+		}
+	}
+	for _, b := range t.blocks {
+		if b.kind == blockTurn && b.lo <= i && i < b.hi {
+			open(turnID(s, b), true)
+		}
+	}
+	it := &s.Content[i]
+	if it.Kind != session.KindUserPrompt && it.Kind != session.KindAssistantText {
+		open(it.ID, false)
+	}
+	if r := t.docs[it.ID]; r != nil {
+		for _, b := range r.blocks {
+			if b.Summary {
+				open(it.ID+"/fold/"+strconv.Itoa(b.Fold), b.Open)
+			}
+		}
+	}
+	return opened
+}
+
+// findRow is the row that draws content item i, opening what hides it;
+// -1 while no row draws it.
 func (t *Transcript) findRow(s *session.Snapshot, i int) int {
+	if t.unfold(s, i) {
+		return -1 // the next frame's rows hold it
+	}
 	for k, r := range t.rows {
 		if rowItem(r) == i && r.tail == nil && r.res == nil {
 			return k
 		}
 		if r.seg == segHead && !r.open && r.b.lo <= i && i < r.b.hi {
 			t.open[logID(s, r.b)] = true
-			return -1 // the next frame's rows hold it
+			return -1
 		}
 	}
 	return -1
 }
 
 // findJump brings the current hit's row into view, about a third down
-// the view of height h, near its match once the row was laid out.
+// the view of height h, near its match once the row was laid out. A hit
+// in history not read yet reads the page before until it is.
 func (t *Transcript) findJump(gtx layout.Context, s *session.Snapshot, h int) {
 	f := &t.msg.find
 	if !f.on || !f.jump || f.cur < 0 || f.cur >= len(f.hits) {
 		return
 	}
 	cur := f.hits[f.cur]
+	if cur.i < 0 {
+		if t.Older == nil {
+			f.jump = false
+			return
+		}
+		if t.older = t.Older(); !t.older {
+			f.jump = false // no page holds it
+			return
+		}
+		gtx.Execute(op.InvalidateCmd{})
+		return
+	}
 	k := t.findRow(s, cur.i)
 	gtx.Execute(op.InvalidateCmd{})
 	if k < 0 {
@@ -286,7 +557,7 @@ func (t *Transcript) findJump(gtx layout.Context, s *session.Snapshot, h int) {
 	}
 	el := k + 1
 	// A short row goes just under the find bar, which would cover it at the top.
-	off := -(gtx.Dp(theme.SpaceM+theme.SpaceS) + gtx.Dp(hit) + 2*gtx.Dp(theme.SpaceXS))
+	off := -f.Height(gtx)
 	if sp, ok := t.msg.ys[el]; ok && sp.h > h/2 {
 		off = min(max(0, sp.h*cur.at/max(1, cur.runs)-h/3), max(0, sp.h-h/2))
 	}
@@ -301,13 +572,16 @@ func (t *Transcript) findJump(gtx layout.Context, s *session.Snapshot, h int) {
 // marks paints the find matches in sl's text txt, laid out as call, under
 // it: the current match in the accent, the others quieter.
 func (t *Transcript) marks(gtx layout.Context, d *cdraw, sl *widget.Selectable, txt string) {
+	key := t.msg.keys[sl]
+	if strings.HasPrefix(key, "box:side:") {
+		t.sideMarks(gtx, d, sl, key, txt)
+	}
 	f := &t.msg.find
 	if !f.on || len(f.q) == 0 {
 		return
 	}
-	key := t.msg.keys[sl]
 	item, _, _ := strings.Cut(key, "/")
-	at := findRunes(fold(txt), f.q)
+	at := session.FindRunes(session.Fold(txt), f.q)
 	if len(at) == 0 {
 		return
 	}
@@ -333,75 +607,7 @@ func (t *Transcript) marks(gtx layout.Context, d *cdraw, sl *widget.Selectable, 
 	}
 }
 
-// findWidth is the find bar's width at most.
-const findWidth = 360
-
-// drawFind draws the find bar at the transcript area's top right: the
-// query, the count, previous, next and close.
+// drawFind draws the chat's find bar at the transcript area's top right.
 func (t *Transcript) drawFind(gtx layout.Context, d *cdraw, size image.Point) {
-	f := &t.msg.find
-	if !f.on {
-		return
-	}
-	th := d.th
-	m := gtx.Dp(theme.SpaceM)
-	w := min(gtx.Dp(findWidth), size.X-2*m)
-	h := gtx.Dp(hit) + 2*gtx.Dp(theme.SpaceXS)
-	rect := image.Rect(size.X-m-w, m, size.X-m, m+h)
-	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
-	area := clip.Rect(rect).Push(gtx.Ops)
-	pointer.CursorDefault.Add(gtx.Ops)
-	gioevent.Op(gtx.Ops, &f.bg)
-	area.Pop()
-	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
-	pad, bs := gtx.Dp(theme.SpaceS), gtx.Dp(hit)
-	isz := gtx.Dp(theme.SpaceM + theme.Space2XS)
-	y := (h - bs) / 2
-	at(gtx, image.Pt(pad, (h-isz)/2), func(gtx layout.Context) layout.Dimensions {
-		return sidebar.IconPath(gtx, icSearch, isz, th.Muted)
-	})
-	// The buttons from the right: close, next, previous, then the count.
-	x := w - gtx.Dp(theme.SpaceXS)
-	for _, b := range []struct {
-		c       *widget.Clickable
-		ic, tip string
-	}{{&f.shut, icClose, "Close (Esc)"}, {&f.next, icChevDn, "Next (Shift+Enter)"}, {&f.prev, icChevUp, "Previous (Enter)"}} {
-		x -= bs
-		r := image.Rect(x, y, x+bs, y+bs)
-		at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
-			return d.toolButton(gtx, b.c, b.ic, th.Muted, false)
-		})
-		if b.c.Hovered() {
-			defer d.tooltip(gtx, b.tip, r.Add(rect.Min), size)
-		}
-	}
-	count := f.counted(t.older)
-	cw := 0
-	if count != "" {
-		call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, count)
-		})
-		cw = td.Size.X + gtx.Dp(theme.SpaceS)
-		at(gtx, image.Pt(x-cw, (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return td })
-	}
-	ex := pad + isz + gtx.Dp(theme.SpaceS)
-	ew := max(0, x-cw-ex-gtx.Dp(theme.SpaceXS))
-	g := gtx
-	g.Constraints = layout.Constraints{Min: image.Pt(ew, 0), Max: image.Pt(ew, h)}
-	call, ed := measure(g, func(gtx layout.Context) layout.Dimensions {
-		if f.ed.Len() == 0 {
-			m := op.Record(gtx.Ops)
-			widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), "Find in chat", material(gtx, th.Muted))
-			m.Stop().Add(gtx.Ops)
-		}
-		return f.ed.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), material(gtx, th.Fg), material(gtx, d.selColor()))
-	})
-	at(gtx, image.Pt(ex, (h-ed.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return ed })
-	// A focus asked for before the field was laid out is lost: ask until it holds.
-	if f.focus && gtx.Focused(&f.ed) {
-		f.focus = false
-	} else if f.focus {
-		gtx.Execute(key.FocusCmd{Tag: &f.ed})
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	t.msg.find.Layout(gtx, d.th, size, "Find in chat", t.msg.find.counted(t.older))
 }

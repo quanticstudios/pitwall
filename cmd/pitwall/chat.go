@@ -32,7 +32,7 @@ const chatUsage = `usage:
   pitwall chat read <chat> [--json]
   pitwall chat wait <chat> [--until done|blocked] [--timeout D]
   pitwall chat fork <chat> <turn> [--worktree NAME]
-  pitwall chat rewind <chat> <turn>
+  pitwall chat rewind <chat> <turn> [--keep-files | --stash]
   pitwall chat archive <chat>
 A chat is its id, a unique id prefix, or its tab (#N or name). A turn is
 its id or its number, 1 for the first.`
@@ -54,7 +54,7 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	flags := flag.NewFlagSet("chat "+sub, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var provider, modelName, effort, mode, dir, worktree, base, branch, name, reason, sessionName string
-	var steer, queue, asJSON bool
+	var steer, queue, asJSON, keepFiles, stash bool
 	until := "done"
 	var timeout time.Duration
 	flags.StringVar(&sessionName, "s", "", "")
@@ -83,7 +83,10 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 		flags.DurationVar(&timeout, "timeout", 0, "")
 	case "fork":
 		flags.StringVar(&worktree, "worktree", "", "")
-	case "interrupt", "archive", "rewind":
+	case "rewind":
+		flags.BoolVar(&keepFiles, "keep-files", false, "")
+		flags.BoolVar(&stash, "stash", false, "")
+	case "interrupt", "archive":
 	default:
 		return waitError, fmt.Errorf("unknown chat command %q\n%s", sub, chatUsage)
 	}
@@ -95,7 +98,8 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	case sub == "new" || sub == "send" && len(args) >= 2:
 	case (sub == "ls" || sub == "providers") && len(args) == 0:
 	case sub == "approve" && (len(args) == 2 || len(args) == 3):
-	case (sub == "fork" || sub == "rewind") && len(args) == 2:
+	case sub == "rewind" && len(args) == 2 && !(keepFiles && stash):
+	case sub == "fork" && len(args) == 2:
 	case sub == "wait" && len(args) == 1 && (until == "done" || until == "blocked"):
 	case (sub == "interrupt" || sub == "set" || sub == "read" || sub == "archive") && len(args) == 1:
 	default:
@@ -215,7 +219,7 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 		}
 		return code(err), err
 	case "rewind":
-		request = proto.ChatRewind{Chat: c.ID, Turn: args[1]}
+		request = proto.ChatRewind{Chat: c.ID, Turn: args[1], KeepFiles: keepFiles, Stash: stash}
 	case "read":
 		if err := conn.Send(proto.ChatRead{Chat: c.ID}); err != nil {
 			return waitError, err

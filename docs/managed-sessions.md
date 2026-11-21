@@ -1019,9 +1019,23 @@ session it forked in place.
   `gitstat.RewindTurn`, Undo turn's code aimed at T's checkpoint, and
   refuses (`conflict`) in the same cases: HEAD moved since the checkpoint,
   a `.gitignore` changed while files would be removed, a file in the way
-  that no snapshot has. Then it drops the checkpoints after T and keeps
-  the files it replaced as the redo snapshot, so Redo turn puts them
-  back; files that already match T's checkpoint are no refusal. Only once
+  that no snapshot has. It also refuses (`conflict`) while another agent
+  pane or chat works in the same repository, whose edits would go back
+  too, and while files changed after the agent's last turn, unless
+  `Stash` (web `stash`). The turn's end is a snapshot too
+  (`refs/pitwall/turns/<tab>/end`, taken on a chat's `turn.completed` and
+  an agent pane's Stop hook, dropped by the next checkpoint); without
+  one, every change since the latest checkpoint counts as unsaved. Before
+  it writes a file it keeps the files as a commit under
+  `refs/pitwall/backup/<tab>/`, which neither checkpoint pruning nor
+  closing the tab drops, and the `system` item names that commit and the
+  `git restore --source=<commit> --worktree -- :/` that brings it back.
+  Then it drops the checkpoints after T and keeps the files it replaced
+  as the redo snapshot, so Redo turn puts them back; files that already
+  match T's checkpoint are no refusal. `ChatRewindCheck` asks the same
+  questions without changing anything and answers `ChatRewindFiles`: the
+  files the rewind changes, the unsaved ones, and why it would refuse.
+  Only once
   the files are back does it close the provider, append a `snapshot`
   delta with T and the turns after it removed and a `system` item
   "Rewound to before turn N", and drop the removed turns' points. The
@@ -1147,6 +1161,7 @@ type ChatRename struct{ Chat, Title string }             // ChatRename and ChatP
 type ChatPin struct{ Chat string; Pinned bool }         // aide's task-history pin, in config.json; not the tab's pin
 type ChatUnarchive struct{ Chat string } // proto.ChatUnarchiveLevel (46)
 type ChatList struct{ Archived bool } // archived chats are not in State; this lists them
+type ChatFind struct{ Chat, Query string } // proto.ChatFindLevel (94): the whole chat, older pages and cut items too
 
 // Daemon to client.
 
@@ -1165,6 +1180,13 @@ type ChatDeltas struct {
 }
 
 type ChatListResult struct{ Chats []model.Chat }
+
+type ChatFindResult struct { // answers ChatFind Query
+	Chat, Query string
+	Hits        []session.FindHit // per item, oldest first: each match's rune offset in session.FindText's text
+	More        bool              // the newest 5,000 matches came; older items hold more
+	Err         string
+}
 ```
 
 Snapshots and deltas cross the socket as their JSON, so the GUI, the CLI

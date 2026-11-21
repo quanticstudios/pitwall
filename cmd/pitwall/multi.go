@@ -1268,6 +1268,22 @@ func (m *multi) ChatAsides(id string) []proto.ChatAsideResult {
 	return nil
 }
 
+// RewindChecks answers from the backend of the host that owns chat id.
+func (m *multi) RewindChecks(id string) []proto.ChatRewindFiles {
+	if h := m.of(id); h != nil {
+		return h.b.RewindChecks(id)
+	}
+	return nil
+}
+
+// ChatFound answers from the backend of the host that owns chat id.
+func (m *multi) ChatFound(id string) (proto.ChatFindResult, bool) {
+	if h := m.of(id); h != nil {
+		return h.b.ChatFound(id)
+	}
+	return proto.ChatFindResult{}, false
+}
+
 // ChatResults answers from the backend of the host that owns chat id.
 func (m *multi) ChatResults(id string) []chatin.Result {
 	if h := m.of(id); h != nil {

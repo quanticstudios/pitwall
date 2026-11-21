@@ -344,6 +344,12 @@ func BackgroundEnded(b []byte) bool {
 	return err == nil && !sideFork(p) && p.Event == "SubagentStop" && p.BackgroundTasks != nil && !p.backgroundRunning()
 }
 
+// Stopped reports a Stop hook: the agent ended a turn.
+func Stopped(b []byte) bool {
+	p, err := decode(b)
+	return err == nil && !sideFork(p) && p.Event == "Stop"
+}
+
 // BackgroundTasks is a Stop's background_tasks as type/status pairs, for the
 // log; nothing else of the payload.
 func BackgroundTasks(b []byte) []string {

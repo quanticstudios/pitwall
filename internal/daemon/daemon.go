@@ -225,6 +225,10 @@ type Options struct {
 	// snapshot's commit.
 	Checkpoint func(ctx context.Context, worktree, ws string) (string, error)
 	DropTurns  func(ctx context.Context, dir, ws string) error
+	// EndTurn snapshots a tab's work tree when its agent ends a turn
+	// (gitstat.EndTurn), so a rewind tells the turn's changes from later
+	// ones; nil takes none.
+	EndTurn func(ctx context.Context, worktree, ws string) (string, error)
 	// Providers run chats, by provider; a provider missing here refuses
 	// ChatNew.
 	Providers map[model.Provider]session.Provider
@@ -435,6 +439,7 @@ func Defaults() Options {
 		Remove:            layout.Remove,
 		Checkpoint:        gitstat.Checkpoint,
 		DropTurns:         gitstat.DropTurns,
+		EndTurn:           gitstat.EndTurn,
 
 		StartupPerAgentDelay: setting(config.Path(), func(s config.Settings) time.Duration { return s.StartupPerAgentDelay }),
 
@@ -1062,8 +1067,16 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			reads <- r // a reply to this client alone
 			continue
 		}
+		if r, ok := m.(proto.ChatRewindCheck); ok {
+			go func() { c.queue(d.chatRewindCheck(ctx, r)) }() // a reply to this client alone; git may take a moment
+			continue
+		}
 		if a, ok := m.(proto.ChatAside); ok {
 			go func() { c.queue(d.chatAside(ctx, a)) }() // a reply to this client alone, once its agent is done
+			continue
+		}
+		if f, ok := m.(proto.ChatFind); ok {
+			go func() { c.queue(d.chatFind(f)) }() // a reply to this client alone; a pane chat's reads its whole transcript
 			continue
 		}
 		if reply, ok := d.chatRequest(ctx, m); ok {
@@ -2162,6 +2175,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
 	}
+	var endWS string // a tab whose turn end to take once d.mu is free
+	if d.o.EndTurn != nil && agent.Stopped(m.Payload) {
+		endWS = p.WorkspaceID
+	}
 	if agent.PromptSubmitted(m.Payload) && !d.mail.daemonPrompt[p.ID] {
 		p.LastPromptAt, changed = now, true
 	}
@@ -2192,6 +2209,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		// first edits stay out of it. pitwall hook waits a little longer
 		// for a prompt.
 		d.checkpointWait(turnDir, turnWS)
+	}
+	if endWS != "" {
+		d.turnEnd(endWS) // before the hook returns, so edits after it count as the user's
 	}
 	return nil
 }

@@ -26,7 +26,7 @@ func TestFindRunes(t *testing.T) {
 		{"x", "", nil},
 		{"short", "longer than it", nil},
 	} {
-		if got := findRunes(fold(tc.text), fold(tc.q)); !slices.Equal(got, tc.want) {
+		if got := session.FindRunes(session.Fold(tc.text), session.Fold(tc.q)); !slices.Equal(got, tc.want) {
 			t.Errorf("findRunes(%q, %q) = %v, want %v", tc.text, tc.q, got, tc.want)
 		}
 	}
@@ -44,7 +44,7 @@ func TestFindRecount(t *testing.T) {
 		{ID: "c", Kind: session.KindToolCall, Tool: &session.ToolCall{Command: "deploy"}},
 		item("a2", session.KindAssistantText, "Deployed. The deploy took 3 s."),
 	}}
-	f := finder{on: true, cur: -1, q: fold("DEPLOY")}
+	f := finder{FindBar: FindBar{on: true}, cur: -1, q: session.Fold("DEPLOY")}
 	if !f.recount(s) || len(f.hits) != 3 || f.recount(s) {
 		t.Fatalf("hits %+v: want 3, counted once", f.hits)
 	}
@@ -63,7 +63,7 @@ func TestFindRecount(t *testing.T) {
 	if len(f.hits) != 6 {
 		t.Errorf("after an edit: %d hits", len(f.hits))
 	}
-	f.q = fold("nothing like it")
+	f.q = session.Fold("nothing like it")
 	f.recount(s)
 	if len(f.hits) != 0 || f.cur != -1 || f.counted(false) != "No results" || f.counted(true) != "Searching…" {
 		t.Errorf("no match: %+v %d %q", f.hits, f.cur, f.counted(false))
