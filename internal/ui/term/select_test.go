@@ -289,3 +289,42 @@ func TestMotion(t *testing.T) {
 		}
 	}
 }
+
+// add_to_chat hands the selection to the window, as copy does, by its
+// key or by Run, without copying it or typing anything; with no
+// selection it hands nothing.
+func TestAddToChat(t *testing.T) {
+	p := newPane(t)
+	g := grid("$ go test", "FAIL ./b", "ok ./c")
+	p.frame(g)
+	if p.v.Selected() {
+		t.Fatal("a selection before any drag")
+	}
+	p.v.Run("add_to_chat")
+	p.frame(g)
+	if _, ok := p.v.ToChat(); ok {
+		t.Fatal("no selection, yet something for the chat")
+	}
+	p.frame(g, p.press(0, 1, 0), p.move(5, 2), p.release(5, 2))
+	if !p.v.Selected() {
+		t.Fatal("no selection after the drag")
+	}
+	if in := p.frame(g, key.Event{Name: "A", Modifiers: key.ModCtrl | key.ModAlt, State: key.Press}); in != "" {
+		t.Fatalf("the key typed %q", in)
+	}
+	c, ok := p.v.ToChat()
+	if !ok || c.Text != "FAIL ./b\nok ./c" || !c.Whole {
+		t.Fatalf("Ctrl+Alt+A: %+v %v", c, ok)
+	}
+	if _, ok := p.v.Copied(); ok {
+		t.Fatal("add_to_chat copied too")
+	}
+	if _, ok := p.v.ToChat(); ok {
+		t.Fatal("ToChat gave the selection twice")
+	}
+	p.v.Run("add_to_chat")
+	p.frame(g)
+	if c, ok := p.v.ToChat(); !ok || c.Text != "FAIL ./b\nok ./c" {
+		t.Fatalf("Run: %+v %v", c, ok)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestProvide(t *testing.T) {
 	dir := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("a <b>"), 0o600))
 	must(t, os.WriteFile(filepath.Join(dir, "logo.png"), png, 0o600))
-	m, err := provide(dir, session.Message{Text: "look", Attachments: []session.Attachment{
+	m, err := provide(dir, t.TempDir(), session.Message{Text: "look", Attachments: []session.Attachment{
 		pngAttachment("i"),
 		{ID: "p", Kind: "pasted-text", Name: "pasted-text-1.txt", Text: "log line\n"},
 		{ID: "f", Kind: "workspace-file", Path: "notes.txt"},
@@ -50,7 +51,7 @@ func TestProvide(t *testing.T) {
 		bad = append(bad, "link")
 	}
 	for _, p := range bad {
-		if _, err := provide(dir, session.Message{Attachments: []session.Attachment{{ID: "f", Kind: "workspace-file", Path: p}}}); chatCode(err) != "invalid" {
+		if _, err := provide(dir, t.TempDir(), session.Message{Attachments: []session.Attachment{{ID: "f", Kind: "workspace-file", Path: p}}}); chatCode(err) != "invalid" {
 			t.Errorf("%s: %v, want invalid", p, err)
 		}
 	}
@@ -132,4 +133,67 @@ func chatSnapshot(t *testing.T, d *Daemon, id string) session.Snapshot {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// A composer's pasted text, named by its [Pasted text #N] token, goes as
+// a file the agent reads: saved 0600 in a 0700 folder, once for the same
+// text, its path where the token stood, quoted nowhere. Without its token
+// it is aide's, quoted in the prompt; 8 MiB is the most in all.
+func TestPastedFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "paste")
+	big := "first\n" + strings.Repeat("x", 300<<10) + "\n"
+	m, err := provide(t.TempDir(), dir, session.Message{Text: "why [Pasted text #2] fails", Attachments: []session.Attachment{
+		{ID: "pasted-2", Kind: "pasted-text", Name: "pasted-text-2.txt", Text: big},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "pasted-*.txt"))
+	if len(files) != 1 {
+		t.Fatalf("files %v", files)
+	}
+	want := "why [Pasted text #2 (307 KB, 2 lines), saved at " + files[0] + "] fails"
+	if m.Text != want {
+		t.Fatalf("text\n%q\nwant\n%q", m.Text, want)
+	}
+	if b, _ := os.ReadFile(files[0]); string(b) != big {
+		t.Fatal("the file does not hold the paste")
+	}
+	if runtime.GOOS != "windows" {
+		fi, _ := os.Stat(files[0])
+		di, _ := os.Stat(dir)
+		if fi.Mode().Perm() != 0o600 || di.Mode().Perm() != 0o700 {
+			t.Fatalf("modes %v %v", fi.Mode(), di.Mode())
+		}
+	}
+	again, err := provide(t.TempDir(), dir, session.Message{Text: "[Pasted text #2]", Attachments: []session.Attachment{
+		{ID: "pasted-2", Kind: "pasted-text", Name: "pasted-text-2.txt", Text: big}}})
+	if all, _ := filepath.Glob(filepath.Join(dir, "*")); err != nil || len(all) != 1 || !strings.Contains(again.Text, files[0]) {
+		t.Fatalf("saving it again: %v, files %v", err, all)
+	}
+	if _, err := provide(t.TempDir(), dir, session.Message{Text: "no token", Attachments: []session.Attachment{
+		{ID: "pasted-1", Kind: "pasted-text", Name: "p.txt", Text: big}}}); chatCode(err) != "invalid" {
+		t.Fatalf("aide's paste over 256 KiB: %v", err)
+	}
+	if err := checkAttachments([]session.Attachment{
+		{ID: "pasted-1", Kind: "pasted-text", Name: "a", Text: strings.Repeat("a", maxPastedFiles/2)},
+		{ID: "pasted-2", Kind: "pasted-text", Name: "b", Text: strings.Repeat("b", maxPastedFiles/2+1)}}); chatCode(err) != "invalid" {
+		t.Fatalf("over 8 MiB in all: %v", err)
+	}
+	if got := pastedRef("[Pasted text #1]", "[Pasted text #1]", "one", "/p"); got != "[Pasted text #1 (3 B, 1 line), saved at /p]" {
+		t.Fatalf("one line: %q", got)
+	}
+	if pastedToken(session.Attachment{ID: "p"}) != "" || pastedToken(session.Attachment{ID: "pasted-x"}) != "" || pastedToken(session.Attachment{ID: "pasted-3"}) != "[Pasted text #3]" {
+		t.Fatal("pastedToken")
+	}
+}
+
+// Queued messages joined into one prompt each keep their own pasted
+// text: the numbers move on in the tokens and the ids alike.
+func TestRenumberPasted(t *testing.T) {
+	text, atts, top := renumberPasted("a [Pasted text #1] b [Pasted text #2] [Image #1]", []session.Attachment{
+		{ID: "pasted-1", Kind: "pasted-text"}, {ID: "image-1", Kind: "image"}, {ID: "pasted-2", Kind: "pasted-text"}}, 3)
+	if text != "a [Pasted text #4] b [Pasted text #5] [Image #1]" || top != 2 || atts[0].ID != "pasted-4" || atts[1].ID != "image-1" || atts[2].ID != "pasted-5" {
+		t.Fatalf("%q %+v %d", text, atts, top)
+	}
 }

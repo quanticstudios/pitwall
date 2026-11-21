@@ -144,6 +144,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing() && !t.FindOpen()
 		if env.Focus { // before the composer, whose field would take Ctrl+C
 			t.CopyKey(gtx)
+			u.adds.last = id // a terminal selection in a tab with no chat comes here
 		}
 		// A pane chat's Claude reads @ paths from its pane's folder.
 		cwd := dir
@@ -160,6 +161,10 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.TodoStrip(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
+		for _, c := range t.Cites() {
+			cmp.AddQuote(c.Text, c.Src)
+			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the quote came
+		}
 		// One selection at a time, the newest: the transcript's or the draft's.
 		if t.Began() {
 			cmp.Deselect()
@@ -213,7 +218,8 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,
 		Separate: u.link().Level >= proto.SmartQueueLevel, Steers: chatSteers(st, id, u.link().Level),
 		Commands: u.link().Level >= proto.SlashLevel}
-	env.Key, env.Esc, env.Answer = t.Key, t.CloseFiles, t.Answer
+	env.Key, env.Esc, env.Answer, env.Reveal = t.Key, t.CloseFiles, t.Answer, t.Reveal
+	env.TextFiles = u.link().Level >= proto.PastedFileLevel
 	return env
 }
 

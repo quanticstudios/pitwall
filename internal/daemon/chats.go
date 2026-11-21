@@ -1399,7 +1399,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	if strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0 {
 		return "", "", invalid("nothing to send")
 	}
-	if _, err := provide(c.cfg.Cwd, m); err != nil { // refuse bad attachments before queueing them
+	if _, err := provide(c.cfg.Cwd, pasteDir(c.cfg.Workspace), m); err != nil { // refuse bad attachments before queueing them
 		return "", "", err
 	}
 	held := c.held()
@@ -1409,7 +1409,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	c.cfg.Held = false
 	// why: aide checks a skill against the held switch, so it waits for that switch instead of steering this turn.
 	if (how == "steer" || how == "now") && c.snap.Busy() && c.drv != nil && (m.Skill == nil || held == "") {
-		sm, err := provide(c.cfg.Cwd, m)
+		sm, err := provide(c.cfg.Cwd, pasteDir(c.cfg.Workspace), m)
 		if err != nil {
 			return "", "", err
 		}
@@ -1462,14 +1462,16 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 	}
 	c.resumed, c.limit = false, nil
-	sent, err := provide(c.cfg.Cwd, m)
+	sent, err := provide(c.cfg.Cwd, pasteDir(c.cfg.Workspace), m)
 	if err != nil {
 		c.prompt(m, false)
 		c.reduce(session.Event{Type: session.EventError, Message: "The turn did not start: " + err.Error()})
 		return "", "", err
 	}
-	// aide's order: the prompt, the quoted conversation, then the attachments.
-	sent.Text = m.Text + c.quoted + strings.TrimPrefix(sent.Text, m.Text)
+	// aide's order: the prompt, with its pasted texts' paths, the quoted
+	// conversation, then the attachments.
+	head, _, _ := gather(c.cfg.Cwd, pasteDir(c.cfg.Workspace), m)
+	sent.Text = head.Text + c.quoted + strings.TrimPrefix(sent.Text, head.Text)
 	if c.recap != "" {
 		sent.Text = c.recap + "\n\n" + sent.Text
 	}
@@ -1555,9 +1557,15 @@ func (d *Daemon) chatSendRows(ctx context.Context, c *chat, i, n int) {
 	}
 	m := session.Message{ID: rows[0].ID, Text: rows[0].Text, Attachments: rows[0].Attachments, Skill: rows[0].Skill}
 	if len(rows) > 1 {
+		atts, off := make([][]session.Attachment, n), 0
+		for k, r := range rows {
+			var top int
+			texts[k], atts[k], top = renumberPasted(r.Text, r.Attachments, off)
+			off += top
+		}
 		m.Text, m.Attachments = joinPrompts(texts, images), nil
-		for _, r := range rows {
-			m.Attachments = joinAttachments(m.Attachments, r.Attachments)
+		for _, a := range atts {
+			m.Attachments = joinAttachments(m.Attachments, a)
 		}
 	}
 	for k := range rows {

@@ -105,6 +105,7 @@ type View struct {
 	buttons     pointer.Buttons // held as of the last pointer event
 	selDone     bool            // a selection was finished this frame
 	copied      *Copy           // what this frame asks to copy
+	toChat      *Copy           // what add_to_chat asks to add to the chat
 	queued      string          // the pane action Run asked for
 	imageWanted bool            // a HostPaste paste found no text
 	held        []byte          // the paste HoldPaste held, encoded for the pane
@@ -315,6 +316,20 @@ func (v *View) Copied() (Copy, bool) {
 	}
 	return *c, true
 }
+
+// ToChat returns and clears the selection add_to_chat asked to add to
+// the chat, as Copied returns one to copy.
+func (v *View) ToChat() (Copy, bool) {
+	c := v.toChat
+	v.toChat = nil
+	if c == nil {
+		return Copy{}, false
+	}
+	return *c, true
+}
+
+// Selected reports whether the view holds a selection.
+func (v *View) Selected() bool { return v.selOn }
 
 // fit is how many whole cells fit in size, at least one each way so a
 // collapsed pane never asks the PTY for a zero size.

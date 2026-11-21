@@ -253,6 +253,11 @@ func (v *View) action(gtx layout.Context, g *vt.Grid, a string, rows int) {
 		if v.cm.on {
 			v.exitCopyMode()
 		}
+	case "add_to_chat":
+		if v.selOn {
+			lines := vt.GridLines(g, v.top)
+			v.toChat = &Copy{Sel: v.sel, Text: v.sel.Text(lines), Whole: v.shows(v.sel, g)}
+		}
 	case "copy_mode":
 		v.toggleCopyMode(g, rows)
 	case "paste":

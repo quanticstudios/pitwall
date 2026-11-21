@@ -109,6 +109,7 @@ conventional:
 | Ctrl+Alt+Shift+G                        | Hints in every pane the tab shows                         |
 | Ctrl+Shift+Up / Ctrl+Shift+Down         | Scroll back / forward to the previous / next shell prompt |
 | Ctrl+Shift+J                            | Browse command blocks in the focused pane                 |
+| Ctrl+Alt+A                              | Add the selection to the chat as a terminal excerpt       |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
 conventional leaves tab mode and pane mode unbound so Ctrl+T and Ctrl+P
@@ -178,6 +179,7 @@ aide:
 | Ctrl+Alt+Shift+G                  | Hints in every pane the tab shows              |
 | Ctrl+Shift+Up / Ctrl+Shift+Down   | Scroll back / forward to the previous / next shell prompt |
 | Ctrl+Shift+J                      | Browse command blocks in the focused pane       |
+| Ctrl+Alt+A                        | Add the selection to the chat                   |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
 mac:
@@ -218,6 +220,7 @@ mac:
 | Cmd+Option+Shift+G                      | Hints in every pane the tab shows                         |
 | Cmd+Up / Cmd+Down                       | Scroll back / forward to the previous / next shell prompt |
 | Cmd+Shift+J                             | Browse command blocks in the focused pane                 |
+| Cmd+Option+A                            | Add the selection to the chat                             |
 
 Like conventional, mac leaves tab mode and pane mode unbound.
 
@@ -441,7 +444,8 @@ In [the desktop chat](chat.md)'s composer:
 | 1, 2, 3                 | Answer an approval card; a question's options take their numbers and Enter |
 | /                       | Slash commands, as the first character                         |
 | Ctrl+Backspace          | Delete the word, or the image chip, before the cursor          |
-| Ctrl+V                  | Paste text or an image (Cmd+V on macOS)                        |
+| Ctrl+V                  | Paste text or an image (Cmd+V on macOS); 32 KiB or more goes as a text file |
+| Ctrl+Shift+V            | Paste text inline, however long (Cmd+Shift+V on macOS)         |
 | Alt+T                   | Flip to Claude Code's TUI and back (Cmd+Option+T in mac)       |
 | Ctrl+= / Ctrl+-         | Chat text a point bigger (Ctrl++ too) / smaller, saved as `[font] chat_size` (Cmd in mac) |
 | Ctrl+0                  | Chat text back to the interface size (Cmd+0 in mac)            |

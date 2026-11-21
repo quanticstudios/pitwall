@@ -9,20 +9,23 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // Adapted from tuios (MIT): internal/app/render_scrollback_browser.go
-func (u *ui) drawCommandBrowser(gtx gl.Context) {
+func (u *ui) drawCommandBrowser(gtx gl.Context, st *model.State) {
 	b, th := &u.browser, u.th
-	if !b.open {
-		return
-	}
 	if reader, ok := u.b.(CommandReader); ok {
 		for _, r := range reader.CommandResults() {
-			b.take(r)
+			if !u.takeCommands(st, r) && b.open {
+				b.take(r)
+			}
 		}
+	}
+	if !b.open {
+		return
 	}
 	if b.close.Clicked(gtx) {
 		b.open = false

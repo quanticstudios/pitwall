@@ -54,7 +54,8 @@ func TestComposerWordKeys(t *testing.T) {
 	if h.c.Text() != "look [Image #1] " || len(h.c.Images()) != 1 {
 		t.Fatalf("after the paste: %q, %d images", h.c.Text(), len(h.c.Images()))
 	}
-	if h.press(key.NameDeleteBackward, key.ModCtrl); h.c.Text() != "look " || len(h.c.Images()) != 0 {
+	// The token goes whole; the image stays on the shelf, as T3 Code's.
+	if h.press(key.NameDeleteBackward, key.ModCtrl); h.c.Text() != "look " || len(h.c.Images()) != 1 {
 		t.Fatalf("Ctrl+Backspace after the token left %q and %d images", h.c.Text(), len(h.c.Images()))
 	}
 }
