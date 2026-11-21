@@ -104,6 +104,7 @@ func TestQueueShots(t *testing.T) {
 		{"failed", session.Snapshot{QueuedInputs: merged, QueuePaused: true, QueueReason: "The last turn failed"}},
 		{"limit", session.Snapshot{QueuedInputs: merged, QueueReason: "Waiting for the usage limit to reset at 15:00"}},
 		{"paused", session.Snapshot{QueuedInputs: merged, QueuePaused: true}},
+		{"agent-left", session.Snapshot{QueuedInputs: merged, QueuePaused: true, QueueReason: "The agent these were queued for left this pane"}},
 		{"maybe-sent", session.Snapshot{QueuedInputs: maybe}},
 	} {
 		s.snap.SessionID, s.snap.SessionState = "c1", session.StateRunning
