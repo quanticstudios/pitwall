@@ -1,0 +1,24 @@
+  cautiously, about one segment per round trip. This is the "additive increase"
+  part of the classic AIMD rule (additive increase, multiplicative decrease).
+  The sender keeps probing for extra bandwidth, but gently.
+
+  Loss is the main signal that the network is congested. If three duplicate
+  acknowledgments arrive, the sender assumes a single packet was dropped while
+  later ones got through. It performs fast retransmit, resends the missing
+  segment, and cuts the window roughly in half (the multiplicative decrease). It
+  then continues in fast recovery without restarting from scratch. If a timeout
+  occurs instead, the situation looks more serious. The window collapses to one
+  segment (or the initial window) and slow start begins again, with ssthresh
+  set to half the previous window.
+
+  The result is the familiar sawtooth pattern: the window rises steadily, drops
+  sharply when loss occurs, then rises again. AIMD also helps competing flows
+  converge toward a fair share of a bottleneck link.
+
+  Modern variants refine this. CUBIC, the default on Linux, grows the window
+  along a cubic curve, which suits high-bandwidth, high-latency paths. BBR does
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt

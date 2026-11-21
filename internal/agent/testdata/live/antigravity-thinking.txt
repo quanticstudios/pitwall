@@ -1,0 +1,21 @@
+
+      ▄▀▀▄        Antigravity CLI 1.5.14
+     ▀▀▀▀▀▀       dev@example.com (Google AI Ultra)
+    ▀▀▀▀▀▀▀▀      Gemini 4 Neon (Low)
+   ▄▀▀    ▀▀▄     ~/acme-api
+  ▄▀▀      ▀▀▄
+
+────────────────────────────────────────────────────────────
+> Reply with the single word ready.
+
+  ready
+
+────────────────────────────────────────────────────────────
+> Write about 300 words explaining how TCP congestion control works, in plain
+  paragraphs. Do not use any tools.
+⣟  The "slow start" phase is observed, where the congestion window is initial...
+└ Tip: Use /voice (or press f5) to record your prompt with your microphone.
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                         auto · Gemini 4 Neon · low

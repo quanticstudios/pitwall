@@ -1,0 +1,24 @@
+
+› Reply with the single word ready.
+
+
+• [work · ready]
+  ready
+
+  Worked for 2s • 5:47 PM
+
+
+› Write about 300 words explaining how TCP congestion control works, in plain
+  paragraphs. Do not run any commands.
+
+
+• [work · ready]
+  TCP congestion control adjusts how much data a sender puts into the network
+  before receiving acknowledgments. If a sender transmits faster than a link can
+  carry
+
+
+› Ask Codex to do anything
+
+  GPT-6.2-Sol low · ~/acme-api · Reply ready
+  ← for agents · ? for shortcuts                      ⚠ 4 warnings · f2 to view

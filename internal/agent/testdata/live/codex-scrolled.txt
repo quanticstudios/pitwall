@@ -1,0 +1,24 @@
+› Write about 300 words explaining how TCP congestion control works, in plain …
+  double each round-trip time. This lets TCP discover available capacity
+  quickly. In classic TCP, once the window reaches a threshold, the sender
+  switches to congestion avoidance and increases the window more gradually. TCP
+  Reno, for example, grows its window by about one segment per round-trip time
+  during this phase.
+
+  When acknowledgments indicate that a segment is missing, TCP can retransmit it
+  before a timer expires. In classic Reno, this kind of loss signal generally
+  cuts the congestion window roughly in half. If a retransmission timer expires,
+  the sender reduces the window more sharply and starts growing it again through
+  slow start. When Explicit Congestion Notification is enabled, a router can
+  mark packets to signal congestion before its queue overflows. The receiver
+  relays that signal to the sender, which reduces its sending rate.
+  The exact growth and slowdown rules depend on the congestion control
+  algorithm. CUBIC grows its window as a function of time since the last
+  congestion event. BBR estimates the path’s bottleneck bandwidth and round-trip
+  propagation time to guide how quickly it sends.
+
+
+› Ask Codex to do anything
+
+  GPT-6.2-Sol low · ~/acme-api · Reply ready
+  ← for agents · ? for shortcuts                      ⚠ 4 warnings · f2 to view

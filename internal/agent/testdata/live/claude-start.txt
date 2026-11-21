@@ -1,0 +1,24 @@
+
+ ▐▛███▛█   Claude Code v2.1.330
+▝▜██████▀  Sonnet 5.5 with low effort · Claude Ultra
+ ▝▝   ▝▝   ~/acme-api
+
+  Fable 5.2 is here for your longest and toughest coding tasks. It draws down
+  usage faster than Opus 5.5. Switch with /model.
+  1 more notice hidden (ctrl+o to expand)
+
+❯ Write about 300 words explaining how TCP congestion control works, in plain
+  paragraphs. Do not use any tools.
+
+● TCP congestion control keeps a sender from overwhelming the network. Because
+  no one tells a sender how much capacity the path has, TCP infers it from
+
+
+
+
+✽ Moseying… (1s · ↓ 6 tokens)
+                                                               ○ low · /effort
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt

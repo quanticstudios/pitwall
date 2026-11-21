@@ -87,6 +87,7 @@ type paneChat struct {
 	tip    string
 	// limit is the pane's Claude plan limit, which /usage shows; nil for none.
 	limit func() (flow.Limit, bool)
+	lv    liveState // what the screen shows ahead of the transcript (live)
 }
 
 // transcript is a new reader of pc's transcript.
@@ -376,6 +377,7 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, l.queued...), "queuePaused": l.held})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	}
+	pc.live(l)
 	return rerr
 }
 
@@ -927,7 +929,16 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	d.chatHold(pc.id, false)
 	d.mu.Unlock()
 	if !busy(l.act.State) || l.act.Background || m.How == "now" || m.How == "steer" {
+		pc.mu.Lock()
+		pc.catchUp(l) // the echo goes once a prompt after the last one read lands
+		pc.echoPrompt(sm.Text)
+		pc.mu.Unlock()
 		_, err := d.phoneSendPaths(pc.id, sm.Text, paths, texts)
+		if err != nil {
+			pc.mu.Lock()
+			pc.unecho()
+			pc.mu.Unlock()
+		}
 		return "", err
 	}
 	if remote.Clean(sm.Text) == "" && len(paths) == 0 {

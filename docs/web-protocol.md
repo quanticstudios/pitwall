@@ -519,6 +519,13 @@ A `limit` delta carries this object in `limit`, or null to clear it.
 It survives the failed turn and clears on the next `turn.started`.
 Non-rejected quota observations do not replace it.
 
+A pane chat's snapshot also carries `live`: items its agent's terminal
+shows before the transcript has them, drawn after `content`. They are the
+prompt the chat sent, the reply as it streams, and Antigravity's thought
+and running command. A `live` delta carries the whole list each time it
+changes, and an empty one once the transcript's own items replace it. A
+client that does not draw them can ignore both.
+
 For tests with `PITWALL_FAKE_PROVIDERS=1`, `start` may carry
 `fakeStartFailure: "missing-cli"` to fail that start with a missing-executable
 message. Any other nonempty value requests a generic start failure. Real

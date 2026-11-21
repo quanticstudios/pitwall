@@ -35,6 +35,7 @@ const (
 	DeltaUsageReports     DeltaType = "usage.reports"
 	DeltaError            DeltaType = "error"
 	DeltaSessionPatch     DeltaType = "session.patch"
+	DeltaLive             DeltaType = "live" // pitwall's: Live, the snapshot's whole Live
 )
 
 // Delta is aide's SessionDelta: the envelope and the fields of every type,
@@ -78,6 +79,8 @@ type Delta struct {
 
 	Set   json.RawMessage `json:"set"`   // session.patch: a partial Snapshot of patchable keys
 	Unset []string        `json:"unset"` // session.patch
+
+	Live []Item `json:"live"`
 }
 
 func (d Delta) MarshalJSON() ([]byte, error) {
@@ -121,6 +124,8 @@ func (d Delta) MarshalJSON() ([]byte, error) {
 		f = append(f, "usageReports", nonNil(d.UsageReports), "usageSummary", d.UsageSummary)
 	case DeltaError:
 		f = append(f, "lastError", d.LastError, "lastErrorAt", d.LastErrorAt)
+	case DeltaLive:
+		f = append(f, "live", nonNil(d.Live))
 	case DeltaSessionPatch:
 		f = append(f, "set", rawObject(d.Set))
 		if d.Unset != nil {
@@ -284,6 +289,11 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 	case DeltaError:
 		n.LastError = d.LastError
 		n.LastErrorAt = d.LastErrorAt
+	case DeltaLive:
+		n.Live = nil
+		if len(d.Live) > 0 {
+			n.Live = d.Live
+		}
 	case DeltaSessionPatch:
 		if !isEmptyObject(d.Set) || len(d.Unset) > 0 {
 			err = mergeJSON(&n, d.Set, d.Unset)

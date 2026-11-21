@@ -1,0 +1,24 @@
+
+▸ Thought for 7s
+
+  TCP congestion control is a set of mechanisms designed to prevent a sender
+  from overwhelming the network with more data than intermediate routers and
+  links can handle. Because the internet is a shared, decentralized system
+  with no central traffic controller, each TCP sender must infer network
+  conditions on its own. It does this primarily by maintaining a variable
+  called the congestion window, which limits the amount of unacknowledged
+  data that can be in flight at any given time. The sender continuously
+  adjusts this window in response to feedback from the network, such as
+  acknowledgments arriving on time or packets being dropped.
+
+  When a new connection begins, TCP starts in a phase called slow start.
+  Rather than immediately blasting data at full speed, the sender begins with
+  a small congestion window and doubles it every round-trip time as
+  acknowledgments return. This exponential growth allows the connection to
+  quickly discover available bandwidth without causing immediate congestion.
+  Once the congestion window reaches a predefined thre
+⣷  Working...
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                         auto · Gemini 4 Neon · low
