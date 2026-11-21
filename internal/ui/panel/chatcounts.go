@@ -87,27 +87,22 @@ func toolKinds(content []session.Item, lo, hi int) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// logStatus is the one line a running work log's header shows after its
-// counts: the turn's newest summary, else its newest running call as its
-// row says it, "Bash · go test ./...". dir shortens a call's path. "" for
-// neither.
+// logStatus is the one line a running fold's header shows after its
+// counts: its newest running call as its row says it, "Bash · go test
+// ./...". dir shortens a call's path. "" for none. The turn's summaries
+// draw outside the fold, above it.
 func logStatus(content []session.Item, lo, hi int, dir string) string {
-	call := ""
 	for i := hi - 1; i >= lo; i-- {
-		it := &content[i]
-		if isSummary(it) && strings.TrimSpace(it.Text) != "" {
-			return firstLine(it.Text)
-		}
-		if c := it.Tool; call == "" && it.Kind == session.KindToolCall && c != nil && c.Status == "running" && !isTodo(c) {
+		if c := content[i].Tool; content[i].Kind == session.KindToolCall && c != nil && c.Status == "running" && !isTodo(c) {
 			v := summarize(c, nil, time.Time{}, time.Time{})
 			if v.path {
 				v.arg = relPath(dir, v.arg)
 			}
-			call = v.verb
 			if a := firstLine(v.arg); a != "" {
-				call += " · " + a
+				return v.verb + " · " + a
 			}
+			return v.verb
 		}
 	}
-	return call
+	return ""
 }

@@ -13,15 +13,15 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// logHead is a work log's header, "Worked for 48s · Read 2 files, ran 2
+// logHead is a fold's header, "Worked for 48s · Read 2 files, ran 2
 // commands" or, where that does not fit, "Worked for 48s · 4 tools", that a
 // click folds or opens: the box's top, and its bottom too when nothing
 // is under it. Each of the log's rows is a list row of its own, so a
 // running turn of 2,000 calls lays out only the rows in view.
-func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) layout.Dimensions {
+func (d *cdraw) logHead(gtx layout.Context, r *trow) layout.Dimensions {
 	th := d.th
+	b, open, running, last, start, end := r.b, r.open, r.running, r.last, r.start, r.end
 	id := logID(d.s, b)
-	start, end, _ := turnTimes(d.s, b, b.hi == len(d.s.Content))
 	w := gtx.Constraints.Max.X
 	hh := gtx.Dp(rowH)
 	took := end.Sub(start)
@@ -57,7 +57,7 @@ func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) l
 			x += gtx.Dp(11) + gtx.Dp(theme.SpaceS)
 		}
 		room := w - x - gtx.Dp(10)
-		if n := turnTokens(d.s, b.turn); n > 0 {
+		if n := turnTokens(d.s, b.turn); n > 0 && r.tokens {
 			kc, kd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, tokens(n))
 			})
@@ -73,7 +73,9 @@ func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) l
 		// else how many.
 		var tc op.CallOp
 		var td layout.Dimensions
-		if k := toolKinds(d.s.Content, b.lo, b.hi); k != "" {
+		if thought(d.s.Content, b.lo, b.hi) && !running {
+			tc, td = title(strings.Replace(logTitle(took, 0, false), "Worked", "Thought", 1))
+		} else if k := toolKinds(d.s.Content, b.lo, b.hi); k != "" {
 			tc, td = title(logTitle(took, 0, running) + " · " + k)
 		}
 		if td.Size.X == 0 || td.Size.X > room {
@@ -96,8 +98,9 @@ func (d *cdraw) logHead(gtx layout.Context, b block, open, running, last bool) l
 }
 
 // logItem is item i of an open work log: a line over it, and the box's
-// bottom when it is the last.
-func (d *cdraw) logItem(gtx layout.Context, i int, last bool) layout.Dimensions {
+// bottom when it is the last. top is a call outside a fold, a box of its
+// own.
+func (d *cdraw) logItem(gtx layout.Context, i int, top, last bool) layout.Dimensions {
 	w := gtx.Constraints.Max.X
 	g := gtx
 	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
@@ -106,7 +109,7 @@ func (d *cdraw) logItem(gtx layout.Context, i int, last bool) layout.Dimensions 
 	if last {
 		h++
 	}
-	defer d.logFrame(gtx, w, h, false, last)()
+	defer d.logFrame(gtx, w, h, top, last)()
 	paint.FillShape(gtx.Ops, d.th.BorderSubtle, clip.Rect{Max: image.Pt(w, 1)}.Op())
 	at(gtx, image.Pt(0, 1), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return rd })
 	return layout.Dimensions{Size: image.Pt(w, h)}
@@ -131,8 +134,25 @@ func (d *cdraw) logFrame(gtx layout.Context, w, h int, top, bottom bool) func() 
 	return func() { inner.Pop(); seg.Pop() }
 }
 
-// logID is the fold id of b's work log.
-func logID(s *session.Snapshot, b block) string { return "log:" + s.Content[b.lo].ID }
+// logID is the fold id of b's work log: its first item's, or its turn's
+// for the empty header of a running turn.
+func logID(s *session.Snapshot, b block) string {
+	if b.hi <= b.lo {
+		return "log:now:" + b.turn
+	}
+	return "log:" + s.Content[b.lo].ID
+}
+
+// thought is whether content[lo:hi] is all reasoning: a fold that says
+// "Thought for 4s".
+func thought(content []session.Item, lo, hi int) bool {
+	for i := lo; i < hi; i++ {
+		if k := content[i].Kind; k != session.KindReasoningText && k != session.KindReasoningSummaryText {
+			return false
+		}
+	}
+	return hi > lo
+}
 
 // logRow is one item of a work log.
 func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
@@ -151,20 +171,14 @@ func (d *cdraw) logRow(gtx layout.Context, it *session.Item) layout.Dimensions {
 			return d.outBox(gtx, it.ID, "", plainOutput(it.Text), false)
 		})
 	}
-	// Assistant text between calls, and pitwall's own lines.
-	c := theme.Mix(th.Muted, th.Fg, 0.7)
-	if it.Kind == session.KindSystem {
-		c = th.Muted
-	}
+	// Any other item: its text, quiet. The assistant's text draws between
+	// the folds, not in them.
 	txt := strings.TrimSpace(it.Text)
 	if txt == "" {
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}
 	}
 	return layout.Inset{Top: 8, Bottom: 9, Left: bodyIndent, Right: rowPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		if it.Kind == session.KindAssistantText {
-			return d.markdown(gtx, it.ID, d.t.reply(it, false))
-		}
-		return d.selectable(gtx, d.t.sel(it.ID), d.small(c), txt)
+		return d.selectable(gtx, d.t.sel(it.ID), d.small(th.Muted), txt)
 	})
 }
 

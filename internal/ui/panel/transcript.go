@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"cmp"
 	"image"
 	"io"
 	"slices"
@@ -76,6 +77,7 @@ type Transcript struct {
 	now    time.Time
 
 	open   map[string]bool // folds the user opened or closed, by id
+	fold   []int           // the items of the fold buildRows lays out
 	clicks map[string]*widget.Clickable
 	sels   map[string]*widget.Selectable
 	docs   map[string]*reply    // parsed replies by item id
@@ -179,13 +181,18 @@ type ask struct {
 type trow struct {
 	b       block
 	seg     rowSeg
-	i       int  // segItem: the item
+	i       int  // segItem, segProse: the item
+	top     bool // segItem: the box starts here, a call outside a fold
 	last    bool // segHead, segItem: the work log's box ends here
 	open    bool // segHead: the log is open
 	running bool // segHead, segReply: the turn runs
-	res     *resolved
-	tail    layout.Widget
-	gap     unit.Dp // space above it
+	tokens  bool // segHead: the turn's last fold, which says its tokens
+	// start and end are when a fold's work began and ended: end is zero
+	// while it runs.
+	start, end time.Time
+	res        *resolved
+	tail       layout.Widget
+	gap        unit.Dp // space above it
 }
 
 // rowSeg is which piece of its block a row draws.
@@ -195,6 +202,7 @@ const (
 	segBlock   rowSeg = iota // a prompt or a system line
 	segHead                  // a turn's work log header
 	segItem                  // an item in an open work log
+	segProse                 // an item written for the reader, between the folds
 	segReply                 // a turn's reply
 	segTodo                  // a turn's task list, its last task-list call i
 	segChanges               // a finished turn's change card
@@ -599,14 +607,14 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		case r.seg == segHead:
 			if !r.open {
 				t.laid += r.b.hi - r.b.lo
-				if r.b.reply >= 0 {
-					t.laid--
-				}
 			}
-			dims = d.logHead(gtx, r.b, r.open, r.running, r.last)
+			dims = d.logHead(gtx, r)
 		case r.seg == segItem:
 			t.laid++
-			dims = d.logItem(gtx, r.i, r.last)
+			dims = d.logItem(gtx, r.i, r.top, r.last)
+		case r.seg == segProse:
+			t.laid++
+			dims = d.proseRow(gtx, r.i)
 		case r.seg == segChanges:
 			dims = d.changeCard(gtx, r.b)
 		case r.seg == segTodo:
@@ -824,22 +832,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			continue
 		}
 		run := running(b, b.hi == len(d.s.Content))
-		logged := b.hi - b.lo - b.todos
-		if b.reply >= 0 {
-			logged--
-		}
-		if logged > 0 || run {
-			// A work log stays one line, running or done, until the user
-			// opens it.
-			open := t.toggled(gtx, logID(d.s, b), false)
-			t.rows = append(t.rows, trow{b: b, seg: segHead, open: open, running: run, last: true})
-			for i := b.lo; open && i < b.hi; i++ {
-				if i != b.reply && !isTodo(d.s.Content[i].Tool) && !t.tool.shells.isAttached(i) && !quiet[i] {
-					t.rows[len(t.rows)-1].last = false
-					t.rows = append(t.rows, trow{b: b, seg: segItem, i: i, last: true})
-				}
-			}
-		}
+		t.turnRows(gtx, d, b, run, quiet)
 		if b.todo >= 0 {
 			t.rows = append(t.rows, trow{b: b, seg: segTodo, i: b.todo})
 		}
@@ -869,6 +862,83 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	}
 }
 
+// turnRows lays out turn b's work log, split around what was written for
+// the reader: each such item is a row of its own in reading order, and
+// each run of calls between two of them is a fold, "summary, fold,
+// summary, fold". A fold of one call is that call's row, except the
+// newest while the turn runs, whose header says what it does now. A
+// running turn whose newest item is not in a fold gets an empty header
+// after it, so the live header is always the turn's last.
+func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, quiet map[int]bool) {
+	start, end, _ := turnTimes(d.s, b, b.hi == len(d.s.Content))
+	head, tail := -1, false // the last fold's header row; whether the turn's rows end in it
+	g := t.fold[:0]
+	defer func() { t.fold = g }()
+	fold := func(final bool) {
+		if len(g) == 0 {
+			return
+		}
+		gb := b
+		gb.lo, gb.hi, gb.reply, gb.tools = g[0], g[len(g)-1]+1, -1, 0
+		for _, i := range g {
+			if d.s.Content[i].Kind == session.KindToolCall {
+				gb.tools++
+			}
+		}
+		items := g // read before g grows again
+		g = g[:0]
+		if len(items) == 1 && gb.tools == 1 && !(run && final) {
+			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: gb.lo, top: true, last: true})
+			tail = false
+			return
+		}
+		fs, fe := start, end
+		if gb.lo > b.lo {
+			fs = itemTime(&d.s.Content[gb.lo])
+		}
+		if gb.hi < b.hi { // its work ends where what follows it starts
+			fe = itemTime(&d.s.Content[gb.hi])
+		}
+		open := t.toggled(gtx, logID(d.s, gb), false)
+		head, tail = len(t.rows), true
+		t.rows = append(t.rows, trow{b: gb, seg: segHead, open: open, last: true, start: fs, end: fe})
+		for _, i := range items {
+			if !open {
+				break
+			}
+			t.rows[len(t.rows)-1].last = false
+			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: i, last: true})
+		}
+	}
+	for i := b.lo; i < b.hi; i++ {
+		switch {
+		case i == b.reply || quiet[i] || isTodo(d.s.Content[i].Tool) || t.tool.shells.isAttached(i):
+		case outside(&d.s.Content[i]):
+			fold(false)
+			t.rows = append(t.rows, trow{b: b, seg: segProse, i: i})
+			tail = false
+		default:
+			g = append(g, i)
+		}
+	}
+	fold(true)
+	if run && !tail {
+		gb := b
+		gb.hi, gb.reply, gb.tools = b.lo, -1, 0
+		head = len(t.rows)
+		t.rows = append(t.rows, trow{b: gb, seg: segHead, last: true, start: start})
+	}
+	if head >= 0 {
+		t.rows[head].tokens = true
+		t.rows[head].running = run
+	}
+}
+
+// itemTime is when it came, zero when it does not say.
+func itemTime(it *session.Item) time.Time {
+	return parseTime(cmp.Or(it.CreatedAt, it.UpdatedAt))
+}
+
 // rowGap is the space above row i: 32 from the end of a turn to the
 // next prompt, 16 from a prompt to its turn, none inside a work log, 12
 // to anything else.
@@ -878,9 +948,9 @@ func rowGap(rows []trow, i int) unit.Dp {
 	}
 	r, prev := &rows[i], &rows[i-1]
 	prompt := func(r *trow) bool { return r.tail == nil && r.res == nil && r.b.kind == blockPrompt }
-	sameTurn := r.tail == nil && r.res == nil && prev.tail == nil && prev.res == nil && r.b.kind == blockTurn && prev.b.kind == blockTurn && r.b.lo == prev.b.lo
+	sameTurn := r.tail == nil && r.res == nil && prev.tail == nil && prev.res == nil && r.b.kind == blockTurn && prev.b.kind == blockTurn && r.b.turn == prev.b.turn
 	switch {
-	case sameTurn && r.seg == segItem:
+	case sameTurn && r.seg == segItem && !r.top:
 		return 0
 	case sameTurn:
 		return gapInTurn

@@ -33,14 +33,11 @@ func TestToolKinds(t *testing.T) {
 	}
 }
 
-// TestLogStatus: a running log's header says the turn's newest summary,
-// else its newest running call as its row says it.
+// TestLogStatus: a running fold's header says its newest running call as
+// its row says it.
 func TestLogStatus(t *testing.T) {
 	bash := func(cmd, status string) session.Item {
 		return session.Item{Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: cmd, Status: status}}
-	}
-	sum := func(text string) session.Item {
-		return session.Item{Kind: session.KindReasoningText, Phase: session.PhaseSummary, Text: text}
 	}
 	dir := t.TempDir()
 	in, _ := json.Marshal(map[string]string{"file_path": filepath.Join(dir, "internal", "vt", "vt.go")})
@@ -56,8 +53,7 @@ func TestLogStatus(t *testing.T) {
 		{[]session.Item{bash("go test ./...\necho done", "running")}, "Bash · go test ./..."},
 		{[]session.Item{bash("make", "running"), read}, "Read · " + filepath.Join("internal", "vt", "vt.go")},
 		{[]session.Item{bash("make", "running"), todo}, "Bash · make"},
-		{[]session.Item{sum("Found it.\nMore."), bash("go test ./...", "running")}, "Found it."},
-		{[]session.Item{sum("Old."), {Kind: session.KindReasoningText, Text: "plain thinking"}, sum("New.")}, "New."},
+		{[]session.Item{{Kind: session.KindReasoningText, Text: "plain thinking"}}, ""},
 	} {
 		if got := logStatus(c.items, 0, len(c.items), dir); got != c.want {
 			t.Errorf("logStatus = %q, want %q", got, c.want)

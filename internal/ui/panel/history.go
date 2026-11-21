@@ -55,7 +55,7 @@ func (t *Transcript) keepPlace(s *session.Snapshot) {
 			at = i
 			break
 		}
-		if at < 0 && r.tail == nil && r.res == nil && r.seg != segItem && r.b.lo <= a && a < r.b.hi {
+		if at < 0 && r.tail == nil && r.res == nil && r.seg != segItem && r.seg != segProse && r.b.lo <= a && a < r.b.hi {
 			at = i // a turn the page made longer at its start
 		}
 	}
@@ -91,7 +91,7 @@ func rowItem(r trow) int {
 	switch {
 	case r.tail != nil || r.res != nil:
 		return -1
-	case r.seg == segItem:
+	case r.seg == segItem || r.seg == segProse:
 		return r.i
 	case r.seg == segReply:
 		return r.b.reply
@@ -106,7 +106,7 @@ func (t *Transcript) wantWhole(s *session.Snapshot, r *trow) {
 	}
 	lo, hi := r.b.lo, r.b.hi
 	switch r.seg {
-	case segItem:
+	case segItem, segProse:
 		lo, hi = r.i, r.i+1
 	case segReply:
 		lo, hi = r.b.reply, r.b.reply+1
@@ -141,7 +141,7 @@ func (t *Transcript) forget(s *session.Snapshot) {
 	to := min(len(t.rows), t.list.Position.First+t.list.Position.Count+keepRows)
 	for _, r := range t.rows[from:max(from, to)] {
 		lo, hi := r.b.lo, r.b.hi
-		if r.seg == segItem {
+		if r.seg == segItem || r.seg == segProse {
 			lo, hi = r.i, r.i+1
 		}
 		for i := max(0, lo); r.tail == nil && r.res == nil && i < min(hi, len(s.Content)); i++ {
