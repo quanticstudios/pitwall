@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.2
 - A chat lists the dev servers its tab runs, as T3 Code's Servers panel does: a Servers tab in the chat's side panel, opened from the header's globe button while one runs. Each row is localhost and the port, who started it (Agent or Terminal), the process name and pid, with Open, which opens it in your browser, and Stop. Stop sends SIGTERM to the server's job; one that ignores it shows Force stop, which asks before SIGKILL. pitwall finds them from the tab's panes, their sessions and its chat's agent process and the loopback or wildcard TCP ports those processes listen on, from /proc on Linux and lsof on macOS, and never reads a process's arguments or environment. The sidebar row shows the lowest port. Works for Claude Code, Codex and Antigravity, in pane chats and New task chats; Windows lists none.
 - After a turn ends, an empty chat composer can show a predicted next message in muted text, as T3 Code does: Tab fills it in, typing replaces it, Escape dismisses it. Each one is a headless run of the chat's own agent under its pane's or chat's config, on its cheapest model: Claude Code on haiku, Codex on its cheapest listed model at low effort, Antigravity on a flash model. It sees the last few prompts and replies, saves no session, and runs no tools, hooks or MCP servers. It bills the agent's plan, so it is off by default: `[chat] suggest_next`, or Suggest next prompt in Settings. It never runs while the agent works, at most once per turn, and never in a guarded tab.
 
