@@ -172,12 +172,8 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before its card
 				continue
 			}
-			// A TUI-only command opens its dialog; a chat tab's goes to the
-			// TUI the dialog opens, not to the chat's driver.
-			if s, ok := m.(proto.ChatSend); ok && s.Skill == nil && len(s.Attachments) == 0 {
-				if cmd := tuiCommand(s.Text); cmd != "" && u.openTUI(st, id, cmd, gtx.Now) && u.tui[id].tab {
-					continue
-				}
+			if s, ok := m.(proto.ChatSend); ok && u.terminalCommand(st, id, s, env.Snap.Commands, gtx.Now) {
+				continue
 			}
 			if _, ok := m.(proto.ChatSend); ok {
 				t.ToEnd()
@@ -214,7 +210,8 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
 		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,
-		Separate: u.link().Level >= proto.SmartQueueLevel, Steers: chatSteers(st, id, u.link().Level)}
+		Separate: u.link().Level >= proto.SmartQueueLevel, Steers: chatSteers(st, id, u.link().Level),
+		Commands: u.link().Level >= proto.SlashLevel}
 	env.Key, env.Esc = t.Key, t.CloseFiles
 	return env
 }

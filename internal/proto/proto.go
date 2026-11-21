@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 93 added no message: a daemon at SlashLevel puts the agent's
+// slash commands in every chat's session.Snapshot.Commands, pane chats'
+// included, from the chat's start.
 // Level 92 added no message: a daemon at EmptyPaneChatLevel answers the
 // Chat* messages for an agent pane before a hook named its transcript.
 // Level 91 added State.ChatQueues and Chat.QueueHeld, and the JSON
@@ -243,12 +246,16 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 92
+const Level = 93
 
 // SmartQueueLevel is the first daemon that joins a chat's queue into one
 // prompt, takes ChatQueue Actions "separate" and "together", and steers a
 // managed Claude chat with Send now.
 const SmartQueueLevel = 91
+
+// SlashLevel is the first daemon that sends each chat its agent's slash
+// commands; with an older one the composer's / menu says it has none.
+const SlashLevel = 93
 
 // QueueLevel is the first daemon that takes ChatQueue Action "now" and
 // queue actions on a pane chat, whose mid-turn messages it holds until

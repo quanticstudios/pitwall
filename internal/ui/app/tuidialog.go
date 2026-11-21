@@ -3,6 +3,7 @@ package app
 import (
 	"image"
 	"image/color"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,15 +35,46 @@ import (
 // behind the dialog, types the command once the TUI is up, and goes back to
 // the chat when the dialog closes.
 
-// tuiCommand is the command text runs when session.TerminalCommand
-// names it, "" otherwise.
-func tuiCommand(text string) string {
+// tuiCommand is the command text runs when it needs the agent's terminal,
+// "" otherwise: when cmds, the chat's commands, mark it Terminal, or with
+// no list, when session.TerminalCommand names it.
+func tuiCommand(text string, cmds []session.Command) string {
 	t := strings.TrimSpace(text)
 	name, _, _ := strings.Cut(strings.TrimPrefix(t, "/"), " ")
-	if !strings.HasPrefix(t, "/") || !session.TerminalCommand(name) {
+	if !strings.HasPrefix(t, "/") {
+		return ""
+	}
+	term := session.TerminalCommand(name)
+	if len(cmds) > 0 {
+		i := slices.IndexFunc(cmds, func(c session.Command) bool { return c.Name == name })
+		term = i >= 0 && cmds[i].Terminal
+	}
+	if !term {
 		return ""
 	}
 	return t
+}
+
+// terminalCommand runs s, sent from chat id whose commands are cmds,
+// when it is a command that needs the agent's terminal, and reports
+// whether s is done with. A Claude chat's opens its dialog; a chat tab's
+// goes to the TUI the dialog opens, not to the chat's driver. A Codex or
+// agy pane's goes to its pane as typed, which then shows its TUI: the
+// dialog reads only Claude Code's input box.
+func (u *ui) terminalCommand(st *model.State, id string, s proto.ChatSend, cmds []session.Command, now time.Time) bool {
+	if s.Skill != nil || len(s.Attachments) > 0 {
+		return false
+	}
+	cmd := tuiCommand(s.Text, cmds)
+	if cmd == "" {
+		return false
+	}
+	if p := findPane(st, id); p != nil && paneChatOf(st, id) != nil && p.Provider != model.ProviderClaude {
+		u.send(s)
+		u.flipPaneChat(id) // the composer shows, so the pane is in its chat view
+		return true
+	}
+	return u.openTUI(st, id, cmd, now) && u.tui[id].tab
 }
 
 // tuiWait is how long a command gets to bring its screen up. One that

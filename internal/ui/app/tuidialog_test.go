@@ -40,8 +40,19 @@ func TestTUICommand(t *testing.T) {
 		"fix /config":        "",
 		"":                   "",
 	} {
-		if got := tuiCommand(text); got != want {
+		if got := tuiCommand(text, nil); got != want {
 			t.Errorf("tuiCommand(%q) = %q, want %q", text, got, want)
+		}
+	}
+	codex := []session.Command{{Name: "model", Terminal: true}, {Name: "review"}, {Name: "permissions", Terminal: true}}
+	for text, want := range map[string]string{
+		"/model":             "/model",
+		"/review the branch": "",
+		"/permissions":       "/permissions",
+		"/login":             "",
+	} {
+		if got := tuiCommand(text, codex); got != want {
+			t.Errorf("tuiCommand(%q, codex's) = %q, want %q", text, got, want)
 		}
 	}
 }
@@ -228,5 +239,31 @@ func TestTUIDialogChatTab(t *testing.T) {
 	b.show(tuiBox...)
 	if u.tuiShown(st, "c1", now.Add(2*time.Second)) != nil || !slices.Contains(b.Sent(), any(proto.ChatTerminal{Chat: "c1"})) {
 		t.Fatal("closing did not go back to the chat")
+	}
+}
+
+// A Codex pane chat's command that its list marks Terminal goes to the
+// pane as typed and the pane shows its TUI; one it runs in the chat, an
+// argument and all, stays a chat message.
+func TestTerminalCommandCodexPane(t *testing.T) {
+	b := &screenBackend{chatBackend: &chatBackend{FakeBackend: NewFakeBackend()}}
+	b.mu.Lock()
+	i := slices.IndexFunc(b.st.Panes, func(p model.Pane) bool { return p.ID == "h" })
+	b.st.Panes[i].Provider, b.st.Panes[i].Transcript = model.ProviderCodex, "/tmp/rollout.jsonl"
+	b.mu.Unlock()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
+	st := b.State()
+	cmds := []session.Command{{Name: "model", Terminal: true}, {Name: "review"}}
+	send := proto.ChatSend{Chat: "h", Text: "/review focus on auth"}
+	if u.terminalCommand(&st, "h", send, cmds, time.Now()) || u.paneFlip["h"] {
+		t.Fatal("a command Codex runs in its chat went to the terminal")
+	}
+	send.Text = "/model"
+	if !u.terminalCommand(&st, "h", send, cmds, time.Now()) {
+		t.Fatal("/model stayed a chat message")
+	}
+	typed := slices.ContainsFunc(b.Sent(), func(m any) bool { s, ok := m.(proto.ChatSend); return ok && s.Text == "/model" })
+	if !typed || !u.paneFlip["h"] || u.tui["h"] != nil {
+		t.Fatalf("sent %v, flipped %v, dialog %v: want /model typed and the pane's TUI shown", b.Sent(), u.paneFlip["h"], u.tui["h"])
 	}
 }
