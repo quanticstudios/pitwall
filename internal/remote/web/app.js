@@ -5,7 +5,7 @@ const KEY = 'pitwall-token';
 const $ = (id) => document.getElementById(id);
 const home = $('home'), chat = $('chat'), list = $('list'), push = $('push'), full = $('full');
 const log = $('log'), entriesEl = $('entries'), pend = $('pend'), work = $('work'), more = $('more');
-const asks = $('asks'), composer = $('composer'), text = $('text'), cnote = $('cnote');
+const asks = $('asks'), composer = $('composer'), text = $('text'), cnote = $('cnote'), queueList = $('queue');
 const newpill = $('newpill'), pick = $('pick'), sheet = $('sheet');
 
 let token = '';
@@ -202,7 +202,8 @@ function renderList() {
     const row = el('button', 'row' + (asking.includes(t.state) ? ' needs' : ''));
     const l1 = el('div', 'line1');
     l1.append(pillOf(t), el('span', 'title', t.tab || 'Tab'));
-    if (t.queued) l1.append(el('span', 'badge', t.queued + ' queued'));
+    const waiting = (t.queue || []).length || t.queued;
+    if (waiting) l1.append(el('span', 'badge', waiting + (t.queueHold ? ' held' : ' queued')));
     row.append(l1, el('div', 'meta', [agentName(t.agent), t.branch || t.repo].filter(Boolean).join(' · ') || 'No agent'));
     if (t.detail && t.state !== 'working') row.append(el('div', 'ask', t.detail));
     row.onclick = () => openChat(t.pane, true);
@@ -461,6 +462,7 @@ function renderChatState() {
     work.lastChild.textContent = 'Working' + (what.trim() ? ': ' + what.trim() : '');
   }
   renderAsks(t);
+  renderQueue(t);
   composer.hidden = !(t && t.send);
   $("attach").hidden = !(t && t.attach && hello.upload);
   cnote.hidden = !!(t && t.send);
@@ -496,6 +498,38 @@ function prettyModel(m) {
     return 'GPT-' + version + (words.length ? ' ' + words.join(' ') : '') + wide;
   }
   return parts[1][0].toUpperCase() + parts[1].slice(1) + ' ' + version + wide;
+}
+
+// renderQueue lists what the open tab's chat queued, why it waits, and
+// each message's Send now and Remove.
+let queueShown = '';
+function renderQueue(t) {
+  const rows = (t && t.queue) || [];
+  const k = JSON.stringify([t && t.pane, t && t.queueHold, rows]);
+  if (k === queueShown) return;
+  queueShown = k;
+  const out = [];
+  if (rows.length) out.push(el('p', 'qhead', [rows.length + ' queued', t.queueHold].filter(Boolean).join(' · ')));
+  for (const q of rows) {
+    const body = el('div', 'qtext');
+    body.append(el('span', 'qline', q.text.trim().split('\n')[0] || 'Image'));
+    if (q.error) body.append(el('span', 'qerr', 'Not sent: ' + q.error));
+    const now = el('button', 'btn quiet', q.error ? 'Retry' : 'Send now');
+    const rm = el('button', 'btn quiet', 'Remove');
+    const act = (action) => {
+      now.disabled = rm.disabled = true;
+      api('/api/queue', { pane: t.pane, id: q.id, action }).catch((e) => {
+        now.disabled = rm.disabled = false;
+        if (e.message !== 'unpaired') body.append(el('span', 'qerr', e.message));
+      });
+    };
+    now.onclick = () => act('now');
+    rm.onclick = () => act('remove');
+    const r = el('div', 'qrow');
+    r.append(body, now, rm);
+    out.push(r);
+  }
+  changing(() => queueList.replaceChildren(...out));
 }
 
 function renderAsks(t) {
