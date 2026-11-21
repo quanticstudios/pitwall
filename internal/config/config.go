@@ -126,6 +126,9 @@ type Keys struct {
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	FocusSidebar    Binding `toml:"focus_sidebar" group:"Window" doc:"Focus sidebar: move through its groups, tabs and agents with the arrow keys or j and k, Enter to open one, Esc to go back to the pane. See docs/keys.md"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
+	ChatBigger      Binding `toml:"chat_text_bigger" group:"Agents" doc:"Make the desktop chat's text bigger by a point, and keep it in [font] chat_size. The window takes this key only on a chat tab or a pane showing its chat"`
+	ChatSmaller     Binding `toml:"chat_text_smaller" group:"Agents" doc:"Make the desktop chat's text smaller by a point, as chat_text_bigger does"`
+	ChatReset       Binding `toml:"chat_text_reset" group:"Agents" doc:"Reset the desktop chat's text size to follow ui_size"`
 	ChatTerminal    Binding `toml:"chat_terminal" group:"Agents" doc:"Flip a Claude chat's tab between the chat and Claude Code's own TUI on the same conversation, for /config, /login and other screens the chat cannot draw; on a pane running Claude Code, flip it between the chat and its TUI. The window takes this key only on a chat tab or such a pane"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the review view of the tab's changes since its default branch, committed or not, where you comment on lines and send the comments to the tab's agent"`
 	DiffPager       Binding `toml:"diff_pager" group:"Review" doc:"Open diff in pager: the same changes in your git pager in a new pane"`
@@ -225,6 +228,7 @@ type Terminal struct {
 type Font struct {
 	UIFamily     string   `toml:"ui_family" doc:"Sidebar and dialog text. Geist is the copy bundled with pitwall"`
 	UISize       float64  `toml:"ui_size" min:"6" max:"48" doc:"UI text size"`
+	ChatSize     float64  `toml:"chat_size" min:"0" max:"48" doc:"Desktop chat text size: messages, code, tool rows and the composer, with the space around them. 0 follows ui_size. Ctrl+= and Ctrl+- step it in a chat, Ctrl+0 resets it"`
 	MonoFamily   string   `toml:"mono_family" doc:"Terminal font"`
 	MonoSize     float64  `toml:"mono_size" min:"6" max:"48" doc:"Terminal text size"`
 	LineHeight   float64  `toml:"line_height" min:"0.8" max:"3" doc:"Terminal line height as a multiple of the font's"`
@@ -544,6 +548,7 @@ func LoadFile(path string) (Settings, []Problem) {
 		lo, hi float64
 	}{
 		{&s.Font.UISize, "font.ui_size", DefaultUISize, 6, 48},
+		{&s.Font.ChatSize, "font.chat_size", 0, 6, 48},
 		{&s.Font.MonoSize, "font.mono_size", DefaultMonoSize, 6, 48},
 		{&s.Font.LineHeight, "font.line_height", 1, 0.8, 3},
 		{or(c.Layout.PaneGap, &s.PaneGap), "layout.pane_gap", DefaultPaneGap, 0, 64},
@@ -560,6 +565,9 @@ func LoadFile(path string) (Settings, []Problem) {
 		if unset {
 			*f.v = f.def
 		}
+	}
+	if s.Font.ChatSize == 0 {
+		s.Font.ChatSize = s.Font.UISize
 	}
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect

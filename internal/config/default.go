@@ -14,7 +14,7 @@ func defaults() Config {
 	c.Keys.Preset = DefaultPreset
 	c.Theme, _ = Builtin("aide-dark")
 	c.Theme.Name = "aide-dark"
-	c.Font = Font{DefaultUIFamily, DefaultUISize, DefaultMonoFamily, DefaultMonoSize, 1, []string{}}
+	c.Font = Font{DefaultUIFamily, DefaultUISize, 0, DefaultMonoFamily, DefaultMonoSize, 1, []string{}}
 	gap, margin := float64(DefaultPaneGap), float64(DefaultPaneMargin)
 	c.Layout = Layout{&gap, &margin}
 	on := true

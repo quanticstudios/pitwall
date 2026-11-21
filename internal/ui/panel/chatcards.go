@@ -262,7 +262,7 @@ func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dime
 				return d.selectable(gtx, d.t.sel("why:"+a.ID), d.small(th.Muted), why)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				return hrow(gtx, gtx.Dp(theme.SpaceS),
+				return wrapRow(gtx, gtx.Dp(theme.SpaceS),
 					func(gtx layout.Context) layout.Dimensions { return d.keyButton(gtx, &bs[0], true, "Allow", "1", true) },
 					func(gtx layout.Context) layout.Dimensions {
 						if a.NoSession { // the prompt has no such answer

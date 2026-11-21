@@ -197,6 +197,9 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
 			}))
 	}
+	if l := u.chatSizeLabel(gtx); l != nil {
+		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout), gl.Rigid(l))
+	}
 	kids = append(kids, gl.Flexed(1, fill), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		return u.tipped(gtx, h, &h.find, withKey("Find in chat", "Ctrl+F"), func(gtx gl.Context) gl.Dimensions {
 			return kit.IconButton(gtx, th, &h.find, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {

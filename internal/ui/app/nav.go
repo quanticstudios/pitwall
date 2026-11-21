@@ -74,6 +74,10 @@ type nav struct {
 	// paneChatKey is set by the window each frame: chat_terminal is the
 	// window's on the shown tab, whose focused pane is a pane chat.
 	paneChatKey bool
+	// chatText is a chat_text_ action for the window to run; chatTextKey,
+	// set by the window each frame, is whether a chat shows to run it on.
+	chatText    string
+	chatTextKey bool
 	// sidebarKeys asks the window to move the keyboard into the sidebar,
 	// or back to the pane (focus_sidebar).
 	sidebarKeys bool
@@ -734,6 +738,8 @@ func (n *nav) keyFilters(st *model.State) []key.Filter {
 			continue // the pane's while nothing is peeked at
 		} else if w := findWorkspace(st, n.workspace); a == "chat_terminal" && (w == nil || w.Chat == "") && !n.paneChatKey {
 			continue // the pane's outside a chat tab and a pane chat
+		} else if config.ChatText(a) && !n.chatTextKey {
+			continue // the pane's while no chat shows
 		}
 		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}
@@ -1116,6 +1122,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.monitorView = true
 	case "chat_terminal":
 		n.chatTerminal = true
+	case "chat_text_bigger", "chat_text_smaller", "chat_text_reset":
+		n.chatText = act
 	case "allow_prompt", "deny_prompt":
 		return n.answer(st, act == "allow_prompt")
 	case "session_switcher":

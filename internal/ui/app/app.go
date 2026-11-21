@@ -285,12 +285,15 @@ type ui struct {
 	th        *theme.Theme
 	cfg       config.Settings
 	nav       nav
-	sidebar   sidebar.Sidebar
-	panes     map[string]*paneUI
-	open      widget.Clickable // empty-state button
-	modal     modal
-	modeTag   int // holds key focus in tab mode, so typed text skips the pane
-	closeTag  int // a press anywhere closes a pinned switcher
+	// chatSizeAt is when a chat_text_ key last set the chat's text size,
+	// which its header names for a moment.
+	chatSizeAt time.Time
+	sidebar    sidebar.Sidebar
+	panes      map[string]*paneUI
+	open       widget.Clickable // empty-state button
+	modal      modal
+	modeTag    int // holds key focus in tab mode, so typed text skips the pane
+	closeTag   int // a press anywhere closes a pinned switcher
 
 	forms     map[string]*formUI // pitwall form's forms, by id, see form.go
 	formFocus string             // the form that last took the keys
@@ -615,6 +618,12 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.monitorView = false
 		u.toggleMonitor()
 	}
+	if a := u.nav.chatText; a != "" {
+		u.nav.chatText = ""
+		if u.chatTextKeys(st) {
+			u.stepChatSize(a, now)
+		}
+	}
 	if u.nav.chatTerminal {
 		u.nav.chatTerminal = false
 		if ws := findWorkspace(st, u.nav.workspace); ws != nil && ws.Chat != "" && u.tui[ws.Chat] != nil {
@@ -752,7 +761,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.focusClicks(gtx, p, id)
 	}
 	for u.modal.kind == modalNone {
-		u.nav.paneChatKey = u.paneChatKey(&st)
+		u.nav.paneChatKey, u.nav.chatTextKey = u.paneChatKey(&st), u.chatTextKeys(&st)
 		filters := append(u.nav.keyFilters(&st), u.popupFilters()...)
 		if u.sw.open || u.pal.open || u.hints.on || u.browser.open || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
