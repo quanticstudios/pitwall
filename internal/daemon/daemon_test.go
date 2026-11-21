@@ -65,7 +65,9 @@ func (p *fakePane) Resize(c, r int) error {
 	return nil
 }
 func (p *fakePane) Snapshot() vt.Grid {
-	p.snaps.Add(1)
+	// why: counted after the read, so a count seen after setScreen means a
+	// read of that screen (TestPhoneCommandStopsForDesktopKeys waits on it).
+	defer p.snaps.Add(1)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.screen != nil {
