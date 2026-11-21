@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 92 added no message: a daemon at EmptyPaneChatLevel answers the
+// Chat* messages for an agent pane before a hook named its transcript.
 // Level 91 added State.ChatQueues and Chat.QueueHeld, and the JSON
 // fields Snapshot.QueueReason and QueuedInput.Alone: a daemon at
 // SmartQueueLevel keeps queues through restarts, sends what is queued as
@@ -241,7 +243,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 91
+const Level = 92
 
 // SmartQueueLevel is the first daemon that joins a chat's queue into one
 // prompt, takes ChatQueue Actions "separate" and "together", and steers a
@@ -268,6 +270,11 @@ const ChatPageLevel = 86
 // ChatNowLevel is the first daemon sure to take ChatSend How "now": level
 // 85 daemons came both before and after it, and the older ones refuse it.
 const ChatNowLevel = 86
+
+// EmptyPaneChatLevel is the first daemon that answers Chat* messages for a
+// pane chat before a hook named its transcript, with an empty chat; a
+// window shows such a pane as a chat only then.
+const EmptyPaneChatLevel = 92
 
 // AntigravityLevel is the first daemon that answers Chat* messages for a
 // pane running Antigravity CLI's TUI and knows the antigravity chat

@@ -109,6 +109,12 @@ extension if you prefer to edit the files yourself.
 The hooks do nothing outside a pitwall pane, so they are safe to keep
 installed globally.
 
+Another tool's hook for the same event stays: install adds pitwall's entry
+beside it. `pitwall doctor` and Settings say when a file lacks pitwall's
+SessionStart entry. Without it, a new session's chat stays empty until its
+first prompt names the transcript. Codex 0.171 fires SessionStart only with
+the first prompt anyway.
+
 Codex 0.171 and later run every turn in one app-server per `CODEX_HOME`.
 The first Codex TUI starts it, later ones connect to it, and it outlives
 the TUI that started it. Its hooks all carry that first pane's

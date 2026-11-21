@@ -114,8 +114,11 @@ func TestHookStatus(t *testing.T) {
 	if hs[0].Have == 0 || hs[0].Have != hs[0].Want || hs[0].Err != "" {
 		t.Errorf("claude: %+v", hs[0])
 	}
-	if hs[1].Have != 1 || hs[1].Want < 2 {
+	if hs[1].Have != 1 || hs[1].Want < 2 || !hs[1].NoStart {
 		t.Errorf("codex: %+v", hs[1])
+	}
+	if hs[0].NoStart {
+		t.Errorf("claude, with pitwall's SessionStart: %+v", hs[0])
 	}
 	if hs := hookStatus(t.TempDir()); hs[0].Have != 0 || hs[0].Err != "" {
 		t.Errorf("missing file: %+v", hs[0])

@@ -639,8 +639,10 @@ var cursorEvents = []hookEvent{
 	{name: "sessionEnd"},
 }
 
-// codexEvents are the Codex hook events Derive acts on.
+// codexEvents are the Codex hook events Derive acts on, and SessionStart,
+// which names the session's rollout before its first prompt.
 var codexEvents = []hookEvent{
+	{name: "SessionStart"},
 	{name: "UserPromptSubmit"},
 	{name: "PreToolUse"},
 	{name: "PostToolUse"},
@@ -881,6 +883,21 @@ func CodexDir(home string) string {
 		return h
 	}
 	return filepath.Join(home, ".codex")
+}
+
+// CodexRollout is the rollout of Codex session sid under dir, a
+// CODEX_HOME: the one file sessions/<yyyy>/<mm>/<dd>/rollout-<time>-<sid>.jsonl,
+// as Codex names it and its hooks' transcript_path gives it. It is "" when
+// sid is no session id or no single file has it in its name.
+func CodexRollout(dir, sid string) string {
+	if len(sid) < 8 || strings.Trim(sid, "0123456789abcdefABCDEF-") != "" {
+		return ""
+	}
+	m, _ := filepath.Glob(filepath.Join(dir, "sessions", "*", "*", "*", "rollout-*-"+sid+".jsonl"))
+	if len(m) != 1 {
+		return ""
+	}
+	return m[0]
 }
 
 // OpenCodeDir is the custom discovery directory when OPENCODE_CONFIG_DIR
