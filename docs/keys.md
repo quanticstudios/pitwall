@@ -436,11 +436,15 @@ In [the desktop chat](chat.md)'s composer:
 
 | Keys                    | Action                                                         |
 | ----------------------- | -------------------------------------------------------------- |
-| Enter                   | Send; while Claude works, queue the message above the box      |
-| Ctrl+Enter              | Send now, into the running turn (Cmd+Enter on macOS)           |
+| Enter                   | Send; while the agent works, queue the message above the box, or steer it into the turn with `[chat] follow_up = "steer"` |
+| Ctrl+Enter              | While the agent works, the other follow-up: send now into the running turn, or queue with follow_up steer (Cmd+Enter on macOS) |
 | Shift+Enter             | New line                                                       |
+| Up / Down               | In an empty box, the chat's earlier prompts, newest first, with their images; Down past the newest gives the box back |
+| Ctrl+S                  | Stash the draft and its images; on an empty box, bring back the stashed draft, or open the stash menu when there are several |
+| Alt+Up                  | At the start of the box, edit the newest queued message (Alt+Shift+Up in the aide preset) |
+| Ctrl+Shift+Enter        | Send the oldest queued message into the running turn now, leaving the draft (Cmd+Shift+Enter on macOS) |
 | Shift+Tab               | Next permission mode: Default, Accept edits, Plan, and Bypass permissions in a chat that runs in bypass |
-| Esc                     | Stop the turn                                                  |
+| Esc                     | Close a menu, end a recall or a queue edit, then stop the turn |
 | 1, 2, 3                 | Answer an approval card; a question's options take their numbers and Enter |
 | /                       | Slash commands, as the first character                         |
 | Ctrl+Backspace          | Delete the word, or the image chip, before the cursor          |
@@ -449,6 +453,46 @@ In [the desktop chat](chat.md)'s composer:
 | Alt+T                   | Flip to Claude Code's TUI and back (Cmd+Option+T in mac)       |
 | Ctrl+= / Ctrl+-         | Chat text a point bigger (Ctrl++ too) / smaller, saved as `[font] chat_size` (Cmd in mac) |
 | Ctrl+0                  | Chat text back to the interface size (Cmd+0 in mac)            |
+
+`[chat] send_key = "ctrl+enter"` swaps the send key: Ctrl+Enter sends,
+Enter and Shift+Enter add a line, and Ctrl+Shift+Enter with a draft does
+the other follow-up (with an empty box it still sends the oldest queued
+message). Steer goes into the turn only where the agent takes a message
+mid-turn, and a slash or `!` command always waits; elsewhere the send key
+queues and Ctrl+Enter stops the turn and sends.
+
+Prompt history. Up recalls only from an empty box. While the box shows a
+recalled prompt unedited, Up steps further back from the caret's first
+line and Down forward from its last, wrapped lines counting; an edit makes
+it an ordinary draft, and Esc gives the box back. The history is the
+prompts the chat's transcript holds, Claude Code's, Codex's and
+Antigravity's alike, in a New task chat or a pane's. Messages another
+pane, an agent or a script sent through pitwall are left out, and a prompt
+sent twice in a row is one step. A long prompt the transcript cut is read
+whole and fills the box once it comes, unless you edited it first.
+
+Stash. Ctrl+S saves the draft, its images and chips (quotes, terminal
+excerpts, pasted texts) included, and empties the box.
+Each chat keeps its 20 newest stashes across restarts, in
+`~/.local/state/pitwall/stash/`. The stash chip in the control row shows
+how many and opens the menu: newest first, a preview line, the image
+count, how long ago. Up and Down move, Enter or a click restores, Delete
+or Ctrl+Backspace or the x removes, Esc closes. A restore goes after any
+draft in the box and leaves the stash. On macOS it is Ctrl+S too, since
+the mac preset's Cmd+S opens the session switcher. In a pane chat the
+composer has the keys, so Ctrl+S never reaches the terminal as XOFF; on
+the TUI it is the terminal's.
+
+Queued messages. Alt+Up at the box's start loads the newest queued
+message, its row lit until you save with the send key or cancel with Esc,
+and the draft you had comes back after. Saved with the images it had, it
+keeps its place; with an image removed or added it goes to the end of the
+queue. Should it go meanwhile, sent or removed, a changed edit stays in an
+empty box and is dropped over a draft. The aide preset's Alt+Up goes to
+the previous tab, so there Alt+Shift+Up edits; any preset that binds
+Alt+Up gets the same. Ctrl+Shift+Enter needs a running turn and an agent
+that takes a message mid-turn; keep_peek's Ctrl+Shift+Enter is the
+window's only while a peek shows.
 
 ### Markdown reader
 

@@ -9,6 +9,8 @@ type Chat struct {
 	Codex       string `toml:"codex" enum:"chat,terminal" doc:"chat shows every pane running Codex's TUI, however it started, as a desktop chat once Codex's hooks name its session, with the TUI one key away (chat_terminal); terminal shows such panes as the TUI, still one key from the chat"`
 	Antigravity string `toml:"antigravity" enum:"chat,terminal" doc:"chat starts Antigravity (agy) from the New task dialog and its presets as a desktop chat over agy acp, with Antigravity (terminal) beside it for the TUI, and shows every pane running agy's TUI as a chat once its hooks name the conversation; terminal runs the TUI in a pane and shows such panes as the TUI. pitwall new always starts the TUI"`
 	Width       string `toml:"width" enum:"comfortable,standard,full" doc:"The transcript's column: comfortable is 736 dp, standard 960 dp (fits a 120-column diff), full uses the whole tab. Reply prose stops near 96 characters either way"`
+	FollowUp    string `toml:"follow_up" enum:"queue,steer" doc:"What the send key does while the agent works: queue holds the message until the turn ends; steer sends it into the running turn, where the agent takes it (a slash command still queues). Ctrl+Enter does the other one, Cmd+Enter on macOS"`
+	SendKey     string `toml:"send_key" enum:"enter,ctrl+enter" doc:"The composer's send key: enter sends with Enter, Shift+Enter adds a line; ctrl+enter sends with Ctrl+Enter (Cmd+Enter on macOS), Enter adds a line, and Ctrl+Shift+Enter does the other follow-up"`
 }
 
 // Chat column widths in dp.
@@ -28,10 +30,15 @@ type ChatSettings struct {
 	// a chat over ACP, not the TUI.
 	Antigravity bool
 	Width       int // the column's widest, in dp; 0 is the whole tab
+	// Steer is true when the send key steers a working agent, false when
+	// it queues.
+	Steer bool
+	// CtrlEnter is true when Ctrl+Enter sends and Enter adds a line.
+	CtrlEnter bool
 }
 
 func defaultChat() Chat {
-	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard"}
+	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", FollowUp: "queue", SendKey: "enter"}
 }
 
 // resolveChat fills in [chat]'s values from c.
@@ -71,6 +78,20 @@ func resolveChat(c Chat) (ChatSettings, []issue) {
 	default:
 		out.Width = ChatStandard
 		issues = append(issues, issue{"chat.width", fmt.Sprintf("%q is not comfortable, standard or full; using standard", c.Width)})
+	}
+	switch c.FollowUp {
+	case "", "queue":
+	case "steer":
+		out.Steer = true
+	default:
+		issues = append(issues, issue{"chat.follow_up", fmt.Sprintf("%q is not queue or steer; using queue", c.FollowUp)})
+	}
+	switch c.SendKey {
+	case "", "enter":
+	case "ctrl+enter":
+		out.CtrlEnter = true
+	default:
+		issues = append(issues, issue{"chat.send_key", fmt.Sprintf("%q is not enter or ctrl+enter; using enter", c.SendKey)})
 	}
 	return out, issues
 }

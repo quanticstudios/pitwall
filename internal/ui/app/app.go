@@ -172,6 +172,9 @@ func Run(b Backend) error {
 		wd.begin()
 		switch e := ev.(type) {
 		case app.DestroyEvent:
+			if u.stashes != nil {
+				u.stashes.flush() // a draft stashed just before the window closed
+			}
 			return e.Err
 		case app.ViewEvent:
 			// app.WaylandViewEvent, app.X11ViewEvent, app.Win32ViewEvent...
@@ -381,6 +384,7 @@ type ui struct {
 	tui         map[string]*tuiDialog        // TUI-only commands' dialogs, by chat id (tuidialog.go)
 	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
+	stashes     *stashFiles                  // the composers' stashed drafts on disk, see stash.go
 	load        chatLoad                     // the buttons of a chat that did not load
 	drawn       map[string]bool              // the chats whose composer layoutPanes drew this frame
 	usage       usageWatch                   // token use for the tabs' hover cards

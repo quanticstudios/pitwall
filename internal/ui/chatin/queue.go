@@ -285,13 +285,21 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	if failed {
 		acts = []action{{"qrm:", "x", "Remove"}}
 	}
+	// The row Alt+Up is editing stays lit, its buttons giving way to its keys.
+	editing := q.ID == c.qedit.id
+	if editing {
+		acts = nil
+	}
 	over := hv.Update(gtx.Source)
 	for _, a := range acts {
 		if b := c.click(a.key + q.ID); a.key != "" && (b.Hovered() || gtx.Focused(b)) {
 			over = true
 		}
 	}
-	if over {
+	switch {
+	case editing:
+		paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+	case over:
 		paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 	}
 	area := clip.Rect(rect).Push(gtx.Ops)
@@ -299,7 +307,15 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	area.Pop()
 	// The buttons first, from the right, to know what the text may take.
 	var ws []layout.Widget
-	if failed {
+	if editing {
+		send, _ := sendKeys(env)
+		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Right: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Editing · "+send+" saves · Esc cancels")
+			})
+		})
+	}
+	if failed && !editing {
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
 			b := c.click("qretry:" + q.ID)
 			d := textButton(gtx, th, b, "Retry")
@@ -338,6 +354,9 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	}
 	if failed {
 		icon, ic, fg = "circle-alert", th.Readable(th.Red, th.Bg), th.Muted
+	}
+	if editing {
+		icon, ic = "pencil", th.Readable(th.Primary, th.Bg)
 	}
 	tg := gtx
 	tg.Constraints = layout.Constraints{Max: image.Pt(max(0, w-bd.Size.X-gtx.Dp(theme.SpaceS)-gtx.Dp(theme.SpaceM)), h)}
