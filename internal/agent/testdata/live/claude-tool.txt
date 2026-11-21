@@ -1,0 +1,24 @@
+  not treat loss as the primary signal. It estimates bottleneck bandwidth and
+  round-trip time to pace its sending. ECN lets routers mark packets instead of
+  dropping them, signaling congestion earlier and without wasted
+  retransmissions.
+
+✻ Worked for 6s · done 5:42 PM
+
+❯ Run these with the Bash tool, one call each: ls, then cat README.md, then git
+  log --oneline. Before each call write one short sentence saying what you
+  will do. Then reply with a two-sentence summary.
+
+● I'll list the files in the working directory.
+
+● Listing files in current directory
+  ⎿  $ ls
+
+✻ Hyperspacing… (running PreToolUse hook · 1s · ↓ 64 tokens)
+  ⎿  Tip: Ask Claude to publish a plan or design doc as an artifact, a web page
+     you can open in your browser
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt

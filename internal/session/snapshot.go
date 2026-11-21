@@ -49,6 +49,12 @@ type Snapshot struct {
 	UsageReports      []UsageReport  `json:"usageReports,omitempty"`
 	UsageSummary      *UsageSummary  `json:"usageSummary,omitempty"`
 	Commands          []Command      `json:"commands,omitempty"` // the provider's slash commands, pitwall's
+	// Live is what a pane chat's agent shows on screen before its
+	// transcript has it: the prompt the chat sent, the reply it streams,
+	// and Antigravity's thought and running command. A reader draws it
+	// after Content; the transcript's own items replace it as they land.
+	// Pitwall's; a DeltaLive sets it.
+	Live []Item `json:"live,omitempty"`
 
 	// Extra holds the keys of aide's snapshot that pitwall has no field for.
 	Extra map[string]json.RawMessage `json:"-"`

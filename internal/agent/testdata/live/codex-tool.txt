@@ -1,0 +1,24 @@
+› Write about 300 words explaining how TCP congestion control works, in plain …
+
+  Worked for 10s • 5:47 PM
+
+
+› Run these shell commands, one at a time: ls, then cat README.md, then git log
+  --oneline. Before each command write one short sentence saying what you will
+  do. Then reply with a two-sentence summary.
+
+
+• [work · ready]
+  I’ll list the workspace contents.
+
+• Explored
+  └ List ls
+    + Show details
+
+• Working (5s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6.2-Sol low · ~/acme-api · Reply ready
+  ← for agents · ? for shortcuts                      ⚠ 4 warnings · f2 to view

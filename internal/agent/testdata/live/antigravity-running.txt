@@ -1,0 +1,24 @@
+  assumes a single packet was lost while others are still getting through,
+  triggering fast retransmit and fast recovery. In this case, the sender
+  halves its congestion window and resumes linear growth. If a retransmission
+  timeout occurs, indicating more severe congestion, the sender cuts the
+  window all the way back to its initial size and restarts slow start. Modern
+  variants like CUBIC and BBR refine these rules using delay measurements and
+  pacing, but the core goal remains balancing high throughput with fairness
+  and stability.
+
+────────────────────────────────────────────────────────────
+> Run these shell commands, one at a time: ls, then cat README.md, then git log
+  --oneline. Before each command write one short sentence saying what you will
+  do. Then reply with a two-sentence summary.
+
+▸ Thought for 3s, 165 tokens
+
+  I will list the files in the workspace directory.
+
+● Running (ls) (ctrl+o to expand)
+⢿  I will list the files in the current directory. Next, the content of `READ...
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                         auto · Gemini 4 Neon · low

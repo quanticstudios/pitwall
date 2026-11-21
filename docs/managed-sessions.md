@@ -322,7 +322,7 @@ const DeltaVersion = 1
 type DeltaType string // snapshot, item.add, item.text.append, item.patch, tool.start,
 // tool.output.append, tool.end, reasoning.append, plan.update, approval.add,
 // approval.resolve, input.add, input.resolve, turn, status, usage,
-// usage.reports, error, session.patch
+// usage.reports, error, session.patch, and pitwall's live
 
 // Delta is aide's SessionDelta: the envelope and the fields of every type,
 // flat. MarshalJSON writes the envelope and only Type's fields, with null
@@ -364,6 +364,8 @@ type Delta struct {
 
 	Set   json.RawMessage `json:"set"`   // session.patch: a partial Snapshot of patchable keys
 	Unset []string        `json:"unset"` // session.patch
+
+	Live []Item `json:"live"` // live: a pane chat's Snapshot.Live, whole
 }
 ```
 

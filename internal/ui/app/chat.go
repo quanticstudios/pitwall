@@ -2,6 +2,7 @@ package app
 
 import (
 	"image"
+	"slices"
 	"strconv"
 	"time"
 
@@ -95,6 +96,9 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws *model.Workspace, focus bool, term func()) {
 	dir := ws.Path
 	s, ok := ch.Chat(id)
+	// A pane chat's Live is what its agent's screen shows ahead of the
+	// transcript; it draws as the transcript's newest items.
+	s.Content = append(slices.Clip(s.Content), s.Live...)
 	if ok {
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir

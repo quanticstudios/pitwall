@@ -2263,6 +2263,13 @@
         },
         "usageLimit": {
           "$ref": "#/$defs/usageLimit"
+        },
+        "live": {
+          "description": "A pane chat's provisional items, drawn after content: the prompt sent, the reply streaming, an Antigravity thought or running command. The transcript's own items replace them as they land; pitwall's.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          }
         }
       }
     },
@@ -2815,7 +2822,8 @@
             "usage.reports",
             "error",
             "session.patch",
-            "limit"
+            "limit",
+            "live"
           ]
         },
         "snapshot": {
@@ -2935,6 +2943,13 @@
               "type": "null"
             }
           ]
+        },
+        "live": {
+          "description": "live: what a pane chat's agent shows on screen before its transcript has it, the snapshot's whole live; pitwall's.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          }
         }
       },
       "additionalProperties": false,
@@ -3165,6 +3180,16 @@
           },
           "required": [
             "set"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "live"
+            }
+          },
+          "required": [
+            "live"
           ]
         }
       ]

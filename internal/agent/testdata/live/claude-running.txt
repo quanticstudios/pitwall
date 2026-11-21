@@ -1,0 +1,24 @@
+
+
+  Ran 1 shell command
+
+● The directory contains two files, main.go and README.md, and the README holds
+  only a "# demo" heading. The git log shows one commit, f2cdbbd init.
+
+✻ Baked for 4s · done 6:04 PM
+
+❯ Run these with the Bash tool, one call each: ls, then cat README.md, then git
+  log --oneline. Before each call write one short sentence saying what you
+  will do. Then reply with a two-sentence summary.
+  ⎿  1 agent type available
+
+● I'll list the files in the working directory.
+
+● Running 1 shell command…
+
+✽ Scurrying… (1s · ↓ 5 tokens)
+  You've used 75% of your weekly limit · resets Nov 24, 9pm (UTC)
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle) · esc to interrupt
