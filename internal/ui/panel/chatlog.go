@@ -3,9 +3,9 @@ package panel
 import (
 	"image"
 	"strings"
+	"time"
 
 	"gioui.org/layout"
-	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
@@ -13,147 +13,140 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// logHead is a fold's header, "Worked for 48s · Read 2 files, ran 2
-// commands" or, where that does not fit, "Worked for 48s · 4 tools", that a
-// click folds or opens: the box's top, and its bottom too when nothing
-// is under it. Each of the log's rows is a list row of its own, so a
-// running turn of 2,000 calls lays out only the rows in view.
+// logHead is a fold's header, a line as T3 Code draws a group of calls:
+// the chevron, the kind's icon, and what the calls did, "Ran 2 commands
+// and read 1 file", quiet, with no box. A fold that holds a failed call
+// tints its icon red. The running fold says its newest call instead,
+// "Bash · go test ./... · 0:12", in the text color, a spinner for its
+// icon. A click opens or folds it. Each of its rows is a list row of its
+// own, so a running turn of 2,000 calls lays out only the rows in view.
 func (d *cdraw) logHead(gtx layout.Context, r *trow) layout.Dimensions {
 	th := d.th
-	b, open, running, last, start, end := r.b, r.open, r.running, r.last, r.start, r.end
-	id := logID(d.s, b)
-	w := gtx.Constraints.Max.X
-	hh := gtx.Dp(rowH)
-	took := end.Sub(start)
-	if running {
-		took = d.t.now.Sub(start)
+	b := r.b
+	w, hh := gtx.Constraints.Max.X, gtx.Dp(rowH)
+	label, ic := foldLabel(d.s.Content, b.lo, b.hi)
+	col, icol := th.TextQuiet, th.Muted
+	if failed(d.s.Content, b.lo, b.hi) { // T3 Code's error tint, at 40%
+		icol = theme.Mix(th.Bg, th.Red, 0.4)
+	}
+	if label == "Thought" {
+		if t := firstThought(d.s.Content, b.lo, b.hi); t != "" {
+			label = t
+		}
+	}
+	if r.running {
 		d.t.live = true
+		if st := logStatus(d.s.Content, b.lo, b.hi, d.t.Dir, d.t.now); st != "" {
+			label, col = st, th.Fg
+		}
 	}
-	if start.IsZero() {
-		took = 0
-	}
-	h := 1 + hh
-	if last {
-		h++
-	}
-	defer d.logFrame(gtx, w, h, true, last)()
-	o := op.Offset(image.Pt(0, 1)).Push(gtx.Ops)
-	defer o.Pop()
-	paint.FillShape(gtx.Ops, th.Surface, clip.Rect{Max: image.Pt(w, hh)}.Op())
-	c := d.t.click(id)
-	clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+	c := d.t.click(logID(d.s, b))
+	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		rowFill(gtx, th, c, image.Pt(w, hh))
 		x := gtx.Dp(rowPad)
 		chev := "chevron-right"
-		if open {
+		if r.open {
 			chev = "chevron-down"
 		}
-		icon(gtx, image.Pt(x, (hh-gtx.Dp(12))/2), chev, 12, th.Muted)
-		x += gtx.Dp(12) + gtx.Dp(theme.SpaceS)
-		if running {
-			at(gtx, image.Pt(x, (hh-gtx.Dp(11))/2), func(gtx layout.Context) layout.Dimensions {
-				return spinner(gtx, gtx.Dp(11), th.Surface, th.Blue, d.sec)
+		icon(gtx, image.Pt(x+gtx.Dp(1), (hh-gtx.Dp(12))/2), chev, 12, th.Muted)
+		x += gtx.Dp(22)
+		if r.running {
+			at(gtx, image.Pt(x+gtx.Dp(1), (hh-gtx.Dp(12))/2), func(gtx layout.Context) layout.Dimensions {
+				return spinner(gtx, gtx.Dp(12), th.Bg, th.Blue, d.sec)
 			})
-			x += gtx.Dp(11) + gtx.Dp(theme.SpaceS)
-		} else if failed(d.s.Content, b.lo, b.hi) { // a folded failure still shows
-			icon(gtx, image.Pt(x, (hh-gtx.Dp(12))/2), "x", 12, th.Readable(th.Red, th.Surface))
-			x += gtx.Dp(12) + gtx.Dp(theme.SpaceS)
+		} else {
+			icon(gtx, image.Pt(x, (hh-gtx.Dp(14))/2), ic, 14, icol)
 		}
-		room := w - x - gtx.Dp(10)
-		if n := turnTokens(d.s, b.turn); n > 0 && r.tokens {
-			kc, kd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, tokens(n))
-			})
-			at(gtx, image.Pt(w-gtx.Dp(10)-kd.Size.X, (hh-kd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { kc.Add(gtx.Ops); return kd })
-			room -= kd.Size.X + gtx.Dp(theme.SpaceM)
-		}
-		title := func(t string) (op.CallOp, layout.Dimensions) {
-			return measure(gtx, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, t)
-			})
-		}
-		// The calls by kind, as Claude Code counts them, when that fits;
-		// else how many.
-		var tc op.CallOp
-		var td layout.Dimensions
-		thinks := thought(d.s.Content, b.lo, b.hi) && !running
-		if thinks {
-			tc, td = title(strings.Replace(logTitle(took, 0, false), "Worked", "Thought", 1))
-		} else if k := toolKinds(d.s.Content, b.lo, b.hi); k != "" {
-			tc, td = title(logTitle(took, 0, running) + " · " + k)
-		}
-		if td.Size.X == 0 || td.Size.X > room {
-			tc, td = title(logTitle(took, b.tools, running))
-		}
-		at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
-		// A running fold, folded, still says what it is doing now; one of
-		// thinking alone says its first line.
-		x += td.Size.X + gtx.Dp(theme.SpaceS)
-		st := ""
-		switch {
-		case running:
-			st = logStatus(d.s.Content, b.lo, b.hi, d.t.Dir, d.t.now)
-		case thinks:
-			st = firstThought(d.s.Content, b.lo, b.hi)
-		}
-		if st != "" && room-td.Size.X > gtx.Dp(48) {
-			g := gtx
-			g.Constraints.Max.X = room - td.Size.X - gtx.Dp(theme.SpaceS)
-			sc, sd := measure(g, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.TextQuiet, st)
-			})
-			at(gtx, image.Pt(x, (hh-sd.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { sc.Add(gtx.Ops); return sd })
-		}
+		x += gtx.Dp(22)
+		g := gtx
+		g.Constraints.Max.X = max(0, w-gtx.Dp(rowPad)-x)
+		lc, ld := measure(g, func(gtx layout.Context) layout.Dimensions {
+			return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), col, label)
+		})
+		at(gtx, image.Pt(x, onBase(centerBase(hh, ld), ld)), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
 		return layout.Dimensions{Size: image.Pt(w, hh)}
 	})
-	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// logItem is item i of an open work log: a line over it, and the box's
-// bottom when it is the last. top is a call outside a fold, a box of its
-// own.
-func (d *cdraw) logItem(gtx layout.Context, i int, top, last bool) layout.Dimensions {
+// logItem is item i of a work log, with no box: a row of an open fold,
+// or a call on its own.
+func (d *cdraw) logItem(gtx layout.Context, i int) layout.Dimensions {
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	return d.logEntry(gtx, i)
+}
+
+// turnLine is the line T3 Code draws at a turn's work: "Worked for 22s"
+// with a chevron that hides the work or shows it again, at the top of a
+// finished turn, or "Working for 12s" at the end of a running one; the
+// turn's tokens after it, quieter; a hairline under it.
+func (d *cdraw) turnLine(gtx layout.Context, r *trow) layout.Dimensions {
+	th := d.th
 	w := gtx.Constraints.Max.X
-	g := gtx
-	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
-	call, rd := measure(g, func(gtx layout.Context) layout.Dimensions { return d.logEntry(gtx, i) })
-	h := 1 + rd.Size.Y
-	if last {
-		h++
+	start, end, _ := turnTimes(d.s, r.b, r.b.hi == len(d.s.Content))
+	took := end.Sub(start)
+	verb := "Worked"
+	if r.running {
+		verb, took = "Working", d.t.now.Sub(start)
+		d.t.live = true
 	}
-	defer d.logFrame(gtx, w, h, top, last)()
-	paint.FillShape(gtx.Ops, d.th.BorderSubtle, clip.Rect{Max: image.Pt(w, 1)}.Op())
-	at(gtx, image.Pt(0, 1), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return rd })
-	return layout.Dimensions{Size: image.Pt(w, h)}
+	label := verb
+	if !start.IsZero() && took >= time.Second {
+		label += " for " + duration(took)
+	}
+	detail := ""
+	if n := turnTokens(d.s, r.b.turn); n > 0 {
+		detail = " · " + tokens(n)
+	}
+	pt, pb := gtx.Dp(theme.SpaceXS), gtx.Dp(theme.SpaceS)
+	line := func(gtx layout.Context, hover bool) layout.Dimensions {
+		col := th.Muted
+		if hover {
+			col = th.Fg
+		}
+		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), col, label)
+		})
+		x := gtx.Dp(theme.Space2XS)
+		at(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
+		x += ld.Size.X
+		if detail != "" {
+			dc, dd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.TextQuiet, detail)
+			})
+			at(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions { dc.Add(gtx.Ops); return dd })
+			x += dd.Size.X
+		}
+		if !r.running {
+			chev := "chevron-right"
+			if r.open {
+				chev = "chevron-down"
+			}
+			x += gtx.Dp(theme.SpaceXS)
+			icon(gtx, image.Pt(x, (ld.Size.Y-gtx.Dp(14))/2), chev, 14, col)
+			x += gtx.Dp(14)
+		}
+		return layout.Dimensions{Size: image.Pt(x+gtx.Dp(theme.Space2XS), ld.Size.Y)}
+	}
+	var ld layout.Dimensions
+	at(gtx, image.Pt(0, pt), func(gtx layout.Context) layout.Dimensions {
+		if r.running {
+			ld = line(gtx, false)
+			return ld
+		}
+		c := d.t.click(turnID(d.s, r.b))
+		ld = clickable(gtx, c, func(gtx layout.Context) layout.Dimensions { return line(gtx, c.Hovered()) })
+		return ld
+	})
+	y := pt + ld.Size.Y + pb
+	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(w, y+max(1, gtx.Dp(1)))}.Op())
+	return layout.Dimensions{Size: image.Pt(w, y+max(1, gtx.Dp(1)))}
 }
 
-// logFrame draws one row's slice of the work log's box, w by h: the
-// rounded top when top, the rounded bottom when bottom, the sides
-// between. It clips what follows to the inside of the box until the
-// returned func runs.
-func (d *cdraw) logFrame(gtx layout.Context, w, h int, top, bottom bool) func() {
-	rad := gtx.Dp(theme.RadiusPopover)
-	r := image.Rect(0, 0, w, h)
-	if !top {
-		r.Min.Y -= 2*rad + 2
-	}
-	if !bottom {
-		r.Max.Y += 2*rad + 2
-	}
-	seg := clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops)
-	rrect(gtx, r, rad, d.th.Bg, d.th.BorderSubtle)
-	inner := clip.UniformRRect(r.Inset(1), rad-1).Push(gtx.Ops)
-	return func() { inner.Pop(); seg.Pop() }
-}
+// turnID is the id of the Worked for line's fold of turn b's work.
+func turnID(s *session.Snapshot, b block) string { return "turn:" + s.Content[b.lo].ID }
 
-// logID is the fold id of b's work log: its first item's, or its turn's
-// for the empty header of a running turn.
-func logID(s *session.Snapshot, b block) string {
-	if b.hi <= b.lo {
-		return "log:now:" + b.turn
-	}
-	return "log:" + s.Content[b.lo].ID
-}
+// logID is the fold id of b's work log: its first item's.
+func logID(s *session.Snapshot, b block) string { return "log:" + s.Content[b.lo].ID }
 
 // failed is whether a call in content[lo:hi] failed.
 func failed(content []session.Item, lo, hi int) bool {
@@ -174,17 +167,6 @@ func firstThought(content []session.Item, lo, hi int) string {
 		}
 	}
 	return ""
-}
-
-// thought is whether content[lo:hi] is all reasoning: a fold that says
-// "Thought for 4s".
-func thought(content []session.Item, lo, hi int) bool {
-	for i := lo; i < hi; i++ {
-		if k := content[i].Kind; k != session.KindReasoningText && k != session.KindReasoningSummaryText {
-			return false
-		}
-	}
-	return hi > lo
 }
 
 // logRow is one item of a work log.

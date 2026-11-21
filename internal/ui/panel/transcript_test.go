@@ -228,9 +228,10 @@ func longTurn(n int) *session.Snapshot {
 }
 
 // TestTranscriptTurn: a work log is one header row, running or done,
-// until the user opens it. Open, it is a list row per call, so only the
-// calls in view are laid out, and it stays open after the turn ends. A
-// failed call does not open its log.
+// until the user opens it, with a Working line under it while it runs and
+// a Worked line over it once done. Open, it is a list row per call, so
+// only the calls in view are laid out, and it stays open after the turn
+// ends. A failed call does not open its log.
 func TestTranscriptTurn(t *testing.T) {
 	th := theme.Dark()
 	s := longTurn(2000)
@@ -239,20 +240,20 @@ func TestTranscriptTurn(t *testing.T) {
 	now := time.Now()
 	transcriptFrame(&tr, th, s, &ops, now)
 	transcriptFrame(&tr, th, s, &ops, now)
-	if len(tr.rows) != 2 || tr.rows[1].seg != segHead || !tr.rows[1].running || tr.rows[1].open || !tr.rows[1].last {
-		t.Fatalf("running turn: %d rows, want the prompt and one folded header", len(tr.rows))
+	if len(tr.rows) != 3 || tr.rows[1].seg != segHead || !tr.rows[1].running || tr.rows[1].open || tr.rows[2].seg != segTurn {
+		t.Fatalf("running turn: %d rows, want the prompt, one folded header and Working", len(tr.rows))
 	}
 	tr.clicks[logID(s, tr.rows[1].b)].Click()
 	transcriptFrame(&tr, th, s, &ops, now)
 	transcriptFrame(&tr, th, s, &ops, now)
-	if len(tr.rows) != 2002 || tr.laid == 0 || tr.laid > 60 {
+	if len(tr.rows) != 2003 || tr.laid == 0 || tr.laid > 60 {
 		t.Fatalf("opened log: %d rows, laid out %d of 2,000 calls", len(tr.rows), tr.laid)
 	}
 	s.Turns[0].State = session.TurnCompleted
 	s.Running = false
 	transcriptFrame(&tr, th, s, &ops, now.Add(time.Minute))
 	transcriptFrame(&tr, th, s, &ops, now.Add(time.Minute))
-	if len(tr.rows) != 2002 || tr.rows[1].running {
+	if len(tr.rows) != 2003 || tr.rows[1].seg != segTurn || tr.rows[2].running {
 		t.Fatalf("finished turn the user opened: %d rows", len(tr.rows))
 	}
 
@@ -261,7 +262,7 @@ func TestTranscriptTurn(t *testing.T) {
 	done.Content[2].Tool.Status = "failed"
 	var fresh Transcript
 	transcriptFrame(&fresh, th, done, &ops, now)
-	if len(fresh.rows) != 2 || fresh.rows[1].open {
+	if len(fresh.rows) != 3 || fresh.rows[2].open {
 		t.Fatalf("finished turn with a failed call: %d rows, want one folded header", len(fresh.rows))
 	}
 }
@@ -408,10 +409,11 @@ func TestTranscriptRunningFold(t *testing.T) {
 	frame := func(s *session.Snapshot) bool {
 		transcriptFrame(&tr, th, s, &ops, now)
 		transcriptFrame(&tr, th, s, &ops, now)
-		if len(tr.rows) < 2 || tr.rows[1].seg != segHead {
-			t.Fatalf("%d rows, want the prompt and the log's header", len(tr.rows))
+		h := slices.IndexFunc(tr.rows, func(r trow) bool { return r.seg == segHead })
+		if h < 0 {
+			t.Fatalf("%d rows, want the log's header", len(tr.rows))
 		}
-		return tr.rows[1].open
+		return tr.rows[h].open
 	}
 	if frame(s) {
 		t.Fatal("a running turn's log starts open")
@@ -422,7 +424,9 @@ func TestTranscriptRunningFold(t *testing.T) {
 	if frame(s) {
 		t.Fatal("new events opened the log")
 	}
-	click := func() { tr.clicks[logID(s, tr.rows[1].b)].Click() }
+	click := func() {
+		tr.clicks[logID(s, tr.rows[slices.IndexFunc(tr.rows, func(r trow) bool { return r.seg == segHead })].b)].Click()
+	}
 	click()
 	if !frame(s) {
 		t.Fatal("the user's click did not open the log")

@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"cmp"
 	"image"
 	"io"
 	"slices"
@@ -182,17 +181,12 @@ type trow struct {
 	b       block
 	seg     rowSeg
 	i       int  // segItem, segProse: the item
-	top     bool // segItem: the box starts here, a call outside a fold
-	last    bool // segHead, segItem: the work log's box ends here
-	open    bool // segHead: the log is open
-	running bool // segHead, segReply: the turn runs
-	tokens  bool // segHead: the turn's last fold, which says its tokens
-	// start and end are when a fold's work began and ended: end is zero
-	// while it runs.
-	start, end time.Time
-	res        *resolved
-	tail       layout.Widget
-	gap        unit.Dp // space above it
+	top     bool // segItem: a call on its own, not in a fold
+	open    bool // segHead: the fold is open; segTurn: the turn's work shows
+	running bool // segHead, segReply, segTurn: the turn runs
+	res     *resolved
+	tail    layout.Widget
+	gap     unit.Dp // space above it
 }
 
 // rowSeg is which piece of its block a row draws.
@@ -203,6 +197,7 @@ const (
 	segHead                  // a turn's work log header
 	segItem                  // an item in an open work log
 	segProse                 // an item written for the reader, between the folds
+	segTurn                  // Worked for over a finished turn's work, Working for under a running one's
 	segReply                 // a turn's reply
 	segTodo                  // a turn's task list, its last task-list call i
 	segChanges               // a finished turn's change card
@@ -597,7 +592,14 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		gap := gtx.Dp(r.gap)
 		t.msg.dy = gap
 		gtx.Constraints = layout.Constraints{Max: image.Pt(col, gtx.Constraints.Max.Y)}
-		off := op.Offset(image.Pt(x0, gap)).Push(gtx.Ops)
+		dx := 0
+		if r.tail == nil && r.res == nil && (r.seg == segHead || r.seg == segItem) {
+			// A line of work starts at the prose's edge, as T3 Code's rows
+			// do: its chevron where the text starts, its hover past it.
+			dx = gtx.Dp(rowPad - theme.Space2XS)
+			gtx.Constraints.Max.X += dx
+		}
+		off := op.Offset(image.Pt(x0-dx, gap)).Push(gtx.Ops)
 		var dims layout.Dimensions
 		switch {
 		case r.tail != nil:
@@ -609,9 +611,11 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 				t.laid += r.b.hi - r.b.lo
 			}
 			dims = d.logHead(gtx, r)
+		case r.seg == segTurn:
+			dims = d.turnLine(gtx, r)
 		case r.seg == segItem:
 			t.laid++
-			dims = d.logItem(gtx, r.i, r.top, r.last)
+			dims = d.logItem(gtx, r.i)
 		case r.seg == segProse:
 			t.laid++
 			dims = d.proseRow(gtx, r.i)
@@ -817,6 +821,10 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	quiet := quietSettings(d.s.Content)
 	t.tool.shells.index(d.s.Content)
 	k := 0
+	lastOf := map[string]int{} // each turn's last block: only it runs
+	for bi, b := range t.blocks {
+		lastOf[b.turn] = bi
+	}
 	for bi, b := range t.blocks {
 		// A stopped turn ends on a quiet Interrupted line.
 		if bi > 0 && t.blocks[bi-1].turn != "" && t.blocks[bi-1].turn != b.turn && stopped[t.blocks[bi-1].turn] {
@@ -831,8 +839,19 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			}
 			continue
 		}
-		run := running(b, b.hi == len(d.s.Content))
+		last := b.turn == "" || lastOf[b.turn] == bi
+		run := running(b, b.hi == len(d.s.Content)) && last
+		// A finished turn's work sits under its Worked for line, which
+		// hides it on a click, as T3 Code folds a turn; it shows by default.
+		show := t.toggled(gtx, turnID(d.s, b), true)
+		mark := len(t.rows)
 		t.turnRows(gtx, d, b, run, quiet)
+		if work := len(t.rows) > mark; work && !run && last {
+			if !show {
+				t.rows = t.rows[:mark]
+			}
+			t.rows = slices.Insert(t.rows, mark, trow{b: b, seg: segTurn, open: show})
+		}
 		if b.todo >= 0 {
 			t.rows = append(t.rows, trow{b: b, seg: segTodo, i: b.todo})
 		}
@@ -843,6 +862,9 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 				t.rows = append(t.rows, trow{res: &t.done[k]})
 			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
+		}
+		if run {
+			t.rows = append(t.rows, trow{b: b, seg: segTurn, running: true})
 		}
 		if !run && len(t.changesOf(d, b)) > 0 {
 			t.rows = append(t.rows, trow{b: b, seg: segChanges})
@@ -865,13 +887,10 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 // turnRows lays out turn b's work log, split around what was written for
 // the reader: each such item is a row of its own in reading order, and
 // each run of calls between two of them is a fold, "summary, fold,
-// summary, fold". A fold of one call is that call's row, except the
-// newest while the turn runs, whose header says what it does now. A
-// running turn whose newest item is not in a fold gets an empty header
-// after it, so the live header is always the turn's last.
+// summary, fold". A fold of one call is that call's row, as T3 Code draws
+// one, except the newest while the turn runs, whose header says what it
+// does now.
 func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, quiet map[int]bool) {
-	start, end, _ := turnTimes(d.s, b, b.hi == len(d.s.Content))
-	head, tail := -1, false // the last fold's header row; whether the turn's rows end in it
 	g := t.fold[:0]
 	defer func() { t.fold = g }()
 	fold := func(final bool) {
@@ -888,26 +907,16 @@ func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, q
 		items := g // read before g grows again
 		g = g[:0]
 		if len(items) == 1 && gb.tools == 1 && !(run && final) {
-			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: gb.lo, top: true, last: true})
-			tail = false
+			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: gb.lo, top: true})
 			return
 		}
-		fs, fe := start, end
-		if gb.lo > b.lo {
-			fs = itemTime(&d.s.Content[gb.lo])
-		}
-		if gb.hi < b.hi { // its work ends where what follows it starts
-			fe = itemTime(&d.s.Content[gb.hi])
-		}
 		open := t.toggled(gtx, logID(d.s, gb), false)
-		head, tail = len(t.rows), true
-		t.rows = append(t.rows, trow{b: gb, seg: segHead, open: open, last: true, start: fs, end: fe})
+		t.rows = append(t.rows, trow{b: gb, seg: segHead, open: open, running: run && final})
 		for _, i := range items {
 			if !open {
 				break
 			}
-			t.rows[len(t.rows)-1].last = false
-			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: i, last: true})
+			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: i})
 		}
 	}
 	for i := b.lo; i < b.hi; i++ {
@@ -916,27 +925,11 @@ func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, q
 		case outside(&d.s.Content[i]):
 			fold(false)
 			t.rows = append(t.rows, trow{b: b, seg: segProse, i: i})
-			tail = false
 		default:
 			g = append(g, i)
 		}
 	}
 	fold(true)
-	if run && !tail {
-		gb := b
-		gb.hi, gb.reply, gb.tools = b.lo, -1, 0
-		head = len(t.rows)
-		t.rows = append(t.rows, trow{b: gb, seg: segHead, last: true, start: start})
-	}
-	if head >= 0 {
-		t.rows[head].tokens = true
-		t.rows[head].running = run
-	}
-}
-
-// itemTime is when it came, zero when it does not say.
-func itemTime(it *session.Item) time.Time {
-	return parseTime(cmp.Or(it.CreatedAt, it.UpdatedAt))
 }
 
 // rowGap is the space above row i: 32 from the end of a turn to the
@@ -952,6 +945,8 @@ func rowGap(rows []trow, i int) unit.Dp {
 	switch {
 	case sameTurn && r.seg == segItem && !r.top:
 		return 0
+	case sameTurn && r.seg != segTodo && r.seg != segChanges && prev.seg != segTodo:
+		return theme.SpaceS // T3 Code's 8 under a line of work or prose
 	case sameTurn:
 		return gapInTurn
 	case prompt(r):

@@ -245,11 +245,17 @@ func TestToolRowClicks(t *testing.T) {
 		}
 		frame()
 	}
-	// The column starts 24 dp in; the log's header is 1+34 dp under the top
-	// 24, the Read row's middle 1+17 dp below that. Its chip follows the
-	// verb, from about 56+30 dp.
+	// The column starts 24 dp in. Under the top 24 come the Worked line (its
+	// label with 4 above, 8 and a hairline below) and 8 dp, then the log's
+	// header, 34 dp, then the Read row, its middle 17 dp down. Its chip
+	// follows the verb, from about 56+30 dp.
+	var lops op.Ops
+	_, ld := measure(layout.Context{Ops: &lops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 100))},
+		func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "Worked", 1)
+		})
 	x0 := float32(24)
-	y := float32(24 + 1 + 34 + 1 + 17)
+	y := float32(24+4+ld.Size.Y+8+1+8) + 34 + 17
 	click(x0+120, y)
 	if len(opened) != 1 || opened[0] != file || isOpen(tr.open, "r", false) {
 		t.Fatalf("chip click: opened %v, row open %v", opened, isOpen(tr.open, "r", false))
@@ -259,7 +265,7 @@ func TestToolRowClicks(t *testing.T) {
 		t.Fatalf("row click: open %v, opened %v", isOpen(tr.open, "r", false), opened)
 	}
 	click(x0+600, y) // fold it again
-	// The picture row's header 1 dp under the Read row, then its thumbnail
+	// The picture row's header under the Read row, then its thumbnail
 	// under it, from 56 dp.
 	for range 20 { // the 1 px picture decodes off this goroutine
 		frame()
@@ -268,7 +274,7 @@ func TestToolRowClicks(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	click(x0+56+10, y+17+1+34+10)
+	click(x0+56+10, y+17+34+10)
 	if tr.tool.zoom.key != "p/image-1" {
 		t.Fatalf("thumbnail click: zoom %q", tr.tool.zoom.key)
 	}

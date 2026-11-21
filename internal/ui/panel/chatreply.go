@@ -543,12 +543,10 @@ func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start,
 	if md.Clicked(gtx) {
 		d.t.copy(gtx, "md:"+it.ID, strings.TrimSpace(it.Text))
 	}
+	// The time it came; how long the turn took is its Worked for line's.
 	when := ""
 	if !end.IsZero() {
 		when = end.Local().Format("15:04")
-		if !start.IsZero() && end.Sub(start) >= time.Second {
-			when += " · " + duration(end.Sub(start))
-		}
 	}
 	return at(gtx, image.Pt(-gtx.Dp(theme.SpaceS), 0), func(gtx layout.Context) layout.Dimensions {
 		return hrow(gtx, 0,

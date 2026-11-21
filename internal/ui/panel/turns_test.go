@@ -29,6 +29,10 @@ func rowsOf(s *session.Snapshot, tr *Transcript) string {
 		case r.seg == segProse:
 			w := strings.Fields(s.Content[r.i].Text)
 			out = append(out, "prose:"+strings.Join(w[:min(2, len(w))], " "))
+		case r.seg == segTurn && r.running:
+			out = append(out, "working")
+		case r.seg == segTurn:
+			out = append(out, "worked")
 		case r.seg == segHead && r.b.hi > r.b.lo && r.b.tools == 0:
 			out = append(out, "thought")
 		case r.seg == segHead && r.running:
@@ -60,14 +64,16 @@ func rowsOf(s *session.Snapshot, tr *Transcript) string {
 func TestTurnSplit(t *testing.T) {
 	th := theme.Dark()
 	want := map[string]string{
-		"claude-finished": "prompt | prose:Running the | fold 3 | prose:The divide | call | prose:Running the | call | reply | changes",
-		"claude-running": "prompt | prose:Running the | fold 3 | prose:The divide | call | prose:Running the | call | reply | changes | " +
-			"prompt | prose:Reading the | call | prose:The tests | live 2",
-		// The rollout logs an MCP call and the plan before its prompt.
-		"codex-finished": "call | todo | prompt | prose:I’ll look | fold 2 | prose:`update_plan` is | fold 2 | prose:The regression | fold 4 | reply | changes",
-		"codex-running":  "live 1 | todo | prompt | prose:I’ll look | fold 2 | prose:`update_plan` is | fold 2 | prose:The regression | live 4",
-		"agy-finished":   "prompt | thought | prose:I'll run | fold 3 | prose:`divide` floors | fold 2 | reply",
-		"agy-running":    "prompt | thought | prose:I'll run | fold 3 | prose:`divide` floors | live 1",
+		"claude-finished": "prompt | worked | prose:Running the | fold 3 | prose:The divide | call | prose:Running the | call | reply | changes",
+		"claude-running": "prompt | worked | prose:Running the | fold 3 | prose:The divide | call | prose:Running the | call | reply | changes | " +
+			"prompt | prose:Reading the | call | prose:The tests | live 2 | working",
+		// The rollout logs an MCP call and the plan before its prompt: that
+		// block is part of the turn after it, which alone runs and has the
+		// Worked line.
+		"codex-finished": "call | todo | prompt | worked | prose:I’ll look | fold 2 | prose:`update_plan` is | fold 2 | prose:The regression | fold 4 | reply | changes",
+		"codex-running":  "call | todo | prompt | prose:I’ll look | fold 2 | prose:`update_plan` is | fold 2 | prose:The regression | live 4 | working",
+		"agy-finished":   "prompt | worked | thought | prose:I'll run | fold 3 | prose:`divide` floors | fold 2 | reply",
+		"agy-running":    "prompt | thought | prose:I'll run | fold 3 | prose:`divide` floors | live 1 | working",
 	}
 	for _, f := range turnFixtures {
 		for _, run := range []bool{false, true} {
@@ -106,7 +112,7 @@ func TestTurnSplitFolds(t *testing.T) {
 	frame(s)
 	first := slices.IndexFunc(tr.rows, func(r trow) bool { return r.seg == segHead })
 	tr.clicks[logID(s, tr.rows[first].b)].Click()
-	open := "prompt | prose:Running the | fold 3 | item | item | item | item | prose:The divide"
+	open := "prompt | worked | prose:Running the | fold 3 | item | item | item | item | prose:The divide"
 	if got := frame(s); !strings.HasPrefix(got, open) {
 		t.Fatalf("opened the first fold:\n got %s\nwant %s…", got, open)
 	}
@@ -115,12 +121,23 @@ func TestTurnSplitFolds(t *testing.T) {
 		session.Item{ID: "x1", Kind: session.KindReasoningText, Phase: session.PhaseSummary, Text: "Checking the new test fails without the fix.", TurnID: &turn},
 		session.Item{ID: "x2", Kind: session.KindToolCall, TurnID: &turn, Tool: &session.ToolCall{ToolName: "Bash", Command: "git stash", Status: "running"}})
 	got := frame(s)
-	if !strings.HasPrefix(got, open) || !strings.HasSuffix(got, "prose:The tests | fold 2 | prose:Checking the | live 1") {
+	if !strings.HasPrefix(got, open) || !strings.HasSuffix(got, "prose:The tests | fold 2 | prose:Checking the | live 1 | working") {
 		t.Fatalf("new events:\n got %s", got)
 	}
 	again := *s // a reconnect: the same chat in a fresh snapshot
 	again.Content = slices.Clone(s.Content)
 	if got := frame(&again); !strings.HasPrefix(got, open) {
 		t.Fatalf("a reconnect closed the fold the user opened:\n got %s", got)
+	}
+	// A click on Worked for hides the finished turn's work, a second shows
+	// it again with the fold still open.
+	worked := slices.IndexFunc(tr.rows, func(r trow) bool { return r.seg == segTurn })
+	tr.clicks[turnID(&again, tr.rows[worked].b)].Click()
+	if got := frame(&again); !strings.HasPrefix(got, "prompt | worked | reply | changes | prompt") {
+		t.Fatalf("hid the turn's work:\n got %s", got)
+	}
+	tr.clicks[turnID(&again, tr.rows[worked].b)].Click()
+	if got := frame(&again); !strings.HasPrefix(got, open) {
+		t.Fatalf("showed the turn's work again:\n got %s", got)
 	}
 }
