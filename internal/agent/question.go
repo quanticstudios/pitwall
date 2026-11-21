@@ -48,7 +48,7 @@ func ReadQuestion(provider model.Provider, g vt.Grid) *Question {
 			break
 		}
 	}
-	if header >= 0 && end < 0 && strings.Contains(strings.Join(rows[header:], "\n"), "Ready to submit your answers?") {
+	if header >= 0 && end < 0 && reviewPage(strings.Join(rows[header:], "\n")) {
 		end = len(rows)
 	}
 	if header < 0 || end < 0 {
@@ -160,4 +160,12 @@ func readCodexQuestion(g vt.Grid) *Question {
 	sum := sha256.Sum256([]byte(strings.Join(rows[header:end+1], "\n")))
 	q.ID = fmt.Sprintf("%x", sum[:16])
 	return q
+}
+
+// reviewPage is whether page is the review of a question's answers, which
+// Claude Code draws without a menu hint when the pane is short; 2.1.330
+// says only "Review your answers", earlier ones "Ready to submit your
+// answers?" as well.
+func reviewPage(page string) bool {
+	return strings.Contains(page, "Ready to submit your answers?") || strings.Contains(page, "Review your answers") && strings.Contains(page, "Submit answers")
 }

@@ -5,7 +5,10 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 )
@@ -135,10 +138,14 @@ func (s *stream) settings(set session.Settings) ([]rpcCall, error) {
 	return calls, nil
 }
 
-// input is an open form elicitation: its JSON-RPC id and each field's type.
+// input is an open form elicitation: its JSON-RPC id, each field's type,
+// per field each option's label to the value the schema wants back, and
+// per question the free-text field its typed answer goes to.
 type input struct {
-	ID    json.RawMessage
-	types map[string]string
+	ID     json.RawMessage
+	types  map[string]string
+	values map[string]map[string]string
+	other  map[string]string
 }
 
 type enumOption struct {
@@ -161,7 +168,9 @@ type property struct {
 
 // elicit turns a form elicitation/create into a user-input request: one
 // question per schema property, in schema order. claude-agent-acp sends
-// AskUserQuestion this way, each question followed by a free-text "Other".
+// AskUserQuestion this way, and agy its ask_question, each question
+// followed by a free-text field (question_0_custom, q1_other) that becomes
+// the question's own typed row rather than a question of its own.
 func (d *driver) elicit(m rpcMessage) []session.Event {
 	var p struct {
 		Mode            string `json:"mode"`
@@ -186,12 +195,20 @@ func (d *driver) elicit(m rpcMessage) []session.Event {
 		d.reply(m.ID, map[string]string{"action": "cancel"})
 		return nil
 	}
-	in := input{ID: m.ID, types: map[string]string{}}
+	in := input{ID: m.ID, types: map[string]string{}, values: map[string]map[string]string{}, other: map[string]string{}}
 	questions := make([]session.Question, 0, len(keys))
 	for i, k := range keys {
 		pr := props[k]
 		in.types[k] = pr.Type
-		q := session.Question{ID: k, Header: pr.Title, Prompt: pr.Description, Options: []session.PromptOption{}}
+		if n := len(questions); n > 0 && len(questions[n-1].Options) > 0 && pr.Type == "string" && len(pr.Enum)+len(pr.OneOf) == 0 &&
+			(k == questions[n-1].ID+"_other" || k == questions[n-1].ID+"_custom") {
+			in.other[questions[n-1].ID] = k
+			continue
+		}
+		q := session.Question{ID: k, Header: pr.Title, Prompt: pr.Description, Options: []session.PromptOption{}, Multi: pr.Type == "array"}
+		if q.Prompt == "" && strings.HasSuffix(strings.TrimSpace(pr.Title), "?") { // agy's title is the question itself
+			q.Prompt, q.Header = pr.Title, ""
+		}
 		if q.Prompt == "" && i == 0 {
 			q.Prompt = p.Message
 		}
@@ -209,6 +226,10 @@ func (d *driver) elicit(m rpcMessage) []session.Event {
 		if pr.Type == "boolean" {
 			q.Options = append(q.Options, session.PromptOption{ID: "true", Label: "Yes"}, session.PromptOption{ID: "false", Label: "No"})
 		}
+		in.values[k] = map[string]string{}
+		for _, o := range q.Options {
+			in.values[k][o.Label] = o.ID
+		}
 		questions = append(questions, q)
 	}
 	key := "acp-input-" + string(m.ID)
@@ -219,10 +240,25 @@ func (d *driver) elicit(m rpcMessage) []session.Event {
 // content is an elicitation's accepted content: each answered field in its
 // schema type. Empty when nothing was answered.
 func (in input) content(answers map[string][]string) map[string]any {
+	answers = maps.Clone(answers)
+	for q, field := range in.other { // typed text goes to the question's free-text field
+		var picked []string
+		for _, v := range answers[q] {
+			if _, ok := in.option(q, v); ok {
+				picked = append(picked, v)
+			} else if v != "" {
+				answers[field] = append(slices.Clone(answers[field]), v)
+			}
+		}
+		answers[q] = picked
+	}
 	content := map[string]any{}
 	for k, typ := range in.types {
 		var a []string
 		for _, v := range answers[k] {
+			if id, ok := in.option(k, v); ok {
+				v = id // the card answers with an option's label
+			}
 			if v != "" {
 				a = append(a, v)
 			}
@@ -243,6 +279,20 @@ func (in input) content(answers map[string][]string) map[string]any {
 		}
 	}
 	return content
+}
+
+// option is the schema value of field k's option v, by its label or its
+// value; false when v is no option, as typed text.
+func (in input) option(k, v string) (string, bool) {
+	if id, ok := in.values[k][v]; ok {
+		return id, true
+	}
+	for _, id := range in.values[k] {
+		if id == v {
+			return id, true
+		}
+	}
+	return "", false
 }
 
 // objectKeys is the keys of the JSON object b in their order, which a map

@@ -105,6 +105,9 @@ func idle(t remote.Tab) bool { return !phone.Busy(t) && t.State != "awaiting-inp
 
 // placeholder is the empty field's text.
 func placeholder(t remote.Tab) string {
+	if answerable(t) {
+		return "Pick an answer above, or type your own"
+	}
 	if busy(t) {
 		return "Queue a message. Enter adds a line."
 	}
@@ -113,6 +116,15 @@ func placeholder(t remote.Tab) string {
 		name = "the agent"
 	}
 	return "Message " + name + ". Enter adds a line."
+}
+
+// answerable is whether the box answers what t asks: a terminal question
+// with a typed row, or a chat tab's questions with nothing else waiting.
+func answerable(t remote.Tab) bool {
+	if t.Question != nil {
+		return t.Question.Other
+	}
+	return len(t.Requests) > 0 && !slices.ContainsFunc(t.Requests, func(r remote.Request) bool { return r.Kind != "input" })
 }
 
 // queueLine is the line above the box: what waits in pitwall's queue, the
@@ -244,8 +256,12 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	st := sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t))
 	c.imageClicks(gtx, env)
 	if k.send.Clicked(gtx) && (st == sendReady || st == sendQueue) {
-		c.sendDraft(env)
-		st = sendSending
+		if c.answerFromBox(env, k.ed.Text(), k.attachment != nil) {
+			k.ed.SetText("")
+		} else {
+			c.sendDraft(env)
+			st = sendSending
+		}
 	}
 	if k.pasteText {
 		k.pasteText = false

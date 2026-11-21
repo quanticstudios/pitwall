@@ -1,0 +1,12 @@
+────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Size  ✔ Submit  →
+
+Review your answers
+
+ ● Which color do you prefer?
+   → Blue
+ ● Which size do you want?
+   → Small
+
+❯ 1. Submit answers
+  2. Cancel

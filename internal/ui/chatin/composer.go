@@ -44,6 +44,9 @@ import (
 type Composer struct {
 	ed    widget.Editor
 	draft Draft
+	// typedFor is the question the draft was last edited under, "" for
+	// none: only a draft typed while a question shows answers it.
+	typedFor string
 
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
 	modeBtn, modelBtn widget.Clickable
@@ -98,6 +101,9 @@ type Env struct {
 	// Esc, when set, takes Escape before it stops the turn; true when it
 	// closed something, as the transcript's side panel.
 	Esc func() bool
+	// Answer, when set, takes a sent draft as the typed answer to the
+	// transcript's open question; true when a question took it.
+	Answer func(text string) bool
 	// Now is whether the daemon takes ChatSend How "now" (proto.ChatNowLevel);
 	// Ctrl+Enter sends "steer" to one that does not.
 	Now bool
@@ -423,6 +429,12 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 		c.note = "Wait for the image to attach"
 		return
 	}
+	if len(imgs) == 0 && !now && env.Answer != nil && asking(env.Snap) && c.typedFor == asked(env.Snap) && !SlashCommand(text) && env.Answer(text) {
+		c.note = ""
+		c.ed.SetText("")
+		c.draft.Clear()
+		return
+	}
 	m := proto.ChatSend{Chat: env.Chat, Text: text, Attachments: Attachments(imgs)}
 	if env.Snap.Busy() || Pending(env.Snap) {
 		m.How = "queue"
@@ -616,6 +628,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.submit(env, gtx.Now, false)
 		case widget.ChangeEvent:
 			c.draft.Sync(c.Text())
+			c.typedFor = asked(env.Snap)
 			if !c.waiting() && c.Text() != c.noteAt {
 				c.note, c.noteAt = "", ""
 			}

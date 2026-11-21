@@ -1,10 +1,12 @@
 package panel
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +24,7 @@ const (
 	blockPrompt blockKind = iota // a user prompt's bubble
 	blockTurn                    // a turn's work log and its reply
 	blockSystem                  // a line from pitwall between turns
+	blockAsk                     // an answered question in a turn, its Answered line
 )
 
 // block is a run of transcript items, Content[lo:hi], drawn as one row.
@@ -36,17 +39,33 @@ type block struct {
 	// todo is the turn's last task-list call, its checklist card; -1 for
 	// none. todos counts its task-list calls, which the work log leaves out.
 	todo, todos int
+	// from is the turn's first item: lo, unless an answered question or
+	// a resolved line split the turn and this block comes after it. more
+	// is whether the turn goes on in a later block.
+	from int
+	more bool
 }
 
 // blocks groups a transcript: each prompt is a bubble, the items after
 // it up to the next prompt or a change of turn are one turn, and a
-// system line outside a turn stands alone.
-func blocks(content []session.Item, out []block) []block {
+// system line outside a turn stands alone. An answered question splits
+// its turn: its Answered line sits where it was asked, and the work after
+// it is a block of its own below; so does each of cuts, the item before
+// which a line answered in this window goes.
+func blocks(content []session.Item, out []block, cuts ...int) []block {
 	out = out[:0]
 	for i := range content {
 		it := &content[i]
 		turn := deref(it.TurnID)
+		n := len(out)
+		inTurn := n > 0 && out[n-1].hi == i && (out[n-1].kind == blockTurn || out[n-1].kind == blockAsk) && (turn == "" || out[n-1].turn == "" || turn == out[n-1].turn)
 		switch {
+		case inTurn && askItem(it) && it.Tool.Output != "":
+			out = append(out, block{kind: blockAsk, lo: i, hi: i + 1, turn: cmp.Or(out[n-1].turn, turn), reply: -1, from: out[n-1].from})
+			continue
+		case inTurn && out[n-1].kind == blockTurn && slices.Contains(cuts, i) && it.Kind != session.KindUserPrompt && it.Kind != session.KindSystem:
+			out = append(out, block{kind: blockTurn, lo: i, hi: i + 1, turn: cmp.Or(out[n-1].turn, turn), reply: -1, from: out[n-1].from})
+			continue
 		case it.Kind == session.KindUserPrompt:
 			out = append(out, block{kind: blockPrompt, lo: i, hi: i + 1, turn: turn, reply: -1})
 			continue
@@ -62,11 +81,19 @@ func blocks(content []session.Item, out []block) []block {
 				b.turn = turn
 			}
 		} else {
-			out = append(out, block{kind: blockTurn, lo: i, hi: i + 1, turn: turn, reply: -1})
+			b := block{kind: blockTurn, lo: i, hi: i + 1, turn: turn, reply: -1, from: i}
+			if inTurn { // after an answered question: the turn goes on
+				b.from, b.turn = out[n-1].from, cmp.Or(turn, out[n-1].turn)
+			}
+			out = append(out, b)
 		}
 	}
 	for k := range out {
 		b := &out[k]
+		if b.kind == blockPrompt || b.kind == blockSystem {
+			b.from = b.lo
+		}
+		b.more = k+1 < len(out) && out[k+1].kind != blockPrompt && out[k+1].kind != blockSystem && out[k+1].from == b.from && b.kind != blockPrompt
 		if b.kind != blockTurn {
 			continue
 		}

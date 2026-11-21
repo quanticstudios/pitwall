@@ -110,7 +110,9 @@ type Transcript struct {
 	keyAsk       string                          // else the question they pick in
 	typeIn       *widget.Editor                  // an Other field a key picked, to focus in the next Layout
 	askQs        map[string][]session.Question   // pending questions by request
+	asked        map[string]*askCache            // answered question calls' lines by item id
 	what         map[string]string               // pending approvals' commands, for their line
+	edits        map[string]string               // pending approvals' diffs, for their open line
 	plans        map[string]bool                 // pending approvals that are plans
 	items        int                             // len(Content) this frame
 	last         string                          // Content's last item's id this frame
@@ -163,10 +165,16 @@ var decisionLine = map[string]string{"allow": "Allowed", "allow-session": "Allow
 // last when it was answered.
 type resolved struct {
 	id, line, what string
-	prose          bool   // what is words, not a command
-	denied         bool   // a permission denied, not a plan sent back
-	after          string // the item before it when answered, "" for none
-	at             int    // len(Content) when answered
+	prose          bool        // what is words, not a command
+	denied         bool        // a permission denied, not a plan sent back
+	question       bool        // a question card's answers
+	gone           bool        // a question line the transcript's own Answered line took over
+	qs             []resolvedQ // the questions, for the open line
+	cmd            string      // an approval's command or file, in full
+	diff           string      // an allowed or denied edit's diff
+	reason         string      // a denial's reason
+	after          string      // the item before it when answered, "" for none
+	at             int         // len(Content) when answered
 	when           time.Time
 }
 
@@ -177,6 +185,10 @@ type ask struct {
 	// single-select one; there pick is the option last toggled.
 	multi [][]bool
 	moved []bool // a multiSelect question Enter moved on from
+	// touched marks a question the user picked in or typed into; a
+	// preselected recommended option alone leaves it untouched, so the card
+	// never sends itself on a pick the user did not make.
+	touched []bool
 	// active is the question the number keys act on, the one the user last
 	// clicked into; -1 for the first unanswered one.
 	active int
@@ -190,11 +202,11 @@ type ask struct {
 type trow struct {
 	b       block
 	seg     rowSeg
-	i       int  // segItem, segProse: the item
-	top     bool // segItem: a call on its own, not in a fold
-	open    bool // segHead: the fold is open; segTurn: the turn's work shows
-	running bool // segHead, segReply, segTurn: the turn runs
-	res     *resolved
+	i       int       // segItem, segProse: the item
+	top     bool      // segItem: a call on its own, not in a fold
+	open    bool      // segHead: the fold is open; segTurn: the turn's work shows
+	running bool      // segHead, segReply, segTurn: the turn runs
+	res     *resolved // open: its details show
 	tail    layout.Widget
 	gap     unit.Dp // space above it
 	rank    int     // its place in reading order, see rowRank
@@ -270,6 +282,7 @@ func (t *Transcript) Key(name string) bool {
 		// and sends the answers once none is left.
 		if q := t.askQuestion(a); a.multiQ(q) != nil {
 			a.moved[q], a.active = true, -1
+			a.touch(q)
 			if next := a.current(); next != q && a.open(next) {
 				return true
 			}
@@ -278,7 +291,7 @@ func (t *Transcript) Key(name string) bool {
 	default:
 		a := t.asks[t.keyAsk]
 		q := t.askQuestion(a)
-		a.choose(q, act.option)
+		t.pick(t.keyAsk, q, act.option)
 		if act.option == len(a.opts[q])-1 { // Other: type the answer
 			t.typeIn = &a.other[q]
 		}
@@ -286,11 +299,71 @@ func (t *Transcript) Key(name string) bool {
 	return true
 }
 
+// pick chooses option o of question q on card id. A single-select pick
+// that leaves no question open sends the card, as Claude Code's own menu
+// does; Other and multiSelect picks wait for the typed text or Enter.
+func (t *Transcript) pick(id string, q, o int) {
+	a := t.asks[id]
+	if a == nil || t.sent[id] { // a second click or key after the card went
+		return
+	}
+	a.choose(q, o)
+	if a.multiQ(q) == nil && o < len(a.opts[q])-1 && !a.waiting() {
+		t.sendAsk(id)
+	}
+}
+
+// Answer takes text typed in the composer as the answer to the open
+// question: it fills that question's typed row and sends the card once no
+// question is left open. It reports whether a question took the text.
+func (t *Transcript) Answer(text string) bool {
+	a := t.asks[t.keyAsk]
+	if a == nil || t.sent[t.keyAsk] || strings.TrimSpace(text) == "" || len(a.opts) == 0 {
+		return false
+	}
+	q := a.current()
+	a.other[q].SetText(text)
+	if a.multiQ(q) != nil {
+		a.moved[q] = true
+	} else {
+		a.pick[q] = len(a.opts[q]) - 1
+	}
+	a.touch(q)
+	a.active = -1
+	if !a.waiting() {
+		t.sendAsk(t.keyAsk)
+	}
+	return true
+}
+
+// touch marks question q as one the user answered themselves.
+func (a *ask) touch(q int) {
+	for len(a.touched) < len(a.pick) {
+		a.touched = append(a.touched, false)
+	}
+	a.touched[q] = true
+}
+
+// untouched is whether the user has not yet acted on question i.
+func (a *ask) untouched(i int) bool { return i >= len(a.touched) || !a.touched[i] }
+
+// waiting is whether a question on the card still waits on the user: open,
+// or only preselected.
+func (a *ask) waiting() bool {
+	for i := range a.pick {
+		if a.open(i) || a.untouched(i) {
+			return true
+		}
+	}
+	return false
+}
+
 // choose picks option o of question q: a multiSelect question toggles
 // it and keeps the keys, the typed row aside; a single-select pick moves
 // the keys on to the next unanswered question.
 func (a *ask) choose(q, o int) {
 	a.pick[q], a.active = o, q
+	a.touch(q)
 	if m := a.multiQ(q); m != nil {
 		if o < len(m) {
 			m[o] = !m[o]
@@ -330,6 +403,11 @@ func (a *ask) current() int {
 	for i := range a.pick {
 		if a.open(i) {
 			return i
+		}
+	}
+	for i := range a.pick {
+		if a.untouched(i) {
+			return i // a preselected recommendation the user has not confirmed
 		}
 	}
 	return len(a.pick) - 1
@@ -424,7 +502,8 @@ func (t *Transcript) decideWhy(id, decision, reason string) {
 	if reason != "" {
 		what, prose = reason, true
 	}
-	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, denied: decision == "deny" && !t.plans[id], after: t.last, at: t.items, when: t.now})
+	t.done = append(t.done, resolved{id: id, line: line, what: what, prose: prose, denied: decision == "deny" && !t.plans[id], after: t.last, at: t.items, when: t.now,
+		cmd: t.what[id], diff: t.edits[id], reason: reason})
 }
 
 // Refused takes back the answer to request id that the daemon refused:
@@ -447,13 +526,18 @@ func (t *Transcript) sendAsk(id string) {
 		return
 	}
 	t.sent[id] = true
+	if t.keyAsk == id {
+		t.keyAsk = "" // a second Enter or number is the composer's again
+	}
 	t.inputs = append(t.inputs, InputAnswer{Request: id, Answers: ans})
 	var picked []string
-	for _, v := range ans {
-		picked = append(picked, v...)
+	var qs []resolvedQ
+	for _, q := range t.askQs[id] { // in the card's order
+		picked = append(picked, ans[q.ID]...)
+		qs = append(qs, resolvedQ{header: q.Header, prompt: q.Prompt, options: q.Options, picked: ans[q.ID]})
 	}
-	slices.Sort(picked)
-	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, after: t.last, at: t.items, when: t.now})
+	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, after: t.last, at: t.items, when: t.now,
+		question: true, qs: qs})
 }
 
 // answers are the card's picks by question id, false while a question
@@ -564,7 +648,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	}
 	d.col, d.proseW = col, proseCap(col, d.avgChar(gtx))
 	x0 := (size.X - col) / 2
-	t.blocks = blocks(s.Content, t.blocks)
+	t.blocks = blocks(s.Content, t.blocks, t.cuts(s)...)
 	added := t.prepended(s)
 	t.buildRows(gtx, d)
 	if added > 0 {
@@ -631,7 +715,10 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		case r.tail != nil:
 			dims = r.tail(gtx)
 		case r.res != nil:
-			dims = d.resolvedLine(gtx, r.res)
+			if r.b.kind == blockAsk {
+				t.laid++
+			}
+			dims = d.resolvedLine(gtx, r.res, r.open)
 		case r.seg == segHead:
 			if !r.open {
 				t.laid += r.b.hi - r.b.lo
@@ -701,11 +788,14 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 		t.last = s.Content[n-1].ID
 	}
 	if t.what == nil {
-		t.what, t.plans = map[string]string{}, map[string]bool{}
+		t.what, t.plans, t.edits = map[string]string{}, map[string]bool{}, map[string]string{}
 	}
 	for _, a := range s.PendingApprovals {
 		pending[a.ID] = true
 		t.what[a.ID] = requestWhat(a, t.Dir)
+		if a.Request != nil {
+			t.edits[a.ID] = a.Request.Diff
+		}
 		if a.RequestType == session.RequestPlan {
 			t.plans[a.ID], t.what[a.ID] = true, firstLine(strings.TrimLeft(deref(a.Detail), "# "))
 		}
@@ -760,8 +850,8 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	for id, a := range t.asks {
 		for qi := range a.opts {
 			for oi := range a.opts[qi] {
-				if a.opts[qi][oi].Clicked(gtx) {
-					a.choose(qi, oi)
+				if a.opts[qi][oi].Clicked(gtx) && pending[id] {
+					t.pick(id, qi, oi)
 					if oi == len(a.opts[qi])-1 {
 						gtx.Execute(key.FocusCmd{Tag: &a.other[qi]})
 					}
@@ -776,6 +866,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 				case widget.ChangeEvent:
 					if a.other[qi].Text() != "" {
 						a.pick[qi] = len(a.opts[qi]) - 1
+						a.touch(qi)
 					}
 				case widget.SubmitEvent:
 					t.sendAsk(id)
@@ -795,6 +886,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 			delete(t.sent, id)
 			delete(t.what, id)
 			delete(t.plans, id)
+			delete(t.edits, id)
 		}
 	}
 }
@@ -833,6 +925,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	t.tool.shells.index(d.s.Content)
 	k := 0
 	lastOf := map[string]int{} // each turn's last block: only it runs
+	start := 0                 // the row of the current turn's first part
 	for bi, b := range t.blocks {
 		lastOf[b.turn] = bi
 	}
@@ -842,7 +935,12 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			t.rows = append(t.rows, trow{tail: d.interrupted})
 		}
 		for ; k < len(t.done) && t.done[k].at <= b.lo; k++ {
-			t.rows = append(t.rows, trow{res: &t.done[k]})
+			t.resRow(gtx, block{}, &t.done[k])
+		}
+		if b.kind == blockAsk {
+			t.resRow(gtx, b, t.askLine(d.s, b.lo))
+			t.changeRow(d, b, running(b, b.hi == len(d.s.Content)))
+			continue
 		}
 		if b.kind != blockTurn {
 			if !quiet[b.lo] {
@@ -854,14 +952,21 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 		run := running(b, b.hi == len(d.s.Content)) && last
 		// A finished turn's work sits under its Worked for line, which
 		// hides it on a click, as T3 Code folds a turn; it shows by default.
-		show := t.toggled(gtx, turnID(d.s, b), true)
-		mark := len(t.rows)
+		// A turn an answer split is one turn here: the line goes above its
+		// first part, times the whole turn, and hides the work of every part
+		// but not the lines that answered it.
+		whole := b
+		whole.lo = b.from
+		if b.lo == b.from {
+			start = len(t.rows)
+		}
+		show := t.toggled(gtx, turnID(d.s, whole), true)
 		t.turnRows(gtx, d, b, run, quiet)
-		if work := len(t.rows) > mark; work && !run && last {
+		if work := len(t.rows) > start; work && !run && last {
 			if !show {
-				t.rows = t.rows[:mark]
+				t.rows = append(t.rows[:start], slices.DeleteFunc(slices.Clone(t.rows[start:]), func(r trow) bool { return r.res == nil })...)
 			}
-			t.rows = slices.Insert(t.rows, mark, trow{b: b, seg: segTurn, open: show})
+			t.rows = slices.Insert(t.rows, start, trow{b: whole, seg: segTurn, open: show})
 		}
 		if b.todo >= 0 {
 			t.rows = append(t.rows, trow{b: b, seg: segTodo, i: b.todo})
@@ -870,22 +975,20 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			// A request answered before the reply came stays with the work
 			// it was about, above the reply.
 			for ; k < len(t.done) && t.done[k].at <= b.reply; k++ {
-				t.rows = append(t.rows, trow{res: &t.done[k]})
+				t.resRow(gtx, block{}, &t.done[k])
 			}
 			t.rows = append(t.rows, trow{b: b, seg: segReply, running: run})
 		}
 		if run {
-			t.rows = append(t.rows, trow{b: b, seg: segTurn, running: true})
+			t.rows = append(t.rows, trow{b: whole, seg: segTurn, running: true})
 		}
-		if !run && len(t.changesOf(d, b)) > 0 {
-			t.rows = append(t.rows, trow{b: b, seg: segChanges})
-		}
+		t.changeRow(d, b, run)
 	}
 	if n := len(t.blocks); n > 0 && stopped[t.blocks[n-1].turn] {
 		t.rows = append(t.rows, trow{tail: d.interrupted})
 	}
 	for ; k < len(t.done); k++ {
-		t.rows = append(t.rows, trow{res: &t.done[k]})
+		t.resRow(gtx, block{}, &t.done[k])
 	}
 	for _, w := range d.tail() {
 		t.rows = append(t.rows, trow{tail: w})
@@ -959,6 +1062,8 @@ func rowRank(rows []trow, i int) int {
 	k := 0
 	switch {
 	case r.tail != nil:
+	case r.res != nil && r.b.kind == blockAsk: // the question call's own line
+		k = r.b.lo*rankItem + 3
 	case r.res != nil:
 		k = r.res.at*rankItem + 1
 	case r.seg == segHead:
@@ -976,6 +1081,24 @@ func rowRank(rows []trow, i int) int {
 		k = max(k, rows[i-1].rank+1)
 	}
 	return k
+}
+
+// resRow adds resolved line r, open when the user opened it, unless the
+// transcript's own line took it over; b is its question's block, if any.
+func (t *Transcript) resRow(gtx layout.Context, b block, r *resolved) {
+	if !r.gone {
+		t.rows = append(t.rows, trow{b: b, res: r, open: t.toggled(gtx, "res:"+r.id, false)})
+	}
+}
+
+// changeRow adds the change card of b's turn, all its parts, under its
+// last part once it has stopped running.
+func (t *Transcript) changeRow(d *cdraw, b block, run bool) {
+	whole := b
+	whole.kind, whole.lo = blockTurn, b.from
+	if !run && !b.more && len(t.changesOf(d, whole)) > 0 {
+		t.rows = append(t.rows, trow{b: whole, seg: segChanges})
+	}
 }
 
 // rowGap is the space above row i: 32 from the end of a turn to the

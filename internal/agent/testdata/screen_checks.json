@@ -61,6 +61,7 @@
   {"file": "claude-ask-multi.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-other.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-review.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-review-short.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-second.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-several.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-single.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},

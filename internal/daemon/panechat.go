@@ -1100,12 +1100,35 @@ func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
 	if qs == nil {
 		return errResolved
 	}
-	for _, sq := range qs {
-		q := agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot())
+	return d.answerPages(id, l.p, qs, m.Answers)
+}
+
+// answerPages answers qs on pane id's Claude Code question pages, as a
+// person would: each key only once the page shows the one before it, and
+// Submit answers on the review page that follows several questions or a
+// multi-select one.
+func (d *Daemon) answerPages(id string, p interface{ Snapshot() vt.Grid }, qs []session.Question, answers map[string][]string) error {
+	read := func() *agent.Question { return agent.ReadQuestion(model.ProviderClaude, p.Snapshot()) }
+	// after waits for the page with id old to go: for the next page when
+	// one should come, else nil once no question shows.
+	after := func(old string, next bool) *agent.Question {
+		deadline := time.Now().Add(menuWait.get())
+		for {
+			n := read()
+			if n != nil && n.ID != old || n == nil && !next || time.Now().After(deadline) {
+				return n
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	review := len(qs) > 1
+	q := read()
+	for k, sq := range qs {
 		if q == nil {
 			return errors.New("Claude Code shows no question to answer")
 		}
-		for _, v := range m.Answers[sq.ID] {
+		review = review || q.Multi
+		for _, v := range answers[sq.ID] {
 			i := slices.IndexFunc(q.Options, func(o agent.QuestionOption) bool { return o.Label == v })
 			text := ""
 			if i < 0 {
@@ -1114,18 +1137,21 @@ func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
 			if err := d.phoneQuestion(id, q.ID, i, text); err != nil {
 				return err
 			}
+			if q.Multi { // a tick redraws the page; the next key reads it
+				if q = after(q.ID, true); q == nil {
+					return errors.New("Claude Code's question went away mid-answer")
+				}
+			}
 		}
 		if q.Multi {
 			if err := d.phoneQuestion(id, q.ID, -1, ""); err != nil {
 				return err
 			}
 		}
-		// The next page draws after the answer.
-		for deadline := time.Now().Add(menuWait.get()); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-			if n := agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot()); n == nil || n.ID != q.ID {
-				break
-			}
-		}
+		q = after(q.ID, k < len(qs)-1 || review)
+	}
+	if review && q != nil && len(q.Options) > 0 && q.Options[0].Label == "Submit answers" {
+		return d.phoneQuestion(id, q.ID, 0, "")
 	}
 	return nil
 }

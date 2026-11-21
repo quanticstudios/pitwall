@@ -186,6 +186,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		}
 		for _, a := range t.Inputs() {
 			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
+			gtx.Execute(op.InvalidateCmd{}) // a key in the composer answered after the card was drawn
 		}
 		if u.chatActions(id, t.Actions(), paneChat(st, id), cmp) {
 			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the prompt came back
@@ -212,7 +213,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,
 		Separate: u.link().Level >= proto.SmartQueueLevel, Steers: chatSteers(st, id, u.link().Level),
 		Commands: u.link().Level >= proto.SlashLevel}
-	env.Key, env.Esc = t.Key, t.CloseFiles
+	env.Key, env.Esc, env.Answer = t.Key, t.CloseFiles, t.Answer
 	return env
 }
 
