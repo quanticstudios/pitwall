@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -40,12 +42,28 @@ const initLine = `{"type":"system","subtype":"init","cwd":"/tmp/acme-api","sessi
 
 func TestInitCommands(t *testing.T) {
 	s := newStream("SESSION")
+	s.conf = t.TempDir()
+	review := filepath.Join(s.conf, "skills", "review", "SKILL.md")
+	os.MkdirAll(filepath.Dir(review), 0o755)
+	os.WriteFile(review, []byte("---\ndescription: Review the branch\n---\n"), 0o600)
 	snap, events := reduce(t, s, base(), initLine)
-	want := []session.Command{{Name: "review"}, {Name: "doctor", Description: Builtin("doctor"), Terminal: true},
+	// The init's own list first, described from the config dir and the
+	// built-ins; then the built-ins that open the terminal, which -p
+	// leaves out.
+	want := []session.Command{{Name: "review", Description: "Review the branch", Source: "user"},
+		{Name: "doctor", Description: Builtin("doctor"), Terminal: true},
 		{Name: "color", Description: Builtin("color"), Terminal: true}, {Name: "compact", Description: Builtin("compact")},
 		{Name: "config", Description: "Open settings", Terminal: true}}
-	if !reflect.DeepEqual(snap.Commands, want) {
+	if len(snap.Commands) <= len(want) || !reflect.DeepEqual(snap.Commands[:len(want)], want) {
 		t.Fatalf("commands: %+v", snap.Commands)
+	}
+	for _, c := range snap.Commands[len(want):] {
+		if !c.Terminal || c.Description == "" || c.Name == "config" || c.Name == "doctor" {
+			t.Errorf("after the init's list: %+v", c)
+		}
+	}
+	if !slices.ContainsFunc(snap.Commands, func(c session.Command) bool { return c.Name == "resume" }) {
+		t.Error("no /resume, which opens the terminal")
 	}
 	// Each turn repeats system/init; the same list emits nothing.
 	if _, events = reduce(t, s, snap, initLine); len(events) != 0 {

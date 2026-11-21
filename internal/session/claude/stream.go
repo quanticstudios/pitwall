@@ -52,6 +52,8 @@ type stream struct {
 	usage         *session.Event // the last usage event, which a new context size updates
 
 	commands []string   // the slash_commands system/init last listed
+	conf     string     // Claude Code's config dir, for the commands' descriptions
+	cwd      string     // the chat's folder, for the project's commands
 	info     statusInfo // what system/init said, for /status
 
 	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
@@ -296,11 +298,7 @@ func (s *stream) system(l line) []session.Event {
 		}
 		if l.SlashCommands != nil && !slices.Equal(l.SlashCommands, s.commands) {
 			s.commands = l.SlashCommands
-			cmds := make([]session.Command, 0, len(l.SlashCommands))
-			for _, name := range l.SlashCommands {
-				cmds = append(cmds, session.Command{Name: name, Description: Builtin(name),
-					Terminal: session.TerminalCommand(name) || slices.Contains(l.TerminalSlashCommands, name)})
-			}
+			cmds := initCommands(l.SlashCommands, l.TerminalSlashCommands, Commands(s.conf, cmp.Or(s.cwd, l.Cwd)))
 			out = append(out, session.Event{Type: session.EventCommands, Commands: cmds})
 		}
 		return out

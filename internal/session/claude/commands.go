@@ -90,6 +90,55 @@ var Builtins = []session.Command{
 	{Name: "usage-credits", Description: "Configure usage credits or request them from your admin when you hit a limit"},
 }
 
+// headless are the built-ins Claude Code 2.1.330 runs under -p, as its
+// system/init's slash_commands lists them.
+var headless = map[string]bool{
+	"advisor": true, "auto-mode-setup": true, "autocompact": true, "batch": true, "claude-api": true, "clear": true,
+	"code-review": true, "color": true, "compact": true, "config": true, "context": true, "debug": true, "doctor": true,
+	"effort": true, "fast": true, "fewer-permission-prompts": true, "focus": true, "goal": true, "import": true,
+	"init": true, "insights": true, "list-agents": true, "loop": true, "mcp": true, "model": true, "output-style": true,
+	"recap": true, "reload-plugins": true, "reload-skills": true, "rename": true, "run": true, "run-skill-generator": true,
+	"schedule": true, "security-review": true, "simplify": true, "skill-doctor": true, "team-onboarding": true,
+	"ultrareview": true, "update-config": true, "usage": true, "usage-credits": true,
+}
+
+// Headless is what a chat running claude -p offers before its first
+// system/init says: Commands less the built-ins that need the TUI, except
+// the ones the chat opens the terminal for.
+func Headless(conf, cwd string) []session.Command {
+	all := Commands(conf, cwd)
+	out := all[:0:0]
+	for _, c := range all {
+		if c.Source != "" || headless[c.Name] || c.Terminal {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// ConfigDir is the config dir Claude Code reads with env over the
+// daemon's own: CLAUDE_CONFIG_DIR, its last value in env winning, else
+// ~/.claude; a relative one is taken from cwd. "" with no home.
+func ConfigDir(env []string, cwd string) string {
+	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, "CLAUDE_CONFIG_DIR="); ok {
+			dir = v
+		}
+	}
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(home, ".claude")
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(cwd, dir)
+	}
+	return dir
+}
+
 // Commands is what Claude Code's / menu lists for a session in cwd with
 // config dir conf: skills, then custom commands, the user's before the
 // project's, then Builtins. A name listed twice keeps its first. Plugins'
@@ -228,4 +277,29 @@ func (f cmdFile) read() (session.Command, bool) {
 		}
 	}
 	return c, true
+}
+
+// initCommands is the list a system/init's slash_commands make: in their
+// order, the terminal ones marked, with menu's descriptions and sources;
+// then menu's built-ins that open the terminal, which -p leaves out and
+// the chat opens its terminal view for.
+func initCommands(names, terminal []string, menu []session.Command) []session.Command {
+	byName := map[string]session.Command{}
+	for _, c := range menu {
+		byName[c.Name] = c
+	}
+	out := make([]session.Command, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		c := byName[name]
+		c.Name, seen[name] = name, true
+		c.Terminal = session.TerminalCommand(name) || slices.Contains(terminal, name)
+		out = append(out, c)
+	}
+	for _, c := range menu {
+		if c.Terminal && !seen[c.Name] {
+			out = append(out, c)
+		}
+	}
+	return out
 }

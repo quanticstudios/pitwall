@@ -803,6 +803,7 @@ func TestSkillText(t *testing.T) {
 		want  string
 	}{
 		{"fix it", nil, "fix it"},
+		{"/compact keep the tests", nil, "/compact keep the tests"},
 		{"fix it", s, "/review\nfix it"},
 		{"/review", s, "/review"},
 		{"/review the diff", s, "/review the diff"},

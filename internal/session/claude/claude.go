@@ -70,6 +70,7 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 		done:   make(chan struct{}),
 		s:      newStream(id),
 	}
+	d.s.conf, d.s.cwd = ConfigDir(cfg.Env, cfg.Cwd), cfg.Cwd
 	c.Stderr = d.stderr
 	err = ctx.Err()
 	if err == nil {
@@ -86,6 +87,8 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	if from.Resume == "" {
 		d.post(session.Event{Type: session.EventResumeID, ResumeID: id})
 	}
+	// why: claude -p lists its commands only in the system/init of the first turn.
+	d.post(session.Event{Type: session.EventCommands, Commands: Headless(d.s.conf, d.s.cwd)})
 	d.mu.Unlock()
 	go d.emitLoop()
 	go d.read(pr)
