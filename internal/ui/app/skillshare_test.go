@@ -308,6 +308,10 @@ func TestSkillshareOpensAndCounts(t *testing.T) {
 		t.Fatal("Ctrl+Alt+S should open the popup")
 	}
 	waitReads(t, u, frame)
+	// why: waitReads can return between two reads, before every item's state lands; slow Windows process starts hit that gap
+	for deadline := time.Now().Add(5 * time.Second); u.sidebar.SkillshareWaiting != 4 && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		frame()
+	}
 	if !u.sidebar.Skillshare || u.sidebar.SkillshareWaiting != 4 {
 		t.Fatalf("sidebar button %v, badge %d, want 4", u.sidebar.Skillshare, u.sidebar.SkillshareWaiting)
 	}
