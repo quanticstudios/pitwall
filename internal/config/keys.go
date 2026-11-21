@@ -181,6 +181,7 @@ var presets = map[string]struct {
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "focus_sidebar": {"Ctrl+Shift+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
 			"chat_terminal":    {"Alt+T"},
+			"chat_text_bigger": {"Ctrl+="}, "chat_text_smaller": {"Ctrl+-"}, "chat_text_reset": {"Ctrl+0"},
 			"view_diff":        {"Ctrl+Shift+R"},
 			"command_palette":  {"Ctrl+Shift+P"},
 			"tab_search":       {"Ctrl+Shift+K"},
@@ -213,6 +214,7 @@ var presets = map[string]struct {
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "focus_sidebar": {"Ctrl+Shift+H"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
 			"chat_terminal":    {"Alt+T"},
+			"chat_text_bigger": {"Ctrl+="}, "chat_text_smaller": {"Ctrl+-"}, "chat_text_reset": {"Ctrl+0"},
 			"view_diff":        {"Ctrl+Shift+R"},
 			"command_palette":  {"Ctrl+Shift+P"},
 			"tab_search":       {"Ctrl+Shift+K"},
@@ -246,9 +248,10 @@ var presets = map[string]struct {
 			"scrollback_browser": {"Super+Shift+J"},
 
 			"toggle_sidebar": {"Super+B"}, "focus_sidebar": {"Super+Shift+B"}, "toggle_panel": {"Super+L"}, "open_settings": {"Super+,"},
-			"chat_terminal": {"Super+Alt+T"},
-			"view_diff":     {"Super+Shift+R"},
-			"allow_prompt":  {"Super+Shift+Y"}, "deny_prompt": {"Super+Shift+N"},
+			"chat_terminal":    {"Super+Alt+T"},
+			"chat_text_bigger": {"Super+="}, "chat_text_smaller": {"Super+-"}, "chat_text_reset": {"Super+0"},
+			"view_diff":    {"Super+Shift+R"},
+			"allow_prompt": {"Super+Shift+Y"}, "deny_prompt": {"Super+Shift+N"},
 			"command_palette":  {"Super+Shift+P"},
 			"tab_search":       {"Super+K"},
 			"insert_path":      {"Super+Shift+I"},
@@ -379,10 +382,14 @@ func Navigate(action string) bool { return strings.HasPrefix(action, "navigate_"
 // Sometimes reports whether the window takes action's chords only at
 // times, leaving them to the pane otherwise: a navigate_ action,
 // keep_peek, which the window takes only while a peek is open, and
-// chat_terminal, only on a chat tab or with a pane chat focused.
+// chat_terminal, only on a chat tab or with a pane chat focused, and
+// the chat_text_ ones, only while a chat shows.
 func Sometimes(action string) bool {
-	return Navigate(action) || action == "keep_peek" || action == "chat_terminal"
+	return Navigate(action) || action == "keep_peek" || action == "chat_terminal" || ChatText(action)
 }
+
+// ChatText reports whether action steps the chat's text size.
+func ChatText(action string) bool { return strings.HasPrefix(action, "chat_text_") }
 
 // Unshift is c with a shifted symbol key named by the key, as a preset
 // writes it: Ctrl+Shift+} becomes Ctrl+Shift+].

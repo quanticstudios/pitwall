@@ -145,7 +145,7 @@ func TestSetKeyDefaultFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ = os.ReadFile(real)
-	if strings.Contains(string(got), "ui_size = 15") || !strings.Contains(string(got), "# UI text size\n\n# Terminal font") {
+	if strings.Contains(string(got), "ui_size = 15") || !strings.Contains(string(got), "# UI text size\n\n# Desktop chat text size") {
 		t.Errorf("remove left:\n%s", got)
 	}
 }

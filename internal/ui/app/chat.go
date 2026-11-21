@@ -141,6 +141,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		}
 		env.Mentions, env.Branch = u.mentions(cwd), ws.Branch
 		env.Copy = func(s string) { putClipboard(gtx, s) }
+		gtx.Metric = u.chatMetric(gtx.Metric)
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.

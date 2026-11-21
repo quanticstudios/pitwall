@@ -797,6 +797,8 @@ func (p *Page) appearance() []section {
 			{label: "Interface font", desc: "Sidebar, dialogs and this page. Geist ships with pitwall.", extra: "ui family typeface",
 				control: p.fontPicker("ui_family", f.UIFamily, config.DefaultUIFamily)},
 			{label: "Interface text size", extra: "ui font", control: p.stepper("font", "ui_size", f.UISize, 6, 48, 1, config.DefaultUISize)},
+			{label: "Chat text size", desc: "Messages, code and the composer in the desktop chat. Follows the interface text size until you change it.",
+				extra: "chat_size font zoom bigger smaller", control: p.stepper("font", "chat_size", f.ChatSize, 6, 48, 1, f.UISize)},
 			{label: "Terminal font", desc: "Any installed family. Characters it lacks come from mono_fallback, then any monospace font.", extra: "mono family typeface",
 				control: p.fontPicker("mono_family", f.MonoFamily, config.DefaultMonoFamily)},
 			{label: "Terminal text size", extra: "mono font", control: p.stepper("font", "mono_size", f.MonoSize, 6, 48, 1, config.DefaultMonoSize)},

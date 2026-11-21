@@ -247,6 +247,32 @@ func hrow(gtx layout.Context, gap int, ws ...layout.Widget) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(x, h), Baseline: base}
 }
 
+// wrapRow lays ws out as hrow does, gap apart, starting a new line, gap
+// under the last, for one that would pass the right edge: buttons that
+// do not fit a narrow or large-text chat.
+func wrapRow(gtx layout.Context, gap int, ws ...layout.Widget) layout.Dimensions {
+	x, y, h, w := 0, 0, 0, 0
+	for _, wd := range ws {
+		g := gtx
+		g.Constraints.Min = image.Point{}
+		call, d := measure(g, wd)
+		if d.Size.X == 0 {
+			continue
+		}
+		if x > 0 && x+gap+d.Size.X > gtx.Constraints.Max.X {
+			x, y, h = 0, y+h+gap, 0
+		} else if x > 0 {
+			x += gap
+		}
+		o := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		x += d.Size.X
+		h, w = max(h, d.Size.Y), max(w, x)
+	}
+	return layout.Dimensions{Size: image.Pt(w, y+h)}
+}
+
 // centerBase is the baseline, from the top of a row h tall, that centers
 // text dims in it: the one baseline the row's other texts sit on.
 func centerBase(h int, dims layout.Dimensions) int {

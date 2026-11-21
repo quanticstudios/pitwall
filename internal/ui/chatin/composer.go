@@ -952,7 +952,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 	}
 	return layout.Inset{Left: theme.SpaceS, Right: theme.SpaceS, Bottom: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, rowH)
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		left := []layout.FlexChild{
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if fixed || modeUnknown(env.Snap) {
 					return layout.Dimensions{}
@@ -994,9 +994,17 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.branchLayout(gtx, th, env) }),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
-			}),
+		}
+		// The chips take what the buttons leave, cut at its edge, so Send
+		// stays in a narrow or large-text chat.
+		chips := func(gtx layout.Context) layout.Dimensions {
+			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+			gtx.Constraints.Min.X = 0
+			d := layout.Flex{Alignment: layout.Middle}.Layout(gtx, left...)
+			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, d.Size.Y)}
+		}
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Flexed(1, chips),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if !metered {
 					return layout.Dimensions{}

@@ -1,7 +1,11 @@
 package panel
 
 import (
+	"image"
 	"testing"
+
+	"gioui.org/layout"
+	"gioui.org/op"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 )
@@ -43,5 +47,21 @@ func TestEndLine(t *testing.T) {
 	}
 	if msg, _ := endLine(&session.Snapshot{}); msg != "" {
 		t.Errorf("no error: %q", msg)
+	}
+}
+
+// TestWrapRow: buttons that pass the right edge start a new line under
+// the others, and empty ones take no gap.
+func TestWrapRow(t *testing.T) {
+	box := func(w int) layout.Widget {
+		return func(layout.Context) layout.Dimensions { return layout.Dimensions{Size: image.Pt(w, 10)} }
+	}
+	none := func(layout.Context) layout.Dimensions { return layout.Dimensions{} }
+	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(100, 1000)}}
+	if d := wrapRow(gtx, 4, box(40), none, box(40)); d.Size != image.Pt(84, 10) {
+		t.Errorf("fits: %v", d.Size)
+	}
+	if d := wrapRow(gtx, 4, box(40), box(40), box(40)); d.Size != image.Pt(84, 24) {
+		t.Errorf("wraps: %v", d.Size)
 	}
 }

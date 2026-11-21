@@ -346,13 +346,23 @@ switch at once.
 ## Fonts and spacing
 
 `[font]` takes `ui_family` (default the bundled Geist), `ui_size` (13),
-`mono_family` (`JetBrainsMono Nerd Font`), `mono_size` (13), `line_height`
+`chat_size` (unset follows `ui_size`), `mono_family` (`JetBrainsMono Nerd Font`), `mono_size` (13), `line_height`
 (a multiple of the font's, 1.0) and `mono_fallback`, families tried for
 characters the terminal font lacks before any monospace font and color
 emoji. Families are any installed font (`fc-list : family`); a missing one is
 reported and the default is used. `[layout]` sets `pane_gap` and
 `pane_margin` in dp (both 4). `ui_size` scales the sidebar, menus, the
 command palette and dialogs as well as the settings page.
+
+`chat_size` sizes the desktop chat on its own: messages, markdown, code,
+tool rows, cards, the work log, the composer and the queue, with the space
+around them and the `[chat] width` column, so a bigger size wraps the same
+words per line. Code in the chat keeps its size relative to the prose, so
+one setting covers both. The chat header stays at `ui_size`. In a chat,
+Ctrl+= and Ctrl+- (Cmd in the mac preset) step it a point at a time between
+6 and 48 and write it here, and Ctrl+0 removes it again; Settings, Chat
+text size, does the same. The keys are `chat_text_bigger`,
+`chat_text_smaller` and `chat_text_reset` under `[keys]`.
 
 `[appearance]` has `reduce_motion` (default `false`). On, dialogs, menus,
 hover cards, hover fills and the pane focus border change at once instead
