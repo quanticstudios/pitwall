@@ -251,9 +251,17 @@ func Pending(s *session.Snapshot) bool {
 	return len(s.PendingApprovals) > 0 || len(s.PendingUserInputs) > 0 || s.PlanApproval != nil
 }
 
+// asking reports whether s waits on a question alone, which a typed
+// draft answers.
+func asking(s *session.Snapshot) bool {
+	return len(s.PendingUserInputs) > 0 && len(s.PendingApprovals) == 0 && s.PlanApproval == nil
+}
+
 // Placeholder is the empty box's text for a chat with s.
 func Placeholder(s *session.Snapshot) string {
 	switch {
+	case asking(s):
+		return "Pick an answer above, or type your own"
 	case Pending(s):
 		return "Answer above, or type to queue"
 	case s.Busy():

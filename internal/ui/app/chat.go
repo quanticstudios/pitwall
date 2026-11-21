@@ -212,7 +212,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,
 		Separate: u.link().Level >= proto.SmartQueueLevel, Steers: chatSteers(st, id, u.link().Level),
 		Commands: u.link().Level >= proto.SlashLevel}
-	env.Key, env.Esc = t.Key, t.CloseFiles
+	env.Key, env.Esc, env.Answer = t.Key, t.CloseFiles, t.Answer
 	return env
 }
 

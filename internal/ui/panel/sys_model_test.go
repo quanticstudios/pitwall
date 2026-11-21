@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -273,5 +274,99 @@ func TestWarningTitle(t *testing.T) {
 	}
 	if got := warningTitle("Unknown command: /ux. Did you mean /run?"); got != "" {
 		t.Errorf("unknown command: %q", got)
+	}
+}
+
+// TestAskAutoSend: a single-select pick that leaves nothing open sends the
+// card at once; a typed answer from the composer fills the open question's
+// row and sends once the card is complete; Other and multiSelect picks wait.
+func TestAskAutoSend(t *testing.T) {
+	qs := []session.Question{
+		{ID: "l", Options: []session.PromptOption{{Label: "Sidebar"}, {Label: "Top bar"}}},
+		{ID: "f", Multi: true, Options: []session.PromptOption{{Label: "Apple"}, {Label: "Banana"}}},
+		{ID: "s", Options: []session.PromptOption{{Label: "Small"}, {Label: "Large"}}},
+	}
+	tr := &Transcript{}
+	tr.init()
+	tr.askQs = map[string][]session.Question{"q": qs}
+	a := newAsk(qs)
+	tr.asks["q"], tr.keyAsk = a, "q"
+	tr.pick("q", 0, 1)
+	tr.pick("q", 1, 0)
+	if len(tr.Inputs()) != 0 || a.current() != 1 {
+		t.Fatalf("sent with questions open, or keys on %d", a.current())
+	}
+	if !tr.Answer("Cherry") || a.current() != 2 || len(tr.Inputs()) != 0 {
+		t.Fatalf("typed answer to the multiSelect question: keys on %d", a.current())
+	}
+	tr.pick("q", 2, 2) // Other on the last: waits for its text
+	if len(tr.Inputs()) != 0 {
+		t.Fatal("Other sent before its text")
+	}
+	if !tr.Answer("Medium") {
+		t.Fatal("the typed answer was refused")
+	}
+	got := tr.Inputs()
+	want := map[string][]string{"l": {"Top bar"}, "f": {"Apple", "Cherry"}, "s": {"Medium"}}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Answers, want) {
+		t.Fatalf("inputs %+v, want %v", got, want)
+	}
+	if tr.Answer("again") {
+		t.Fatal("a sent card took more text")
+	}
+
+	one := []session.Question{{ID: "x", Options: []session.PromptOption{{Label: "Yes"}, {Label: "No"}}}}
+	tr.askQs["r"], tr.asks["r"], tr.keyAsk = one, newAsk(one), "r"
+	tr.pick("r", 0, 0)
+	if got := tr.Inputs(); len(got) != 1 || got[0].Answers["x"][0] != "Yes" {
+		t.Fatalf("a one-question pick did not send: %+v", got)
+	}
+}
+
+// TestAskRecommendedWaits: a recommended option the card preselected is
+// not the user's answer. A pick on another question never sends it along;
+// the keys and a typed answer go to the question still unconfirmed, and
+// Enter still accepts the recommendation as is.
+func TestAskRecommendedWaits(t *testing.T) {
+	qs := []session.Question{
+		{ID: "l", Options: []session.PromptOption{{Label: "Sidebar"}, {Label: "Top bar"}}},
+		{ID: "s", Options: []session.PromptOption{{Label: "Small (Recommended)"}, {Label: "Large"}}},
+	}
+	tr := &Transcript{}
+	tr.init()
+	tr.askQs = map[string][]session.Question{"q": qs}
+	a := newAsk(qs)
+	a.pick[1] = 0 // preselected, as settle does for a recommended option
+	tr.asks["q"], tr.keyAsk = a, "q"
+	tr.pick("q", 0, 1)
+	if len(tr.Inputs()) != 0 {
+		t.Fatal("a pick sent the preselected recommendation along")
+	}
+	if a.current() != 1 {
+		t.Fatalf("keys on %d: want the unconfirmed question", a.current())
+	}
+	tr.Key("2")
+	if got := tr.Inputs(); len(got) != 1 || got[0].Answers["s"][0] != "Large" || got[0].Answers["l"][0] != "Top bar" {
+		t.Fatalf("inputs %+v", got)
+	}
+
+	b := newAsk(qs)
+	b.pick[1] = 0
+	tr.askQs["r"], tr.asks["r"], tr.keyAsk = qs, b, "r"
+	tr.pick("r", 0, 0)
+	tr.Key(string(key.NameReturn))
+	if got := tr.Inputs(); len(got) != 1 || got[0].Answers["s"][0] != "Small (Recommended)" {
+		t.Fatalf("Enter did not accept the recommendation: %+v", got)
+	}
+
+	c := newAsk(qs)
+	c.pick[1] = 0
+	tr.askQs["t"], tr.asks["t"], tr.keyAsk = qs, c, "t"
+	tr.pick("t", 0, 0)
+	if !tr.Answer("Medium") {
+		t.Fatal("typed answer refused")
+	}
+	if got := tr.Inputs(); len(got) != 1 || got[0].Answers["s"][0] != "Medium" {
+		t.Fatalf("typed answer went elsewhere: %+v", got)
 	}
 }

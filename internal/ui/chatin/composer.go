@@ -98,6 +98,9 @@ type Env struct {
 	// Esc, when set, takes Escape before it stops the turn; true when it
 	// closed something, as the transcript's side panel.
 	Esc func() bool
+	// Answer, when set, takes a sent draft as the typed answer to the
+	// transcript's open question; true when a question took it.
+	Answer func(text string) bool
 	// Now is whether the daemon takes ChatSend How "now" (proto.ChatNowLevel);
 	// Ctrl+Enter sends "steer" to one that does not.
 	Now bool
@@ -421,6 +424,12 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 	}
 	if c.waiting() {
 		c.note = "Wait for the image to attach"
+		return
+	}
+	if len(imgs) == 0 && !now && env.Answer != nil && asking(env.Snap) && env.Answer(text) {
+		c.note = ""
+		c.ed.SetText("")
+		c.draft.Clear()
 		return
 	}
 	m := proto.ChatSend{Chat: env.Chat, Text: text, Attachments: Attachments(imgs)}

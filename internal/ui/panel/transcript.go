@@ -177,6 +177,10 @@ type ask struct {
 	// single-select one; there pick is the option last toggled.
 	multi [][]bool
 	moved []bool // a multiSelect question Enter moved on from
+	// touched marks a question the user picked in or typed into; a
+	// preselected recommended option alone leaves it untouched, so the card
+	// never sends itself on a pick the user did not make.
+	touched []bool
 	// active is the question the number keys act on, the one the user last
 	// clicked into; -1 for the first unanswered one.
 	active int
@@ -270,6 +274,7 @@ func (t *Transcript) Key(name string) bool {
 		// and sends the answers once none is left.
 		if q := t.askQuestion(a); a.multiQ(q) != nil {
 			a.moved[q], a.active = true, -1
+			a.touch(q)
 			if next := a.current(); next != q && a.open(next) {
 				return true
 			}
@@ -278,7 +283,7 @@ func (t *Transcript) Key(name string) bool {
 	default:
 		a := t.asks[t.keyAsk]
 		q := t.askQuestion(a)
-		a.choose(q, act.option)
+		t.pick(t.keyAsk, q, act.option)
 		if act.option == len(a.opts[q])-1 { // Other: type the answer
 			t.typeIn = &a.other[q]
 		}
@@ -286,11 +291,68 @@ func (t *Transcript) Key(name string) bool {
 	return true
 }
 
+// pick chooses option o of question q on card id. A single-select pick
+// that leaves no question open sends the card, as Claude Code's own menu
+// does; Other and multiSelect picks wait for the typed text or Enter.
+func (t *Transcript) pick(id string, q, o int) {
+	a := t.asks[id]
+	a.choose(q, o)
+	if a.multiQ(q) == nil && o < len(a.opts[q])-1 && !a.waiting() {
+		t.sendAsk(id)
+	}
+}
+
+// Answer takes text typed in the composer as the answer to the open
+// question: it fills that question's typed row and sends the card once no
+// question is left open. It reports whether a question took the text.
+func (t *Transcript) Answer(text string) bool {
+	a := t.asks[t.keyAsk]
+	if a == nil || t.sent[t.keyAsk] || strings.TrimSpace(text) == "" || len(a.opts) == 0 {
+		return false
+	}
+	q := a.current()
+	a.other[q].SetText(text)
+	if a.multiQ(q) != nil {
+		a.moved[q] = true
+	} else {
+		a.pick[q] = len(a.opts[q]) - 1
+	}
+	a.touch(q)
+	a.active = -1
+	if !a.waiting() {
+		t.sendAsk(t.keyAsk)
+	}
+	return true
+}
+
+// touch marks question q as one the user answered themselves.
+func (a *ask) touch(q int) {
+	for len(a.touched) < len(a.pick) {
+		a.touched = append(a.touched, false)
+	}
+	a.touched[q] = true
+}
+
+// untouched is whether the user has not yet acted on question i.
+func (a *ask) untouched(i int) bool { return i >= len(a.touched) || !a.touched[i] }
+
+// waiting is whether a question on the card still waits on the user: open,
+// or only preselected.
+func (a *ask) waiting() bool {
+	for i := range a.pick {
+		if a.open(i) || a.untouched(i) {
+			return true
+		}
+	}
+	return false
+}
+
 // choose picks option o of question q: a multiSelect question toggles
 // it and keeps the keys, the typed row aside; a single-select pick moves
 // the keys on to the next unanswered question.
 func (a *ask) choose(q, o int) {
 	a.pick[q], a.active = o, q
+	a.touch(q)
 	if m := a.multiQ(q); m != nil {
 		if o < len(m) {
 			m[o] = !m[o]
@@ -330,6 +392,11 @@ func (a *ask) current() int {
 	for i := range a.pick {
 		if a.open(i) {
 			return i
+		}
+	}
+	for i := range a.pick {
+		if a.untouched(i) {
+			return i // a preselected recommendation the user has not confirmed
 		}
 	}
 	return len(a.pick) - 1
@@ -760,8 +827,8 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	for id, a := range t.asks {
 		for qi := range a.opts {
 			for oi := range a.opts[qi] {
-				if a.opts[qi][oi].Clicked(gtx) {
-					a.choose(qi, oi)
+				if a.opts[qi][oi].Clicked(gtx) && pending[id] {
+					t.pick(id, qi, oi)
 					if oi == len(a.opts[qi])-1 {
 						gtx.Execute(key.FocusCmd{Tag: &a.other[qi]})
 					}
@@ -776,6 +843,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 				case widget.ChangeEvent:
 					if a.other[qi].Text() != "" {
 						a.pick[qi] = len(a.opts[qi]) - 1
+						a.touch(qi)
 					}
 				case widget.SubmitEvent:
 					t.sendAsk(id)
