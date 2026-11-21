@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/antigravity"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
 	"github.com/quanticstudios/pitwall/internal/session/codex"
 )
@@ -92,5 +94,23 @@ func TestPaneChatCommands(t *testing.T) {
 	cs, _ := paneRead(t, d, "b", session.Snapshot{}, 0)
 	if !slices.Equal(cs.Commands, codex.Builtins) {
 		t.Fatalf("codex commands: %d, want its %d built-ins", len(cs.Commands), len(codex.Builtins))
+	}
+
+	// agy's: its built-ins and the skills under the pane's HOME and project.
+	home := filepath.Join(dir, "agyhome")
+	write(filepath.Join(home, ".gemini", "skills", "triage", "SKILL.md"), "---\nname: triage\ndescription: Triage the inbox\n---\n")
+	write(filepath.Join(proj, ".agents", "skills", "release", "SKILL.md"), "---\nname: release\ndescription: Cut a release\n---\n")
+	agyLog, err := os.ReadFile("../session/antigravity/testdata/transcript_full.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(dir, "agy.jsonl"), string(agyLog))
+	d.mu.Lock()
+	d.st.Panes[2].Provider, d.st.Panes[2].Transcript = model.ProviderAntigravity, filepath.Join(dir, "agy.jsonl")
+	d.st.Panes[2].Cwd, d.st.Panes[2].Env = proj, []string{"HOME=" + home}
+	d.mu.Unlock()
+	ag, _ := paneRead(t, d, "c", session.Snapshot{}, 0)
+	if got := names(ag.Commands); !slices.Equal(got, []string{"release", "triage"}) || len(ag.Commands) != 2+len(antigravity.Builtins) {
+		t.Fatalf("agy skills %q of %d", got, len(ag.Commands))
 	}
 }

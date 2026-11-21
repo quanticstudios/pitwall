@@ -95,7 +95,7 @@ type paneChat struct {
 // slashList is a pane chat's slash commands and what they were read for.
 type slashList struct {
 	conf, cwd string
-	stamp     string    // claude.CommandsStamp when they were read
+	stamp     string    // the provider's CommandsStamp when they were read
 	checked   time.Time // when the stamp was last taken
 	cmds      []session.Command
 }
@@ -106,21 +106,28 @@ type slashList struct {
 const slashEvery = 2 * time.Second
 
 // commands puts the agent's / menu in the snapshot when it changed:
-// Claude Code's from its config dir and the pane's project, read again
-// once their files or the folders change; Codex's built-ins; none for
-// Antigravity, whose list Pitwall cannot read. Callers hold pc.mu.
+// Claude Code's from its config dir and the pane's project, agy's from
+// its HOME and the project, each read again once their files or the
+// folders change; Codex's built-ins, which are all its menu lists.
+// Callers hold pc.mu.
 func (pc *paneChat) commands(l paneLive, now time.Time) {
 	s := &pc.slash
+	var list func(dir, cwd string) []session.Command
+	var stamp func(dir, cwd string) string
+	var dir string
 	switch pc.prov {
 	case model.ProviderClaude:
-		if s.cmds == nil || s.conf != l.conf || s.cwd != l.cwd || now.Sub(s.checked) >= slashEvery {
-			s.conf, s.cwd, s.checked = l.conf, l.cwd, now
-			if st := claude.CommandsStamp(l.conf, l.cwd); st != s.stamp || s.cmds == nil {
-				s.cmds, s.stamp = claude.Commands(l.conf, l.cwd), st
-			}
-		}
+		list, stamp, dir = claude.Commands, claude.CommandsStamp, l.conf
 	case model.ProviderCodex:
 		s.cmds = codex.Builtins
+	case model.ProviderAntigravity:
+		list, stamp, dir = antigravity.Commands, antigravity.CommandsStamp, l.home
+	}
+	if list != nil && (s.cmds == nil || s.conf != dir || s.cwd != l.cwd || now.Sub(s.checked) >= slashEvery) {
+		s.conf, s.cwd, s.checked = dir, l.cwd, now
+		if st := stamp(dir, l.cwd); st != s.stamp || s.cmds == nil {
+			s.cmds, s.stamp = list(dir, l.cwd), st
+		}
 	}
 	if !slices.Equal(s.cmds, pc.snap.Commands) {
 		pc.reduce([]session.Event{{Type: session.EventCommands, Commands: slices.Clone(s.cmds)}})
@@ -198,6 +205,7 @@ type paneLive struct {
 	act  model.Activity // zero State when the pane has none
 	tui  phoneSettings  // the model and effort its screen showed (keepClaudeSettings)
 	conf string         // Claude Code's config dir for it
+	home string         // agy's HOME for it
 	prov model.Provider // the agent its hooks named
 	// queued is what the chat queued mid-turn (chatQueue), held whether
 	// it waits for the user's Resume or Send, reason why it waits.
@@ -230,6 +238,9 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	pc := d.paneChats[id]
 	if p.Provider != model.ProviderClaude {
 		l.conf = ""
+	}
+	if p.Provider == model.ProviderAntigravity {
+		l.home = homeOf(p.Env)
 	}
 	if pc == nil || pc.path != l.path || pc.prov != p.Provider { // a new session (claude again, /clear, /resume) starts over
 		mode := "default"
