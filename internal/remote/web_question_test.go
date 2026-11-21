@@ -3,6 +3,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -27,7 +28,7 @@ import (
 // without Chromium.
 func TestWebQuestion(t *testing.T) {
 	var browser string
-	for _, b := range []string{"chromium", "chromium-browser", "google-chrome"} {
+	for _, b := range []string{"google-chrome", "chromium", "chromium-browser"} { // CI's chromium may be a snap shim
 		if p, err := exec.LookPath(b); err == nil {
 			browser = p
 			break
@@ -89,15 +90,22 @@ func TestWebQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(browser, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
-		"--disable-extensions", "--user-data-dir="+profile, srv.URL+"/#pane=c")
+	args := []string{"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--user-data-dir=" + profile}
+	if os.Getenv("CI") != "" {
+		args = append(args, "--no-sandbox") // why: CI runners' AppArmor refuses Chromium's sandbox; the page is our own, on loopback
+	}
+	cmd := exec.Command(browser, append(args, srv.URL+"/#pane=c")...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // its helpers go with it
 	if err := cmd.Start(); err != nil {
 		t.Skip(err)
 	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 	defer func() {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		cmd.Wait()
+		<-exited
 		for range 40 { // the helpers may still be writing the profile as they die
 			if os.RemoveAll(profile) == nil {
 				break
@@ -109,8 +117,14 @@ func TestWebQuestion(t *testing.T) {
 	select {
 	case r := <-result:
 		json.Unmarshal([]byte(r), &got)
+	case err := <-exited:
+		exited <- err // for the deferred wait
+		t.Fatalf("%s exited before the page reported: %v\n%s", browser, err, stderr.String())
 	case <-ctx.Done():
-		t.Fatal("the page never reported")
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // stderr is whole once it has exited
+		err := <-exited
+		exited <- err
+		t.Fatalf("the page never reported; %s said:\n%s", browser, stderr.String())
 	}
 	if got.Error != "" {
 		t.Fatal(got.Error)
