@@ -183,7 +183,10 @@ func (s *textSel) paint(key string, sl *widget.Selectable, txt string) {
 // text is the selection as the reader sees it: each block's part in
 // reading order, a line apart. A prompt's image chips copy as the tokens
 // they stand for.
-func (t *Transcript) selText() string {
+func (t *Transcript) selText() string { return t.selJoined("\n") }
+
+// selJoined is the selection as selText has it, its blocks sep apart.
+func (t *Transcript) selJoined(sep string) string {
 	type part struct {
 		o   int
 		txt string
@@ -208,7 +211,7 @@ func (t *Transcript) selText() string {
 	for i, p := range parts {
 		out[i] = p.txt
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, sep)
 }
 
 // copySel copies the selection, and tells the window so it shows its
@@ -393,8 +396,8 @@ func (t *Transcript) selectEvents(gtx layout.Context, drawn []*widget.Selectable
 		local := e.Position.Round()
 		switch e.Kind {
 		case pointer.Press:
-			if s.menu && local.In(s.menuR) {
-				continue // the menu's own button takes it
+			if s.menu && local.In(s.menuR) || local.In(t.cite.r) {
+				continue // the menu's or the toolbar's own button takes it
 			}
 			s.menu = false
 			if e.Buttons == pointer.ButtonSecondary {

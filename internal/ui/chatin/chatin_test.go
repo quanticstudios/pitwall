@@ -40,8 +40,9 @@ func pngOf(w, h int) []byte {
 }
 
 // Image tokens: numbers go up within a draft and survive removals, a
-// deleted token drops its image, the images go in token order, and a
-// cleared draft starts at #1 again.
+// deleted token leaves its image (only its thumbnail's x takes it out),
+// the images go in token order, those with no token last, and a cleared
+// draft starts at #1 again.
 func TestDraftTokens(t *testing.T) {
 	var d Draft
 	t1, t2, t3 := d.Add(Image{Mime: "image/png"}), d.Add(Image{Mime: "image/png"}), d.Add(Image{Mime: "image/png"})
@@ -54,8 +55,14 @@ func TestDraftTokens(t *testing.T) {
 	}
 	text = strings.Replace(text, t1, "", 1) // the user deleted the token
 	d.Sync(text)
-	if got := numbers(d.Images); !slices.Equal(got, []int{2, 3}) {
+	if got := numbers(d.Images); !slices.Equal(got, []int{1, 2, 3}) {
 		t.Fatalf("after deleting #1's token: %v", got)
+	}
+	if got := numbers(d.Ordered(text)); !slices.Equal(got, []int{3, 2, 1}) {
+		t.Fatalf("order after deleting #1's token %v, want 3 2 1", got)
+	}
+	if Mentioned(text, 1) || !Mentioned(text, 2) {
+		t.Fatal("Mentioned")
 	}
 	if tok := d.Add(Image{}); tok != "[Image #4]" {
 		t.Fatalf("next token %q, want #4: numbers stay stable", tok)
@@ -235,6 +242,10 @@ type harness struct {
 	copied []string
 	// separate is a daemon that joins the queue (proto.SmartQueueLevel).
 	separate bool
+	// files is a daemon that saves pasted text to files
+	// (proto.PastedFileLevel); reveal is the transcript's Reveal.
+	files  bool
+	reveal func(Source) bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -250,7 +261,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) env() Env {
 	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Answer: h.answer, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
-		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) },
+		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) }, TextFiles: h.files, Reveal: h.reveal,
 		Mentions: func(q string) []string {
 			var out []string
 			for _, p := range h.paths {
@@ -350,12 +361,17 @@ func TestComposerKeys(t *testing.T) {
 	if h.c.Text() != "one\ntwo [Image #1] three" || len(h.c.Images()) != 1 || h.c.note != "busy" {
 		t.Fatalf("the refused send is not back: %q", h.c.Text())
 	}
-	// Backspace after the token takes it and its image.
+	// Backspace after the token takes it whole and leaves the image on
+	// the shelf, as T3 Code's chips do; the thumbnail's x then takes it.
 	h.c.SetText("look [Image #1]")
 	h.frame()
 	h.press(key.NameDeleteBackward, 0)
-	if h.c.Text() != "look " || len(h.c.Images()) != 0 {
+	if h.c.Text() != "look " || len(h.c.Images()) != 1 {
 		t.Fatalf("Backspace left %q and %d images", h.c.Text(), len(h.c.Images()))
+	}
+	h.c.RemoveImage(1)
+	if len(h.c.Images()) != 0 {
+		t.Fatal("RemoveImage left the image")
 	}
 	// The chip's x takes its token.
 	h.paste("")

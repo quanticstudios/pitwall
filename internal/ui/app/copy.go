@@ -8,6 +8,7 @@ import (
 	"gioui.org/io/clipboard"
 	gl "gioui.org/layout"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -24,7 +25,7 @@ func (u *ui) canText() bool { return u.link().Level >= proto.Since(proto.Text{})
 // selection that runs past the frame comes from the daemon, which has the
 // whole history; a daemon that predates proto.Text gives the frame's part.
 // It also opens the find bar for copy mode's / and ?.
-func (u *ui) paneCopy(gtx gl.Context, p *paneUI, id string, r image.Rectangle) {
+func (u *ui) paneCopy(gtx gl.Context, st *model.State, p *paneUI, id string, r image.Rectangle) {
 	if c, ok := p.view.Copied(); ok {
 		if !c.Whole && u.canText() && u.send(proto.Text{Pane: id, Sel: c.Sel}) {
 			p.copyWant = &c.Sel
@@ -32,10 +33,23 @@ func (u *ui) paneCopy(gtx gl.Context, p *paneUI, id string, r image.Rectangle) {
 			u.copyText(gtx, c.Text, r)
 		}
 	}
-	if t, ok := u.b.(Texter); ok && p.copyWant != nil {
-		if res, ok := t.TakeText(id); ok && res.Sel == *p.copyWant {
-			p.copyWant = nil
-			u.copyText(gtx, res.Text, r)
+	if c, ok := p.view.ToChat(); ok {
+		if !c.Whole && u.canText() && u.send(proto.Text{Pane: id, Sel: c.Sel}) {
+			p.chatWant = &c.Sel
+		} else {
+			u.toChat(gtx, st, id, c.Sel, c.Text, r)
+		}
+	}
+	if t, ok := u.b.(Texter); ok && (p.copyWant != nil || p.chatWant != nil) {
+		if res, ok := t.TakeText(id); ok {
+			if p.copyWant != nil && res.Sel == *p.copyWant {
+				p.copyWant = nil
+				u.copyText(gtx, res.Text, r)
+			}
+			if p.chatWant != nil && res.Sel == *p.chatWant {
+				p.chatWant = nil
+				u.toChat(gtx, st, id, res.Sel, res.Text, r)
+			}
 		}
 	}
 	if p.view.FindWanted() && id == u.nav.focused() {

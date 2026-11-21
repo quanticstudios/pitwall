@@ -81,12 +81,39 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 - The **model** and **effort** chips show what the TUI uses and pick another.
 - The **context meter** shows how full the context window is and turns yellow
   at 75%.
-- **Paste or drop an image** and it shows as a thumbnail, with an
-  `[Image #N]` chip in your text where it goes.
+- **Paste or drop an image** and it shows as a thumbnail on the shelf above
+  the text, with an `[Image #N]` chip in your text where it goes. Deleting
+  the chip leaves the image on the shelf and in the message. The thumbnail's
+  x removes it; while your text still names it, the composer asks first,
+  then removes both.
+- **Quote a reply**: select text within one reply and choose **Cite in
+  composer** on the toolbar under the selection (**Copy** is there too). A
+  `[Quote #N]` chip goes in at the cursor and its card on the shelf; the
+  card's pencil adds a comment (Enter keeps it, Esc drops the edit), and a
+  click on the card scrolls back to the passage and flashes it. The agent
+  gets a Markdown quote with your comment after it. A quote takes up to
+  8,000 characters.
+- **Terminal output into the chat**: select text in a terminal pane and
+  press **Ctrl+Alt+A** (Cmd+Option+A in mac, `add_to_chat`), or right-click
+  and choose **Add to chat**. A `[Terminal #N]` chip goes into the composer
+  of the tab's agent chat, else of the chat you last typed in. The agent
+  gets the lines as a fenced block under the command that printed them,
+  when shell integration (OSC 133) knows it, or the pane's own command.
+- **Big pastes become files**: a paste of 32 KiB or more, or one that would
+  take the message past 120,000 characters, becomes a `[Pasted text #N]`
+  chip with a card that shows its name, size and first line.
+  **Ctrl+Shift+V** keeps it inline. pitwall saves the text to a file in the
+  tab's paste folder, which goes when the tab closes, and the agent gets
+  the file's path where the chip stood, so it reads what it needs instead
+  of the whole paste filling its context. That holds for Claude Code,
+  Codex and Antigravity alike, in panes and New task chats: each reads the
+  file with its own tools, and in Default mode an agent may ask first. A
+  message takes 8 attachments, images and pasted texts together, and 8 MiB
+  of pasted text.
 - **/** lists the slash commands, with the ones that need the TUI marked.
 - **1**, **2** and **3** answer an approval card; a question's options take
   their number keys and Enter.
-- **Ctrl+Backspace** deletes a word, or a whole image chip.
+- **Ctrl+Backspace** deletes a word, or a whole chip.
 
 ## The transcript
 

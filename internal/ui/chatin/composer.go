@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -57,6 +58,14 @@ type Composer struct {
 	slash             slashState
 	branch            branchChip
 	rm                map[int]*widget.Clickable // per image, its remove x
+	parts             map[string]*partUI        // per part's token, its card's controls
+	confirm           int                       // the image whose removal asks first, 0 for none
+	keepB, dropB      widget.Clickable          // the question's Keep and Remove
+	comment           widget.Editor             // a quote's comment while editing is set
+	editing           string                    // the quote whose comment is open, by token
+	editHad           bool                      // the comment field has had the keys
+	inline            bool                      // the next paste goes in as text, as Ctrl+Shift+V asks
+	files             bool                      // the daemon takes pasted text as files (Env.TextFiles)
 	hov               map[int]*gesture.Hover    // per image, the pointer on its thumbnail
 	side              int                       // a thumbnail's side in pixels, as the last frame drew it
 	items             map[string]*widget.Clickable
@@ -127,6 +136,12 @@ type Env struct {
 	// repo; Copy puts text on the clipboard.
 	Branch string
 	Copy   func(string)
+	// TextFiles is whether the daemon saves pasted text to a file the
+	// agent reads (proto.PastedFileLevel): a big paste then goes as one.
+	TextFiles bool
+	// Reveal scrolls the transcript to a quote's source and flashes it;
+	// false when the transcript no longer has it.
+	Reveal func(Source) bool
 }
 
 type imageRead struct {
@@ -192,6 +207,10 @@ func (c *Composer) SetText(s string) {
 // Images is the draft's images in token order.
 func (c *Composer) Images() []Image { return c.draft.Ordered(c.Text()) }
 
+// Parts is the draft's quotes, terminal excerpts and pasted texts in
+// token order.
+func (c *Composer) Parts() []Part { return c.draft.ordered(c.Text()) }
+
 // Slash is the command word the draft starts with while the caret is in
 // it, which the / menu completes.
 func (c *Composer) Slash() (string, bool) {
@@ -246,7 +265,7 @@ func (c *Composer) Result(r Result, now time.Time) {
 // AddImage puts picture b at the caret as an [Image #N] token, with its
 // chip above the text, or notes why it can't.
 func (c *Composer) AddImage(b []byte) {
-	if len(c.draft.Images) >= maxImages {
+	if c.attached() >= maxImages {
 		c.note = "A message takes 8 images at most"
 		return
 	}
@@ -296,7 +315,7 @@ func (c *Composer) Reading(env Env, read func(context.Context) ([]byte, error)) 
 	if c.reads == nil {
 		c.reads = make(chan imageRead, maxImages)
 	}
-	if len(c.draft.Images) >= maxImages || c.reading >= maxImages {
+	if c.attached() >= maxImages || c.reading >= maxImages {
 		c.note = "A message takes 8 images at most"
 		return
 	}
@@ -360,18 +379,28 @@ func (c *Composer) PullBack(q session.QueuedInput) {
 	type swap struct{ mark, tok string }
 	var swaps []swap
 	for i, a := range q.Attachments {
-		data, err := base64.StdEncoding.DecodeString(a.Data)
-		if a.Kind != "image" || err != nil {
+		var tok, old string
+		switch a.Kind {
+		case "pasted-text":
+			tok = c.draft.AddPart(Part{Kind: PartPasted, Text: a.Text, Label: a.Name})
+			if n, ok := strings.CutPrefix(a.ID, "pasted-"); ok {
+				old = "[Pasted text #" + n + "]"
+			}
+		case "image":
+			data, err := base64.StdEncoding.DecodeString(a.Data)
+			if err != nil {
+				continue
+			}
+			thumb, err := Cover(data, c.thumbSide())
+			if err != nil {
+				continue
+			}
+			tok = c.draft.Add(Image{Data: data, Mime: a.MimeType, Thumb: paint.NewImageOp(thumb), side: c.thumbSide()})
+			if n, ok := strings.CutPrefix(a.ID, "image-"); ok {
+				old = "[Image #" + n + "]"
+			}
+		default:
 			continue
-		}
-		thumb, err := Cover(data, c.thumbSide())
-		if err != nil {
-			continue
-		}
-		tok := c.draft.Add(Image{Data: data, Mime: a.MimeType, Thumb: paint.NewImageOp(thumb), side: c.thumbSide()})
-		old := ""
-		if n, ok := strings.CutPrefix(a.ID, "image-"); ok {
-			old = "[Image #" + n + "]"
 		}
 		// why: through a mark, so #1 renumbered to #2 is not then taken for the old #2.
 		mark := "\x00" + itoa(i) + "\x00"
@@ -429,13 +458,23 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 		c.note = "Wait for the image to attach"
 		return
 	}
-	if len(imgs) == 0 && !now && env.Answer != nil && asking(env.Snap) && c.typedFor == asked(env.Snap) && !SlashCommand(text) && env.Answer(text) {
+	if len(imgs) == 0 && len(c.draft.Parts) == 0 && !now && env.Answer != nil && asking(env.Snap) && c.typedFor == asked(env.Snap) && !SlashCommand(text) && env.Answer(text) {
 		c.note = ""
 		c.ed.SetText("")
 		c.draft.Clear()
 		return
 	}
-	m := proto.ChatSend{Chat: env.Chat, Text: text, Attachments: Attachments(imgs)}
+	out := c.draft.Expand(text)
+	if n := utf8.RuneCountInString(out); n > MessageLimit {
+		c.note = "The message is " + itoa(n) + " characters, over " + itoa(MessageLimit) + ": shorten it or send it in parts"
+		return
+	}
+	atts := append(Attachments(imgs), c.draft.Pasted(text)...)
+	if len(atts) > maxImages {
+		c.note = "A message takes 8 attachments at most: remove some"
+		return
+	}
+	m := proto.ChatSend{Chat: env.Chat, Text: out, Attachments: atts}
 	if env.Snap.Busy() || Pending(env.Snap) {
 		m.How = "queue"
 		if now && env.Now {
@@ -449,10 +488,13 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 		slices.ContainsFunc(env.Snap.Commands, func(c session.Command) bool { return c.Name == name }) {
 		slashUsed[name]++
 	}
-	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: at}
+	kept := c.draft
+	kept.Images = imgs
+	c.last = &sent{text: text, draft: kept, at: at}
 	c.note = ""
 	c.ed.SetText("")
 	c.draft.Clear()
+	c.editing, c.confirm = "", 0
 }
 
 // cycleMode moves the mode on from what the chat shows.
@@ -526,7 +568,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		rd.Close()
 		switch {
 		case len(b) > 0:
-			ed.Insert(string(b))
+			c.paste(env, string(b))
 		case env.ReadImage != nil:
 			c.Reading(env, env.ReadImage)
 		}
@@ -538,6 +580,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			key.Filter{Focus: ed, Name: key.NameTab, Required: key.ModShift},
 			key.Filter{Focus: ed, Name: key.NameReturn, Required: key.ModShortcut},
 			key.Filter{Focus: ed, Name: key.NameEnter, Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: "V", Required: key.ModShortcut | key.ModShift},
 		}
 		// A token right before the caret goes whole on Backspace, and on a
 		// word delete with only spaces after it.
@@ -588,8 +631,12 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			continue
 		}
 		switch e.Name {
+		case "V":
+			c.pasteInline(gtx)
 		case key.NameEscape:
 			switch {
+			case c.confirm != 0:
+				c.confirm = 0
 			case c.menu:
 				c.setMenu(gtx.Now, false)
 			case env.Esc != nil && env.Esc(): // the transcript closed its side panel
@@ -642,9 +689,10 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 	c.slashClicks(gtx)
 	c.slashUpdate(env)
 	c.branchEvents(gtx, env)
+	c.partEvents(gtx, env)
 	for n, b := range c.rm {
 		if b.Clicked(gtx) {
-			c.RemoveImage(n)
+			c.askRemove(n)
 		}
 		if !slices.ContainsFunc(c.draft.Images, func(im Image) bool { return im.N == n }) {
 			delete(c.rm, n)
@@ -727,8 +775,9 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	if c.menu && !env.Focus {                                         // the keys went to another pane, a dialog or a peek
 		c.setMenu(gtx.Now, false)
 	}
-	if env.Focus && !gtx.Focused(&c.ed) && !c.menu {
-		gtx.Execute(key.FocusCmd{Tag: &c.ed})
+	c.files = env.TextFiles
+	if env.Focus && !c.menu {
+		c.takeFocus(gtx)
 	}
 	c.events(gtx, env)
 	full := gtx.Constraints.Max.X
@@ -770,7 +819,7 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 	m := op.Record(gtx.Ops)
 	c.barY = 0
 	d := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.chips(gtx, th); c.barY += d.Size.Y; return d }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.shelf(gtx, th); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.field(gtx, th, env); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.bar(gtx, th, env) }),
 	)
@@ -809,33 +858,9 @@ func (c *Composer) thumbSide() int {
 	return c.side
 }
 
-// chips are the draft's images as square thumbnails, each with a remove
-// x while the pointer is on it; an image on its way is a blank square.
-// The [Image #N] token in the text names each one.
-func (c *Composer) chips(gtx layout.Context, th *theme.Theme) layout.Dimensions {
-	c.side = gtx.Dp(thumbDp)
-	if len(c.draft.Images) == 0 {
-		return layout.Dimensions{}
-	}
-	if c.rm == nil {
-		c.rm, c.hov = map[int]*widget.Clickable{}, map[int]*gesture.Hover{}
-	}
-	var kids []layout.FlexChild
-	chip := func(im *Image) layout.FlexChild {
-		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Right: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return c.chip(gtx, th, im)
-			})
-		})
-	}
-	for i := range c.draft.Images {
-		kids = append(kids, chip(&c.draft.Images[i]))
-	}
-	return layout.Inset{Top: 10, Left: theme.SpaceL, Right: theme.SpaceL}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{}.Layout(gtx, kids...)
-	})
-}
-
+// chip is image im on the shelf: a square thumbnail, with a remove x
+// while the pointer is on it; an image on its way is a blank square. The
+// [Image #N] token in the text names it.
 func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.Dimensions {
 	side := c.side
 	if im.Data != nil && im.side != side { // the UI size or the screen's scale changed
@@ -911,6 +936,7 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 		}
 		d := c.ed.Layout(gtx, th.Shaper, th.UIFont, size, colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.Surface, th.Primary, 0.35)))
 		c.tokens(gtx, th)
+		c.partTokens(gtx, th)
 		c.mentionChips(gtx, th)
 		c.mentionAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
 		c.slashAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))

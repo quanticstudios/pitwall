@@ -261,6 +261,7 @@ type paneUI struct {
 	sentRows   int
 	sentCell   image.Point
 	copyWant   *vt.Selection // the selection whose proto.Text reply is awaited
+	chatWant   *vt.Selection // the selection Add to chat awaits the proto.Text reply of
 	pasteWait  bool          // a proto.PasteImage was sent; its reply is awaited
 	focusClick bool          // its address is the click-to-focus pointer tag
 	// The hooks notice: its buttons, and its area's pointer tag.
@@ -387,6 +388,7 @@ type ui struct {
 
 	browser  commandBrowser
 	paneMenu paneMenu
+	adds     chatAdds // terminal selections on their way to a chat (chatadd.go)
 
 	find findBar  // the find bar, on the focused pane while open
 	pip  pipView  // picture in picture, see pip.go
@@ -998,7 +1000,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.tickReview(gtx, &st)
 	u.drawSessions(gtx, &st)
 	u.drawPalette(gtx, &st)
-	u.drawCommandBrowser(gtx)
+	u.drawCommandBrowser(gtx, &st)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
 		if u.nav.pinned {
@@ -1540,7 +1542,7 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 		u.paneMenu.close()
 		u.paneMenu.pane, u.paneMenu.at = id, rect.Min.Add(grid.Min).Add(at)
 	}
-	u.paneCopy(gtx, p, id, rect)
+	u.paneCopy(gtx, st, p, id, rect)
 	u.panePaste(gtx, p, id, rect, m)
 	if l := p.view.OpenLink(); l != "" && !u.openReader(gtx, st, id, l, rect) {
 		openLink(l)

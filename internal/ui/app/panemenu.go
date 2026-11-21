@@ -23,7 +23,7 @@ type paneMenu struct {
 	pane               string
 	at                 image.Point
 	outside            int
-	edit               widget.Clickable
+	edit, add          widget.Clickable
 	requested, focused bool
 }
 
@@ -74,12 +74,23 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 		m.close()
 		return
 	}
+	add := u.canAddToChat(st, m.pane)
+	if m.add.Clicked(gtx) && add {
+		u.panes[m.pane].view.Run("add_to_chat")
+		gtx.Execute(op.InvalidateCmd{})
+		m.close()
+		return
+	}
 	// The full-area catcher keeps presses outside the menu out of the pane.
 	c := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &m.outside)
 	c.Pop()
 	p, h := gtx.Dp(4), gtx.Dp(32)
-	size := image.Pt(gtx.Dp(288), h+2*p)
+	rows := 1
+	if add {
+		rows = 2 // Add to chat first, as T3 Code's terminal menu has it
+	}
+	size := image.Pt(gtx.Dp(288), rows*h+2*p)
 	at := kit.Place(image.Rectangle{Min: m.at, Max: m.at}, size, image.Rectangle{Max: gtx.Constraints.Max}, kit.BelowStart, 0, gtx.Dp(8))
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 	r := gtx.Dp(theme.RadiusPopover)
@@ -91,20 +102,39 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 	defer op.Offset(image.Pt(p, p)).Push(gtx.Ops).Pop()
 	row := image.Pt(size.X-2*p, h)
 	gtx.Constraints = gl.Exact(row)
-	m.edit.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-		if m.edit.Hovered() {
+	if add {
+		u.paneMenuRow(gtx, &m.add, row, "message-square", "Add to chat")
+		defer op.Offset(image.Pt(0, h)).Push(gtx.Ops).Pop()
+	}
+	u.paneMenuRow(gtx, &m.edit, row, "pencil", "Open scrollback in editor")
+}
+
+// paneMenuRow is one row of the pane menu: an icon and a label.
+func (u *ui) paneMenuRow(gtx gl.Context, b *widget.Clickable, row image.Point, icon, label string) {
+	h := row.Y
+	b.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		if b.Hovered() {
 			paint.FillShape(gtx.Ops, u.th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(8)).Op(gtx.Ops))
 		}
 		pointer.CursorPointer.Add(gtx.Ops)
 		x := gtx.Dp(8)
-		x += drawIconAt(gtx, image.Pt(x, (h-gtx.Dp(14))/2), func(gtx gl.Context) { sidebar.Icon(gtx, "pencil", gtx.Dp(14), u.th.Muted) }) + gtx.Dp(8)
-		call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Fg, "Open scrollback in editor")
+		x += drawIconAt(gtx, image.Pt(x, (h-gtx.Dp(14))/2), func(gtx gl.Context) {
+			if icon == "message-square" {
+				sidebar.IconPath(gtx, icMessage, gtx.Dp(14), u.th.Muted)
+				return
+			}
+			sidebar.Icon(gtx, icon, gtx.Dp(14), u.th.Muted)
+		}) + gtx.Dp(8)
+		call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Fg, label)
 		off := op.Offset(image.Pt(x, (h-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		off.Pop()
 		return gl.Dimensions{Size: row}
 	})
 }
+
+// Lucide's message-square, for Add to chat.
+const icMessage = "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
 
 func (u *ui) editScrollback(st *model.State, pane string) {
 	u.nav.setFocus(pane)

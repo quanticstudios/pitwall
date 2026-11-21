@@ -123,6 +123,7 @@ type Keys struct {
 	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see docs/usage.md"`
 	BrowseCommands  Binding `toml:"scrollback_browser" group:"Terminal" doc:"Browse command blocks in the focused pane. Needs OSC 133 shell integration"`
 	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`
+	AddToChat       Binding `toml:"add_to_chat" group:"Terminal" doc:"Add the selection to the chat: a terminal excerpt chip in the composer of the tab's agent chat, or of the chat last shown, sent as a fenced block under its command when shell integration (OSC 133) knows it. The pane's right-click menu has it too"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	FocusSidebar    Binding `toml:"focus_sidebar" group:"Window" doc:"Focus sidebar: move through its groups, tabs and agents with the arrow keys or j and k, Enter to open one, Esc to go back to the pane. See docs/keys.md"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`

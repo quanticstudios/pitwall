@@ -136,6 +136,7 @@ type Transcript struct {
 	frame  int            // frames laid out
 	selAt  map[string]int // the frame each selectable was last drawn in
 	msg    msgState       // the prompts' hover buttons, the find bar and side questions
+	cite   citeState      // the selection's toolbar and a quote's reveal, see cite.go
 }
 
 // Answer is an approval answered with its buttons or keys.
@@ -680,6 +681,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		}()
 	}
 	t.findJump(gtx, s, size.Y)
+	t.revealJump(gtx, s, prev, size.Y)
 	t.autoScroll(gtx, prev, size.Y)
 	if t.span.drag { // the button held: the newest line does not pull the view away
 		t.list.Position.BeforeEnd = true
@@ -766,6 +768,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		d.moreMenu(gtx, size)
 	}
 	t.selectEvents(gtx, prev) // once all the text took its presses
+	t.drawCite(gtx, d, s, prev, size)
 	d.selMenu(gtx, size)
 	if t.live {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})

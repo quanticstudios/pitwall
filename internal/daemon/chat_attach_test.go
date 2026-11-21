@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -237,5 +238,53 @@ func TestChatState(t *testing.T) {
 	}
 	if _, _, ok := chatState(session.Snapshot{SessionState: session.StateRunning}, false); ok {
 		t.Error("an activity before the first turn")
+	}
+}
+
+// A New task chat's driver gets a composer's pasted text as a path in
+// the tab's paste folder; two queued messages sent as one prompt each
+// name their own file, and closing the tab removes the folder.
+func TestChatPastedFiles(t *testing.T) {
+	d, prov := chatDaemon(t, nil)
+	r := chatDo(t, d, proto.ChatNew{Dir: t.TempDir(), Prompt: "start"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	drv := prov.driver(t)
+	paste := func(text string) []session.Attachment {
+		return []session.Attachment{{ID: "pasted-1", Kind: "pasted-text", Name: "pasted-text-1.txt", Text: text}}
+	}
+	for _, s := range []string{"one\n", "two\n"} {
+		if q := chatDo(t, d, proto.ChatSend{Chat: r.Chat, Text: "read [Pasted text #1]", Attachments: paste(s)}); q.Code != "" || q.Message != "queued" {
+			t.Fatalf("send: %+v", q)
+		}
+	}
+	drv.end(session.TurnCompleted)
+	waitUntil(t, "the joined turn", func() bool { drv.mu.Lock(); defer drv.mu.Unlock(); return len(drv.msgs) == 2 })
+	drv.mu.Lock()
+	got := drv.msgs[1].Text
+	drv.mu.Unlock()
+	d.mu.Lock()
+	tab := d.chats[r.Chat].cfg.Workspace
+	d.mu.Unlock()
+	files, _ := filepath.Glob(filepath.Join(pasteDir(tab), "pasted-*.txt"))
+	if len(files) != 2 {
+		t.Fatalf("files %v", files)
+	}
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		n := strings.TrimSpace(string(b))
+		if !strings.Contains(got, ", saved at "+f+"]") || (n != "one" && n != "two") {
+			t.Errorf("%s (%q) is not named in %q", f, n, got)
+		}
+	}
+	if !strings.Contains(got, "[Pasted text #1 (") || !strings.Contains(got, "[Pasted text #2 (") || strings.Contains(got, "Explicit evidence") {
+		t.Errorf("joined prompt %q", got)
+	}
+	d.mu.Lock()
+	d.removeWorkspace(tab)
+	d.mu.Unlock()
+	if _, err := os.Stat(pasteDir(tab)); !os.IsNotExist(err) {
+		t.Errorf("the paste folder outlived its tab: %v", err)
 	}
 }

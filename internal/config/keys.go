@@ -156,7 +156,7 @@ func (c Chord) String() string {
 type Binding []string
 
 // paneActions are handled by the terminal view, not the window.
-var paneActions = []string{"copy", "copy_mode", "paste", "scroll_page_up", "scroll_page_down", "prev_prompt", "next_prompt"}
+var paneActions = []string{"copy", "copy_mode", "paste", "scroll_page_up", "scroll_page_down", "prev_prompt", "next_prompt", "add_to_chat"}
 
 // presets hold every action's chords. Actions a preset leaves out are
 // unbound in it.
@@ -176,7 +176,7 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
 			"hints": {"Ctrl+Shift+G"}, "hints_all": {"Ctrl+Alt+Shift+G"},
 			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
-			"scrollback_browser": {"Ctrl+Shift+J"},
+			"scrollback_browser": {"Ctrl+Shift+J"}, "add_to_chat": {"Ctrl+Alt+A"},
 
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "focus_sidebar": {"Ctrl+Shift+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
@@ -209,7 +209,7 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
 			"hints": {"Ctrl+Shift+G"}, "hints_all": {"Ctrl+Alt+Shift+G"},
 			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
-			"scrollback_browser": {"Ctrl+Shift+J"},
+			"scrollback_browser": {"Ctrl+Shift+J"}, "add_to_chat": {"Ctrl+Alt+A"},
 
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "focus_sidebar": {"Ctrl+Shift+H"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
@@ -245,7 +245,7 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Super+F"},
 			"hints": {"Super+Shift+G"}, "hints_all": {"Super+Alt+Shift+G"},
 			"prev_prompt": {"Super+Up"}, "next_prompt": {"Super+Down"},
-			"scrollback_browser": {"Super+Shift+J"},
+			"scrollback_browser": {"Super+Shift+J"}, "add_to_chat": {"Super+Alt+A"},
 
 			"toggle_sidebar": {"Super+B"}, "focus_sidebar": {"Super+Shift+B"}, "toggle_panel": {"Super+L"}, "open_settings": {"Super+,"},
 			"chat_terminal":    {"Super+Alt+T"},

@@ -62,6 +62,7 @@ func (d *cdraw) selectable(gtx layout.Context, sl *widget.Selectable, st tstyle,
 	call := m.Stop()
 	d.t.span.size[sl] = dims.Size
 	d.t.marks(gtx, d, sl, txt) // under the text
+	d.t.flashMark(gtx, d, sl, txt)
 	call.Add(gtx.Ops)
 	return dims
 }

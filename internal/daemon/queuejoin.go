@@ -79,6 +79,31 @@ func joinAttachments(as, more []session.Attachment) []session.Attachment {
 	return as
 }
 
+// pastedNo is a [Pasted text #N] token's number.
+var pastedNo = regexp.MustCompile(`\[Pasted text #([0-9]+)\]`)
+
+// renumberPasted is text and as with each pasted text's number moved on
+// by off, in its token and its id (pasted-N), so messages joined into one
+// prompt still name their own files; and the highest number they had.
+func renumberPasted(text string, as []session.Attachment, off int) (string, []session.Attachment, int) {
+	top := 0
+	text = pastedNo.ReplaceAllStringFunc(text, func(tok string) string {
+		n, _ := strconv.Atoi(pastedNo.FindStringSubmatch(tok)[1])
+		top = max(top, n)
+		return "[Pasted text #" + strconv.Itoa(n+off) + "]"
+	})
+	out := slices.Clone(as)
+	for i, a := range out {
+		if s, ok := strings.CutPrefix(a.ID, "pasted-"); ok && a.Kind == "pasted-text" {
+			if n, err := strconv.Atoi(s); err == nil {
+				top = max(top, n)
+				out[i].ID = "pasted-" + strconv.Itoa(n+off)
+			}
+		}
+	}
+	return text, out, top
+}
+
 // imageCount is how many of as are images.
 func imageCount(as []session.Attachment) int {
 	n := 0

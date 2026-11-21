@@ -951,12 +951,18 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	if dialogCommand(m) && pc.dialog(l, strings.TrimSpace(m.Text)) {
 		return "", nil
 	}
-	sm, quoted, err := gather(l.cwd, session.Message{Text: m.Text, Attachments: m.Attachments})
+	d.mu.Lock()
+	tab := pc.id
+	if w := d.paneTab(pc.id); w != nil {
+		tab = w.ID
+	}
+	d.mu.Unlock()
+	sm, quoted, err := gather(l.cwd, pasteDir(tab), session.Message{Text: m.Text, Attachments: m.Attachments})
 	if err != nil {
 		return "", err
 	}
 	// why: Claude Code numbers each pasted image path itself, and the TUI takes attachments' texts as pastes, not aide's evidence line.
-	sm.Text = strings.TrimSpace(imageToken.ReplaceAllString(m.Text, ""))
+	sm.Text = strings.TrimSpace(imageToken.ReplaceAllString(sm.Text, ""))
 	var texts []string
 	for _, q := range quoted {
 		switch {
