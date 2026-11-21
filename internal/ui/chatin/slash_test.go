@@ -115,3 +115,59 @@ func TestSlashMenu(t *testing.T) {
 		t.Fatal("a / inside the draft opened the menu")
 	}
 }
+
+// With no row to show the menu says why in one muted line: an older
+// daemon, a list not in yet, or nothing matching. The line takes no key
+// but Esc, so Enter still sends a message that starts with a /.
+func TestSlashMenuNotes(t *testing.T) {
+	h := newHarness(t)
+	for _, c := range []struct {
+		old  bool
+		cmds []session.Command
+		text string
+		note string
+	}{
+		{true, nil, "/", oldNote},
+		{false, nil, "/", noListNote},
+		{false, testCommands, "/tmp/x", noMatchNote},
+	} {
+		h.old, h.snap.Commands = c.old, c.cmds
+		h.c.SetText("")
+		h.typ(c.text)
+		if h.c.slash.open() || h.c.slash.note != c.note {
+			t.Fatalf("%q, old %v, %d commands: note %q, open %v", c.text, c.old, len(c.cmds), h.c.slash.note, h.c.slash.open())
+		}
+	}
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).Text != "/tmp/x" {
+		t.Fatalf("Enter under a note sent %+v", m)
+	}
+	h.typ("/zz")
+	h.press(key.NameEscape, 0)
+	if h.c.slash.shown() {
+		t.Fatal("Esc left the note")
+	}
+	if h.frame(); h.c.slash.shown() {
+		t.Fatal("the note came back on the text Esc closed it on")
+	}
+}
+
+// The highlight stays on its command when the chat's list is read again
+// and moves rows; a new query starts again at the first row.
+func TestSlashMenuKeepsHighlight(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Commands = testCommands
+	h.typ("/co")
+	h.press(key.NameDownArrow, 0)
+	if got := h.c.slash.rows[h.c.slash.sel].Name; got != "config" {
+		t.Fatalf("Down highlights %q", got)
+	}
+	h.snap.Commands = append([]session.Command{{Name: "cost", Description: "Show the cost"}}, testCommands...)
+	h.frame()
+	if got := h.c.slash.rows[h.c.slash.sel].Name; got != "config" {
+		t.Fatalf("after the list was read again, %q is highlighted", got)
+	}
+	h.typ("n")
+	if got := h.c.slash.rows[h.c.slash.sel].Name; got != "config" || h.c.slash.sel != 0 {
+		t.Fatalf("a new query highlights %q at %d, want the first row", got, h.c.slash.sel)
+	}
+}

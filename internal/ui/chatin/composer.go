@@ -114,6 +114,9 @@ type Env struct {
 	// word's query, best first; nil while they are listed, and Mentions
 	// itself nil where the files can't be listed.
 	Mentions func(query string) []string
+	// Commands is whether the daemon sends the chat's slash commands
+	// (proto.SlashLevel); without them the / menu says so.
+	Commands bool
 	// Branch is the git branch the chat's folder is on, "" outside a
 	// repo; Copy puts text on the clipboard.
 	Branch string
@@ -560,6 +563,10 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.slashKey(gtx, e)
 			continue
 		}
+		if c.slash.note != "" && e.Modifiers == 0 && e.Name == key.NameEscape {
+			c.slash.shut, c.slash.note = c.Text(), ""
+			continue
+		}
 		if c.mention.open() && e.Modifiers == 0 && e.Name != key.NameDeleteBackward {
 			c.mentionKey(gtx, e)
 			continue
@@ -734,7 +741,7 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	if c.mention.open() {
 		c.mentionPop(gtx, th)
 	}
-	if c.slash.open() {
+	if c.slash.shown() {
 		c.slashPop(gtx, th)
 	}
 	off.Pop()

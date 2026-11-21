@@ -245,7 +245,7 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old, Separate: h.separate,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
 		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) },
 		Mentions: func(q string) []string {
 			var out []string
