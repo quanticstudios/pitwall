@@ -472,7 +472,7 @@ func (c *Composer) submit(env Env, at time.Time, other bool) {
 	}
 	out := c.draft.Expand(text)
 	if n := utf8.RuneCountInString(out); n > MessageLimit {
-		c.note, c.noteOK = "The message is " + itoa(n) + " characters, over " + itoa(MessageLimit) + ": shorten it or send it in parts", false
+		c.note, c.noteOK = "The message is "+itoa(n)+" characters, over "+itoa(MessageLimit)+": shorten it or send it in parts", false
 		return
 	}
 	atts := append(Attachments(imgs), c.draft.Pasted(text)...)
