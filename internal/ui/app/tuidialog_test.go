@@ -242,14 +242,20 @@ func TestTUIDialogChatTab(t *testing.T) {
 	}
 }
 
-// A Codex pane chat's command that its list marks Terminal goes to the
-// pane as typed and the pane shows its TUI; one it runs in the chat, an
-// argument and all, stays a chat message.
+// A Codex or agy pane chat's command that its list marks Terminal goes
+// to the pane as typed and the pane shows its TUI; one it runs in the
+// chat, an argument and all, stays a chat message.
 func TestTerminalCommandCodexPane(t *testing.T) {
+	for _, prov := range []model.Provider{model.ProviderCodex, model.ProviderAntigravity} {
+		t.Run(string(prov), func(t *testing.T) { terminalCommandPane(t, prov) })
+	}
+}
+
+func terminalCommandPane(t *testing.T, prov model.Provider) {
 	b := &screenBackend{chatBackend: &chatBackend{FakeBackend: NewFakeBackend()}}
 	b.mu.Lock()
 	i := slices.IndexFunc(b.st.Panes, func(p model.Pane) bool { return p.ID == "h" })
-	b.st.Panes[i].Provider, b.st.Panes[i].Transcript = model.ProviderCodex, "/tmp/rollout.jsonl"
+	b.st.Panes[i].Provider, b.st.Panes[i].Transcript = prov, "/tmp/transcript.jsonl"
 	b.mu.Unlock()
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
 	st := b.State()

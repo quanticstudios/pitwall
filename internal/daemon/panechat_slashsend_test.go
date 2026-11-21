@@ -77,4 +77,27 @@ func TestPaneChatSlashSend(t *testing.T) {
 	if len(agy) != 1 || agy[0] != "/plan add the tests\r" {
 		t.Errorf("agy got writes %q, want the line and its Enter as one", agy)
 	}
+
+	// Claude Code's own menu still up over its box after the typing: Esc
+	// closes it, so Enter sends the line as typed, not its highlighted row.
+	f.pane(0).mu.Lock()
+	f.pane(0).screen = []string{"❯ /review-pr   Review a pull request (user)", "────────", "❯ /rev", "────────"}
+	f.pane(0).mu.Unlock()
+	before := len(f.pane(0).got())
+	if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "a", Text: "/rev"}); r.(proto.ChatResult).Code != "" {
+		t.Fatalf("send: %+v", r)
+	}
+	if got := gotAfter(t, f.pane(0), before, len("/rev")+2); !strings.HasSuffix(got, "\x1b\r") {
+		t.Errorf("typed %q, want Esc before Enter", got)
+	}
+}
+
+// A slash line goes to agy with its Enter in one write only when it is
+// one line: a longer message is typed and entered as any other.
+func TestAgySlashLine(t *testing.T) {
+	for text, want := range map[string]bool{"/plan add tests": true, "/compact": true, "plan it": false, "/plan\nsecond line": false, "": false} {
+		if got := agySlashLine(text); got != want {
+			t.Errorf("agySlashLine(%q) = %v, want %v", text, got, want)
+		}
+	}
 }
