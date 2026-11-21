@@ -231,7 +231,7 @@ func (d *cdraw) quietRow(gtx layout.Context, id, ic string, c color.NRGBA, txt s
 
 // notice is a card in tone, the danger red or the warning yellow: an
 // icon, a title when there is one, the message.
-func (d *cdraw) notice(gtx layout.Context, id string, tone color.NRGBA, title, msg string) layout.Dimensions {
+func (d *cdraw) notice(gtx layout.Context, id string, tone color.NRGBA, title, msg string, under ...layout.Widget) layout.Dimensions {
 	th := d.th
 	w := gtx.Constraints.Max.X
 	fg := th.Readable(tone, th.Surface)
@@ -253,6 +253,12 @@ func (d *cdraw) notice(gtx layout.Context, id string, tone color.NRGBA, title, m
 					col = th.Muted
 				}
 				return d.selectable(gtx, d.t.sel("notice:"+id), d.body(col), msg)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				if len(under) == 0 {
+					return layout.Dimensions{}
+				}
+				return under[0](gtx)
 			})
 	})
 	h := bd.Size.Y + 2*py

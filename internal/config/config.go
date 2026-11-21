@@ -229,7 +229,8 @@ type Terminal struct {
 type Font struct {
 	UIFamily     string   `toml:"ui_family" doc:"Sidebar and dialog text. Geist is the copy bundled with pitwall"`
 	UISize       float64  `toml:"ui_size" min:"6" max:"48" doc:"UI text size"`
-	ChatSize     float64  `toml:"chat_size" min:"0" max:"48" doc:"Desktop chat text size: messages, code, tool rows and the composer, with the space around them. 0 follows ui_size. Ctrl+= and Ctrl+- step it in a chat, Ctrl+0 resets it"`
+	ChatSize     float64  `toml:"chat_size" min:"0" max:"48" doc:"Desktop chat text size: messages, tool rows and the composer, with the space around them, and code until chat_code_size is set. 0 follows ui_size. Ctrl+= and Ctrl+- step it in a chat, Ctrl+0 resets it"`
+	ChatCodeSize float64  `toml:"chat_code_size" min:"0" max:"48" doc:"Desktop chat code size: code blocks, diffs, commands and tool output. 0 follows chat_size"`
 	MonoFamily   string   `toml:"mono_family" doc:"Terminal font"`
 	MonoSize     float64  `toml:"mono_size" min:"6" max:"48" doc:"Terminal text size"`
 	LineHeight   float64  `toml:"line_height" min:"0.8" max:"3" doc:"Terminal line height as a multiple of the font's"`
@@ -550,6 +551,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	}{
 		{&s.Font.UISize, "font.ui_size", DefaultUISize, 6, 48},
 		{&s.Font.ChatSize, "font.chat_size", 0, 6, 48},
+		{&s.Font.ChatCodeSize, "font.chat_code_size", 0, 6, 48},
 		{&s.Font.MonoSize, "font.mono_size", DefaultMonoSize, 6, 48},
 		{&s.Font.LineHeight, "font.line_height", 1, 0.8, 3},
 		{or(c.Layout.PaneGap, &s.PaneGap), "layout.pane_gap", DefaultPaneGap, 0, 64},

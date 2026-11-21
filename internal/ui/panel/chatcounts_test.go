@@ -21,6 +21,12 @@ func TestFoldLabel(t *testing.T) {
 		in, _ := json.Marshal(map[string]string{"file_path": path})
 		return session.Item{Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Edit", Input: in}}
 	}
+	fail := func(it session.Item) session.Item {
+		c := *it.Tool
+		c.Status = "failed"
+		it.Tool = &c
+		return it
+	}
 	think := session.Item{Kind: session.KindReasoningText}
 	todo := call("TodoWrite")
 	todo.Tool.Tasks = []session.Task{{Subject: "x"}}
@@ -37,6 +43,14 @@ func TestFoldLabel(t *testing.T) {
 		{[]session.Item{call("Read"), call("Bash"), call("Edit"), call("WebFetch"), call("Agent")}, "Ran 1 command, changed 1 file, and performed 3 other actions", "hammer"},
 		{[]session.Item{edit("a.go"), edit("a.go"), edit("b.go")}, "Changed 2 files", "pencil"},
 		{[]session.Item{think, call("Read")}, "Read 1 file", "file"},
+		{[]session.Item{call("Bash"), fail(call("Bash")), call("Bash")}, "Ran 2 commands and 1 command failed", "terminal"},
+		{[]session.Item{fail(call("Bash"))}, "1 command failed", "terminal"},
+		{[]session.Item{call("Read"), fail(call("Bash")), fail(call("Read"))}, "Read 1 file and 2 calls failed", "hammer"},
+		{[]session.Item{call("Bash"), call("Read"), call("Read"), fail(call("Bash")), call("Grep")}, "Ran 1 command, read 2 files, performed 1 other action, and 1 command failed", "hammer"},
+		{[]session.Item{call("Read"), fail(call("Bash")), fail(call("Bash"))}, "Read 1 file and 2 commands failed", "hammer"},
+		{[]session.Item{edit("a.go"), fail(edit("b.go"))}, "Changed 1 file and 1 edit failed", "pencil"},
+		// The other actions count calls, an edit's included, failed or not.
+		{[]session.Item{call("Bash"), call("Agent"), edit("a.go"), edit("a.go"), fail(call("Read"))}, "Ran 1 command, started 1 agent, and performed 3 other actions", "hammer"},
 		{[]session.Item{think}, "Thought", "brain"},
 		{[]session.Item{think, think}, "Thought (×2)", "brain"},
 	} {

@@ -38,6 +38,7 @@ const (
 	headMark    = theme.SpaceL                  // the agent mark
 	headBranch  = theme.SpaceM                  // the branch glyph
 	menuWidth   = 10 * theme.SpaceL             // the more menu at its narrowest
+	toolsNarrow = 45 * theme.SpaceL             // below it the Tools button drops its label
 )
 
 // chatHead is the strip over a chat tab: its header in the chat view, its
@@ -53,7 +54,8 @@ type chatHead struct {
 	tipSince time.Time         // since when
 	tipShown time.Time         // the last frame a tooltip showed, so a neighbor's shows at once
 
-	find widget.Clickable // Find in chat
+	find  widget.Clickable // Find in chat
+	tools widget.Clickable // cycles [chat] tool_calls
 }
 
 // Tooltip timing: the first waits tipDelay, a neighbor hovered within
@@ -163,6 +165,9 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 			tr.OpenFind()
 		}
 	}
+	for h.tools.Clicked(gtx) {
+		u.cycleTools()
+	}
 	for h.more.Clicked(gtx) {
 		h.setMenu(!h.menu, gtx.Now)
 	}
@@ -200,7 +205,22 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	if l := u.chatSizeLabel(gtx); l != nil {
 		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout), gl.Rigid(l))
 	}
-	kids = append(kids, gl.Flexed(1, fill), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+	kids = append(kids, gl.Flexed(1, fill))
+	if tr != nil {
+		mode := u.cfg.Chat.ToolCalls
+		narrow := gtx.Constraints.Max.X < gtx.Dp(toolsNarrow) // a split pane's header keeps the glyph alone
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.tipped(gtx, h, &h.tools, toolsTip(mode), func(gtx gl.Context) gl.Dimensions {
+				if narrow {
+					return kit.IconButton(gtx, th, &h.tools, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
+						sidebar.Icon(gtx, "wrench", size, col)
+					})
+				}
+				return ghostIconButton(gtx, th, &h.tools, "wrench", toolsLabel(mode))
+			})
+		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+	}
+	kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		return u.tipped(gtx, h, &h.find, withKey("Find in chat", "Ctrl+F"), func(gtx gl.Context) gl.Dimensions {
 			return kit.IconButton(gtx, th, &h.find, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "search", size, col)

@@ -945,7 +945,9 @@ var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 // paneSend types m into pc's pane: pasted text and image paths, with
 // Enter. Mid-turn, it waits in the chat's queue (chatQueue) for the turn
 // to end; one sent "now" goes in at once, and Claude Code takes it into
-// the running turn. A send lets a held queue go.
+// the running turn. One sent "queue" waits there whatever the turn does,
+// so at a usage limit it goes once the limit resets. A send lets a held
+// queue go.
 func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
 	// why: Claude Code's dialog for these needs Esc and writes nothing the chat could show.
 	if dialogCommand(m) && pc.dialog(l, strings.TrimSpace(m.Text)) {
@@ -986,7 +988,8 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	d.mu.Lock()
 	d.chatHold(pc.id, false)
 	d.mu.Unlock()
-	if !busy(l.act.State) || l.act.Background || m.How == "now" || m.How == "steer" {
+	// why: "queue" waits even at an idle prompt, so a continue queued at a usage limit goes when it resets.
+	if (!busy(l.act.State) || l.act.Background) && m.How != "queue" || m.How == "now" || m.How == "steer" {
 		pc.mu.Lock()
 		pc.catchUp(l) // the echo goes once a prompt after the last one read lands
 		pc.echoPrompt(sm.Text)

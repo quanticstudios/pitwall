@@ -49,9 +49,17 @@ func (d *cdraw) promptStyle() tstyle {
 	return tstyle{d.th.UIFont, d.th.Sp(theme.Large), d.th.Fg, 1.55}
 }
 
-// mono is code, diffs, commands and tool output.
+// mono is code, diffs, commands and tool output, at the code size.
 func (d *cdraw) mono() tstyle {
-	return tstyle{d.th.MonoFont, d.th.Sp(theme.Small), theme.Mix(d.th.Fg, d.th.Bg, 0.15), 1.55}
+	return tstyle{d.th.MonoFont, d.codeSp(d.th.Sp(theme.Small)), theme.Mix(d.th.Fg, d.th.Bg, 0.15), 1.55}
+}
+
+// codeSp is size scaled by the transcript's CodeScale.
+func (d *cdraw) codeSp(size unit.Sp) unit.Sp {
+	if d.t == nil || d.t.CodeScale <= 0 {
+		return size
+	}
+	return unit.Sp(float32(size) * d.t.CodeScale)
 }
 
 // body is a card's text.

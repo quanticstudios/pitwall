@@ -73,9 +73,10 @@ settle_on_merge = true                  # settle a tab once its pull request mer
 claude = "chat"                         # or "terminal": how Claude Code panes show; Alt+T flips between chat and TUI
 codex = "chat"                          # or "terminal": the same for Codex panes
 antigravity = "chat"                    # or "terminal": New task starts agy's TUI; agy panes show as the TUI
-width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
+width = "standard"                      # or "comfortable" (736 dp), "full": a chat's column, transcript and composer
 follow_up = "queue"                     # or "steer": what the send key does while the agent works; Ctrl+Enter does the other
 send_key = "enter"                      # or "ctrl+enter": Ctrl+Enter sends and Enter adds a line
+tool_calls = "all"                      # or "failed", "none", "zen": which tool calls the chat shows
 
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag
@@ -190,11 +191,21 @@ default, draws it as [the desktop chat](chat.md), and `terminal` shows the
 TUI. Alt+T flips either way. `[chat] codex` does the same for a pane
 running Codex, once Codex's hooks name its session.
 
-`[chat] width` sets how wide a chat tab's transcript grows: `comfortable`
-is 736 dp, `standard` (the default) is 960 dp, enough for a 120-column diff at
-the 12 px mono size, and `full` uses the whole tab. Code, diffs and tool
-output use the whole column; reply prose stops near 96 characters so lines
-stay readable. It applies when the config reloads.
+`[chat] width` sets how wide a chat's transcript and composer grow:
+`comfortable` is 736 dp, `standard` (the default) is 960 dp, enough for a
+120-column diff at the 12 px mono size, and `full` uses the whole tab. Code,
+diffs and tool output use the whole column; reply prose stops near 96
+characters so lines stay readable. It applies when the config reloads, and
+Settings, Chat width, sets it too.
+
+`[chat] tool_calls` sets which tool calls the desktop chat shows, in every
+chat: `all` (the default); `failed`, which shows a call while it runs and
+keeps it only if it fails; `none`, which hides every call and keeps the
+thinking lines; and `zen`, which shows only your messages and each turn's
+final reply, once the turn ends. Errors, approvals, questions and plans
+show in every mode, and subagents in all but `zen`. With the find bar open,
+`zen` shows the agent's words between calls, which find looks in. The chat
+header's Tools button and Settings, Tool calls in chat, set it too.
 
 `[terminal] hint_patterns` adds patterns to hints mode, as Go regular
 expressions (RE2 syntax). A pattern with a group labels the text of its first
@@ -348,7 +359,7 @@ switch at once.
 ## Fonts and spacing
 
 `[font]` takes `ui_family` (default the bundled Geist), `ui_size` (13),
-`chat_size` (unset follows `ui_size`), `mono_family` (`JetBrainsMono Nerd Font`), `mono_size` (13), `line_height`
+`chat_size` (unset follows `ui_size`), `chat_code_size` (unset follows `chat_size`), `mono_family` (`JetBrainsMono Nerd Font`), `mono_size` (13), `line_height`
 (a multiple of the font's, 1.0) and `mono_fallback`, families tried for
 characters the terminal font lacks before any monospace font and color
 emoji. Families are any installed font (`fc-list : family`); a missing one is
@@ -359,12 +370,14 @@ command palette and dialogs as well as the settings page.
 `chat_size` sizes the desktop chat on its own: messages, markdown, code,
 tool rows, cards, the work log, the composer and the queue, with the space
 around them and the `[chat] width` column, so a bigger size wraps the same
-words per line. Code in the chat keeps its size relative to the prose, so
-one setting covers both. The chat header stays at `ui_size`. In a chat,
+words per line. Code in the chat keeps its size relative to the prose
+until you set `chat_code_size`, which sizes code blocks, diffs, commands
+and tool output on their own, between 6 and 48; inline code in a sentence
+stays matched to its words. The chat header stays at `ui_size`. In a chat,
 Ctrl+= (or Ctrl++) and Ctrl+- (Cmd in the mac preset) step it a point at a
 time between 6 and 48 and write it here, and Ctrl+0 removes it again. A
 change keeps the message you were reading at the top; Settings, Chat
-text size, does the same. The keys are `chat_text_bigger`,
+text size, does the same, and Chat code size sets `chat_code_size`. The keys are `chat_text_bigger`,
 `chat_text_smaller` and `chat_text_reset` under `[keys]`.
 
 `[appearance]` has `reduce_motion` (default `false`). On, dialogs, menus,
