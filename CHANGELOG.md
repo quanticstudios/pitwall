@@ -35,6 +35,7 @@ takes `--dry-run`.
 - Queued messages stay with the agent they were written for. If that agent exits or another one starts in the pane, they wait with "The agent these were queued for left this pane" until you press Send, which gives them to the agent there now. They never go into a shell.
 - Send now on one queued message sends only that message. The rest keep their places, and a held queue stays held.
 - Sidebar rows and board cards show a tab's queued messages, "2 queued", or "2 held" when the queue waits for you. The phone page lists the queue and why it waits, with Send now and Remove.
+- Codex 0.171 panes report again, so their state, timing and desktop chat (Alt+T) work. Codex now runs each turn in an app-server helper its TUI starts in a session of its own, and pitwall took that helper's hooks for a nested agent's and dropped them.
 
 ## v0.3.1
 

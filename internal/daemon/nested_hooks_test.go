@@ -480,3 +480,37 @@ func TestNestedHooksExecPi(t *testing.T) {
 		t.Fatalf("exec'd pi took the pane: %+v, %+v", p, a)
 	}
 }
+
+// Codex 0.171 runs each turn in an app-server helper, 310, that its TUI, 300,
+// starts in a session of its own. The helper's hooks, direct (311) or through
+// a shell (313), are the pane's own. A Codex run from the helper's tool shell
+// (321) is nested, and so is a Codex that a Claude Code TUI, 400, runs
+// directly (410).
+func TestCodexServer(t *testing.T) {
+	tree := map[int][2]int{
+		50: {1, 50}, 300: {50, 300},
+		310: {300, 310}, 311: {310, 310}, 312: {310, 310}, 313: {312, 310},
+		320: {310, 320}, 321: {320, 320}, 322: {321, 321},
+		400: {50, 400}, 410: {400, 410}, 411: {410, 410},
+	}
+	comm := map[int]string{300: "codex", 310: "codex", 312: "sh", 320: "bash", 321: "codex", 400: "claude", 410: "codex"}
+	oldParent, oldComm := parentOf, commOf
+	parentOf = func(pid int) (int, int) { return tree[pid][0], tree[pid][1] }
+	commOf = func(pid int) string { return comm[pid] }
+	t.Cleanup(func() { parentOf, commOf = oldParent, oldComm })
+	for _, c := range []struct {
+		pid, fg int
+		want    bool
+	}{
+		{311, 300, true}, {313, 300, true},
+		{322, 300, false}, {411, 400, false},
+		{9999, 300, false},
+	} {
+		if got := codexServer(c.pid, c.fg); got != c.want {
+			t.Errorf("codexServer(%d, %d) = %v, want %v", c.pid, c.fg, got, c.want)
+		}
+	}
+	if !nestedIn(322, 300) {
+		t.Error("a Codex run from the app-server's tool shell is not nested")
+	}
+}
