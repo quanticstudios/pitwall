@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -173,20 +174,31 @@ func TestTurnEndHook(t *testing.T) {
 	d.mu.Lock()
 	d.st.Panes[0].Cwd = repo
 	d.mu.Unlock()
-	stop := []byte(`{"hook_event_name":"Stop","session_id":"s1","transcript_path":"/x.jsonl","cwd":"` + repo + `"}`)
+	// why: marshaled, so a Windows path's backslashes stay valid JSON.
+	hook := func(fields map[string]string) []byte {
+		fields["session_id"], fields["transcript_path"], fields["cwd"] = "s1", "/x.jsonl", repo
+		b, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	stop := hook(map[string]string{"hook_event_name": "Stop"})
 	if err := d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: stop}); err != nil {
 		t.Fatal(err)
 	}
-	if out := gitIn(t, repo, "for-each-ref", "refs/pitwall/turns/w1/end"); out == "" {
-		t.Fatal("a Stop hook took no turn end")
-	}
-	prompt := []byte(`{"hook_event_name":"UserPromptSubmit","session_id":"s1","transcript_path":"/x.jsonl","cwd":"` + repo + `","prompt":"go"}`)
+	// The hook waits at most turnWait for the snapshot, which a slow runner can pass.
+	waitUntil(t, "a turn end from the Stop hook", func() bool {
+		return gitIn(t, repo, "for-each-ref", "refs/pitwall/turns/w1/end") != ""
+	})
+	prompt := hook(map[string]string{"hook_event_name": "UserPromptSubmit", "prompt": "go"})
 	if err := d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: prompt}); err != nil {
 		t.Fatal(err)
 	}
-	if out := gitIn(t, repo, "for-each-ref", "refs/pitwall/turns/w1/"); strings.Contains(out, "/end") || !strings.Contains(out, "/1") {
-		t.Errorf("refs after the next prompt:\n%s", out)
-	}
+	waitUntil(t, "the next prompt's checkpoint, without the turn end", func() bool {
+		out := gitIn(t, repo, "for-each-ref", "refs/pitwall/turns/w1/")
+		return !strings.Contains(out, "/end") && strings.Contains(out, "/1")
+	})
 }
 
 // TestPaneRewindFiles: a Claude Code pane whose tab took a checkpoint at
