@@ -41,7 +41,9 @@ const initLine = `{"type":"system","subtype":"init","cwd":"/tmp/acme-api","sessi
 func TestInitCommands(t *testing.T) {
 	s := newStream("SESSION")
 	snap, events := reduce(t, s, base(), initLine)
-	want := []session.Command{{Name: "review"}, {Name: "doctor", Terminal: true}, {Name: "color", Terminal: true}, {Name: "compact"}, {Name: "config", Terminal: true}}
+	want := []session.Command{{Name: "review"}, {Name: "doctor", Description: Builtin("doctor"), Terminal: true},
+		{Name: "color", Description: Builtin("color"), Terminal: true}, {Name: "compact", Description: Builtin("compact")},
+		{Name: "config", Description: "Open settings", Terminal: true}}
 	if !reflect.DeepEqual(snap.Commands, want) {
 		t.Fatalf("commands: %+v", snap.Commands)
 	}
