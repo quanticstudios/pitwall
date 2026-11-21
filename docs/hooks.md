@@ -8,17 +8,17 @@ pitwall recognizes them and reads what it can from their screens (see
 Agent authors can report state and a resume command through the same hook
 path. See [Add pitwall support to your agent](agent-report.md).
 
-| Agent      | What `pitwall hooks install` writes                                            | Installed when                                |
-| ---------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
-| Claude     | hooks in `~/.claude/settings.json`, the skill                                  | always                                        |
-| Codex      | hooks in `~/.codex/hooks.json`, the skill                                      | always                                        |
-| Gemini CLI | hooks in `~/.gemini/settings.json`                                             | `gemini` is on `PATH` or the dir exists       |
-| Antigravity | a hook named `pitwall` in `~/.gemini/config/hooks.json`                       | `agy` is on `PATH` or the dir exists          |
-| Cursor CLI | hooks in `~/.cursor/hooks.json`                                                | `cursor-agent` is on `PATH` or the dir exists |
-| pi         | an extension, `~/.pi/agent/extensions/pitwall.ts`                              | `pi` is on `PATH` or the dir exists           |
-| Oh My Pi   | the same, `~/.omp/agent/extensions/pitwall.ts`                                 | `omp` is on `PATH` or the dir exists          |
-| OpenCode   | a plugin, `~/.config/opencode/plugins/pitwall.js` and `plugins/pitwall/tui.js` | `opencode` is on `PATH` or the dir exists     |
-| Amp, Aider | nothing: they have no hooks                                                    |                                               |
+| Agent       | What `pitwall hooks install` writes                                            | Installed when                                |
+| ----------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
+| Claude      | hooks in `~/.claude/settings.json`, the skill                                  | always                                        |
+| Codex       | hooks in `~/.codex/hooks.json`, the skill                                      | always                                        |
+| Gemini CLI  | hooks in `~/.gemini/settings.json`                                             | `gemini` is on `PATH` or the dir exists       |
+| Antigravity | a hook named `pitwall` in `~/.gemini/config/hooks.json`                        | `agy` is on `PATH` or the dir exists          |
+| Cursor CLI  | hooks in `~/.cursor/hooks.json`                                                | `cursor-agent` is on `PATH` or the dir exists |
+| pi          | an extension, `~/.pi/agent/extensions/pitwall.ts`                              | `pi` is on `PATH` or the dir exists           |
+| Oh My Pi    | the same, `~/.omp/agent/extensions/pitwall.ts`                                 | `omp` is on `PATH` or the dir exists          |
+| OpenCode    | a plugin, `~/.config/opencode/plugins/pitwall.js` and `plugins/pitwall/tui.js` | `opencode` is on `PATH` or the dir exists     |
+| Amp, Aider  | nothing: they have no hooks                                                    |                                               |
 
 Antigravity CLI (`agy`) runs pitwall's hook on SessionStart, PreInvocation,
 PostToolUse and Stop. pitwall leaves PreToolUse alone: agy blocks a tool
@@ -108,6 +108,16 @@ extension if you prefer to edit the files yourself.
 
 The hooks do nothing outside a pitwall pane, so they are safe to keep
 installed globally.
+
+Codex 0.171 and later run every turn in one app-server per `CODEX_HOME`.
+The first Codex TUI starts it, later ones connect to it, and it outlives
+the TUI that started it. Its hooks all carry that first pane's
+`PITWALL_PANE`, so pitwall places each one by its `session_id`, and a new
+session by its folder: it goes to the one Codex pane running in that
+folder. Two Codex panes in one folder can't be told apart that way, so a
+new session started in either shows no state until it is the only one
+there. Hooks from an agent the app-server runs, such as `codex exec` from a
+tool shell, are dropped as nested.
 
 ## Plan limits
 

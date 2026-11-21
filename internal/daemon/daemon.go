@@ -966,11 +966,24 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if _, ok := m.(proto.AgentEvent); foreign && !ok {
 			continue
 		}
-		if ev, ok := m.(proto.AgentEvent); ok && d.nestedHook(ev, peer) {
-			if ok, held := nestedDrops.Allow(ev.Pane, time.Now()); ok {
-				log.Printf("pane %s: dropped a %s hook from an agent its agent started%s", ev.Pane, ev.Provider, heldNote(held))
+		if ev, ok := m.(proto.AgentEvent); ok {
+			pane, server, nested := d.codexRoute(ev, peer)
+			if nested || !server && d.nestedHook(ev, peer) {
+				if ok, held := nestedDrops.Allow(ev.Pane, time.Now()); ok {
+					log.Printf("pane %s: dropped a %s hook from an agent its agent started%s", ev.Pane, ev.Provider, heldNote(held))
+				}
+				continue
 			}
-			continue
+			if server && pane == "" {
+				if ok, held := nestedDrops.Allow(ev.Pane, time.Now()); ok {
+					log.Printf("pane %s: dropped a codex hook from a shared app-server: no single Codex pane holds its session or folder%s", ev.Pane, heldNote(held))
+				}
+				continue
+			}
+			if server {
+				ev.Pane = pane
+				m = ev
+			}
 		}
 		if _, ok := m.(proto.Sync); ok {
 			// Every earlier request on this connection is handled: replies

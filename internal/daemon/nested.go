@@ -19,11 +19,10 @@ var parentOf = procParent
 // but descends from it, and that group is the one the pane's accepted hooks
 // came from. Before the first accepted hook, as after any daemon start, that
 // group is the current one while the pane has an agent. A hook that cannot
-// be placed so (no pid, as on Windows, a process gone, a shared Codex
-// app-server) is accepted, and so is one from the app-server the pane's own
-// Codex started (codexServer). A rejected agent is accepted once the pane's
-// agent exits, since the foreground group changes and the child is no
-// longer below it.
+// be placed so (no pid, as on Windows, a process gone) is accepted. Codex's
+// app-server hooks never get here: codexRoute places them. A rejected agent
+// is accepted once the pane's agent exits, since the foreground group
+// changes and the child is no longer below it.
 func (d *Daemon) nestedHook(m proto.AgentEvent, pid int) bool {
 	if pid <= 0 || m.Provider == "report" || model.ReportedName(m.Provider) != "" {
 		return false // a report comes from the agent's own tool runs
@@ -48,38 +47,7 @@ func (d *Daemon) nestedHook(m proto.AgentEvent, pid int) bool {
 	if fg <= 0 || cur != fg {
 		return false
 	}
-	if m.Provider == model.ProviderCodex && codexServer(pid, fg) {
-		return false
-	}
 	return nestedIn(pid, fg)
-}
-
-// codexServer reports whether the hook process pid was started by the Codex
-// app-server that the pane's Codex TUI runs: Codex 0.171 and later run each
-// turn in that helper, a `codex` child of the TUI in a session of its own, so
-// its hooks come from outside the foreground group with no nested agent
-// involved. Only shells may sit between the hook and that helper; a `codex`
-// run from a tool shell sits below the helper and stays nested.
-func codexServer(pid, fg int) bool {
-	p, _ := parentOf(pid)
-	for range 64 { // a bound against a pid reused into a loop
-		if p <= 1 {
-			return false
-		}
-		up, pg := parentOf(p)
-		if pg == fg {
-			return false
-		}
-		switch c := commOf(p); {
-		case c == "codex":
-			_, upg := parentOf(up)
-			return upg == fg && commOf(up) == "codex"
-		case c != shellComm && !slices.Contains(shells, c):
-			return false
-		}
-		p = up
-	}
-	return false
 }
 
 // nestedIn reports whether the hook process pid was sent by an agent outside

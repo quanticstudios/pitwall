@@ -36,6 +36,7 @@ takes `--dry-run`.
 - Send now on one queued message sends only that message. The rest keep their places, and a held queue stays held.
 - Sidebar rows and board cards show a tab's queued messages, "2 queued", or "2 held" when the queue waits for you. The phone page lists the queue and why it waits, with Send now and Remove.
 - Codex 0.171 panes report again, so their state, timing and desktop chat (Alt+T) work. Codex now runs each turn in an app-server helper its TUI starts in a session of its own, and pitwall took that helper's hooks for a nested agent's and dropped them.
+- Codex 0.171 panes report again, so their state, timing and desktop chat (Alt+T) work. Codex now runs every turn in one app-server shared by all its TUIs, whose hooks name the pane that started it. pitwall dropped them as a nested agent's, or gave every pane's turns to that first pane. It now places each hook by its session, and a new session by its folder. Two Codex panes in one folder still can't tell a new session apart.
 
 ## v0.3.1
 
