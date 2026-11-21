@@ -13,6 +13,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
@@ -45,16 +46,32 @@ func (d *cdraw) avgChar(gtx layout.Context) int {
 func (d *cdraw) selColor() color.NRGBA { return theme.Mix(d.th.Bg, d.th.Primary, 0.42) }
 
 // selectable draws txt selectable in st, wrapped to the width.
+// The transcript selects over all its text (selection.go): sl only paints
+// its part, and takes no events of its own.
 func (d *cdraw) selectable(gtx layout.Context, sl *widget.Selectable, st tstyle, txt string) layout.Dimensions {
 	sl.SetText(txt)
 	sl.LineHeightScale = st.lh
+	sl.PaintSelectionWhenUnfocused = true
+	d.t.span.press(gtx, sl)
+	d.t.span.paint(d.t.msg.keys[sl], sl, txt)
 	gtx.Constraints.Min = image.Point{}
+	g := gtx
+	g.Source = gtx.Source.Disabled()
 	m := op.Record(gtx.Ops)
-	dims := sl.Layout(gtx, d.th.Shaper, st.f, st.size, material(gtx, st.c), material(gtx, d.selColor()))
+	dims := sl.Layout(g, d.th.Shaper, st.f, st.size, material(gtx, st.c), material(gtx, d.selColor()))
 	call := m.Stop()
+	d.t.span.size[sl] = dims.Size
 	d.t.marks(gtx, d, sl, txt) // under the text
 	call.Add(gtx.Ops)
 	return dims
+}
+
+// selLine draws one line of txt as lbl does, but selectable as the
+// transcript's other text is, by key; a cut line copies whole.
+func (d *cdraw) selLine(gtx layout.Context, key string, f font.Font, size unit.Sp, c color.NRGBA, txt string) layout.Dimensions {
+	sl := d.t.sel(key)
+	sl.MaxLines, sl.WrapPolicy = 1, text.WrapGraphemes
+	return d.selectable(gtx, sl, tstyle{f, size, c, 0}, txt)
 }
 
 // lbl draws one line of txt, cut with an ellipsis.
@@ -368,7 +385,7 @@ func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensio
 	ct := chipText(txt, lead, trail)
 	ct.head = s.line
 	sl := d.t.sel(it.ID)
-	d.copyAs(gtx, sl, ct)
+	d.copyAs(sl, ct)
 	dims := d.selectable(gtx, sl, st, ct.text)
 	var rg []widget.Region
 	for _, c := range ct.chips {

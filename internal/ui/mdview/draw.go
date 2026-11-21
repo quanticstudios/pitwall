@@ -224,7 +224,9 @@ func (d *Doc) Block(gtx gl.Context, th *theme.Theme, i int) gl.Dimensions {
 	case Images:
 		dims = d.images(gtx, th, i, b)
 	}
-	dims.Size.X = w
+	if b.Kind != Table { // a table is as wide as it shows
+		dims.Size.X = w
+	}
 	return dims
 }
 
@@ -519,7 +521,7 @@ func (d *Doc) table(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimensi
 	rad := gtx.Dp(theme.RadiusPopover)
 	extra := d.sideways(gtx, th, i, w, y, tw, rad, call)
 	frame(gtx, image.Pt(min(tw, w), y), rad, line)
-	return gl.Dimensions{Size: image.Pt(w, y+extra)}
+	return gl.Dimensions{Size: image.Pt(min(tw, w), y+extra)} // as wide as it shows: a chat's selection fills only it
 }
 
 // frame rings a box of size sz at the origin, corners rad: a crisp 1 px

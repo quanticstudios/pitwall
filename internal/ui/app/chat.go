@@ -102,6 +102,10 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 	if ok {
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
+		t.CopyOnSelect = u.cfg.CopyOnSelect
+		t.Copied = func(gtx gl.Context, s string, r image.Rectangle) {
+			u.showNotice(gtx, copiedText(s), r.Sub(u.contentOrigin))
+		}
 		if p, ok := ch.(ChatPager); ok {
 			t.Older = func() bool { return p.ChatOlder(id) }
 			t.Full = func(item string) { p.ChatItem(id, item) }
@@ -138,6 +142,9 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		}
 		env := u.chatEnv(st, id, &s, t)
 		env.Focus = env.Focus && focus && !t.Zoomed() && !t.Typing() && !t.FindOpen()
+		if env.Focus { // before the composer, whose field would take Ctrl+C
+			t.CopyKey(gtx)
+		}
 		// A pane chat's Claude reads @ paths from its pane's folder.
 		cwd := dir
 		if p := findPane(st, id); p != nil && p.Cwd != "" {
@@ -153,6 +160,12 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.TodoStrip(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
+		// One selection at a time, the newest: the transcript's or the draft's.
+		if t.Began() {
+			cmp.Deselect()
+		} else if cmp.Selected() {
+			t.ClearSelection()
+		}
 		for _, m := range cmp.Messages() {
 			if q, ok := asideOf(m); ok && aside {
 				u.send(proto.ChatAside{Chat: id, ID: t.Ask(q), Question: q})

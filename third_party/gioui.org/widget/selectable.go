@@ -18,6 +18,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/text"
 	"gioui.org/unit"
+	"golang.org/x/image/math/fixed"
 )
 
 // stringSource is an immutable textSource with a fixed string
@@ -138,6 +139,14 @@ func (l *Selectable) Selection() (start, end int) {
 func (l *Selectable) SetCaret(start, end int) {
 	l.initialize()
 	l.text.SetCaret(start, end)
+}
+
+// pitwall: RuneAt is the rune offset nearest p, a point in the
+// selectable's own space as its last Layout drew it.
+func (l *Selectable) RuneAt(p image.Point) int {
+	l.initialize()
+	pos, _ := l.text.closestToXYGraphemes(fixed.I(p.X+l.text.scrollOff.X), p.Y+l.text.scrollOff.Y)
+	return pos.runes
 }
 
 // SelectedText returns the currently selected text (if any) from the editor.

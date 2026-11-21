@@ -86,16 +86,18 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 	shown := append(b.lines[:b.fixed:b.fixed], rest...)
 
 	// The text: one selectable string, a line per line.
-	var sb strings.Builder
+	var sb, orig strings.Builder
 	starts := make([]int, len(shown))
 	runes, maxNo := 0, 0
 	texts := make([]string, len(shown))
 	for i, l := range shown {
 		if i > 0 {
 			sb.WriteByte('\n')
+			orig.WriteByte('\n')
 			runes++
 		}
 		starts[i] = runes
+		orig.WriteString(l.text)
 		t := mdview.Detab(l.text)
 		texts[i] = t
 		sb.WriteString(t)
@@ -126,6 +128,7 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 		padR += gtx.Dp(hit)
 	}
 	sl := d.t.sel("box:" + b.id)
+	d.copyAs(sl, tabbed(orig.String(), sb.String()))
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(1<<20, 1<<20)} // no wrapping
 	inv := st

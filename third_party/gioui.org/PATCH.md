@@ -86,6 +86,16 @@ Each change is marked `pitwall` in a comment:
   the glyph painter starts a new path where a `TextColor` range starts or
   ends, so a link or a diff line paints in its own color.
 
+- `io/input/router.go`, `Source.Transform` (new): the transform from a
+  tag's pointer area to the window, as the last frame drew it. pitwall's
+  chat selects text across many selectables: a drag hit-tests each block's
+  text with it, the way the router hit-tests areas.
+- `widget/selectable.go`, `Selectable.RuneAt` (new): the rune nearest a
+  point in the selectable's own space, so the chat can place a
+  selection's end in a block the drag is over without the block taking
+  the pointer. `internal/ui/panel`'s `TestSelectAcrossMessages` covers
+  both.
+
 - `text/shaper.go`, `WithTabularFigures` (new): a shaper option that shapes
   every run with the OpenType `tnum` feature, so durations, counts and
   table columns keep their width. pitwall's theme turns it on.

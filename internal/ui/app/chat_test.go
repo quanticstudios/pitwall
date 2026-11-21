@@ -7,8 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/f32"
+	"gioui.org/io/event"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -152,5 +155,79 @@ func TestChatComposerKeys(t *testing.T) {
 	}
 	if c := u.composers["c1"]; c == nil || c.Text() != "" {
 		t.Fatal("the key stayed in the composer as a draft")
+	}
+}
+
+// TestChatSelectCopies: in a chat tab, a drag over the transcript's text
+// copies it on release with copy_on_select on, says so in the notice,
+// clears the draft's own selection and leaves the composer the keys;
+// Ctrl+C copies it again.
+func TestChatSelectCopies(t *testing.T) {
+	old := findAide
+	findAide = func() []string { return nil }
+	defer func() { findAide = old }()
+	b := &chatBackend{FakeBackend: NewFakeBackend()}
+	b.mu.Lock()
+	b.st.Workspaces = append(b.st.Workspaces, model.Workspace{ID: "wc", SessionID: "s1", Name: "chat", Label: "Fix it", Path: t.TempDir(), Chat: "c1"})
+	s1 := &b.st.Sessions[slices.IndexFunc(b.st.Sessions, func(s model.Session) bool { return s.ID == "s1" })]
+	s1.Order = append(s1.Order, "wc")
+	b.st.Chats = []model.Chat{{ID: "c1", WorkspaceID: "wc", Provider: model.ProviderClaude, State: session.StateWaiting, Title: "Fix it"}}
+	b.mu.Unlock()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
+	u.cfg.CopyOnSelect = true
+	var r input.Router
+	var ops op.Ops
+	now := time.Now()
+	frame := func(evs ...event.Event) {
+		r.Queue(evs...)
+		ops.Reset()
+		now = now.Add(time.Second)
+		u.layout(gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1600, 800)), Now: now})
+		r.Frame(&ops)
+	}
+	frame()
+	u.nav.workspace = "wc"
+	for range 3 {
+		frame()
+	}
+	cmp := u.composers["c1"]
+	cmp.SetText("draft")
+	frame(key.Event{Name: "A", Modifiers: key.ModShortcut, State: key.Press})
+	if !cmp.Selected() {
+		t.Fatal("Ctrl+A selected nothing in the draft")
+	}
+	// The prompt "Fix it" is a bubble at the right of the column; sweep
+	// drags across the right half until one copies.
+	var copied string
+	for y := float32(60); y < 400 && copied == ""; y += 6 {
+		a, z := f32.Pt(1561, y), f32.Pt(800, y) // the bubble ends near x 1562
+		frame(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: a})
+		frame(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: z})
+		frame(pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: z})
+		if _, b, ok := r.WriteClipboard(); ok {
+			copied = string(b)
+		}
+	}
+	if copied != "Fix it" {
+		t.Fatalf("copied %q, want the prompt", copied)
+	}
+	frame()
+	if u.notice != "Copied 6 characters" {
+		t.Errorf("notice %q", u.notice)
+	}
+	if cmp.Selected() {
+		t.Error("the draft kept its selection beside the transcript's")
+	}
+	if cmp.Text() != "draft" {
+		t.Errorf("the draft is %q", cmp.Text())
+	}
+	frame(key.Event{Name: "C", Modifiers: key.ModShortcut, State: key.Press})
+	if _, b, ok := r.WriteClipboard(); !ok || string(b) != "Fix it" {
+		t.Errorf("Ctrl+C copied %q %v", b, ok)
+	}
+	// Typing goes to the composer still.
+	frame(key.EditEvent{Range: key.Range{Start: 5, End: 5}, Text: "!"})
+	if cmp.Text() != "draft!" {
+		t.Errorf("typing after a selection: draft %q", cmp.Text())
 	}
 }
