@@ -540,10 +540,12 @@ func TestCodexRoute(t *testing.T) {
 	useReportHooks(d)
 	useCodexTree(t)
 	a, b := &livePane{fakePane: f.pane(0)}, &livePane{fakePane: f.pane(1)}
+	root := t.TempDir() // absolute on every OS: a payload's cwd is
+	w := func(dir string) string { return filepath.Join(root, dir) }
 	a.fgGroup.Store(300)
 	b.fgGroup.Store(400)
-	a.setCwd("/w/a")
-	b.setCwd("/w/b")
+	a.setCwd(w("a"))
+	b.setCwd(w("b"))
 	d.mu.Lock()
 	d.panes["a"], d.panes["b"] = a, b
 	d.mu.Unlock()
@@ -570,26 +572,26 @@ func TestCodexRoute(t *testing.T) {
 		defer d.mu.Unlock()
 		return d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })].SessionID
 	}
-	if got := send(311, "sb", "/w/b", true); got != "b" || session("b") != "sb" || session("a") != "" {
+	if got := send(311, "sb", w("b"), true); got != "b" || session("b") != "sb" || session("a") != "" {
 		t.Fatalf("b's new session went to %q; sessions a %q, b %q", got, session("a"), session("b"))
 	}
-	if got := send(313, "sa", "/w/a", true); got != "a" || session("a") != "sa" {
+	if got := send(313, "sa", w("a"), true); got != "a" || session("a") != "sa" {
 		t.Fatalf("a's new session went to %q", got)
 	}
-	if got := send(311, "sb", "/w/a", true); got != "b" {
+	if got := send(311, "sb", w("a"), true); got != "b" {
 		t.Errorf("b's session, run in a's folder, went to %q", got)
 	}
-	if got := send(311, "side", "/w/b", false); got != "" {
+	if got := send(311, "side", w("b"), false); got != "" {
 		t.Errorf("a hook without a transcript went to %q", got)
 	}
-	if got := send(311, "elsewhere", "/w/c", true); got != "" {
+	if got := send(311, "elsewhere", w("c"), true); got != "" {
 		t.Errorf("a session in no pane's folder went to %q", got)
 	}
-	b.setCwd("/w/a")
-	if got := send(311, "new", "/w/a", true); got != "" {
+	b.setCwd(w("a"))
+	if got := send(311, "new", w("a"), true); got != "" {
 		t.Errorf("a new session in two Codex panes' folder went to %q", got)
 	}
-	if got := send(611, "sb", "/w/a", true); got != "b" {
+	if got := send(611, "sb", w("a"), true); got != "b" {
 		t.Errorf("a hook from the app-server whose TUI exited went to %q", got)
 	}
 	d.mu.Lock()
