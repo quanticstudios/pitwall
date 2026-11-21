@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -181,6 +182,10 @@ func TestLinesTooBig(t *testing.T) {
 // holds at most maxFrames replies; the server stops reading it, and once
 // it reads, every reply arrives.
 func TestLinesFlood(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// why: Windows loopback can buffer every reply despite the 16 KB socket buffers, so the queue it checks never fills; Linux and macOS run the same code
+		t.Skip("needs a writer that blocks on a full loopback buffer")
+	}
 	s := &Server{Version: "test"}
 	t.Cleanup(s.Close)
 	c := dialLines(t, s)
