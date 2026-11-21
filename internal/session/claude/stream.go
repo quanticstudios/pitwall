@@ -22,6 +22,9 @@ type stream struct {
 	turn    string // the running turn's id, "" while idle
 	point   string // the uuid of the turn's last assistant line
 	recap   bool   // the running turn is /recap, whose output Claude Code sends as its own reply
+	// steered are the user lines Steer wrote that the CLI has not
+	// finished: one it starts once the turn ended starts a turn.
+	steered map[string]bool
 
 	streamed map[string]int              // text item id: bytes stream_event deltas gave it
 	blocks   map[string]int              // message id: content blocks its assistant lines gave so far
@@ -67,7 +70,8 @@ type ask struct {
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
 		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{},
-		agentsBg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, harnessed: map[string]bool{}}
+		agentsBg: map[string]session.ToolCall{}, agents: map[string]session.ToolCall{}, harnessed: map[string]bool{},
+		steered: map[string]bool{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -76,6 +80,10 @@ type line struct {
 	Subtype   string `json:"subtype"`
 	UUID      string `json:"uuid"`
 	SessionID string `json:"session_id"`
+	// CommandUUID and State are a command_lifecycle line's: the user
+	// line's uuid, and queued, started or completed.
+	CommandUUID string `json:"command_uuid"`
+	State       string `json:"state"`
 	// ParentToolUseID is the Task call a subagent's line belongs to, "" on the main thread.
 	ParentToolUseID string `json:"parent_tool_use_id"`
 
@@ -249,6 +257,8 @@ func (s *stream) line(b []byte) []session.Event {
 		return nil
 	case "control_cancel_request":
 		return s.withdraw(l.RequestID)
+	case "command_lifecycle":
+		return s.lifecycle(l)
 	case "control_response":
 		// shortcut: the driver's own requests are not matched to their
 		// answers, so a refused set_model goes unreported; match them by
@@ -788,6 +798,20 @@ func (s *stream) result(l line) []session.Event {
 	clear(s.blocks)
 	clear(s.tools)
 	return out
+}
+
+// lifecycle starts a turn for a steered user line the CLI starts once
+// the turn it was written into ended.
+func (s *stream) lifecycle(l line) []session.Event {
+	if !s.steered[l.CommandUUID] || l.State != "started" && l.State != "completed" {
+		return nil
+	}
+	delete(s.steered, l.CommandUUID)
+	if l.State != "started" || s.turn != "" {
+		return nil
+	}
+	s.turn = l.CommandUUID
+	return []session.Event{{Type: session.EventTurnStarted, TurnID: s.turn}}
 }
 
 // limit is a rate_limit_event's plan limit.

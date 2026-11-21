@@ -244,3 +244,23 @@ func TestInitModel(t *testing.T) {
 		t.Fatalf("model %v: want init's claude-sonnet-5-5", snap.Model)
 	}
 }
+
+// A line Steer wrote joins the running turn when the CLI starts it then;
+// started after the turn's result, it runs as a turn of its own.
+func TestStreamSteered(t *testing.T) {
+	s := newStream("s")
+	s.turn = "t1"
+	s.steered["m2"] = true
+	if es := s.line([]byte(`{"type":"command_lifecycle","command_uuid":"m2","state":"started"}`)); len(es) != 0 || s.turn != "t1" {
+		t.Fatalf("started mid-turn: %+v, turn %q", es, s.turn)
+	}
+	s.steered["m3"] = true
+	s.line([]byte(`{"type":"result","subtype":"success"}`))
+	es := s.line([]byte(`{"type":"command_lifecycle","command_uuid":"m3","state":"started"}`))
+	if len(es) != 1 || es[0].Type != session.EventTurnStarted || es[0].TurnID != "m3" || s.turn != "m3" {
+		t.Fatalf("started after the result: %+v, turn %q", es, s.turn)
+	}
+	if es := s.line([]byte(`{"type":"command_lifecycle","command_uuid":"other","state":"started"}`)); len(es) != 0 {
+		t.Fatalf("a line Send wrote: %+v", es)
+	}
+}

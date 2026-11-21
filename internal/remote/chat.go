@@ -22,22 +22,27 @@ import (
 // holds what the sidebar shows, never a pane's screen.
 type Tab struct {
 	Item
-	ID           string `json:"id"`              // the tab's workspace id
-	Group        string `json:"group,omitempty"` // its group's name
-	Repo         string `json:"repo,omitempty"`  // its repo's or folder's base name
-	Branch       string `json:"branch,omitempty"`
-	Model        string `json:"model,omitempty"`
-	Effort       string `json:"effort,omitempty"`
-	Chat         bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
-	Send         bool   `json:"send"`           // the composer works: the pane runs an agent
-	Attach       bool   `json:"attach,omitempty"`
-	Picker       bool   `json:"picker"` // model and effort: Claude Code in a terminal
-	Queued       int    `json:"queued,omitempty"`
-	Hold         string `json:"hold,omitempty"`
-	AllowBlocked string `json:"allowBlocked,omitempty"`
-	Exited       bool   `json:"exited,omitempty"`
-	ExitCode     int    `json:"exitCode,omitempty"`
-	ExitUnknown  bool   `json:"exitUnknown,omitempty"`
+	ID     string `json:"id"`              // the tab's workspace id
+	Group  string `json:"group,omitempty"` // its group's name
+	Repo   string `json:"repo,omitempty"`  // its repo's or folder's base name
+	Branch string `json:"branch,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
+	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
+	Attach bool   `json:"attach,omitempty"`
+	Picker bool   `json:"picker"` // model and effort: Claude Code in a terminal
+	Queued int    `json:"queued,omitempty"`
+	Hold   string `json:"hold,omitempty"`
+	// Queue is what the tab's chat queued, in order, and QueueHold why it
+	// waits for the user although the turn ended ("" while it waits for
+	// the turn); POST /api/queue sends a row now or removes it.
+	Queue        []QueueRow `json:"queue,omitempty"`
+	QueueHold    string     `json:"queueHold,omitempty"`
+	AllowBlocked string     `json:"allowBlocked,omitempty"`
+	Exited       bool       `json:"exited,omitempty"`
+	ExitCode     int        `json:"exitCode,omitempty"`
+	ExitUnknown  bool       `json:"exitUnknown,omitempty"`
 	// Dropped are the ids of phone messages the pane's agent left before
 	// they went in, which the page shows as not sent.
 	Dropped []uint64 `json:"dropped,omitempty"`
@@ -412,6 +417,37 @@ func (s *Server) sendText(w http.ResponseWriter, r *http.Request, d Device) {
 }
 
 // command switches a Claude Code pane's model or effort.
+// QueueRow is one queued message as the page lists it; Error says why
+// it was not sent, and it waits for Send now.
+type QueueRow struct {
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	Error string `json:"error,omitempty"`
+}
+
+// queue runs a queue row's button: Send now or Remove.
+func (s *Server) queue(w http.ResponseWriter, r *http.Request, d Device) {
+	var req struct {
+		Pane   string `json:"pane"`
+		ID     string `json:"id"`
+		Action string `json:"action"` // now or remove
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Action != "now" && req.Action != "remove" || req.ID == "" || s.Queue == nil {
+		http.Error(w, "send a queued message now or remove it", http.StatusBadRequest)
+		return
+	}
+	if err := s.Queue(req.Pane, req.ID, req.Action); err != nil {
+		log.Printf("remote: %q: queue %s of pane %s refused: %q", d.Name, req.Action, req.Pane, err)
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	log.Printf("remote: %q: queue %s in pane %s", d.Name, req.Action, req.Pane)
+	writeJSON200(w, map[string]any{})
+}
+
 func (s *Server) command(w http.ResponseWriter, r *http.Request, d Device) {
 	var req struct {
 		Pane  string `json:"pane"`

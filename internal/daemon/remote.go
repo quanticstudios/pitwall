@@ -149,6 +149,7 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatEntries: d.phoneChatEntries,
 		Send:        d.phoneSend,
 		Command:     d.phoneCommand,
+		Queue:       d.phoneQueue,
 		OpenDesktop: d.phoneOpenDesktop,
 		Question:    d.phoneQuestion,
 		Upload:      d.phoneUpload,
@@ -507,7 +508,7 @@ func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
 	previous := d.mail.daemonPrompt[pane]
 	d.mail.daemonPrompt[pane] = true
 	d.mu.Unlock()
-	err := d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.NameReturn, p.Modes())})
+	err := d.handle(context.Background(), proto.Input{Pane: pane, Data: d.steerKey(pane, p.Modes())})
 	if err != nil {
 		d.mu.Lock()
 		d.mail.daemonPrompt[pane] = previous
@@ -600,4 +601,18 @@ func (d *Daemon) phoneOpenDesktop(pane string) error {
 		return errors.New("open pitwall on the desktop to answer this prompt")
 	}
 	return d.focusSession(proto.FocusSession{WorkspaceID: workspace, Pane: pane})
+}
+
+// steerKey is the key that sends what was typed into pane: Return, or
+// mid-turn in Antigravity CLI Alt+M, which sends it into the running turn
+// where Return would queue it for a turn of its own.
+// ponytail: agy's /settings can swap the two (Queued Messages: Steer); pitwall reads the default.
+func (d *Daemon) steerKey(pane string, m vt.Modes) []byte {
+	d.mu.Lock()
+	agy := d.paneProvider(pane) == model.ProviderAntigravity && d.paneBusy(pane)
+	d.mu.Unlock()
+	if agy {
+		return input.Key(key.Event{Name: "M", Modifiers: key.ModAlt, State: key.Press}, m)
+	}
+	return press(key.NameReturn, m)
 }

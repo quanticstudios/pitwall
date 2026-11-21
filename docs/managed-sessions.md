@@ -683,9 +683,11 @@ claude -p --input-format stream-json --output-format stream-json --verbose
 | `Close` | close stdin; kill after the deadline |
 | an unknown CLI `control_request` | `control_response` `{"subtype":"error","request_id":...,"error":"pitwall does not handle <subtype>"}` |
 
-`Steer` returns `ErrUnsupported`, so the loop queues the message for the
-next turn: no capture shows a user line written mid-turn joining that turn.
-`Interrupt` while idle writes nothing. `Approve` and `Answer` refuse a
+`Steer` writes the message as a user line mid-turn. Claude Code 2.1.330
+adds it to the running turn once the running tool returns. A line written as
+the turn ends runs as a turn of its own after it: its `command_lifecycle`
+`started` comes after the turn's `result`, and the driver starts a turn for
+it then. A skill does not steer. `Interrupt` while idle writes nothing. `Approve` and `Answer` refuse a
 request id Claude no longer waits on with `ProviderError`. Responses to the
 driver's own control requests are not matched yet, so a refused `set_model`
 goes unreported.
@@ -755,7 +757,7 @@ to its tool call by `toolUseId`.
 - `rate_limit_event` came only once per process, and a `rejected` sample
   was never captured. The fields come from `SDKRateLimitInfo` in
   `sdk.d.ts`, and the screen-based limit reading stays the PTY fallback.
-- `updatedPermissions` (allow for session), steering mid-turn, `--resume`
+- `updatedPermissions` (allow for session), `--resume`
   of a session another process holds open, macOS and Windows are untested.
   ENG-2686 wrote allow for session from `sdk.d.ts`'s `PermissionUpdate`
   (an ask with no `addRules` suggestion is allowed once) and left `Steer`
@@ -1293,28 +1295,26 @@ pitwall stays simple. A chat is one agent in one tab, driven by the user.
 
 These need a capture or a decision that belongs to a later ticket.
 
-1. Claude steering mid-turn: untested; `Steer` is `ErrUnsupported` and the
-   message queues until a capture shows it joins the turn.
-2. Claude "allow for session" through `updatedPermissions`: written from
+1. Claude "allow for session" through `updatedPermissions`: written from
    `sdk.d.ts`, never captured.
-3. A Claude `rate_limit_event` with `status: rejected` and the `result`
+2. A Claude `rate_limit_event` with `status: rejected` and the `result`
    that goes with it: never captured. ENG-2688 adds the fixture when one
    happens, and the screen-based reading stays the fallback for panes.
-4. Codex deny with a reason: the decision has no field; the driver steers
+3. Codex deny with a reason: the decision has no field; the driver steers
    "I declined that request: <reason>" in after `decline`. ENG-2685 tests
    it against a recorded transcript only; whether the model acts on it is
    unchecked against a live Codex.
-5. Whether `codex app-server` runs pitwall's Codex hooks: ENG-2681 checks.
+4. Whether `codex app-server` runs pitwall's Codex hooks: ENG-2681 checks.
    If it does not, the guard does not cover Codex chats, and the chat's
    tab says so on its hover card.
-6. `paneId` and `workspaceId` in the snapshot are pitwall's ids; aide's
+5. `paneId` and `workspaceId` in the snapshot are pitwall's ids; aide's
    bridge (M6, ENG-2704) maps them to aide's.
-7. Idle processes: a live chat keeps its process until archive or daemon
+6. Idle processes: a live chat keeps its process until archive or daemon
    exit. Closing processes idle for a long time can come later if memory
    matters.
-8. Images inline in the log: fine within aide's limits; move bytes out to
+7. Images inline in the log: fine within aide's limits; move bytes out to
    `images/` only if logs grow large.
-9. `--resume` on a Claude session another process holds open, and macOS
+8. `--resume` on a Claude session another process holds open, and macOS
    and Windows runs: untested; ENG-2687 and the platform CI runs cover
    them.
 

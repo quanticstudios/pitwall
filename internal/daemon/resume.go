@@ -494,8 +494,9 @@ const restartWait = 20 * time.Second
 // restartNudge carries pane id's state over a restart from saved, the
 // activities of the run before: a finished turn stays finished, so pitwall
 // wait counts it, and a turn that was running gets restartLine queued like
-// a pitwall send. The agent's first hook (Claude's resume SessionStart, pi's
-// session_start) delivers it, or restartWait. Callers hold d.mu.
+// a pitwall send, ahead of what its chat queued. deliver types it
+// restartWait after the resume, once the agent sits at its prompt.
+// Callers hold d.mu.
 func (d *Daemon) restartNudge(id string, saved []model.Activity) {
 	i := slices.IndexFunc(saved, func(a model.Activity) bool { return a.PaneID == id })
 	if i < 0 {
@@ -505,7 +506,8 @@ func (d *Daemon) restartNudge(id string, saved []model.Activity) {
 	case model.StateCompleted, model.StateError:
 		d.st.Activities = append(d.st.Activities, a)
 	case model.StateWorking:
-		d.mail.queue[id] = append(d.mail.queue[id], letter{text: restartLine, plain: true})
+		// why: first, ahead of the chat rows a restart kept, which waited for the turn this continues.
+		d.mail.queue[id] = slices.Insert(d.mail.queue[id], 0, letter{text: restartLine, plain: true})
 		d.wake(id, restartWait)
 	}
 }

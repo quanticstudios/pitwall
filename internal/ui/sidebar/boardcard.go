@@ -316,6 +316,11 @@ func (s *Sidebar) cardWhere(gtx layout.Context, th *theme.Theme, st *model.State
 			}})
 		}
 	}
+	if q := QueueLabel(st, card.Tab); q != "" && card.Kind != board.KindTask {
+		items = append(items, item{right: true, ml: gtx.Dp(6), w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, th.UIFont, mono, th.TextQuiet, q)
+		}})
+	}
 	if HostDown(s.Hosts, card.Host) {
 		items = append(items, item{right: true, ml: gtx.Dp(6), w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.UIFont, mono, th.TextQuiet, s.lastSeen(card.Host, s.now))

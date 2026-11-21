@@ -291,7 +291,7 @@ func (d *Daemon) readyWindow(pane string, phone bool) (Pane, error) {
 	}
 	drafting := d.mail.drafting[pane]
 	d.mu.Unlock()
-	steer := phone && (prov == model.ProviderClaude || prov == model.ProviderCodex)
+	steer := phone && paneSteers(prov)
 	switch {
 	case p == nil:
 		return nil, fmt.Errorf("no running pane %s", pane)
@@ -325,6 +325,7 @@ func (d *Daemon) wake(pane string, wait time.Duration) {
 func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
+	waiting, again := d.chatReason(pane)
 	d.mu.Lock()
 	d.dropOrphanPhone(pane)
 	if len(d.mail.queue[pane]) == 0 || d.waitsToWake(pane) {
@@ -372,9 +373,23 @@ func (d *Daemon) deliver(pane string) {
 		return
 	}
 	l := q[i]
+	// why: Claude 2.1.330 drops a Return typed while --resume still loads, though its hooks already came, and the line stays in its box.
+	if at, ok := d.resumed[pane]; ok && l.chat == "" && l.text == restartLine && time.Since(at) < restartWait {
+		d.wake(pane, restartWait-time.Since(at))
+		d.mu.Unlock()
+		return
+	}
+	if l.chat != "" && waiting {
+		// why: a queued message never answers a question, an approval, a form, or a failed or limited turn.
+		if again > 0 && !d.closing {
+			d.wake(pane, again)
+		}
+		d.mu.Unlock()
+		return
+	}
 	now, hook := time.Now(), d.live.hookAt[pane]
 	wait := d.mail.keyAt[pane].Add(sendQuiet.get()).Sub(now)
-	if l.phone != 0 && (l.owner == model.ProviderClaude || l.owner == model.ProviderCodex) {
+	if l.phone != 0 && paneSteers(l.owner) {
 		if !d.mail.drafting[pane] {
 			wait = 0
 		}
@@ -399,13 +414,17 @@ func (d *Daemon) deliver(pane string) {
 		d.mu.Unlock()
 		return
 	}
-	if len(q) == 1 {
+	n := 1
+	if l.chat != "" {
+		l, n = d.chatTake(pane, q, i)
+	}
+	isChat := l.chat != ""
+	if len(q) == n {
 		delete(d.mail.queue, pane)
 	} else {
-		d.mail.queue[pane] = slices.Delete(q, i, i+1)
+		d.mail.queue[pane] = slices.Delete(q, i, i+n)
 		d.wake(pane, 0) // why: it waits for this turn, or sendStart if the turn never reports
 	}
-	row, isChat := d.chatTaken(pane, l)
 	d.mail.typed[pane] = time.Now()
 	delete(d.replies, pane)
 	text := l.text
@@ -418,10 +437,17 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.changed()
 	d.mu.Unlock()
-	if err := d.typeLetter(pane, p, l.images, text, l.quoted); err != nil && isChat {
+	if isChat {
+		d.saveQueues() // why: the rows are marked as being typed before they are
+	}
+	err = d.typeLetter(pane, p, l.images, text, l.quoted)
+	if isChat {
 		d.mu.Lock()
-		d.chatFailed(pane, row, err)
+		d.chatSent(pane, err)
 		d.mu.Unlock()
+	}
+	if err != nil && isChat {
+		log.Printf("pane %s: a queued message was not sent: %q", pane, err)
 	} else if err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
 	} else if l.notice != "" {

@@ -103,6 +103,12 @@ type Env struct {
 	// Queue is whether the daemon takes every queue action on this chat
 	// (proto.QueueLevel): without it a queued row has Edit and Remove only.
 	Queue bool
+	// Separate is whether it takes queue actions separate and together
+	// (proto.SmartQueueLevel), and joins the queue into one prompt.
+	Separate bool
+	// Steers is whether Send now goes into the running turn; without it
+	// the daemon stops the turn and sends the message first.
+	Steers bool
 	// Mentions is the chat's project's files and folders that match an @
 	// word's query, best first; nil while they are listed, and Mentions
 	// itself nil where the files can't be listed.

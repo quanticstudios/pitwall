@@ -293,9 +293,34 @@ func userLine(m session.Message) map[string]any {
 		"message": map[string]any{"role": "user", "content": content}}
 }
 
-// Steer is unsupported: the spike never captured a user line written
-// mid-turn joining that turn, so the chat loop queues it for the next.
-func (d *driver) Steer(context.Context, session.Message) error { return session.ErrUnsupported }
+// Steer writes m as a user line into the running turn. Claude Code
+// 2.1.330 adds it to the turn once the running tool returns; one written
+// as the turn ends runs as a turn of its own after it, which the stream
+// starts when the CLI's command_lifecycle says so. A skill cannot steer,
+// as in aide.
+func (d *driver) Steer(ctx context.Context, m session.Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	switch {
+	case d.dead || d.closing:
+		return session.ErrClosed
+	case d.s.turn == "":
+		return session.ErrIdle
+	case m.Skill != nil:
+		return session.ErrUnsupported
+	}
+	if m.ID == "" {
+		m.ID = newUUID()
+	}
+	if err := d.write(userLine(m)); err != nil {
+		return err
+	}
+	d.s.steered[m.ID] = true
+	return nil
+}
 
 // Interrupt stops the running turn. The CLI withdraws its open asks
 // (control_cancel_request) and ends the turn with an aborted result.

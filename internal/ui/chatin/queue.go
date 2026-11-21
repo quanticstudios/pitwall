@@ -117,6 +117,12 @@ func (c *Composer) queueEvents(gtx layout.Context, env Env) {
 		switch {
 		case c.click("qnow:" + q.ID).Clicked(gtx), c.click("qretry:" + q.ID).Clicked(gtx):
 			take(q, now)
+		case c.click("qsep:" + q.ID).Clicked(gtx):
+			action := "separate"
+			if q.Alone {
+				action = "together"
+			}
+			c.out = append(c.out, proto.ChatQueue{Chat: env.Chat, Action: action, ID: q.ID})
 		case c.click("qrm:" + q.ID).Clicked(gtx):
 			take(q, "remove")
 		case c.click("qedit:" + q.ID).Clicked(gtx):
@@ -147,8 +153,9 @@ func (c *Composer) move(env Env, shown []session.QueuedInput, i, dir int, now ti
 }
 
 // queued is the messages waiting for the turn to end, above the card.
-// Up to queueFold show as rows; more start folded to a count that opens
-// on a click. A held queue says so, with Resume.
+// One muted line says why they wait, or that they go as one message, with
+// Resume or Send when they wait for the user. Up to queueFold show as
+// rows; more start folded to a count that opens on a click.
 func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
 	qs := c.shownQueue(env.Snap, gtx.Now)
 	if len(qs) == 0 {
@@ -156,7 +163,12 @@ func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	}
 	folds := len(qs) > queueFold
 	var kids []layout.FlexChild
-	if folds || env.Snap.QueuePaused {
+	if s := QueueStatus(env.Snap, qs, env.Separate); s != "" || env.Snap.QueuePaused {
+		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return c.queueStatus(gtx, th, env, s)
+		}))
+	}
+	if folds {
 		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return c.queueHead(gtx, th, env, qs, folds)
 		}))
@@ -171,8 +183,8 @@ func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 }
 
-// queueHead is the strip's first line: the fold's chevron and the count,
-// how many could not be sent, and Paused with Resume.
+// queueHead is the folded strip's line: the fold's chevron and the
+// count, and how many could not be sent.
 func (c *Composer) queueHead(gtx layout.Context, th *theme.Theme, env Env, qs []session.QueuedInput, folds bool) layout.Dimensions {
 	w, h := gtx.Constraints.Max.X, gtx.Dp(28)
 	failed := 0
@@ -182,14 +194,6 @@ func (c *Composer) queueHead(gtx layout.Context, th *theme.Theme, env Env, qs []
 		}
 	}
 	var right layout.Dimensions
-	if env.Snap.QueuePaused {
-		m := op.Record(gtx.Ops)
-		right = textButton(gtx, th, c.click("qresume"), "Resume")
-		call := m.Stop()
-		o := op.Offset(image.Pt(w-right.Size.X, 0)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-	}
 	label := func(gtx layout.Context) layout.Dimensions {
 		ws := []layout.Widget{func(gtx layout.Context) layout.Dimensions {
 			return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, itoa(len(qs))+" queued")
@@ -197,11 +201,6 @@ func (c *Composer) queueHead(gtx layout.Context, th *theme.Theme, env Env, qs []
 		if failed > 0 {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
 				return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Readable(th.Red, th.Bg), itoa(failed)+" not sent")
-			})
-		}
-		if env.Snap.QueuePaused {
-			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, "Paused")
 			})
 		}
 		return row(gtx, gtx.Dp(theme.SpaceS), h, ws...)
@@ -266,7 +265,18 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 		if i == n-1 {
 			down.key = ""
 		}
-		acts = append(acts, action{"qnow:", "arrow-up", "Send now"}, action{"qedit:", "pencil", "Edit"}, up, down)
+		now := action{"qnow:", "arrow-up", "Send now"}
+		if !env.Steers {
+			now.tip = "Stop the turn and send this now"
+		}
+		acts = append(acts, now, action{"qedit:", "pencil", "Edit"}, up, down)
+		if env.Separate && !command(q.Text) {
+			sep := action{"qsep:", "split", "Send separately"}
+			if q.Alone {
+				sep.tip = "Send with the others"
+			}
+			acts = append(acts, sep)
+		}
 	} else {
 		acts = append(acts, action{"qedit:", "pencil", "Edit"})
 	}
@@ -323,6 +333,9 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 		line = "Image"
 	}
 	icon, ic, fg := "list-plus", th.Muted, theme.Mix(th.Fg, th.Bg, 0.2)
+	if q.Alone && env.Separate {
+		icon = "split"
+	}
 	if failed {
 		icon, ic, fg = "circle-alert", th.Readable(th.Red, th.Bg), th.Muted
 	}
@@ -336,4 +349,66 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 		})
 	o.Pop()
 	return layout.Dimensions{Size: rect.Max}
+}
+
+// command reports whether text is a slash command or a ! shell command,
+// which the daemon sends alone.
+func command(text string) bool {
+	t := strings.TrimSpace(text)
+	return strings.HasPrefix(t, "/") || strings.HasPrefix(t, "!")
+}
+
+// QueueStatus is the line above queue qs of snapshot s: why it waits, or
+// Paused, or, where the daemon joins the queue (separate), how many go as
+// one message next; "" for none.
+func QueueStatus(s *session.Snapshot, qs []session.QueuedInput, separate bool) string {
+	switch {
+	case s.QueueReason != "":
+		return s.QueueReason
+	case s.QueuePaused:
+		return "Paused"
+	case !separate:
+		return ""
+	}
+	n := 0
+	for _, q := range qs {
+		if q.Error != "" && n == 0 {
+			continue
+		}
+		if q.Error != "" || q.Alone || command(q.Text) {
+			break
+		}
+		n++
+	}
+	if n < 2 {
+		return ""
+	}
+	return "The next " + itoa(n) + " go as one message"
+}
+
+// queueStatus draws status, muted, with Send where a failed turn holds
+// the queue and Resume where Stop did.
+func (c *Composer) queueStatus(gtx layout.Context, th *theme.Theme, env Env, status string) layout.Dimensions {
+	w, h := gtx.Constraints.Max.X, gtx.Dp(28)
+	var right layout.Dimensions
+	if env.Snap.QueuePaused {
+		label := "Resume"
+		if env.Snap.QueueReason != "" {
+			label = "Send"
+		}
+		m := op.Record(gtx.Ops)
+		right = textButton(gtx, th, c.click("qresume"), label)
+		call := m.Stop()
+		o := op.Offset(image.Pt(w-right.Size.X, 0)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+	}
+	lg := gtx
+	lg.Constraints = layout.Constraints{Max: image.Pt(max(0, w-right.Size.X-gtx.Dp(theme.SpaceS)-gtx.Dp(theme.SpaceM)), h)}
+	o := op.Offset(image.Pt(gtx.Dp(theme.SpaceM), 0)).Push(gtx.Ops)
+	row(lg, 0, h, func(gtx layout.Context) layout.Dimensions {
+		return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, status)
+	})
+	o.Pop()
+	return layout.Dimensions{Size: image.Pt(w, h)}
 }

@@ -51,6 +51,9 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 			asked[i] = d.askedOf(d.st.Activities[ai])
 		}
 		tabs[i].Dropped = slices.Clone(d.phoneDropped[t.Pane])
+		if rows, held, reason := d.chatQueued(t.Pane); !t.Chat && len(rows) > 0 {
+			tabs[i].Queue, tabs[i].QueueHold = phoneRows(rows), queueHeld(held, reason)
+		}
 	}
 	d.mu.Unlock()
 	for i, p := range panes {
@@ -91,7 +94,10 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	}
 	for i, c := range chats {
 		if c != nil {
-			c.run(func() { tabs[i].Requests = remote.Requests(c.snap, logs.Redact) })
+			c.run(func() {
+				tabs[i].Requests = remote.Requests(c.snap, logs.Redact)
+				tabs[i].Queue, tabs[i].QueueHold = phoneRows(c.snap.QueuedInputs), queueHeld(c.snap.QueuePaused, c.snap.QueueReason)
+			})
 		}
 	}
 	for i := range tabs {
@@ -521,4 +527,19 @@ func (d *Daemon) keepClaudeSettings(id string, p Pane, m, e string) {
 	}
 	d.phoneSettings[id] = settings
 	d.changed()
+}
+
+// phoneRows is a chat's queue as the phone page lists it, redacted.
+func phoneRows(qs []session.QueuedInput) []remote.QueueRow {
+	out := make([]remote.QueueRow, len(qs))
+	for i, q := range qs {
+		out[i] = remote.QueueRow{ID: q.ID, Text: logs.Redact(q.Text), Error: q.Error}
+	}
+	return out
+}
+
+// phoneQueue runs the phone's Send now or Remove on a queued message of
+// pane's chat, a pane chat's or a chat tab's, as the window's would.
+func (d *Daemon) phoneQueue(pane, id, action string) error {
+	return chatRefusal(d.chatRequest(context.Background(), proto.ChatQueue{Chat: pane, Action: action, ID: id}))
 }

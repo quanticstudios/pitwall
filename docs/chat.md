@@ -37,16 +37,38 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
-- While Claude works, **Enter** queues the message above the box. pitwall
-  holds it and types it when the turn ends, one per turn. **Ctrl+Enter**
-  (Cmd+Enter on macOS) sends it now instead: Claude Code takes it into the
-  running turn when it can.
+- While the agent works, **Enter** queues the message above the box. When
+  the turn ends, everything queued goes as one prompt, a blank line between
+  messages. A slash command, a `!` command, and a message you marked **Send
+  separately** each go in a turn of their own, in their place. A line above
+  the queue says when the next messages go as one.
+- **Ctrl+Enter** (Cmd+Enter on macOS) sends it now instead, into the running
+  turn: Claude Code takes it once the running tool returns, Codex at once,
+  Antigravity CLI through its Alt+M. In a New task chat whose agent takes
+  nothing mid-turn, Send now stops the turn and sends the message first, and
+  its tooltip says so.
 - Point at a queued message for **Send now**, **Edit** (back into the box),
-  **Move up**, **Move down** and **Remove**. More than two fold into a count
-  that opens on a click. A message that could not be sent stays with
-  **Retry**.
+  **Move up**, **Move down**, **Send separately** and **Remove**. More than
+  two fold into a count that opens on a click. A message that could not be
+  sent stays with **Retry**.
+- The queue never goes into a question, an approval, a plan or a menu: it
+  waits, and the line above it says why ("Waiting for your answer"). After
+  a failed turn it waits for **Send**; at a usage limit, until the limit
+  resets, and it says when.
+- **Send now** on a queued message sends that one alone. The rest keep their
+  places, and a held queue stays held.
+- Queued messages stay with the agent they were written for. If it exits or
+  another agent starts in the pane, they wait until you press **Send**, which
+  gives them to the agent there now.
 - **Esc** stops the turn and holds the queue until you send again or press
   **Resume**.
+- The queue survives a daemon restart, an update and a reboot. After a
+  restart it waits for the resumed agent's input box. A message pitwall was
+  typing when it stopped comes back marked as maybe sent, with **Retry**,
+  and never goes twice on its own.
+- A tab with queued messages shows the count on its sidebar row and board
+  card, "2 queued", or "2 held" when the queue waits for you. The phone page
+  lists the queue and why it waits, with Send now and Remove.
 - **@** and part of a name lists the project's files and folders: git's
   tracked and untracked ones, not ignored. Up and Down pick, Enter or Tab
   puts `@path` in as a chip, and a folder lists what is in it. Claude Code

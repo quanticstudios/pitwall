@@ -200,9 +200,23 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 	env := chatin.Env{Chat: id, Snap: s, Width: width,
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
-		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel}
+		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,
+		Separate: u.link().Level >= proto.SmartQueueLevel, Steers: chatSteers(st, id, u.link().Level)}
 	env.Key, env.Esc = t.Key, t.CloseFiles
 	return env
+}
+
+// chatSteers reports whether Send now goes into chat id's running turn
+// at daemon level: a pane chat's agent takes it (Claude Code, Codex,
+// Antigravity CLI), a chat's Codex does, and its Claude from
+// proto.SmartQueueLevel on; elsewhere Send now stops the turn first.
+func chatSteers(st *model.State, id string, level int) bool {
+	i := slices.IndexFunc(st.Chats, func(c model.Chat) bool { return c.ID == id })
+	if i < 0 {
+		return true
+	}
+	p := st.Chats[i].Provider
+	return p == model.ProviderCodex || p == model.ProviderClaude && level >= proto.SmartQueueLevel
 }
 
 // composer is chat id's composer, kept in window state so its draft
