@@ -56,9 +56,9 @@ func TestPaneChat(t *testing.T) {
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Pane b runs Codex: no pane chat, so the read falls through to the chats.
-	if r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "b"}); r.(proto.ChatResult).Code != "not-found" {
-		t.Fatalf("codex pane read: %+v", r)
+	// Pane b runs Codex, whose hooks named no rollout: an empty chat.
+	if snap, _ := paneRead(t, d, "b", session.Snapshot{}, 0); len(snap.Content) != 0 {
+		t.Fatalf("codex pane read: %+v", snap)
 	}
 	d.mu.Lock()
 	d.st.Panes[0].Transcript = path

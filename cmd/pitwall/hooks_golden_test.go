@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -13,7 +14,7 @@ import (
 
 // Hooks pitwall v0.2.13 installed for a binary stay as they are for the
 // binary at that path now, in either build: no installed hook needs an
-// edit after an update. testdata/hooks-v0.2.13 holds what v0.2.13's hooks
+// edit after an update, and the only change is an event added since. testdata/hooks-v0.2.13 holds what v0.2.13's hooks
 // install wrote for testBin.
 func TestHooksFromV0213Unchanged(t *testing.T) {
 	home := hooksHome(t)
@@ -37,7 +38,11 @@ func TestHooksFromV0213Unchanged(t *testing.T) {
 	for _, p := range plans {
 		switch p.path {
 		case files["claude-settings.json"], files["codex-hooks.json"]:
-			if p.skip != "" || len(p.changes) != 0 {
+			var want []string
+			if p.path == files["codex-hooks.json"] {
+				want = []string{"added SessionStart: '/opt/pitwall/bin/pitwall' hook codex"} // v0.3.2 added it beside the rest
+			}
+			if p.skip != "" || !slices.Equal(p.changes, want) {
 				t.Errorf("%s: skip %q, changes %q", p.path, p.skip, p.changes)
 			}
 		case files["pi-pitwall.ts"]:

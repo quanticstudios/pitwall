@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -255,5 +256,57 @@ func TestPathFixOtherCore(t *testing.T) {
 	t.Setenv("PATH", dir)
 	if got := pathFix(core); strings.Contains(got, ", and add ") {
 		t.Fatalf("this core is already on PATH: %s", got)
+	}
+}
+
+// A Codex hooks.json whose SessionStart runs only another tool's script:
+// doctor says pitwall's SessionStart is missing, and install adds it
+// beside that script, which stays.
+func TestDoctorSessionStart(t *testing.T) {
+	home := hooksHome(t)
+	path := filepath.Join(home, ".codex", "hooks.json")
+	var events map[string]json.RawMessage
+	if err := json.Unmarshal(agent.CodexHooks(testBin), &events); err != nil {
+		t.Fatal(err)
+	}
+	other := `[{"hooks":[{"type":"command","command":"/opt/other/session-start.sh","timeout":5}]}]`
+	events["SessionStart"] = json.RawMessage(other)
+	data, _ := json.Marshal(map[string]any{"hooks": events})
+	writeHooksTestFile(t, path, string(data))
+	row := func() (bool, string) {
+		var ok bool
+		var detail string
+		hooksRows(home, func(s string) string { return s }, func(o bool, what, d, fix string) {
+			if what == "hooks" && strings.HasPrefix(d, path) {
+				ok, detail = o, d
+			}
+		})
+		return ok, detail
+	}
+	if ok, detail := row(); ok || !strings.Contains(detail, "lacks pitwall's SessionStart entry") {
+		t.Fatalf("doctor row %v %q", ok, detail)
+	}
+	if _, err := installHooks(false, false); err != nil {
+		t.Fatal(err)
+	}
+	if ok, detail := row(); !ok {
+		t.Errorf("after install: %q", detail)
+	}
+	var got struct {
+		Hooks map[string][]struct {
+			Hooks []struct{ Command string } `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(readHooksTestFile(t, path), &got); err != nil {
+		t.Fatal(err)
+	}
+	var cmds []string
+	for _, g := range got.Hooks["SessionStart"] {
+		for _, h := range g.Hooks {
+			cmds = append(cmds, h.Command)
+		}
+	}
+	if len(cmds) != 2 || cmds[0] != "/opt/other/session-start.sh" || !strings.HasSuffix(cmds[1], " hook codex") {
+		t.Errorf("SessionStart commands %q, want the other tool's, then pitwall's", cmds)
 	}
 }

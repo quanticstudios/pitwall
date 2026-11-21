@@ -19,10 +19,10 @@ var parentOf = procParent
 // but descends from it, and that group is the one the pane's accepted hooks
 // came from. Before the first accepted hook, as after any daemon start, that
 // group is the current one while the pane has an agent. A hook that cannot
-// be placed so (no pid, as on Windows, a process gone, a shared Codex
-// app-server) is accepted. A rejected agent is accepted once the pane's
-// agent exits, since the foreground group changes and the child is no
-// longer below it.
+// be placed so (no pid, as on Windows, a process gone) is accepted. Codex's
+// app-server hooks never get here: codexRoute places them. A rejected agent
+// is accepted once the pane's agent exits, since the foreground group
+// changes and the child is no longer below it.
 func (d *Daemon) nestedHook(m proto.AgentEvent, pid int) bool {
 	if pid <= 0 || m.Provider == "report" || model.ReportedName(m.Provider) != "" {
 		return false // a report comes from the agent's own tool runs

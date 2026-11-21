@@ -148,6 +148,26 @@ func (d *Daemon) agyResumed(p model.Pane) {
 	}
 }
 
+// codexResumed names the transcript of a Codex pane resumed with `codex
+// resume <id>`: Codex fires no hook until the next prompt either. The file
+// is the rollout whose name carries the session id, under the CODEX_HOME
+// the pane runs with. Callers hold d.mu.
+func (d *Daemon) codexResumed(p model.Pane) {
+	if p.Provider != model.ProviderCodex || p.SessionID == "" {
+		return
+	}
+	dir := agent.CodexDir(homeOf(p.Env))
+	for _, e := range p.Env {
+		if h, ok := strings.CutPrefix(e, "CODEX_HOME="); ok && h != "" {
+			dir = h
+		}
+	}
+	t := agent.CodexRollout(dir, p.SessionID)
+	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == p.ID }); i >= 0 && t != "" {
+		d.st.Panes[i].Transcript = t
+	}
+}
+
 // agyTrustMsg is what agy's terminal report says while it asks whether to
 // trust the folder it opened in.
 const agyTrustMsg = "Trust this folder?"

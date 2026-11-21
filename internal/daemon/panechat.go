@@ -39,9 +39,10 @@ import (
 // starts or stops the agent for it. Its transcript (Codex's rollout),
 // read as it grows, and the pane's hooks and screen make the snapshot;
 // what the chat sends goes into the PTY as keys, as the phone's do. It
-// lasts while the pane's hooks name the agent and its transcript; then the
-// window shows the pane again. Only a hook's transcript_path names the
-// file: a pane whose hooks have not named one stays a terminal.
+// lasts while the agent runs in the pane; then the window shows the pane
+// again. Only a hook's transcript_path names the file, or, for a resumed
+// pane, the session id in a file's name (agyResumed, codexResumed): until
+// then the chat is empty, and it starts over on the file once it is named.
 
 // paneChat is one pane chat's snapshot and how far it read the transcript.
 type paneChat struct {
@@ -170,7 +171,7 @@ type paneLive struct {
 }
 
 // paneChatOf is pane id's chat, made on first use, and its pane's state;
-// false when the pane runs no Claude Code or Codex with a transcript.
+// false when the pane runs no Claude Code, Codex or Antigravity.
 func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -315,14 +316,16 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	// The subagents first: their last calls end before the line that ends
 	// them reaches the session's transcript.
 	pc.subagents()
-	f, err := os.Open(pc.path)
-	if err == nil {
-		err = pc.readOn(f, l.tui.model)
-		f.Close()
-	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		log.Printf("pane chat %s: transcript: %q", pc.id, err)
-		rerr = err
+	if pc.path != "" { // no hook named it yet: the chat stays empty, its chips and approvals still live
+		f, err := os.Open(pc.path)
+		if err == nil {
+			err = pc.readOn(f, l.tui.model)
+			f.Close()
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("pane chat %s: transcript: %q", pc.id, err)
+			rerr = err
+		}
 	}
 	a := l.act
 	isClaude := pc.prov == model.ProviderClaude

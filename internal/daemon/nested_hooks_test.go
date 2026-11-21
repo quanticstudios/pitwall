@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -478,5 +479,130 @@ func TestNestedHooksExecPi(t *testing.T) {
 	}
 	if p, a := reportedPane(d, "a"), d.activityOf("a"); p.Provider != model.ProviderClaude || p.SessionID != "owner" || a.State != model.StateWorking {
 		t.Fatalf("exec'd pi took the pane: %+v, %+v", p, a)
+	}
+}
+
+// codexTree is a Codex 0.171 machine. Pane a's Codex TUI, 300, started the
+// app-server, 310, in a session of its own, and pane b's TUI, 400, connects
+// to it. 301 is a hook a Codex TUI runs itself, as before 0.171. The
+// app-server runs hooks direct (311) or through a shell (313), and runs
+// tool shells: one, 320, runs a nested Codex, 321, and another runs
+// Codex's sandbox, 330, with a Codex in it, 332. In pane c, a Claude
+// Code TUI, 500, runs a Codex, 510, directly. 610 is an app-server whose TUI
+// exited, so it went to init, and 620 a Codex run from its tool shell.
+var codexTree = map[int][2]int{
+	50: {1, 50}, 300: {50, 300}, 301: {300, 301}, 400: {50, 400},
+	310: {300, 310}, 311: {310, 311}, 312: {310, 312}, 313: {312, 312},
+	320: {310, 320}, 321: {320, 320}, 322: {321, 322},
+	330: {310, 330}, 331: {330, 331}, 332: {331, 331}, 333: {332, 333},
+	500: {50, 500}, 510: {500, 510}, 511: {510, 511},
+	610: {1, 610}, 611: {610, 611}, 615: {610, 615}, 620: {615, 615}, 621: {620, 621},
+}
+
+var codexComm = map[int]string{
+	300: "codex", 400: "codex", 310: "codex", 312: "sh", 320: "bash", 321: "codex",
+	330: "codex", 331: "bwrap", 332: "codex", 500: "claude", 510: "codex",
+	610: "codex", 615: "bash", 620: "codex",
+}
+
+func useCodexTree(t *testing.T) {
+	t.Helper()
+	oldParent, oldComm := parentOf, commOf
+	parentOf = func(pid int) (int, int) { return codexTree[pid][0], codexTree[pid][1] }
+	commOf = func(pid int) string { return codexComm[pid] }
+	t.Cleanup(func() { parentOf, commOf = oldParent, oldComm })
+}
+
+func TestCodexServer(t *testing.T) {
+	useCodexTree(t)
+	fgs := map[int]string{300: "a", 400: "b", 500: "c"}
+	for _, c := range []struct {
+		pid, want int
+	}{
+		{311, serverHook}, {313, serverHook}, {611, serverHook},
+		{322, underServer}, {333, underServer}, {621, underServer},
+		{511, notServer}, {301, notServer}, {9999, notServer},
+	} {
+		if got := codexServer(c.pid, fgs); got != c.want {
+			t.Errorf("codexServer(%d) = %v, want %v", c.pid, got, c.want)
+		}
+	}
+	if !nestedIn(322, 300) {
+		t.Error("a Codex run from the app-server's tool shell is not nested")
+	}
+}
+
+// Every app-server hook names pane a, whose TUI started the server. Each
+// goes to the pane whose session or folder it carries.
+func TestCodexRoute(t *testing.T) {
+	d, f := talkDaemon(t)
+	t.Cleanup(d.shutdown)
+	useReportHooks(d)
+	useCodexTree(t)
+	a, b := &livePane{fakePane: f.pane(0)}, &livePane{fakePane: f.pane(1)}
+	root := t.TempDir() // absolute on every OS: a payload's cwd is
+	w := func(dir string) string { return filepath.Join(root, dir) }
+	a.fgGroup.Store(300)
+	b.fgGroup.Store(400)
+	a.setCwd(w("a"))
+	b.setCwd(w("b"))
+	d.mu.Lock()
+	d.panes["a"], d.panes["b"] = a, b
+	d.mu.Unlock()
+	send := func(pid int, sid, cwd string, transcript bool) string {
+		t.Helper()
+		tr := "null"
+		if transcript {
+			tr = fmt.Sprintf("%q", filepath.Join(t.TempDir(), sid+".jsonl"))
+		}
+		ev := proto.AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(fmt.Sprintf(
+			`{"hook_event_name":"UserPromptSubmit","session_id":%q,"cwd":%q,"transcript_path":%s,"prompt":"go"}`, sid, cwd, tr))}
+		pane, server, _ := d.codexRoute(ev, pid)
+		if !server {
+			t.Fatalf("hook %s from %d: not an app-server's", sid, pid)
+		}
+		if pane != "" {
+			ev.Pane = pane
+			must(t, d.agentEvent(t.Context(), ev))
+		}
+		return pane
+	}
+	session := func(id string) string {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })].SessionID
+	}
+	if got := send(311, "sb", w("b"), true); got != "b" || session("b") != "sb" || session("a") != "" {
+		t.Fatalf("b's new session went to %q; sessions a %q, b %q", got, session("a"), session("b"))
+	}
+	if got := send(313, "sa", w("a"), true); got != "a" || session("a") != "sa" {
+		t.Fatalf("a's new session went to %q", got)
+	}
+	if got := send(311, "sb", w("a"), true); got != "b" {
+		t.Errorf("b's session, run in a's folder, went to %q", got)
+	}
+	if got := send(311, "side", w("b"), false); got != "" {
+		t.Errorf("a hook without a transcript went to %q", got)
+	}
+	if got := send(311, "elsewhere", w("c"), true); got != "" {
+		t.Errorf("a session in no pane's folder went to %q", got)
+	}
+	b.setCwd(w("a"))
+	if got := send(311, "new", w("a"), true); got != "" {
+		t.Errorf("a new session in two Codex panes' folder went to %q", got)
+	}
+	if got := send(611, "sb", w("a"), true); got != "b" {
+		t.Errorf("a hook from the app-server whose TUI exited went to %q", got)
+	}
+	d.mu.Lock()
+	d.st.Chats = append(d.st.Chats, model.Chat{ID: "chat", WorkspaceID: "w", Provider: model.ProviderCodex})
+	d.mu.Unlock()
+	if _, server, nested := d.codexRoute(proto.AgentEvent{Pane: "chat", Provider: model.ProviderCodex}, 611); server || nested {
+		t.Error("a chat's own app-server hook was routed")
+	}
+	for _, pid := range []int{322, 621} {
+		if _, server, nested := d.codexRoute(proto.AgentEvent{Pane: "a", Provider: model.ProviderCodex}, pid); server || !nested {
+			t.Errorf("hook %d of a Codex the app-server runs: server %v, nested %v", pid, server, nested)
+		}
 	}
 }

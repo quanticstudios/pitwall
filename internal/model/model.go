@@ -186,11 +186,12 @@ func ResolvePopupSize(spec, fallback string, extent, floor int) int {
 	return max(min(value, extent), min(floor, extent), 1)
 }
 
-// PaneChat reports whether p runs Claude Code's, Codex's or Antigravity's TUI with a
-// transcript its hooks named, which a window can show as a desktop chat
-// (a pane chat): the daemon answers Chat* messages for p.ID then.
+// PaneChat reports whether p runs Claude Code's, Codex's or Antigravity's
+// TUI, which a window can show as a desktop chat (a pane chat): the daemon
+// answers Chat* messages for p.ID then. Until a hook names its transcript
+// the chat is empty, and it reads the transcript once one is named.
 func PaneChat(p Pane) bool {
-	return (p.Provider == ProviderClaude || p.Provider == ProviderCodex || p.Provider == ProviderAntigravity) && p.Transcript != "" && !p.Exited
+	return (p.Provider == ProviderClaude || p.Provider == ProviderCodex || p.Provider == ProviderAntigravity) && !p.Exited
 }
 
 // IsPopup reports whether pane is a tab's popup.

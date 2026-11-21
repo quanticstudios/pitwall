@@ -114,12 +114,14 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 
 ## Codex panes
 
-A pane running Codex's TUI shows as the chat too, once Codex's hooks name
-its session. pitwall never guesses the session from the newest log in
-`~/.codex/sessions`: until a hook names one, the pane stays the TUI. Run
-`pitwall hooks install`, then trust the hooks once with `/hooks` in Codex.
-A fresh Codex names its session with its first prompt, so a new pane turns
-into the chat after you send one.
+A pane running Codex's TUI shows as the chat too, as soon as pitwall sees
+Codex in it. The chat stays empty until Codex's hooks name its session,
+which a fresh Codex does with its first prompt: send that from the chat's
+composer, and the chat fills in. A pane pitwall resumed with `codex resume`
+shows its history at once, from the rollout whose file name carries the
+session id. pitwall never guesses the session from the newest log in
+`~/.codex/sessions`. Run `pitwall hooks install`, then trust the hooks once
+with `/hooks` in Codex.
 
 The chat reads Codex's rollout: your prompts, replies, reasoning summaries,
 commands with their output and exit code, file changes as diffs, web
@@ -142,9 +144,10 @@ restart. agy asks its
 questions as a message there, so answer one by replying. "Antigravity
 (terminal)" in New task starts the TUI instead.
 
-A pane running agy's TUI shows as the chat too, once agy's hooks name its
-conversation (`pitwall hooks install`); agy names it at your first prompt.
-A pane pitwall resumed with `--conversation` shows as the chat at once.
+A pane running agy's TUI shows as the chat too, as soon as pitwall sees agy
+in it. The chat stays empty until agy's hooks name its conversation
+(`pitwall hooks install`), which agy does at your first prompt. A pane
+pitwall resumed with `--conversation` shows its history at once.
 pitwall never guesses from the newest folder under
 `~/.gemini/antigravity-cli/brain`. The chat reads agy's transcript: your
 prompts, replies, thinking, commands with their output and exit code,

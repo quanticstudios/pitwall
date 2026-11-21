@@ -216,7 +216,11 @@ func hooksRows(home string, short func(string) string, report func(ok bool, what
 			if len(p.changes) > 1 {
 				more = fmt.Sprintf(" and %d more", len(p.changes)-1)
 			}
-			report(false, "hooks", short(p.path)+" needs: "+p.changes[0]+more, "pitwall hooks install --dry-run, then pitwall hooks install")
+			detail := short(p.path) + " needs: " + p.changes[0] + more
+			if slices.ContainsFunc(p.changes, func(c string) bool { return strings.HasPrefix(strings.ToLower(c), "added sessionstart") }) {
+				detail += "; it lacks pitwall's SessionStart entry, so a new session's chat stays empty until its first prompt"
+			}
+			report(false, "hooks", detail, "pitwall hooks install --dry-run, then pitwall hooks install; it keeps other tools' entries")
 		}
 	}
 }

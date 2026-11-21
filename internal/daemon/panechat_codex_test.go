@@ -12,9 +12,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
-// A Codex pane is a pane chat once its hooks name its rollout: the
-// rollout's turns and calls, its model and effort, its approval as a
-// request, and sends typed into the TUI.
+// A Codex pane is a pane chat from the start, empty until its hooks name
+// its rollout. Then the rollout's turns and calls,
+// its model and effort, its approval as a request, and sends typed into
+// the TUI.
 func TestPaneChatCodex(t *testing.T) {
 	d, f, _ := remoteDaemon(t)
 	rollout, err := os.ReadFile("../session/codex/testdata/rollout.jsonl")
@@ -25,9 +26,11 @@ func TestPaneChatCodex(t *testing.T) {
 	if err := os.WriteFile(path, rollout, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// No hook named a rollout: no chat, whatever rollouts the folder holds.
-	if r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "b"}); r.(proto.ChatResult).Code != "not-found" {
-		t.Fatalf("codex pane without a transcript: %+v", r)
+	// No hook named a rollout: an empty chat, whatever rollouts the folder
+	// holds.
+	empty, _ := paneRead(t, d, "b", session.Snapshot{}, 0)
+	if empty.Provider != model.ProviderCodex || len(empty.Content) != 0 || len(empty.Turns) != 0 {
+		t.Fatalf("codex pane without a transcript: %+v", empty)
 	}
 	d.mu.Lock()
 	d.st.Panes[1].Transcript = path
@@ -104,7 +107,8 @@ func TestPaneChatCodex(t *testing.T) {
 }
 
 // When the agent leaves the pane's foreground, its transcript goes with
-// it: a Codex started after it shows no chat until its own hook names one.
+// it: a Codex started after it shows an empty chat until its own hook
+// names one, never the last one's session.
 func TestPaneChatForgetsTranscript(t *testing.T) {
 	d, _, _ := remoteDaemon(t)
 	d.mu.Lock()
@@ -116,7 +120,7 @@ func TestPaneChatForgetsTranscript(t *testing.T) {
 	if got != "" {
 		t.Errorf("transcript %q after codex left and came back", got)
 	}
-	if r, _ := d.chatRequest(context.Background(), proto.ChatRead{Chat: "b"}); r.(proto.ChatResult).Code != "not-found" {
-		t.Errorf("read: %+v, want no chat", r)
+	if snap, _ := paneRead(t, d, "b", session.Snapshot{}, 0); len(snap.Content) != 0 {
+		t.Errorf("read: %+v, want an empty chat", snap)
 	}
 }

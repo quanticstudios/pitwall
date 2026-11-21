@@ -24,7 +24,7 @@ import (
 // getting its real size.
 
 // paneChatOf is pane id as a chat, with a state from its activity, nil
-// when the pane runs no Claude Code or Codex with a transcript.
+// when the pane runs no Claude Code, Codex or Antigravity.
 func paneChatOf(st *model.State, id string) *model.Chat {
 	p := findPane(st, id)
 	if p == nil || !model.PaneChat(*p) {
@@ -54,7 +54,7 @@ func (u *ui) paneChatShown(st *model.State, ws *model.Workspace, id string) bool
 		return false
 	}
 	c := paneChatOf(st, id)
-	if c == nil || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel ||
+	if c == nil || !u.paneChatServed(st, id) || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel ||
 		c.Provider == model.ProviderAntigravity && linkLevel(u.b) < proto.AntigravityLevel {
 		delete(u.paneFlip, id) // the next agent in the pane starts in the default view
 		return false
@@ -99,8 +99,15 @@ func (u *ui) chatFrame(gtx gl.Context, size image.Point, lit, sole bool) (image.
 func (u *ui) paneChatKey(st *model.State) bool {
 	ws := findWorkspace(st, u.nav.workspace)
 	c := paneChatOf(st, u.nav.focused())
-	return ws != nil && ws.Chat == "" && linkLevel(u.b) >= proto.PaneChatLevel && c != nil &&
+	return ws != nil && ws.Chat == "" && linkLevel(u.b) >= proto.PaneChatLevel && c != nil && u.paneChatServed(st, u.nav.focused()) &&
 		(c.Provider != model.ProviderCodex || linkLevel(u.b) >= proto.CodexPaneChatLevel)
+}
+
+// paneChatServed reports whether the daemon answers for pane id's chat yet:
+// one before EmptyPaneChatLevel only once a hook named its transcript.
+func (u *ui) paneChatServed(st *model.State, id string) bool {
+	p := findPane(st, id)
+	return p != nil && (p.Transcript != "" || linkLevel(u.b) >= proto.EmptyPaneChatLevel)
 }
 
 // layoutPaneChat draws pane id as a chat in r, where layoutPanes put the

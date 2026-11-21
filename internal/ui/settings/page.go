@@ -1247,6 +1247,9 @@ func (p *Page) agents() []section {
 		if h.Err != "" {
 			desc += ": " + h.Err
 		}
+		if h.NoStart && h.Have > 0 {
+			desc += ". No SessionStart hook of pitwall's: a new session's chat stays empty until its first prompt. Install adds it beside other tools' hooks."
+		}
 		if h.Agent == "Codex" {
 			desc += ". Codex asks you to trust them once with /hooks."
 		}

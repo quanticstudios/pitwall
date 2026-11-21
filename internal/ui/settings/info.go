@@ -26,6 +26,7 @@ type hookFile struct {
 	Have, Want  int    // events running `pitwall hook <agent>`, of those pitwall installs
 	Err         string
 	Edited      bool // a plugin pitwall wrote whole, edited since; install leaves it
+	NoStart     bool // pitwall installs a SessionStart hook here, and the file runs none of pitwall's
 }
 
 var hookExecutable = os.Executable
@@ -158,6 +159,8 @@ func checkHooks(name, path string, generated []byte, suffix string) hookFile {
 	for ev := range want {
 		if slices.ContainsFunc(root.Hooks[ev], func(g hookCommands) bool { return runsPitwall(g.Hooks, suffix) }) {
 			h.Have++
+		} else if ev == "SessionStart" {
+			h.NoStart = true
 		}
 	}
 	return h
