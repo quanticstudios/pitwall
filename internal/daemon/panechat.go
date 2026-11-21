@@ -89,6 +89,42 @@ type paneChat struct {
 	// limit is the pane's Claude plan limit, which /usage shows; nil for none.
 	limit func() (flow.Limit, bool)
 	lv    liveState // what the screen shows ahead of the transcript (live)
+	slash slashList // the agent's / menu
+}
+
+// slashList is a pane chat's slash commands and what they were read for.
+type slashList struct {
+	conf, cwd string
+	stamp     string    // claude.CommandsStamp when they were read
+	checked   time.Time // when the stamp was last taken
+	cmds      []session.Command
+}
+
+// slashEvery is how often a pane chat stats Claude Code's command and
+// skill files for one added, removed or edited; the chat reads every
+// ChatPoll.
+const slashEvery = 2 * time.Second
+
+// commands puts the agent's / menu in the snapshot when it changed:
+// Claude Code's from its config dir and the pane's project, read again
+// once their files or the folders change; Codex's built-ins; none for
+// Antigravity, whose list Pitwall cannot read. Callers hold pc.mu.
+func (pc *paneChat) commands(l paneLive, now time.Time) {
+	s := &pc.slash
+	switch pc.prov {
+	case model.ProviderClaude:
+		if s.cmds == nil || s.conf != l.conf || s.cwd != l.cwd || now.Sub(s.checked) >= slashEvery {
+			s.conf, s.cwd, s.checked = l.conf, l.cwd, now
+			if st := claude.CommandsStamp(l.conf, l.cwd); st != s.stamp || s.cmds == nil {
+				s.cmds, s.stamp = claude.Commands(l.conf, l.cwd), st
+			}
+		}
+	case model.ProviderCodex:
+		s.cmds = codex.Builtins
+	}
+	if !slices.Equal(s.cmds, pc.snap.Commands) {
+		pc.reduce([]session.Event{{Type: session.EventCommands, Commands: slices.Clone(s.cmds)}})
+	}
 }
 
 // transcript is a new reader of pc's transcript.
@@ -375,6 +411,7 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 		l.tui.model, l.tui.effort = mdl, eff
 	}
 	pc.settings(l)
+	pc.commands(l, time.Now())
 	if !slices.EqualFunc(l.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
 		return a.ID == b.ID && a.Text == b.Text && a.Error == b.Error && a.Alone == b.Alone
 	}) || l.held != pc.snap.QueuePaused || l.reason != pc.snap.QueueReason {
