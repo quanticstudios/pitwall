@@ -72,18 +72,22 @@ var Builtins = []session.Command{
 	{Name: "resume", Description: "Resume a previous session"},
 	{Name: "rewind", Description: "Restore earlier code, conversation, or both"},
 	{Name: "run", Description: "Launch this project's app to see your change working"},
+	{Name: "run-skill-generator", Description: "Create a skill that knows how to run this project's app"},
 	{Name: "schedule", Description: "Create and manage scheduled remote Claude Code agents"},
 	{Name: "security-review", Description: "Review the branch's pending changes for security issues"},
 	{Name: "simplify", Description: "Review the changed code for reuse and simplification, then fix it"},
+	{Name: "skill-doctor", Description: "Show which loaded skills are unused and costing context"},
 	{Name: "skills", Description: "List available skills"},
 	{Name: "status", Description: "Show version, account, model, MCP servers, and setup warnings"},
 	{Name: "statusline", Description: "Set up Claude Code's status line"},
 	{Name: "tasks", Description: "View and manage this session's background work"},
+	{Name: "team-onboarding", Description: "Help teammates ramp on Claude Code with a guide from your usage"},
 	{Name: "terminal-setup", Description: "Set up your terminal's keys for newlines"},
 	{Name: "theme", Description: "Change the theme"},
 	{Name: "ultrareview", Description: "Find and verify bugs in your branch using a cloud session"},
 	{Name: "update-config", Description: "Change settings: hooks, permissions, environment variables"},
 	{Name: "usage", Description: "Show session cost, plan usage, and what's contributing to your limits"},
+	{Name: "usage-credits", Description: "Configure usage credits or request them from your admin when you hit a limit"},
 }
 
 // Commands is what Claude Code's / menu lists for a session in cwd with
