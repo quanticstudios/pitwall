@@ -273,6 +273,15 @@ type Command struct {
 	Hint        string `json:"hint,omitempty"` // what to type after the name
 	Source      string `json:"source,omitempty"`
 	Terminal    bool   `json:"terminal,omitempty"`
+	// Aliases are other names the provider takes for it, such as Claude
+	// Code's /cost for /usage; pitwall's.
+	Aliases []string `json:"aliases,omitempty"`
+}
+
+// Equal reports whether c and o are the same command, aliases included.
+func (c Command) Equal(o Command) bool {
+	return c.Name == o.Name && c.Description == o.Description && c.Hint == o.Hint && c.Source == o.Source &&
+		c.Terminal == o.Terminal && slices.Equal(c.Aliases, o.Aliases)
 }
 
 // terminalCommands are Claude Code's slash commands that open a screen of

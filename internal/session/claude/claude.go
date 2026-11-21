@@ -87,8 +87,11 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	if from.Resume == "" {
 		d.post(session.Event{Type: session.EventResumeID, ResumeID: id})
 	}
-	// why: claude -p lists its commands only in the system/init of the first turn.
+	// why: claude -p lists its commands only in the first turn's system/init; initialize answers with them, described, at once, and the files stand in until it does.
 	d.post(session.Event{Type: session.EventCommands, Commands: Headless(d.s.conf, d.s.cwd)})
+	if d.request(ctx, map[string]any{"subtype": "initialize"}) == nil {
+		d.s.initID = fmt.Sprintf("req_%d", d.reqs)
+	}
 	d.mu.Unlock()
 	go d.emitLoop()
 	go d.read(pr)

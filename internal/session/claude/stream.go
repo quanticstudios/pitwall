@@ -51,10 +51,12 @@ type stream struct {
 	contextTokens *int64
 	usage         *session.Event // the last usage event, which a new context size updates
 
-	commands []string   // the slash_commands system/init last listed
-	conf     string     // Claude Code's config dir, for the commands' descriptions
-	cwd      string     // the chat's folder, for the project's commands
-	info     statusInfo // what system/init said, for /status
+	commands []string          // the slash_commands system/init last listed
+	conf     string            // Claude Code's config dir, for the commands' descriptions
+	cwd      string            // the chat's folder, for the project's commands
+	initID   string            // the request_id of the driver's initialize request
+	listed   []session.Command // the commands initialize answered with, nil before
+	info     statusInfo        // what system/init said, for /status
 
 	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
 
@@ -94,10 +96,13 @@ type line struct {
 	Version      string   `json:"claude_code_version"`
 	Capabilities []string `json:"capabilities"`
 	// SlashCommands are names without the slash; the terminal ones need the TUI.
-	SlashCommands         []string `json:"slash_commands"`
-	TerminalSlashCommands []string `json:"terminal_slash_commands"`
-	Cwd                   string   `json:"cwd"`
-	PermissionMode        string   `json:"permissionMode"`
+	SlashCommands []string `json:"slash_commands"`
+	// Response is a control_response's: the answer to a request the
+	// driver sent.
+	Response              json.RawMessage `json:"response"`
+	TerminalSlashCommands []string        `json:"terminal_slash_commands"`
+	Cwd                   string          `json:"cwd"`
+	PermissionMode        string          `json:"permissionMode"`
 
 	// system/permission_denied: a text; assistant and user: an apiMessage
 	Message   json.RawMessage `json:"message"`
@@ -262,10 +267,10 @@ func (s *stream) line(b []byte) []session.Event {
 	case "command_lifecycle":
 		return s.lifecycle(l)
 	case "control_response":
-		// shortcut: the driver's own requests are not matched to their
+		// shortcut: the driver's other requests are not matched to their
 		// answers, so a refused set_model goes unreported; match them by
 		// request_id if a caller needs ProviderError.
-		return nil
+		return s.initialized(l.Response)
 	}
 	s.skip(l.Type)
 	return nil
@@ -298,8 +303,12 @@ func (s *stream) system(l line) []session.Event {
 		}
 		if l.SlashCommands != nil && !slices.Equal(l.SlashCommands, s.commands) {
 			s.commands = l.SlashCommands
-			cmds := initCommands(l.SlashCommands, l.TerminalSlashCommands, Commands(s.conf, cmp.Or(s.cwd, l.Cwd)))
-			out = append(out, session.Event{Type: session.EventCommands, Commands: cmds})
+			// why: initialize already listed these, described; a list that differs, as after /reload-plugins, is read again.
+			if !sameNames(s.listed, l.SlashCommands) {
+				menu := append(slices.Clone(s.listed), Commands(s.conf, cmp.Or(s.cwd, l.Cwd))...)
+				cmds := initCommands(l.SlashCommands, l.TerminalSlashCommands, menu)
+				out = append(out, session.Event{Type: session.EventCommands, Commands: cmds})
+			}
 		}
 		return out
 	case "permission_denied":
