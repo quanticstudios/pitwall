@@ -237,9 +237,10 @@ func (t *Transcript) changesOf(d *cdraw, b block) []fileChange {
 func (t *Transcript) sideTurn(d *cdraw) (block, bool) {
 	for i := len(t.blocks) - 1; i >= 0; i-- {
 		b := t.blocks[i]
-		if b.kind != blockTurn || b.lo >= len(d.s.Content) {
+		if b.kind != blockTurn && b.kind != blockAsk || b.more || b.lo >= len(d.s.Content) {
 			continue
 		}
+		b.kind, b.lo = blockTurn, b.from // a turn an answer split is one turn here
 		if t.side.turn != "" {
 			if d.s.Content[b.lo].ID == t.side.turn {
 				return b, true

@@ -1,13 +1,16 @@
 package panel
 
 import (
+	"cmp"
 	"image"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/widget"
@@ -494,40 +497,138 @@ func (d *cdraw) otherField(gtx layout.Context, e *widget.Editor) layout.Dimensio
 
 // resolvedLine is a request answered here: a check, or an x for a denial,
 // the decision, what it was for and when.
-func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved) layout.Dimensions {
+func (d *cdraw) resolvedLine(gtx layout.Context, r *resolved, open bool) layout.Dimensions {
 	th := d.th
 	w, h := gtx.Constraints.Max.X, gtx.Dp(40)
-	rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(10), th.Bg, th.BorderStrong)
-	x := gtx.Dp(cardPadX)
-	icon(gtx, image.Pt(x, (h-gtx.Dp(14))/2), resolvedIcon(r), 14, th.Muted)
-	x += gtx.Dp(14) + gtx.Dp(theme.SpaceS)
-	tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, r.when.Local().Format("15:04"))
-	})
-	lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, r.line)
-	})
-	base := centerBase(h, ld)
-	rx := w - gtx.Dp(cardPadX) - td.Size.X
-	at(gtx, image.Pt(rx, onBase(base, td)), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
-	at(gtx, image.Pt(x, onBase(base, ld)), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
-	x += ld.Size.X + gtx.Dp(theme.SpaceS)
-	if room := rx - gtx.Dp(12) - x; room > 0 && r.what != "" {
+	var body op.CallOp
+	var bd layout.Dimensions
+	more := r.details()
+	if open && more {
 		g := gtx
-		g.Constraints.Max.X = room
-		f := th.MonoFont
-		if r.prose {
-			f = th.UIFont
-		}
-		wc, wd := measure(g, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, f, th.Sp(theme.Small), th.TextQuiet, firstLine(r.what))
-		})
-		at(gtx, image.Pt(x, onBase(base, wd)), func(gtx layout.Context) layout.Dimensions { wc.Add(gtx.Ops); return wd })
+		g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*gtx.Dp(cardPadX)), gtx.Constraints.Max.Y)}
+		body, bd = measure(g, func(gtx layout.Context) layout.Dimensions { return d.resolvedBody(gtx, r) })
 	}
-	return layout.Dimensions{Size: image.Pt(w, h)}
+	total := h
+	if bd.Size.Y > 0 {
+		total += bd.Size.Y + gtx.Dp(cardPadX)
+	}
+	rrect(gtx, image.Rect(0, 0, w, total), gtx.Dp(10), th.Bg, th.BorderStrong)
+	head := func(gtx layout.Context) layout.Dimensions {
+		x := gtx.Dp(cardPadX)
+		if more {
+			chev := "chevron-right"
+			if open {
+				chev = "chevron-down"
+			}
+			icon(gtx, image.Pt(x, (h-gtx.Dp(12))/2), chev, 12, th.Muted)
+			x += gtx.Dp(12) + gtx.Dp(theme.SpaceS)
+		}
+		icon(gtx, image.Pt(x, (h-gtx.Dp(14))/2), resolvedIcon(r), 14, th.Muted)
+		x += gtx.Dp(14) + gtx.Dp(theme.SpaceS)
+		tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			if r.when.IsZero() {
+				return layout.Dimensions{}
+			}
+			return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, r.when.Local().Format("15:04"))
+		})
+		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Small), th.Muted, r.line)
+		})
+		base := centerBase(h, ld)
+		rx := w - gtx.Dp(cardPadX) - td.Size.X
+		at(gtx, image.Pt(rx, onBase(base, td)), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
+		at(gtx, image.Pt(x, onBase(base, ld)), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
+		x += ld.Size.X + gtx.Dp(theme.SpaceS)
+		if room := rx - gtx.Dp(12) - x; room > 0 && r.what != "" {
+			g := gtx
+			g.Constraints.Max.X = room
+			f := th.MonoFont
+			if r.prose {
+				f = th.UIFont
+			}
+			wc, wd := measure(g, func(gtx layout.Context) layout.Dimensions {
+				return d.lbl(gtx, f, th.Sp(theme.Small), th.TextQuiet, firstLine(r.what))
+			})
+			at(gtx, image.Pt(x, onBase(base, wd)), func(gtx layout.Context) layout.Dimensions { wc.Add(gtx.Ops); return wd })
+		}
+		return layout.Dimensions{Size: image.Pt(w, h)}
+	}
+	if more {
+		c := d.t.click("res:" + r.id)
+		clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+			rowFill(gtx, th, c, image.Pt(w, h))
+			return head(gtx)
+		})
+	} else {
+		head(gtx)
+	}
+	if bd.Size.Y > 0 {
+		at(gtx, image.Pt(gtx.Dp(cardPadX), h), func(gtx layout.Context) layout.Dimensions { body.Add(gtx.Ops); return bd })
+	}
+	return layout.Dimensions{Size: image.Pt(w, total)}
 }
 
-// resolvedIcon is the mark before an answered request's line.
+// details is whether r opens: a question's questions, or an approval's
+// command, edit or reason.
+func (r *resolved) details() bool {
+	return len(r.qs) > 0 || r.cmd != "" || r.diff != "" || r.reason != ""
+}
+
+// resolvedBody is an open resolved line: each question with its options,
+// the picked ones checked, a typed answer, and the picked option's
+// preview; or the command or edit allowed or denied, and the reason.
+func (d *cdraw) resolvedBody(gtx layout.Context, r *resolved) layout.Dimensions {
+	th := d.th
+	var ws []layout.FlexChild
+	text := func(key string, st tstyle, s string) {
+		ws = append(ws, layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d.selectable(gtx, d.t.sel(key), st, s) }))
+	}
+	box := func(key, s string) {
+		ws = append(ws, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: theme.Space2XS, Bottom: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return d.monoBox(gtx, key, s) })
+		}))
+	}
+	key := "res:" + r.id + ":"
+	for qi, q := range r.qs {
+		k := key + strconv.Itoa(qi)
+		if q.header != "" {
+			text(k+"h", d.small(th.Muted), q.header)
+		}
+		text(k+"p", d.small(th.Fg), q.prompt)
+		typed := slices.Clone(q.picked)
+		preview := ""
+		for oi, o := range q.options {
+			mark, c := "   ", th.Muted
+			if slices.Contains(q.picked, o.Label) {
+				mark, c = "✓ ", th.Fg
+				typed = slices.DeleteFunc(typed, func(p string) bool { return p == o.Label })
+				preview = cmp.Or(preview, o.Preview)
+			}
+			line := mark + o.Label
+			if o.Description != "" {
+				line += " · " + o.Description
+			}
+			text(k+"o"+strconv.Itoa(oi), d.small(c), line)
+		}
+		for ti, v := range typed {
+			text(k+"t"+strconv.Itoa(ti), d.small(th.Fg), "✓ "+v)
+		}
+		if preview != "" {
+			box(k+"v", preview)
+		}
+	}
+	if r.cmd != "" {
+		box(key+"c", r.cmd)
+	}
+	if r.diff != "" {
+		box(key+"d", r.diff)
+	}
+	if r.reason != "" {
+		text(key+"r", d.small(th.Fg), "Reason: "+r.reason)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
+}
+
 func resolvedIcon(r *resolved) string {
 	if r.denied {
 		return "x"

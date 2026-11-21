@@ -48,6 +48,8 @@ takes `--dry-run`.
 - The phone app and the phone page work the same way: a tap that leaves no question open sends the card and shows the answer at once, the message box answers the open question, and a multi-select question takes several picks.
 - An Antigravity New task chat's answers reach agy. Before, agy got the option's title where it wanted its number and reported "User Skipped"; a multi-select question now takes several picks; each question's free-text field is the question's own typed row instead of a second question that held the card open; and the card shows agy's question as the question, not "The agent has a question."
 - In a Claude Code pane chat, a multi-select answer and an answer to several questions reach Claude. Before, the multi-select one landed on "Chat about this", which Claude took as declining, and several questions stopped on the "Review your answers" page.
+- A question's Answered line sits where Claude asked it, and the work after the answer shows below it, so a running turn's Working for line stays at the end of the chat. Before, work after an answer folded above the line, and a chat that kept working looked stuck. This holds for answers given in Claude Code's terminal or from the phone too, and for the Allowed and Denied lines of approvals answered in the chat.
+- An Answered, Allowed or Denied line opens with a click or Enter: each question with its options, the one picked or the answer typed, and the picked option's preview; or the full command or edit and the reason for a denial.
 
 ## v0.3.1
 

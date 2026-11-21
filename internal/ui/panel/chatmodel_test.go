@@ -45,15 +45,52 @@ func TestBlocks(t *testing.T) {
 	}
 	got := blocks(c, nil)
 	want := []block{
-		{kind: blockPrompt, lo: 0, hi: 1, turn: "t1", reply: -1},
-		{kind: blockTurn, lo: 1, hi: 6, turn: "t1", reply: 5, tools: 2, todo: -1},
-		{kind: blockSystem, lo: 6, hi: 7, reply: -1},
-		{kind: blockPrompt, lo: 7, hi: 8, turn: "t2", reply: -1},
-		{kind: blockTurn, lo: 8, hi: 9, turn: "t2", reply: -1, tools: 1, todo: -1},
-		{kind: blockTurn, lo: 9, hi: 10, turn: "t3", reply: -1, todo: -1},
+		{kind: blockPrompt, lo: 0, from: 0, hi: 1, turn: "t1", reply: -1},
+		{kind: blockTurn, lo: 1, from: 1, hi: 6, turn: "t1", reply: 5, tools: 2, todo: -1},
+		{kind: blockSystem, lo: 6, from: 6, hi: 7, reply: -1},
+		{kind: blockPrompt, lo: 7, from: 7, hi: 8, turn: "t2", reply: -1},
+		{kind: blockTurn, lo: 8, from: 8, hi: 9, turn: "t2", reply: -1, tools: 1, todo: -1},
+		{kind: blockTurn, lo: 9, from: 9, hi: 10, turn: "t3", reply: -1, todo: -1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("blocks\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// TestBlocksAsk: an answered question splits its turn where it was
+// asked: the work before it, its Answered line, the work after it, all
+// one turn; a question still waiting stays in the work log, and a cut
+// splits the turn as an answer does.
+func TestBlocksAsk(t *testing.T) {
+	ask := turnItem("q", session.KindToolCall, "t1")
+	ask.Tool.ToolName, ask.Tool.Output = "AskUserQuestion", `Your questions have been answered: "Which?"="Red".`
+	c := []session.Item{
+		turnItem("p1", session.KindUserPrompt, "t1"),
+		turnItem("c1", session.KindToolCall, "t1"),
+		ask,
+		turnItem("c2", session.KindToolCall, "t1"),
+		turnItem("c3", session.KindToolCall, "t1"),
+		turnItem("r1", session.KindAssistantText, "t1"),
+	}
+	got := blocks(c, nil)
+	want := []block{
+		{kind: blockPrompt, lo: 0, from: 0, hi: 1, turn: "t1", reply: -1},
+		{kind: blockTurn, lo: 1, from: 1, hi: 2, turn: "t1", reply: -1, tools: 1, todo: -1, more: true},
+		{kind: blockAsk, lo: 2, from: 1, hi: 3, turn: "t1", reply: -1, more: true},
+		{kind: blockTurn, lo: 3, from: 1, hi: 6, turn: "t1", reply: 5, tools: 2, todo: -1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("answered\n got %+v\nwant %+v", got, want)
+	}
+	c[2].Tool.Output = ""
+	if got := blocks(c, nil); len(got) != 2 || got[1].hi != 6 || got[1].more {
+		t.Fatalf("waiting question: %+v", got)
+	}
+	if got := blocks(c, nil, 4); len(got) != 3 || got[1].hi != 4 || !got[1].more || got[2].lo != 4 || got[2].from != 1 {
+		t.Fatalf("cut at 4: %+v", got)
+	}
+	if got := blocks(nil, nil, 0); len(got) != 0 {
+		t.Fatalf("empty: %+v", got)
 	}
 }
 
