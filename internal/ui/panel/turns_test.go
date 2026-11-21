@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -139,5 +140,35 @@ func TestTurnSplitFolds(t *testing.T) {
 	tr.clicks[turnID(&again, tr.rows[worked].b)].Click()
 	if got := frame(&again); !strings.HasPrefix(got, open) {
 		t.Fatalf("showed the turn's work again:\n got %s", got)
+	}
+}
+
+// TestTurnSplitAnswered: a turn Claude split with a question is one turn:
+// its Worked line goes above the first part, the Answered line sits
+// where the question was asked with the work after it below, and hiding
+// the work hides every part's but keeps the Answered line.
+func TestTurnSplitAnswered(t *testing.T) {
+	for _, tc := range []struct{ file, want, hidden string }{
+		{"ask-then-work.jsonl", "prompt | worked | reply | tail | fold 40 | reply", "prompt | worked | tail | reply"},
+		{"ask-then-work-running.jsonl", "prompt | reply | tail | live 40 | working", ""},
+	} {
+		s := renderSnap(t, filepath.Join("testdata", tc.file))
+		running := strings.Contains(tc.file, "running")
+		s.SessionState = map[bool]string{true: session.StateRunning, false: session.StateReady}[running]
+		for i := range s.Turns {
+			s.Turns[i].State = map[bool]string{true: session.TurnRunning, false: session.TurnCompleted}[running]
+		}
+		var tr Transcript
+		layoutOnce(&tr, &s)
+		if got := rowsOf(&s, &tr); got != tc.want {
+			t.Errorf("%s:\n got %s\nwant %s", tc.file, got, tc.want)
+		}
+		if tc.hidden != "" {
+			tr.click(turnID(&s, tr.blocks[1])).Click()
+			layoutOnce(&tr, &s)
+			if got := rowsOf(&s, &tr); got != tc.hidden {
+				t.Errorf("%s hidden:\n got %s\nwant %s", tc.file, got, tc.hidden)
+			}
+		}
 	}
 }
