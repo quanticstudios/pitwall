@@ -55,6 +55,11 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
   waits, and the line above it says why ("Waiting for your answer"). After
   a failed turn it waits for **Send**; at a usage limit, until the limit
   resets, and it says when.
+- **Send now** on a queued message sends that one alone. The rest keep their
+  places, and a held queue stays held.
+- Queued messages stay with the agent they were written for. If it exits or
+  another agent starts in the pane, they wait until you press **Send**, which
+  gives them to the agent there now.
 - **Esc** stops the turn and holds the queue until you send again or press
   **Resume**.
 - The queue survives a daemon restart, an update and a reboot. After a

@@ -32,6 +32,8 @@ takes `--dry-run`.
 - When a turn ends, everything queued goes as one prompt, a blank line between messages, with image tokens renumbered. Slash commands, `!` commands and messages marked Send separately each go alone, in their place. A line above the queue says when the next messages go as one.
 - The queue never types into a question, an approval, a plan or a menu. It waits and says why above it, waits for Send after a failed turn, and at a usage limit waits until the limit resets and says when.
 - Send now steers a running turn in Antigravity CLI panes, with its Alt+M, and in Claude New task chats over stream-json. Where an agent takes nothing mid-turn, Send now's tooltip says it stops the turn and sends the message.
+- Queued messages stay with the agent they were written for. If that agent exits or another one starts in the pane, they wait with "The agent these were queued for left this pane" until you press Send, which gives them to the agent there now. They never go into a shell.
+- Send now on one queued message sends only that message. The rest keep their places, and a held queue stays held.
 - Sidebar rows and board cards show a tab's queued messages, "2 queued", or "2 held" when the queue waits for you. The phone page lists the queue and why it waits, with Send now and Remove.
 
 ## v0.3.1
