@@ -1,9 +1,11 @@
 package claude
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -30,13 +32,13 @@ var Builtins = []session.Command{
 	{Name: "code-review", Description: "Review the current diff or a PR for bugs"},
 	{Name: "color", Description: "Set the prompt bar color for this session"},
 	{Name: "compact", Description: "Free up context by summarizing the conversation so far"},
-	{Name: "config", Description: "Open settings"},
+	{Name: "config", Description: "Open settings", Aliases: []string{"settings"}},
 	{Name: "context", Description: "Show current context usage"},
 	{Name: "copy", Description: "Copy the last response to clipboard"},
 	{Name: "debug", Description: "Turn on debug logging and investigate problems"},
 	{Name: "doctor", Description: "Health-check your setup and fix issues"},
 	{Name: "effort", Description: "Set the model's effort level"},
-	{Name: "exit", Description: "Exit the CLI"},
+	{Name: "exit", Description: "Exit the CLI", Aliases: []string{"quit"}},
 	{Name: "export", Description: "Export this session to a file or clipboard"},
 	{Name: "fast", Description: "Toggle fast mode"},
 	{Name: "feedback", Description: "Send feedback to Anthropic or report a bug"},
@@ -52,7 +54,7 @@ var Builtins = []session.Command{
 	{Name: "insights", Description: "Generate a report analyzing your Claude Code sessions"},
 	{Name: "install-github-app", Description: "Set up Claude GitHub Actions for a repository"},
 	{Name: "keybindings", Description: "Open your keyboard shortcuts file"},
-	{Name: "list-agents", Description: "List subagents, teammates, and other Claude sessions you can message"},
+	{Name: "list-agents", Description: "List subagents, teammates, and other Claude sessions you can message", Aliases: []string{"peers"}},
 	{Name: "login", Description: "Sign in with your Anthropic account"},
 	{Name: "logout", Description: "Sign out from your Anthropic account"},
 	{Name: "loop", Description: "Run a prompt or slash command on a recurring interval"},
@@ -60,17 +62,17 @@ var Builtins = []session.Command{
 	{Name: "memory", Description: "Edit CLAUDE.md files and memory settings"},
 	{Name: "model", Description: "Set the AI model for Claude Code"},
 	{Name: "output-style", Description: "List output styles or switch to one"},
-	{Name: "permissions", Description: "Manage allow and deny tool permission rules"},
+	{Name: "permissions", Description: "Manage allow and deny tool permission rules", Aliases: []string{"allowed-tools"}},
 	{Name: "plan", Description: "Turn on plan mode or view the plan"},
-	{Name: "plugin", Description: "Manage Claude Code plugins"},
+	{Name: "plugin", Description: "Manage Claude Code plugins", Aliases: []string{"plugins", "marketplace"}},
 	{Name: "privacy-settings", Description: "View and update your privacy settings"},
 	{Name: "recap", Description: "Generate a one-line session recap now"},
 	{Name: "release-notes", Description: "View release notes"},
 	{Name: "reload-plugins", Description: "Activate pending plugin changes in the current session"},
 	{Name: "reload-skills", Description: "Pick up skills added or changed on disk during this session"},
-	{Name: "rename", Description: "Rename the current conversation", Hint: "[name]"},
+	{Name: "rename", Description: "Rename the current conversation", Hint: "[name]", Aliases: []string{"name"}},
 	{Name: "resume", Description: "Resume a previous session"},
-	{Name: "rewind", Description: "Restore earlier code, conversation, or both"},
+	{Name: "rewind", Description: "Restore earlier code, conversation, or both", Aliases: []string{"checkpoint", "undo"}},
 	{Name: "run", Description: "Launch this project's app to see your change working"},
 	{Name: "run-skill-generator", Description: "Create a skill that knows how to run this project's app"},
 	{Name: "schedule", Description: "Create and manage scheduled remote Claude Code agents"},
@@ -80,13 +82,13 @@ var Builtins = []session.Command{
 	{Name: "skills", Description: "List available skills"},
 	{Name: "status", Description: "Show version, account, model, MCP servers, and setup warnings"},
 	{Name: "statusline", Description: "Set up Claude Code's status line"},
-	{Name: "tasks", Description: "View and manage this session's background work"},
+	{Name: "tasks", Description: "View and manage this session's background work", Aliases: []string{"bashes"}},
 	{Name: "team-onboarding", Description: "Help teammates ramp on Claude Code with a guide from your usage"},
 	{Name: "terminal-setup", Description: "Set up your terminal's keys for newlines"},
 	{Name: "theme", Description: "Change the theme"},
 	{Name: "ultrareview", Description: "Find and verify bugs in your branch using a cloud session"},
 	{Name: "update-config", Description: "Change settings: hooks, permissions, environment variables"},
-	{Name: "usage", Description: "Show session cost, plan usage, and what's contributing to your limits"},
+	{Name: "usage", Description: "Show session cost, plan usage, and what's contributing to your limits", Aliases: []string{"cost", "stats"}},
 	{Name: "usage-credits", Description: "Configure usage credits or request them from your admin when you hit a limit"},
 }
 
@@ -141,11 +143,11 @@ func ConfigDir(env []string, cwd string) string {
 
 // Commands is what Claude Code's / menu lists for a session in cwd with
 // config dir conf: skills, then custom commands, the user's before the
-// project's, then Builtins. A name listed twice keeps its first. Plugins'
-// commands are left out: which are on depends on settings merged from
-// several files.
+// project's, then the plugins' (plugins.go), then Builtins. A name listed
+// twice keeps its first; a skill the settings turn off is left out.
 func Commands(conf, cwd string) []session.Command {
-	files := commandFiles(conf, cwd)
+	set := readSettings(settingsFiles(conf, cwd))
+	files := append(commandFiles(conf, cwd), pluginFiles(conf, cwd, set)...)
 	out := make([]session.Command, 0, len(files)+len(Builtins))
 	seen := map[string]bool{}
 	add := func(c session.Command) {
@@ -155,7 +157,7 @@ func Commands(conf, cwd string) []session.Command {
 		}
 	}
 	for _, f := range files {
-		if c, ok := f.read(); ok {
+		if c, ok := f.read(); ok && !(f.skill && set.off[c.Name]) {
 			add(c)
 		}
 	}
@@ -167,11 +169,18 @@ func Commands(conf, cwd string) []session.Command {
 }
 
 // CommandsStamp changes when a skill or command file Commands reads is
-// added, removed or written. It stats the files and reads none.
+// added, removed or written, or a settings file or the plugin registry
+// is. It stats the files and reads none; a plugin's own files change
+// only with its install, which writes the registry.
 func CommandsStamp(conf, cwd string) string {
 	var b strings.Builder
 	for _, f := range commandFiles(conf, cwd) {
 		fmt.Fprintf(&b, "%s %d %d\n", f.path, f.mod, f.size)
+	}
+	for _, p := range append(settingsFiles(conf, cwd), filepath.Join(conf, "plugins", "installed_plugins.json")) {
+		if fi, err := os.Stat(p); err == nil {
+			fmt.Fprintf(&b, "%s %d %d\n", p, fi.ModTime().UnixNano(), fi.Size())
+		}
 	}
 	return b.String()
 }
@@ -285,12 +294,15 @@ func (f cmdFile) read() (session.Command, bool) {
 // the chat opens its terminal view for.
 func initCommands(names, terminal []string, menu []session.Command) []session.Command {
 	byName := map[string]session.Command{}
-	for _, c := range menu {
-		byName[c.Name] = c
+	for _, c := range slices.Backward(menu) {
+		byName[c.Name] = c // the first in menu wins
 	}
 	out := make([]session.Command, 0, len(names))
 	seen := map[string]bool{}
 	for _, name := range names {
+		if hiddenCommand(name) {
+			continue
+		}
 		c := byName[name]
 		c.Name, seen[name] = name, true
 		c.Terminal = session.TerminalCommand(name) || slices.Contains(terminal, name)
@@ -302,4 +314,74 @@ func initCommands(names, terminal []string, menu []session.Command) []session.Co
 		}
 	}
 	return out
+}
+
+// hidden are the commands claude -p lists that Claude Code's own menu
+// keeps out: internal, renamed or retired ones (as herdr-chat-plus
+// found for 2.1.311, checked against 2.1.330).
+var hidden = map[string]bool{
+	"agents": true, "design-consent": true, "design-revoke": true, "extra-usage": true, "heapdump": true,
+	"pro-trial-expired": true, "rate-limit-options": true, "workflow-launch-exec": true,
+}
+
+// hiddenCommand reports whether the menu leaves name out: hidden, or
+// internal as a leading __ marks.
+func hiddenCommand(name string) bool { return hidden[name] || strings.HasPrefix(name, "__") }
+
+// scopeTag is the scope Claude Code's initialize puts after a command's
+// description, as "Say hello (user)".
+var scopeTag = regexp.MustCompile(`\s*\((user|project|local|managed|plugin|bundled|dynamic workflow|claude\.ai sync)\)$`)
+
+// initialized reads the CLI's answer to the driver's initialize request:
+// its commands as its menu lists them, described, then the built-ins that
+// open the terminal, which it leaves out. Nil for any other answer.
+func (s *stream) initialized(raw json.RawMessage) []session.Event {
+	var r struct {
+		Subtype   string `json:"subtype"`
+		RequestID string `json:"request_id"`
+		Response  struct {
+			Commands []struct {
+				Name         string   `json:"name"`
+				Description  string   `json:"description"`
+				ArgumentHint string   `json:"argumentHint"`
+				Aliases      []string `json:"aliases"`
+			} `json:"commands"`
+		} `json:"response"`
+	}
+	if s.initID == "" || json.Unmarshal(raw, &r) != nil || r.Subtype != "success" || r.RequestID != s.initID || len(r.Response.Commands) == 0 {
+		return nil
+	}
+	s.listed = s.listed[:0]
+	names := make([]string, 0, len(r.Response.Commands))
+	for _, c := range r.Response.Commands {
+		cmd := session.Command{Name: c.Name, Hint: c.ArgumentHint, Aliases: c.Aliases}
+		cmd.Description = scopeTag.ReplaceAllString(c.Description, "")
+		switch m := scopeTag.FindStringSubmatch(c.Description); {
+		case strings.Contains(c.Name, ":"):
+			cmd.Source = "plugin"
+		case m != nil && (m[1] == "user" || m[1] == "project"):
+			cmd.Source = m[1]
+		}
+		s.listed = append(s.listed, cmd)
+		names = append(names, c.Name)
+	}
+	cmds := initCommands(names, nil, append(slices.Clone(s.listed), Commands(s.conf, s.cwd)...))
+	return []session.Event{{Type: session.EventCommands, Commands: cmds}}
+}
+
+// sameNames reports whether cmds are names, in any order.
+func sameNames(cmds []session.Command, names []string) bool {
+	if len(cmds) == 0 || len(cmds) != len(names) {
+		return false
+	}
+	have := map[string]bool{}
+	for _, c := range cmds {
+		have[c.Name] = true
+	}
+	for _, n := range names {
+		if !have[n] {
+			return false
+		}
+	}
+	return true
 }

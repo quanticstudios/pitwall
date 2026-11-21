@@ -55,7 +55,7 @@ func TestCommands(t *testing.T) {
 		t.Fatalf("%d commands, want %d", len(got), len(want)+len(Builtins)-1)
 	}
 	for i, w := range want {
-		if got[i] != w {
+		if !got[i].Equal(w) {
 			t.Errorf("command %d = %+v, want %+v", i, got[i], w)
 		}
 	}
@@ -80,5 +80,54 @@ func TestCommands(t *testing.T) {
 	}
 	if got := Commands("", ""); len(got) != len(Builtins) {
 		t.Fatalf("no dirs: %d commands", len(got))
+	}
+}
+
+// Skill folders linked in, as skillshare installs them, count; a broken
+// link, a folder without SKILL.md and an empty SKILL.md do not break the
+// list. CRLF files and quoted values read as any other.
+func TestCommandsFiles(t *testing.T) {
+	dir := t.TempDir()
+	conf, store := filepath.Join(dir, "conf"), filepath.Join(dir, "store")
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(store, "linked", "SKILL.md"), "---\ndescription: from a linked folder\n---\n")
+	os.MkdirAll(filepath.Join(conf, "skills"), 0o755)
+	if err := os.Symlink(filepath.Join(store, "linked"), filepath.Join(conf, "skills", "linked")); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	os.Symlink(filepath.Join(store, "gone"), filepath.Join(conf, "skills", "broken"))
+	os.MkdirAll(filepath.Join(conf, "skills", "noskill"), 0o755)
+	write(filepath.Join(conf, "skills", "empty", "SKILL.md"), "")
+	write(filepath.Join(conf, "skills", "crlf", "SKILL.md"), "---\r\ndescription: \"Quoted, with CRLF\"\r\nargument-hint: '<file>'\r\n---\r\nbody\r\n")
+	write(filepath.Join(conf, "commands", "plain.md"), "\n\n# Heading as the first line\nmore\n")
+
+	byName := map[string]session.Command{}
+	for _, c := range Commands(conf, "") {
+		if c.Source != "" {
+			byName[c.Name] = c
+		}
+	}
+	if len(byName) != 4 {
+		t.Fatalf("custom commands %v, want crlf, empty, linked and plain", byName)
+	}
+	if c := byName["linked"]; c.Description != "from a linked folder" {
+		t.Errorf("linked %+v", c)
+	}
+	if c := byName["crlf"]; c.Description != "Quoted, with CRLF" || c.Hint != "<file>" {
+		t.Errorf("crlf %+v", c)
+	}
+	if c := byName["empty"]; c.Description != "" {
+		t.Errorf("empty %+v", c)
+	}
+	if c := byName["plain"]; c.Description != "Heading as the first line" {
+		t.Errorf("plain %+v", c)
 	}
 }
