@@ -166,6 +166,12 @@ func (c *Composer) Messages() []any {
 // Text is the draft's text, tokens included.
 func (c *Composer) Text() string { return unglue(c.ed.Text()) }
 
+// Selected reports whether part of the draft is selected.
+func (c *Composer) Selected() bool { return c.ed.SelectionLen() > 0 }
+
+// Deselect drops the draft's selection, the caret where it was.
+func (c *Composer) Deselect() { c.ed.ClearSelection() }
+
 // SetText replaces the draft's text, the caret at its end.
 func (c *Composer) SetText(s string) {
 	c.ed.SetText(glue(s))

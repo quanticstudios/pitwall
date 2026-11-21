@@ -3,8 +3,8 @@ package panel
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/widget"
@@ -112,25 +112,33 @@ func (d *cdraw) chipPad(gtx layout.Context, st tstyle) (lead, trail int) {
 	return (need + sp - 1) / sp, (gtx.Dp(6) + sp - 1) / sp
 }
 
-// copyAs takes Ctrl+C on sl before the selectable does, and copies the
-// typed text the selection stands for, so a chip copies as its token.
-func (d *cdraw) copyAs(gtx layout.Context, sl *widget.Selectable, ct ctext) {
-	if ct.orig == nil && ct.head == "" {
-		return
+// copyAs has the selection copy ct's part of sl's text as typed, so a
+// chip copies as its token.
+func (d *cdraw) copyAs(sl *widget.Selectable, ct ctext) {
+	if key := d.t.msg.keys[sl]; key != "" && (ct.orig != nil || ct.head != "") {
+		d.t.span.typed[key] = ct
 	}
-	for {
-		ev, ok := gtx.Event(key.Filter{Focus: sl, Name: "C", Required: key.ModShortcut})
-		if !ok {
-			return
+}
+
+// tabbed is shown, orig with each tab drawn as mdview.Detab's four
+// spaces, or the first part of it, mapped back to orig: a selection of
+// code copies its tabs.
+func tabbed(orig, shown string) ctext {
+	ct := ctext{text: shown}
+	if !strings.Contains(orig, "\t") {
+		return ct
+	}
+	ct.orig = []rune(orig)
+	n := utf8.RuneCountInString(shown)
+	for i, r := range ct.orig {
+		w := 1
+		if r == '\t' {
+			w = 4
 		}
-		if e, ok := ev.(key.Event); ok && e.State == key.Press {
-			a, b := sl.Selection()
-			if a > b {
-				a, b = b, a
-			}
-			if s := ct.typed(a, b); s != "" {
-				d.t.copy(gtx, "selection", s)
-			}
+		for range w {
+			ct.lo, ct.hi = append(ct.lo, i), append(ct.hi, i+1)
 		}
 	}
+	ct.lo, ct.hi = ct.lo[:min(n, len(ct.lo))], ct.hi[:min(n, len(ct.hi))]
+	return ct
 }

@@ -3,6 +3,7 @@ package panel
 import (
 	"image"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -65,6 +66,12 @@ type Transcript struct {
 	// Invalidate asks for a frame from another goroutine: the side panel's
 	// markdown file and its pictures, read in the background.
 	Invalidate func()
+	// CopyOnSelect copies a mouse selection once the button comes up, as
+	// a terminal pane's [term] copy_on_select does.
+	CopyOnSelect bool
+	// Copied, when set, tells the window a selection was copied, to show
+	// its notice over the transcript, area in the window.
+	Copied func(gtx layout.Context, text string, area image.Rectangle)
 
 	list   layout.List
 	listPx float32 // the px per sp list's offsets were laid out at
@@ -85,7 +92,10 @@ type Transcript struct {
 	thumbs thumbs
 	focus  int // the transcript's own key focus tag
 	drawn  []*widget.Selectable
-	picked *widget.Selectable // the selectable with the selection
+	// drawnWas is the frame before's drawn, kept for its array
+	drawnWas []*widget.Selectable
+	span     textSel     // the selection, see selection.go
+	size     image.Point // the transcript's, in the last frame
 
 	answer       map[string]*[3]widget.Clickable // per pending approval, one per decisions entry
 	sent         map[string]bool                 // requests answered here that the chat has not resolved yet
@@ -187,6 +197,7 @@ type trow struct {
 	res     *resolved
 	tail    layout.Widget
 	gap     unit.Dp // space above it
+	rank    int     // its place in reading order, see rowRank
 }
 
 // rowSeg is which piece of its block a row draws.
@@ -332,6 +343,7 @@ func (t *Transcript) init() {
 	t.answer, t.sent, t.asks = map[string]*[3]widget.Clickable{}, map[string]bool{}, map[string]*ask{}
 	t.reasons = map[string]*widget.Editor{}
 	t.list.Axis = layout.Vertical
+	t.span.ord, t.span.size, t.span.typed, t.span.whole = map[string]int{}, map[*widget.Selectable]image.Point{}, map[string]ctext{}, map[*widget.Selectable]bool{}
 }
 
 func (t *Transcript) click(id string) *widget.Clickable {
@@ -350,6 +362,8 @@ func (t *Transcript) sel(id string) *widget.Selectable {
 		t.sels[id] = s
 	}
 	t.selAt[id] = t.frame
+	t.span.ord[id] = t.span.rank + t.span.seq
+	t.span.seq++
 	t.drawn = append(t.drawn, s)
 	t.msg.keyOf(s, id)
 	return s
@@ -503,7 +517,13 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	if t.epoch.IsZero() {
 		t.epoch = gtx.Now
 	}
-	t.now, t.live, t.laid, t.drawn = gtx.Now, false, 0, t.drawn[:0]
+	size := gtx.Constraints.Max
+	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+	// The transcript's area holds all it draws, so a press or a drag on any
+	// of it reaches the selection, on text under a row's button too.
+	gioevent.Op(gtx.Ops, &t.span)
+	prev := t.drawn
+	t.now, t.live, t.laid, t.drawn, t.drawnWas, t.size = gtx.Now, false, 0, t.drawnWas[:0], prev, size
 	t.frame++
 	t.settle(gtx, s)
 	t.findUpdate(gtx, s)
@@ -513,8 +533,6 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	for t.more.Clicked(gtx) {
 		t.menu = !t.menu
 	}
-	size := gtx.Constraints.Max
-	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: size}.Op())
 
 	// A press on the transcript takes the keys from the composer, and a
@@ -551,6 +569,9 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	t.buildRows(gtx, d)
 	if added > 0 {
 		t.keepPlace(s)
+		for k := range t.span.ord { // the order follows the items, now added older ones
+			t.span.ord[k] += added * rankItem * rankRow
+		}
 	}
 
 	t.keepScroll(gtx.Metric.PxPerSp)
@@ -575,6 +596,10 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		}()
 	}
 	t.findJump(gtx, s, size.Y)
+	t.autoScroll(gtx, prev, size.Y)
+	if t.span.drag { // the button held: the newest line does not pull the view away
+		t.list.Position.BeforeEnd = true
+	}
 	t.list.Layout(gtx, len(t.rows)+2, t.msg.record(func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
@@ -588,6 +613,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
 		}
 		r := &t.rows[i]
+		t.span.rank, t.span.seq = r.rank*rankRow, 0
 		t.wantWhole(s, r)
 		gap := gtx.Dp(r.gap)
 		t.msg.dy = gap
@@ -640,7 +666,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gap)}
 	}))
 	t.msg.spans(t.list.Position)
-	t.pickSelection(gtx)
+	t.span.rank, t.span.seq = math.MaxInt/2, 0 // what floats over the rows reads after them
 	t.atTop(s, size.Y)
 	t.forget(s)
 	t.newOutput(gtx, d, s, size)
@@ -652,6 +678,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	if aide {
 		d.moreMenu(gtx, size)
 	}
+	t.selectEvents(gtx, prev) // once all the text took its presses
+	d.selMenu(gtx, size)
 	if t.live {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 	}
@@ -774,7 +802,7 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 // keys takes the number keys and Enter while nothing else holds the
 // keyboard: the transcript, one of its selections, or no one.
 func (t *Transcript) keys(gtx layout.Context) {
-	mine := gtx.Focused(nil) || gtx.Focused(&t.focus) || t.picked != nil && gtx.Focused(t.picked)
+	mine := gtx.Focused(nil) || gtx.Focused(&t.focus)
 	if !mine || t.keyReq == "" && t.keyAsk == "" {
 		return
 	}
@@ -790,23 +818,6 @@ func (t *Transcript) keys(gtx layout.Context) {
 		if e, ok := ev.(key.Event); ok && e.State == key.Press {
 			t.Key(string(e.Name))
 		}
-	}
-}
-
-// pickSelection keeps one selection in the transcript: a new one clears
-// the last.
-func (t *Transcript) pickSelection(gtx layout.Context) {
-	for _, s := range t.drawn {
-		if s != t.picked && gtx.Focused(s) {
-			if t.picked != nil {
-				t.picked.ClearSelection()
-			}
-			t.picked = s
-		}
-	}
-	if t.picked != nil && gtx.Focused(&t.focus) {
-		t.picked.ClearSelection()
-		t.picked = nil
 	}
 }
 
@@ -881,6 +892,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	}
 	for i := range t.rows {
 		t.rows[i].gap = rowGap(t.rows, i)
+		t.rows[i].rank = rowRank(t.rows, i)
 	}
 }
 
@@ -930,6 +942,40 @@ func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, q
 		}
 	}
 	fold(true)
+}
+
+// rankItem and rankRow space the selection's order keys: rows by their
+// item, then the selectables in a row as it draws them.
+const (
+	rankItem = 8
+	rankRow  = 1024
+)
+
+// rowRank is row i's place in reading order, from its item, so a row
+// keeps it while folds open and close above it and new items come in
+// below: the selection's order follows it.
+func rowRank(rows []trow, i int) int {
+	r := &rows[i]
+	k := 0
+	switch {
+	case r.tail != nil:
+	case r.res != nil:
+		k = r.res.at*rankItem + 1
+	case r.seg == segHead:
+		k = r.b.lo*rankItem + 2
+	case r.seg == segItem, r.seg == segTodo, r.seg == segProse:
+		k = r.i*rankItem + 3
+	case r.seg == segReply:
+		k = r.b.reply*rankItem + 3
+	case r.seg == segChanges:
+		k = (r.b.hi-1)*rankItem + 5
+	default:
+		k = r.b.lo*rankItem + 3
+	}
+	if i > 0 {
+		k = max(k, rows[i-1].rank+1)
+	}
+	return k
 }
 
 // rowGap is the space above row i: 32 from the end of a turn to the

@@ -122,13 +122,17 @@ func (t *Transcript) wantWhole(s *session.Snapshot, r *trow) {
 
 // forget drops the laid-out text of rows far from the view once there is
 // much of it: parsed replies and diffs by item, and selectables not drawn
-// for keepFor frames but the one holding the selection.
+// for keepFor frames but those the selection holds.
 func (t *Transcript) forget(s *session.Snapshot) {
 	if len(t.sels) > keepLaid {
 		for k, sl := range t.sels {
-			if t.frame-t.selAt[k] > keepFor && sl != t.picked {
+			if t.frame-t.selAt[k] > keepFor && !t.span.holds(k) {
 				delete(t.sels, k)
 				delete(t.selAt, k)
+				delete(t.span.ord, k)
+				delete(t.span.size, sl)
+				delete(t.span.whole, sl)
+				delete(t.span.typed, k)
 				delete(t.tool.syn, strings.TrimPrefix(k, "box:"))
 			}
 		}

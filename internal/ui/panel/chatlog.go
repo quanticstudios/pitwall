@@ -224,7 +224,7 @@ func (d *cdraw) foldRow(gtx layout.Context, id, ic, verb, arg string, body layou
 			g := gtx
 			g.Constraints.Max.X = room
 			ac, ad := measure(g, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.Muted, arg)
+				return d.selLine(gtx, "arg:"+id, th.UIFont, th.Sp(theme.Body), th.Muted, arg)
 			})
 			at(gtx, image.Pt(x, onBase(base, ad)), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return ad })
 		}

@@ -206,6 +206,20 @@ func (s Source) Focused(tag event.Tag) bool {
 	return s.r.state().keyState.focus == tag
 }
 
+// pitwall: Transform is the transform from tag's pointer area to the
+// window, as the last frame drew it, and false for a tag the last frame
+// gave no area. A disabled source has none.
+func (s Source) Transform(tag event.Tag) (f32.Affine2D, bool) {
+	if !s.Enabled() {
+		return f32.Affine2D{}, false
+	}
+	h, ok := s.r.handlers[tag]
+	if !ok || h.pointer.areaPlusOne == 0 {
+		return f32.Affine2D{}, false
+	}
+	return s.r.pointer.queue.areas[h.pointer.areaPlusOne-1].trans, true
+}
+
 // Event returns the next event that matches at least one of filters.
 // If the source is disabled, no events will be reported.
 func (s Source) Event(filters ...event.Filter) (event.Event, bool) {

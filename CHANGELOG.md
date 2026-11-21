@@ -39,6 +39,7 @@ takes `--dry-run`.
 - A Claude Code, Codex or Antigravity pane shows as the desktop chat as soon as pitwall sees the agent, empty until a hook names its transcript, so the composer works from the start. A window on an older daemon still waits for the transcript.
 - A Codex pane pitwall resumed shows its history at once: pitwall finds the rollout whose file name carries the session id.
 - `pitwall hooks install` adds a SessionStart hook for Codex, beside any other tool's. `pitwall doctor` and Settings say when a hooks file lacks pitwall's SessionStart entry. Codex asks you to trust the changed hooks once with `/hooks`.
+- Selecting text in the desktop chat works. Before, the composer took the keys back from the text on every press, so no selection showed and nothing copied. A drag now selects across paragraphs, lists, tables, code, a tool's command and output and diffs, and from one message into the next, and copies on release while `[term] copy_on_select` is on, the default, as a terminal pane does. Ctrl+C copies a selection, a right-click on it offers Copy, a double-click takes a word and a triple-click a line. A drag that starts on a row that opens something selects instead, and a click still opens it. Dragging past the top or bottom edge scrolls, and the newest line stops pulling the view while the button is held. Code copies with its tabs, a table as cells a tab apart, a line per row. Typing still goes to the composer.
 
 ## v0.3.1
 

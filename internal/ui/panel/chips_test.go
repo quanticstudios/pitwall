@@ -55,15 +55,11 @@ func TestChipCopy(t *testing.T) {
 	var tr Transcript
 	var r input.Router
 	var ops op.Ops
-	var focus any
 	frame := func() {
 		ops.Reset()
 		gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(1000, 800)), Now: time.Now()}
+		tr.CopyKey(gtx)
 		tr.Layout(gtx, th, s, false)
-		if focus != nil {
-			gtx.Execute(key.FocusCmd{Tag: focus})
-			focus = nil
-		}
 		r.Frame(&ops)
 	}
 	frame()
@@ -71,13 +67,8 @@ func TestChipCopy(t *testing.T) {
 	if sl == nil {
 		t.Fatal("no selectable for the prompt")
 	}
-	focus = sl
+	tr.span.a, tr.span.b = selPos{"p", 0}, selPos{"p", len([]rune(sl.Text()))}
 	frame()
-	frame()
-	if !r.Source().Focused(sl) {
-		t.Fatal("the prompt's text did not take focus")
-	}
-	sl.SetCaret(0, len([]rune(sl.Text())))
 	r.Queue(key.Event{Name: "C", Modifiers: key.ModShortcut, State: key.Press})
 	frame()
 	frame()

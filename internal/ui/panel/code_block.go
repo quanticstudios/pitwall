@@ -135,6 +135,7 @@ func (d *cdraw) codeBlock(gtx layout.Context, r *reply, key, lang, src string) l
 		shown = h.code[:h.cut]
 	}
 	sl := d.t.sel(key)
+	d.copyAs(sl, tabbed(strings.TrimRight(src, "\n"), shown))
 	d.paintTokens(sl, h.toks, utf8.RuneCountInString(shown))
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(1<<20, gtx.Constraints.Max.Y)}
@@ -169,7 +170,7 @@ func (d *cdraw) codeBlock(gtx layout.Context, r *reply, key, lang, src string) l
 	}
 	ck := d.t.click("copy:" + key)
 	if ck.Clicked(gtx) {
-		d.t.copy(gtx, key, h.code)
+		d.t.copy(gtx, key, strings.TrimRight(src, "\n")) // with its tabs, as a Makefile needs
 	}
 	btns := []layout.Widget{func(gtx layout.Context) layout.Dimensions {
 		return d.ghost(gtx, ck, "clipboard", "Copy", d.t.isCopied(key))

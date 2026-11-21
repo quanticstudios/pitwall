@@ -226,12 +226,12 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 				return d.linkChip(gtx, d.t.click("link:"+it.ID), v.arg, v.path || v.kind == "read" || v.kind == "edit")
 			})
 		case v.mono:
-			ac, dims := measure(g, func(gtx layout.Context) layout.Dimensions { return d.codeArg(gtx, v, room) })
+			ac, dims := measure(g, func(gtx layout.Context) layout.Dimensions { return d.codeArg(gtx, "cmd:"+it.ID, v, room) })
 			at(gtx, image.Pt(x, onBase(base, dims)), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return dims })
 			ad = dims
 		default:
 			ac, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), theme.Mix(th.Fg, th.Bg, 0.3), v.arg)
+				return d.selLine(gtx, "cmd:"+it.ID, th.UIFont, th.Sp(theme.Body), theme.Mix(th.Fg, th.Bg, 0.3), v.arg)
 			})
 			at(gtx, image.Pt(x, onBase(base, dims)), func(gtx layout.Context) layout.Dimensions { ac.Add(gtx.Ops); return dims })
 			ad = dims
@@ -265,8 +265,8 @@ func (d *cdraw) toolRow(gtx layout.Context, it *session.Item) layout.Dimensions 
 }
 
 // codeArg is a command or pattern in the header, in mono: a command after
-// a quiet $.
-func (d *cdraw) codeArg(gtx layout.Context, v toolView, room int) layout.Dimensions {
+// a quiet $; key is its text's selectable.
+func (d *cdraw) codeArg(gtx layout.Context, key string, v toolView, room int) layout.Dimensions {
 	th := d.th
 	sz := th.Sp(theme.Small)
 	fg := theme.Mix(th.Fg, th.Bg, 0.2)
@@ -275,13 +275,13 @@ func (d *cdraw) codeArg(gtx layout.Context, v toolView, room int) layout.Dimensi
 	}
 	arg := v.arg
 	if !v.prompt {
-		return d.lbl(gtx, th.MonoFont, sz, fg, arg)
+		return d.selLine(gtx, key, th.MonoFont, sz, fg, arg)
 	}
 	return hrow(gtx, 0,
 		func(gtx layout.Context) layout.Dimensions { return d.lbl(gtx, th.MonoFont, sz, th.TextQuiet, "$ ") },
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = max(0, room-gtx.Sp(sz))
-			return d.lbl(gtx, th.MonoFont, sz, fg, arg)
+			return d.selLine(gtx, key, th.MonoFont, sz, fg, arg)
 		})
 }
 

@@ -81,13 +81,7 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 		case mdview.Code, mdview.Mermaid:
 			plain = append(plain, strings.TrimRight(b.Text, "\n"))
 		case mdview.Table:
-			for _, row := range b.Rows {
-				var cells []string
-				for _, c := range row {
-					cells = append(cells, spansPara(c, nil).plain)
-				}
-				plain = append(plain, strings.Join(cells, "\t"))
-			}
+			plain = append(plain, tablePlain(&b))
 		case mdview.Images:
 			for _, im := range b.Imgs {
 				plain = append(plain, im.Alt)
@@ -97,6 +91,20 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 	r.plain = strings.Join(plain, "\n\n")
 	t.docs[it.ID] = r
 	return r
+}
+
+// tablePlain is a table as a sheet takes it pasted: a line per row, its
+// cells a tab apart.
+func tablePlain(b *mdview.Block) string {
+	rows := make([]string, len(b.Rows))
+	for i, row := range b.Rows {
+		var cells []string
+		for _, c := range row {
+			cells = append(cells, spansPara(c, nil).plain)
+		}
+		rows[i] = strings.Join(cells, "\t")
+	}
+	return strings.Join(rows, "\n")
 }
 
 func sp(marker string) string {
@@ -315,6 +323,10 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 				break
 			}
 			fallthrough
+		case mdview.Table:
+			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions {
+				return d.whole(gtx, key, tablePlain(b), func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
+			})
 		default:
 			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
 		}
@@ -420,7 +432,7 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 	for _, r := range p.code {
 		sl.Colors = append(sl.Colors, widget.TextColor{Start: r[0], End: r[1], Color: th.Fg})
 	}
-	d.copyAs(gtx, sl, p.ct)
+	d.copyAs(sl, p.ct)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(w, gtx.Constraints.Max.Y)}
 	call, td := measure(g, func(gtx layout.Context) layout.Dimensions { return d.selectable(gtx, sl, st, p.text) })
