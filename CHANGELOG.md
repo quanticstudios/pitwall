@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Windows CI skips TestLinesFlood, which failed at random there: Windows loopback ignores the small socket buffers it relies on. Linux and macOS still run it.
 - Quote a reply in the desktop chat: select text within one reply and choose Cite in composer on the toolbar under it (Copy is there too). The quote goes into the composer as a chip with an optional comment, and the agent gets it as a Markdown quote with the comment after it. A click on the quote's card scrolls back to the passage and flashes it.
 - Add a terminal pane's selection to the chat with Ctrl+Alt+A (Cmd+Option+A in mac, `add_to_chat`) or Add to chat in the pane's right-click menu. It goes into the tab's agent chat, or the chat you last typed in, as a chip, and the agent gets a fenced block under the command that printed it when shell integration knows it.
 - A paste of 32 KiB or more, or one that would take a message past 120,000 characters, becomes a text file chip with its name, size and first line; Ctrl+Shift+V keeps it inline. The daemon saves it in the tab's paste folder and gives Claude Code, Codex or Antigravity its path to read, so a long log no longer fills the context. A window on an older daemon pastes inline as before.
