@@ -2,8 +2,10 @@ package mobile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 
 	"gioui.org/font"
@@ -16,6 +18,8 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -33,6 +37,7 @@ type cardState struct {
 	questionBtns         []widget.Clickable
 	other                widget.Editor
 	submit, otherSend    widget.Clickable
+	draft                string // the box's text when the terminal question came
 }
 
 // reqState is one of a chat tab's requests: an approval, a plan or a
@@ -41,8 +46,10 @@ type reqState struct {
 	allow, session, deny, send widget.Clickable
 	reason                     widget.Editor
 	opts                       [][]widget.Clickable // per question
-	picked                     []string
+	picked                     [][]string           // per question, the options tapped
 	texts                      []widget.Editor
+	draft                      string // the box's text when the request came
+	sent                       string // the answers, once sent: the card shows them
 }
 
 func cardKey(t remote.Tab) string {
@@ -63,12 +70,12 @@ func cardKey(t remote.Tab) string {
 func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 	k, t := &c.card, env.Tab
 	if key := cardKey(t); key != k.key {
-		*k = cardState{key: key, detail: layout.List{Axis: layout.Vertical}}
+		*k = cardState{key: key, detail: layout.List{Axis: layout.Vertical}, draft: c.cmp.ed.Text()}
 		if t.Question != nil {
 			k.questionBtns = make([]widget.Clickable, len(t.Question.Options))
 		}
 		for _, r := range t.Requests {
-			rs := &reqState{picked: make([]string, len(r.Questions)), texts: make([]widget.Editor, len(r.Questions)), opts: make([][]widget.Clickable, len(r.Questions))}
+			rs := &reqState{picked: make([][]string, len(r.Questions)), texts: make([]widget.Editor, len(r.Questions)), opts: make([][]widget.Clickable, len(r.Questions)), draft: c.cmp.ed.Text()}
 			for i, q := range r.Questions {
 				rs.opts[i] = make([]widget.Clickable, len(q.Options))
 			}
@@ -290,6 +297,13 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		}
 		return w
 	}
+	answered := func() []layout.Widget {
+		return append(w, gap(8), func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Muted, 2, "Answered: "+rs.sent) })
+	}
+	if rs.sent != "" {
+		return answered()
+	}
+	first := len(w)
 	for i, q := range r.Questions {
 		prompt := q.Prompt
 		if prompt == "" {
@@ -299,10 +313,13 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		if len(q.Options) > 0 {
 			var btns []layout.Widget
 			for j, o := range q.Options {
-				if rs.opts[i][j].Clicked(gtx) {
-					rs.picked[i] = o.Label
+				if rs.opts[i][j].Clicked(gtx) && rs.sent == "" {
+					rs.tap(i, q, o.Label)
+					if !q.Multi && rs.complete() { // as the desktop card: a pick that leaves nothing open sends
+						c.sendInput(env, r, rs, done)
+					}
 				}
-				on := rs.picked[i] == o.Label
+				on := slices.Contains(rs.picked[i], o.Label)
 				btns = append(btns, func(gtx C) D { return optionChip(gtx, th, &rs.opts[i][j], on, o.Label) })
 			}
 			w = append(w, gap(8), func(gtx C) D { return wrap(gtx, 8, btns) })
@@ -313,27 +330,148 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		}
 		w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &rs.texts[i], hint) })
 	}
-	if rs.send.Clicked(gtx) && !k.busy {
-		answers := map[string][]string{}
-		ok := true
-		for i, q := range r.Questions {
-			v := strings.TrimSpace(rs.texts[i].Text())
-			if v == "" {
-				v = rs.picked[i]
-			}
-			ok = ok && v != ""
-			answers[q.ID] = []string{v}
-		}
-		if !ok {
-			k.note, k.bad = "Answer every question.", true
-		} else {
-			k.busy = true
-			id := r.ID
-			env.Do(func(ctx context.Context, api chatAPI) error { return api.Input(ctx, chat, id, answers) }, done("Sent."))
-		}
+	if rs.send.Clicked(gtx) {
+		c.sendInput(env, r, rs, done)
+	}
+	if rs.sent != "" { // sent this frame: no flash of the questions
+		w = w[:first]
+		return answered()
 	}
 	w = append(w, gap(12), func(gtx C) D { return cardButton(gtx, th, &rs.send, true, !k.busy, "Send") })
 	return w
+}
+
+// tap picks option label of question i: a multiSelect question toggles
+// it; a single-select one takes it alone, and the typed text goes, so the
+// card shows what it sends.
+func (rs *reqState) tap(i int, q session.Question, label string) {
+	if q.Multi {
+		if j := slices.Index(rs.picked[i], label); j >= 0 {
+			rs.picked[i] = slices.Delete(rs.picked[i], j, j+1)
+		} else {
+			rs.picked[i] = append(rs.picked[i], label)
+		}
+		return
+	}
+	rs.picked[i] = []string{label}
+	rs.texts[i].SetText("")
+}
+
+// open is the first question with neither a pick nor typed text, -1 for
+// none.
+func (rs *reqState) open() int {
+	for i := range rs.picked {
+		if len(rs.picked[i]) == 0 && strings.TrimSpace(rs.texts[i].Text()) == "" {
+			return i
+		}
+	}
+	return -1
+}
+
+// complete is whether every question has an answer.
+func (rs *reqState) complete() bool { return len(rs.picked) > 0 && rs.open() < 0 }
+
+// answers are the card's answers by question id: a single-select
+// question's typed text instead of its pick, a multiSelect one's after
+// its picks.
+func (rs *reqState) answers(r remote.Request) map[string][]string {
+	out := map[string][]string{}
+	for i, q := range r.Questions {
+		v := slices.Clone(rs.picked[i])
+		if t := strings.TrimSpace(rs.texts[i].Text()); t != "" {
+			if !q.Multi {
+				v = nil
+			}
+			v = append(v, t)
+		}
+		out[q.ID] = v
+	}
+	return out
+}
+
+// sendInput answers request r with its card's answers once every
+// question has one. The card shows them at once, and its questions come
+// back with a note when the answer fails.
+func (c *chatView) sendInput(env chatEnv, r remote.Request, rs *reqState, done func(string) func(error)) {
+	k := &c.card
+	if k.busy || rs.sent != "" {
+		return
+	}
+	if !rs.complete() {
+		k.note, k.bad = "Answer every question.", true
+		return
+	}
+	answers := rs.answers(r)
+	var shown []string
+	for _, q := range r.Questions {
+		shown = append(shown, answers[q.ID]...)
+	}
+	k.busy, rs.sent = true, strings.Join(shown, ", ")
+	chat, id, finish := env.Tab.Pane, r.ID, done("")
+	env.Do(func(ctx context.Context, api chatAPI) error { return api.Input(ctx, chat, id, answers) }, func(err error) {
+		if err != nil {
+			rs.sent = ""
+		}
+		finish(err)
+	})
+}
+
+// answerFromBox takes the box's text as the answer to what the tab asks:
+// a terminal question's typed row, or the open question of the newest of
+// a chat tab's requests while it asks nothing else. A draft the box held
+// before the question came, a slash command or an image never answers.
+// It reports whether the text was taken.
+func (c *chatView) answerFromBox(env chatEnv, text string, image bool) bool {
+	k, t := &c.card, env.Tab
+	if image || strings.TrimSpace(text) == "" || chatin.SlashCommand(text) || k.busy || !env.Online {
+		return false
+	}
+	if q := t.Question; q != nil {
+		if !q.Other || text == k.draft {
+			return false
+		}
+		k.busy = true
+		pane, id := t.Pane, q.ID
+		env.Do(func(ctx context.Context, api chatAPI) error {
+			a, ok := api.(interface {
+				Question(context.Context, string, string, int, string) error
+			})
+			if !ok {
+				return errors.New("questions are unavailable")
+			}
+			return a.Question(ctx, pane, id, -2, text)
+		}, func(err error) {
+			k.busy = false
+			if err != nil {
+				k.note, k.bad = err.Error(), true
+			}
+		})
+		return true
+	}
+	n := len(t.Requests)
+	if n == 0 || n != len(k.reqs) || slices.ContainsFunc(t.Requests, func(r remote.Request) bool { return r.Kind != "input" }) {
+		return false
+	}
+	r, rs := t.Requests[n-1], k.reqs[n-1]
+	if rs.sent != "" || text == rs.draft || len(r.Questions) == 0 {
+		return false
+	}
+	i := rs.open()
+	if i < 0 {
+		i = len(r.Questions) - 1
+	}
+	rs.texts[i].SetText(strings.TrimSpace(text))
+	if rs.complete() {
+		c.sendInput(env, r, rs, func(string) func(error) {
+			return func(err error) {
+				k.busy = false
+				if err != nil {
+					k.note, k.bad = err.Error(), true
+				}
+			}
+		})
+	}
+	return true
 }
 
 // optionChip is one of a question's options, 48dp tall, filled once

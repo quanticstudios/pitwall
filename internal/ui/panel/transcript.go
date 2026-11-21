@@ -296,6 +296,9 @@ func (t *Transcript) Key(name string) bool {
 // does; Other and multiSelect picks wait for the typed text or Enter.
 func (t *Transcript) pick(id string, q, o int) {
 	a := t.asks[id]
+	if a == nil || t.sent[id] { // a second click or key after the card went
+		return
+	}
 	a.choose(q, o)
 	if a.multiQ(q) == nil && o < len(a.opts[q])-1 && !a.waiting() {
 		t.sendAsk(id)
@@ -514,12 +517,14 @@ func (t *Transcript) sendAsk(id string) {
 		return
 	}
 	t.sent[id] = true
+	if t.keyAsk == id {
+		t.keyAsk = "" // a second Enter or number is the composer's again
+	}
 	t.inputs = append(t.inputs, InputAnswer{Request: id, Answers: ans})
 	var picked []string
-	for _, v := range ans {
-		picked = append(picked, v...)
+	for _, q := range t.askQs[id] { // in the card's order
+		picked = append(picked, ans[q.ID]...)
 	}
-	slices.Sort(picked)
 	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, after: t.last, at: t.items, when: t.now})
 }
 

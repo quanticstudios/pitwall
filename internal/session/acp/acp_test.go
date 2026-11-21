@@ -621,14 +621,42 @@ func TestStartSettings(t *testing.T) {
 }
 
 // claude-agent-acp's AskUserQuestion: a form elicitation becomes a
-// question with options, and the answer goes back as accepted content.
+// question with options, an array field a multiSelect one, a question's
+// free-text field its typed row, and the card's labels go back as the
+// schema's values in the accepted content.
 func TestElicitation(t *testing.T) {
+	answerElicitation(t, `{"type":"object","properties":{"question_0":{"type":"string","title":"Database","oneOf":[{"const":"Postgres","title":"Postgres","description":"Relational"},{"const":"Redis","title":"Redis","description":"Key-value"}]},"question_0_custom":{"type":"string","title":"Other","description":"Type your own answer, or add a note to the option you chose above (optional)."},"question_1":{"type":"array","title":"Extras","description":"Which extras?","items":{"anyOf":[{"const":"cache","title":"Cache"},{"const":"queue","title":"Queue"}]}},"question_2":{"type":"boolean","title":"Migrate now?"}}}`,
+		"Which database?", func(qs []session.Question) bool {
+			return len(qs) == 3 && qs[0].ID == "question_0" && qs[0].Prompt == "Which database?" && qs[0].Header == "Database" && !qs[0].Multi &&
+				reflect.DeepEqual(qs[0].Options, []session.PromptOption{{ID: "Postgres", Label: "Postgres", Description: "Relational"}, {ID: "Redis", Label: "Redis", Description: "Key-value"}}) &&
+				qs[1].ID == "question_1" && qs[1].Prompt == "Which extras?" && qs[1].Multi && len(qs[1].Options) == 2 && qs[2].ID == "question_2"
+		},
+		map[string][]string{"question_0": {"MariaDB"}, "question_1": {"Cache", "Queue"}, "question_2": {"No"}},
+		map[string]any{"question_0_custom": "MariaDB", "question_1": []string{"cache", "queue"}, "question_2": false})
+}
+
+// TestElicitationAgy: agy's ask_question, as agy 1.5.14 sends it: the
+// title is the question, the options are numbered, and each question's
+// free text is its own qN_other field.
+func TestElicitationAgy(t *testing.T) {
+	answerElicitation(t, `{"type":"object","properties":{"q1":{"type":"string","title":"Which color do you prefer?","oneOf":[{"const":"1","title":"Red"},{"const":"2","title":"Blue"}]},"q1_other":{"type":"string","title":"Other","description":"Optional free-form answer to: Which color do you prefer?"},"q2":{"type":"array","title":"Which fruits do you like?","items":{"anyOf":[{"const":"1","title":"Apple"},{"const":"2","title":"Banana"},{"const":"3","title":"Cherry"}]}},"q2_other":{"type":"string","title":"Other","description":"Optional free-form answer to: Which fruits do you like?"}}}`,
+		"The agent has a question.", func(qs []session.Question) bool {
+			return len(qs) == 2 && qs[0].Prompt == "Which color do you prefer?" && qs[0].Header == "" && qs[0].Options[1] == session.PromptOption{ID: "2", Label: "Blue"} &&
+				qs[1].Prompt == "Which fruits do you like?" && qs[1].Multi && len(qs[1].Options) == 3
+		},
+		map[string][]string{"q1": {"Blue"}, "q2": {"Apple", "Cherry", "Kiwi"}},
+		map[string]any{"q1": "2", "q2": []string{"1", "3"}, "q2_other": "Kiwi"})
+}
+
+// answerElicitation sends a form elicitation with schema, checks its
+// questions with ok, answers them and wants content back.
+func answerElicitation(t *testing.T, schema, message string, ok func([]session.Question) bool, answers map[string][]string, content map[string]any) {
+	t.Helper()
 	steps := script(t)[:3]
 	steps[2].Send = []json.RawMessage{rpc("ask-1", "elicitation/create", map[string]any{
-		"mode": "form", "sessionId": "s1", "toolCallId": "toolu_ask", "message": "Which database?",
-		"requestedSchema": json.RawMessage(`{"type":"object","properties":{"question_0":{"type":"string","title":"Database","oneOf":[{"const":"Postgres","title":"Postgres","description":"Relational"},{"const":"Redis","title":"Redis","description":"Key-value"}]},"question_0_custom":{"type":"string","title":"Other","description":"Type your own answer, or add a note to the option you chose above (optional)."},"question_1":{"type":"array","title":"Extras","description":"Which extras?","items":{"anyOf":[{"const":"cache","title":"Cache"},{"const":"queue","title":"Queue"}]}}}}`),
+		"mode": "form", "sessionId": "s1", "toolCallId": "toolu_ask", "message": message, "requestedSchema": json.RawMessage(schema),
 	})}
-	steps = append(steps, step{Receive: result("ask-1", map[string]any{"action": "accept", "content": map[string]any{"question_0": "Postgres", "question_1": []string{"cache", "queue"}}}),
+	steps = append(steps, step{Receive: result("ask-1", map[string]any{"action": "accept", "content": content}),
 		Send: []json.RawMessage{result(3, map[string]string{"stopReason": "end_turn"})}})
 	h, err := start(t, steps, session.Origin{})
 	if err != nil {
@@ -638,18 +666,10 @@ func TestElicitation(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := h.wait(t, session.EventInputRequested)
-	if e.Detail != "Which database?" || len(e.Questions) != 3 {
+	if e.Detail != message || !ok(e.Questions) {
 		t.Fatalf("input: %+v", e)
 	}
-	q := e.Questions[0]
-	if q.ID != "question_0" || q.Prompt != "Which database?" || q.Header != "Database" ||
-		!reflect.DeepEqual(q.Options, []session.PromptOption{{ID: "Postgres", Label: "Postgres", Description: "Relational"}, {ID: "Redis", Label: "Redis", Description: "Key-value"}}) {
-		t.Fatalf("question: %+v", q)
-	}
-	if e.Questions[1].ID != "question_0_custom" || len(e.Questions[1].Options) != 0 || e.Questions[2].Prompt != "Which extras?" || len(e.Questions[2].Options) != 2 {
-		t.Fatalf("questions: %+v", e.Questions)
-	}
-	if err = h.d.Answer(context.Background(), e.RequestID, map[string][]string{"question_0": {"Postgres"}, "question_0_custom": {""}, "question_1": {"cache", "queue"}}); err != nil {
+	if err = h.d.Answer(context.Background(), e.RequestID, answers); err != nil {
 		t.Fatal(err)
 	}
 	h.wait(t, session.EventInputResolved)

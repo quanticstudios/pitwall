@@ -257,6 +257,21 @@ func asking(s *session.Snapshot) bool {
 	return len(s.PendingUserInputs) > 0 && len(s.PendingApprovals) == 0 && s.PlanApproval == nil
 }
 
+// asked is the newest question s waits on, "" for none.
+func asked(s *session.Snapshot) string {
+	if n := len(s.PendingUserInputs); n > 0 {
+		return s.PendingUserInputs[n-1].ID
+	}
+	return ""
+}
+
+// SlashCommand is whether text is a slash command, as /compact, not a path
+// such as /usr/bin, which may well be an answer.
+func SlashCommand(text string) bool {
+	w, _, _ := strings.Cut(strings.TrimSpace(text), " ")
+	return len(w) > 1 && w[0] == '/' && !strings.Contains(w[1:], "/")
+}
+
 // Placeholder is the empty box's text for a chat with s.
 func Placeholder(s *session.Snapshot) string {
 	switch {

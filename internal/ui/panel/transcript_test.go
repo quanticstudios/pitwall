@@ -157,7 +157,7 @@ func TestTranscriptAnswers(t *testing.T) {
 }
 
 // TestTranscriptQuestion: a question starts on its recommended option,
-// number keys pick, Enter sends once, and a typed answer counts.
+// a number key picks and sends it once, and a typed answer counts.
 func TestTranscriptQuestion(t *testing.T) {
 	th := theme.Dark()
 	s := &session.Snapshot{SessionID: "chat", SessionState: session.StateWaiting, PendingUserInputs: []session.InputRequest{{ID: "q1", Questions: []session.Question{{
@@ -175,8 +175,8 @@ func TestTranscriptQuestion(t *testing.T) {
 	if !tr.Key("2") || a.pick[0] != 1 {
 		t.Fatalf("2 picked %d", a.pick[0])
 	}
-	if !tr.Key(string(key.NameReturn)) {
-		t.Fatal("Enter did not answer")
+	if tr.Key(string(key.NameReturn)) {
+		t.Fatal("Enter after the pick that sent the card did something")
 	}
 	got := tr.Inputs()
 	if len(got) != 1 || got[0].Request != "q1" || !reflect.DeepEqual(got[0].Answers, map[string][]string{"size": {"Keep"}}) {

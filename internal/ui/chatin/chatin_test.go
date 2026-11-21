@@ -224,7 +224,10 @@ type harness struct {
 	gate chan struct{} // when set, a clipboard read waits for it
 	now  time.Time
 	key  func(string) bool // the transcript's, nil when it takes no keys
-	old  bool              // the daemon predates ChatSend How "now"
+	// answer is the transcript's typed answer to its open question, nil
+	// when it takes none.
+	answer func(string) bool
+	old    bool // the daemon predates ChatSend How "now"
 	// paths are the chat's files for @ mentions; a query matches those
 	// that contain it. branch and copied are the branch chip's.
 	paths  []string
@@ -246,7 +249,7 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Answer: h.answer, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
 		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) },
 		Mentions: func(q string) []string {
 			var out []string
@@ -676,5 +679,83 @@ func TestModeUnknown(t *testing.T) {
 		if got := modeUnknown(&c.s); got != c.want {
 			t.Errorf("%+v: %v", c.s, got)
 		}
+	}
+}
+
+// TestComposerAnswers: a draft typed while a question waits answers it on
+// Enter. A draft written before the question came is queued as the
+// message it was meant to be, never eaten as an answer, until an edit
+// after the card came; so are a slash command, an image, Ctrl+Enter, and
+// any draft while an approval waits as well.
+func TestComposerAnswers(t *testing.T) {
+	h := newHarness(t)
+	var got []string
+	h.answer = func(s string) bool { got = append(got, s); return true }
+	h.key = func(string) bool { return false }
+	ask := func(id string) {
+		h.snap.SessionState = session.StateWaiting
+		h.snap.PendingUserInputs = []session.InputRequest{{ID: id, Questions: []session.Question{{ID: "q", Options: []session.PromptOption{{Label: "Yes"}}}}}}
+		h.frame()
+	}
+	queued := func(text string, m []any) {
+		t.Helper()
+		if len(m) != 1 || m[0].(proto.ChatSend).Text != text || m[0].(proto.ChatSend).How == "" {
+			t.Fatalf("want %q queued, got %v (answers %q)", text, m, got)
+		}
+	}
+
+	h.typ("follow up on the tests")
+	ask("i1")
+	if Placeholder(&h.snap) != "Pick an answer above, or type your own" || h.c.Text() != "follow up on the tests" {
+		t.Fatalf("placeholder %q, box %q", Placeholder(&h.snap), h.c.Text())
+	}
+	queued("follow up on the tests", h.press(key.NameReturn, 0))
+
+	h.typ("Medium")
+	if m := h.press(key.NameReturn, 0); len(m) != 0 || !slices.Equal(got, []string{"Medium"}) || h.c.Text() != "" {
+		t.Fatalf("typed answer: sent %v, answers %q, box %q", m, got, h.c.Text())
+	}
+
+	ask("i2") // a second card while the first one's draft is gone
+	h.typ("/usr/local/bin")
+	h.press(key.NameReturn, 0)
+	h.typ("/compact")
+	queued("/compact", h.press(key.NameReturn, 0))
+	h.typ("steer it")
+	if m := h.press(key.NameReturn, key.ModShortcut); len(m) != 1 || m[0].(proto.ChatSend).How != "now" {
+		t.Fatalf("Ctrl+Enter: %v", m)
+	}
+	h.snap.PendingApprovals = []session.Approval{{ID: "a1", RequestType: session.RequestCommand}}
+	h.typ("both wait")
+	queued("both wait", h.press(key.NameReturn, 0))
+	h.snap.PendingApprovals = nil
+	h.typ("look ")
+	h.clip = pngOf(4, 4)
+	h.paste("")
+	h.waitImage()
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || len(m[0].(proto.ChatSend).Attachments) != 1 {
+		t.Fatalf("a draft with an image: %v", m)
+	}
+	if want := []string{"Medium", "/usr/local/bin"}; !slices.Equal(got, want) {
+		t.Fatalf("answers %q, want %q", got, want)
+	}
+
+	// An earlier card's draft does not answer a newer card.
+	h.typ("for the old one")
+	ask("i3")
+	queued("for the old one", h.press(key.NameReturn, 0))
+	// A question that refuses the text (already sent) leaves a queued send.
+	h.answer = func(string) bool { return false }
+	h.typ("late")
+	queued("late", h.press(key.NameReturn, 0))
+
+	// A daemon from before ChatSend How "now" and the queue: ChatAnswer is
+	// older than both, so the typed answer still goes as one.
+	got, h.old = nil, true
+	h.answer = func(s string) bool { got = append(got, s); return true }
+	ask("i4")
+	h.typ("Old daemon")
+	if m := h.press(key.NameReturn, 0); len(m) != 0 || !slices.Equal(got, []string{"Old daemon"}) {
+		t.Fatalf("older daemon: sent %v, answers %q", m, got)
 	}
 }

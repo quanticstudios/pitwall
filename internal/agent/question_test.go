@@ -20,6 +20,7 @@ func TestReadQuestion(t *testing.T) {
 		{"second", "Which size?", 2, false, true, false},
 		{"other", "Which size?", 2, false, true, false},
 		{"review", "Review your answers", 2, false, false, false},
+		{"review-short", "Review your answers", 2, false, false, false}, // 2.1.330 in 24 rows: no hint line
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			g := screenFixture(t, "claude-ask-"+tc.file+".txt")
@@ -74,7 +75,7 @@ func TestQuestionTranscriptIsNotAForm(t *testing.T) {
 		file     string
 		provider model.Provider
 		prompt   string
-	}{{"claude-ask-single.txt", model.ProviderClaude, "❯ New prompt"}, {"claude-ask-review.txt", model.ProviderClaude, "❯ New prompt"}, {"codex-ask-single.txt", model.ProviderCodex, "› New prompt"}} {
+	}{{"claude-ask-single.txt", model.ProviderClaude, "❯ New prompt"}, {"claude-ask-review.txt", model.ProviderClaude, "❯ New prompt"}, {"claude-ask-review-short.txt", model.ProviderClaude, "❯ New prompt"}, {"codex-ask-single.txt", model.ProviderCodex, "› New prompt"}} {
 		g := screenFixture(t, tc.file)
 		e := vt.New(100, 40, nil)
 		e.Write([]byte(strings.ReplaceAll(ScreenText(g, 30)+"\n"+tc.prompt, "\n", "\r\n")))

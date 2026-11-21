@@ -468,7 +468,7 @@ function renderChatState() {
   cnote.hidden = !!(t && t.send);
   if (!t) cnote.textContent = 'This tab is not open now.';
   else if (!t.send) cnote.textContent = t.exited ? t.label + '. Open on desktop to restart the agent.' : 'This tab runs no agent, so it takes no messages from here.';
-  text.placeholder = !t ? '' : running || t.state === 'pending-approval' ? 'Queue a message' : t.state === 'awaiting-input' ? 'Answer' : 'Message ' + agentName(t.agent);
+  text.placeholder = !t ? '' : answerCard ? 'Pick an answer above, or type your own' : running || t.state === 'pending-approval' ? 'Queue a message' : t.state === 'awaiting-input' ? 'Answer' : 'Message ' + agentName(t.agent);
   updatePending(t);
 }
 
@@ -532,6 +532,17 @@ function renderQueue(t) {
   changing(() => queueList.replaceChildren(...out));
 }
 
+// answerCard is the shown card whose open question the box answers, null
+// while the box sends messages.
+let answerCard = null;
+
+// boxAnswers is whether the box's text body answers the shown card: never
+// a draft from before the card, a slash command or a picture.
+function boxAnswers(body, image) {
+  const b = body.trim();
+  return !!answerCard && !image && !!b && body !== answerCard.draft && !/^\/[^\s/]+(\s|$)/.test(b);
+}
+
 function renderAsks(t) {
   const want = [];
   if (t && (t.question || t.answer || (t.requests && t.requests.length) || ['pending-approval', 'plan-ready', 'awaiting-input'].includes(t.state))) {
@@ -543,12 +554,14 @@ function renderAsks(t) {
   } else {
     cards.clear();
   }
+  answerCard = want[0] && want[0].boxAnswer ? want[0] : null;
   const same = want.length === asks.children.length && want.every((c, i) => asks.children[i] === c);
   if (!same) changing(() => asks.replaceChildren(...want));
 }
 
 function askCard(t) {
   const c = el('div', 'card');
+  c.draft = text.value; // a draft from before the question is a message, not its answer
   const note = el('p', 'note');
   const done = (msg) => { note.className = 'note'; note.textContent = msg; };
   const failed = (e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } };
@@ -573,13 +586,16 @@ function askCard(t) {
       const send = el('button', 'btn', 'Send Other');
       send.onclick = () => { if (other.value.trim()) answer(-2, other.value); };
       buttons.push(send); c.append(other, send);
+      c.boxAnswer = (body) => { answer(-2, body.trim()); return true; };
     }
     if (q.submit) {
       const submit = el('button', 'btn primary', 'Submit'); submit.onclick = () => answer(-1);
       buttons.push(submit); c.append(submit);
     }
   } else if (t.requests && t.requests.length) {
-    t.requests.forEach((r) => c.append(request(t.pane, r, done, failed)));
+    const boxes = t.requests.map((r) => request(t.pane, r, done, failed));
+    c.append(...boxes);
+    if (t.requests.every((r) => r.kind === 'input')) c.boxAnswer = boxes[boxes.length - 1].boxAnswer;
   } else {
     c.append(el('div', 'label', t.label || 'Waiting'));
     if (t.detail) c.append(el('p', 'detail', t.detail));
@@ -622,19 +638,31 @@ function request(chatID, r, done, failed) {
   const buttons = [];
   const lock = (on) => buttons.forEach((b) => { b.disabled = on; });
   if (r.kind === 'input') {
+    const parts = [];
     const picks = (r.questions || []).map((q) => {
-      box.append(el('p', 'detail', q.prompt || q.header || ''));
-      const pk = { id: q.id, label: '' };
+      parts.push(el('p', 'detail', q.prompt || q.header || ''));
+      const pk = { id: q.id, multi: !!q.multiSelect, labels: [] };
       if (q.options && q.options.length) {
         const row = el('div', 'opts');
         q.options.forEach((o) => {
           const b = el('button', 'btn', o.label);
           if (o.description) b.title = o.description;
-          b.onclick = () => { pk.label = o.label; row.querySelectorAll('button').forEach((x) => x.classList.toggle('primary', x === b)); };
+          b.onclick = () => {
+            if (pk.multi) {
+              pk.labels = pk.labels.includes(o.label) ? pk.labels.filter((l) => l !== o.label) : [...pk.labels, o.label];
+              b.classList.toggle('primary', pk.labels.includes(o.label));
+              b.setAttribute('aria-pressed', String(pk.labels.includes(o.label)));
+              return;
+            }
+            pk.labels = [o.label];
+            pk.text.value = ''; // the card shows what it sends
+            row.querySelectorAll('button').forEach((x) => x.classList.toggle('primary', x === b));
+            if (picks.every(answered)) submit(); // as the desktop card: a pick that leaves nothing open sends
+          };
           buttons.push(b);
           row.append(b);
         });
-        box.append(row);
+        parts.push(row);
       }
       pk.text = el('textarea', 'field');
       pk.text.rows = 1;
@@ -642,26 +670,44 @@ function request(chatID, r, done, failed) {
       pk.text.setAttribute('aria-label', pk.text.placeholder);
       const typed = el('div', 'inline');
       typed.append(pk.text);
-      box.append(typed);
+      parts.push(typed);
       return pk;
     });
-    const send = el('button', 'btn primary', 'Send');
-    buttons.push(send);
-    send.onclick = () => {
+    const answered = (p) => p.labels.length > 0 || !!p.text.value.trim();
+    let sent = false;
+    const submit = () => {
+      if (sent) return;
+      if (!picks.every(answered)) { failed(new Error('Answer every question.')); return; }
       const answers = {};
       for (const p of picks) {
-        const v = p.text.value.trim() || p.label;
-        if (!v) { failed(new Error('Answer every question.')); return; }
-        answers[p.id] = [v];
+        const v = p.text.value.trim();
+        answers[p.id] = v ? (p.multi ? [...p.labels, v] : [v]) : [...p.labels];
       }
+      sent = true;
       lock(true);
+      const shown = el('p', 'detail', 'Answered: ' + picks.map((p) => answers[p.id].join(', ')).join(', '));
+      area.replaceChildren(shown); // at once, before the agent takes it
       api('/api/input', { chat: chatID, request: r.id, answers })
-        .then(() => done('Sent.'))
-        .catch((e) => { lock(false); failed(e); });
+        .then(() => done(''))
+        .catch((e) => { sent = false; area.replaceChildren(...parts); lock(false); failed(e); });
     };
+    const send = el('button', 'btn primary', 'Send');
+    buttons.push(send);
+    send.onclick = submit;
     const row = el('div', 'opts');
     row.append(send);
-    box.append(row);
+    parts.push(row);
+    const area = el('div');
+    area.append(...parts);
+    box.append(area);
+    // boxAnswer takes the box's text as the first open question's answer.
+    box.boxAnswer = (body) => {
+      if (sent || !picks.length) return false;
+      const p = picks.find((x) => !answered(x)) || picks[picks.length - 1];
+      p.text.value = body.trim();
+      if (picks.every(answered)) submit();
+      return true;
+    };
     return box;
   }
   const reason = el('textarea', 'field');
@@ -711,6 +757,11 @@ composer.onsubmit = (e) => {
   const body = text.value;
   const image = attachment, target = pane;
   if (imageSending || (!body.trim() && !image) || !target) return;
+  if (boxAnswers(body, image) && answerCard.boxAnswer(body)) {
+    text.value = '';
+    grow();
+    return;
+  }
   if (image) { imageSending = true; $("send").disabled = true; }
   const p = { text: body, image: !!image, after: Math.max(0, ...shown.keys()), node: el('div', 'msg user pending', body || (image ? 'Picture' : '')) };
   p.label = el('span', 'state', 'Sending');
