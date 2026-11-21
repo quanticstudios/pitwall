@@ -24,6 +24,13 @@ func (u *ui) chatSize() float64 {
 	return cmp.Or(u.cfg.Font.ChatSize, u.cfg.Font.UISize, config.DefaultUISize)
 }
 
+// codeScale is the chat's code size over its text size: [font]
+// chat_code_size, which follows chat_size while unset.
+func (u *ui) codeScale() float32 {
+	size := u.chatSize()
+	return float32(cmp.Or(u.cfg.Font.ChatCodeSize, size) / size)
+}
+
 // chatMetric is m scaled so the chat's text, spacing and controls draw at
 // chat_size where the rest of the window draws at ui_size.
 func (u *ui) chatMetric(m unit.Metric) unit.Metric {

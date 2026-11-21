@@ -16,18 +16,19 @@ import (
 type toolKind struct {
 	verb, one, many, icon string
 	prio                  int
+	fail                  string // a failed call, "edit" in "1 edit failed"
 }
 
 // Adapted from T3 Code (MIT): packages/client-runtime/src/work-log/presentation.ts
 var (
-	kindRun    = toolKind{"Ran", "command", "commands", "terminal", 0}
-	kindEdit   = toolKind{"Changed", "file", "files", "pencil", 0}
-	kindAgent  = toolKind{"Started", "agent", "agents", "bot", 0}
-	kindRead   = toolKind{"Read", "file", "files", "file", 1}
-	kindSearch = toolKind{"Searched code", "time", "times", "search", 1}
-	kindWeb    = toolKind{"Searched the web", "time", "times", "globe", 1}
-	kindFetch  = toolKind{"Fetched", "page", "pages", "globe", 1}
-	kindOther  = toolKind{"Used", "tool", "tools", "wrench", 2}
+	kindRun    = toolKind{"Ran", "command", "commands", "terminal", 0, "command"}
+	kindEdit   = toolKind{"Changed", "file", "files", "pencil", 0, "edit"}
+	kindAgent  = toolKind{"Started", "agent", "agents", "bot", 0, "agent"}
+	kindRead   = toolKind{"Read", "file", "files", "file", 1, "read"}
+	kindSearch = toolKind{"Searched code", "time", "times", "search", 1, "search"}
+	kindWeb    = toolKind{"Searched the web", "time", "times", "globe", 1, "web search"}
+	kindFetch  = toolKind{"Fetched", "page", "pages", "globe", 1, "fetch"}
+	kindOther  = toolKind{"Used", "tool", "tools", "wrench", 2, "tool call"}
 )
 
 // kindOf is the kind a call of tool counts as.
@@ -55,13 +56,18 @@ func kindOf(tool string) toolKind {
 // foldLabel is what the calls in content[lo:hi] did, as T3 Code sums a
 // group: the two kinds first by priority, in the order they came, then
 // the rest as other actions, "Ran 2 commands and read 1 file". An edit
-// counts its files once each. icon is the kind's when the fold holds one
-// kind, else a hammer, as T3 Code marks a mixed group. Task lists are left out, as the fold's
-// rows leave them out. A fold of thinking alone is "Thought", "Thought
-// (×2)". "" when there is neither.
+// counts its files once each. A failed call is not counted as done, as
+// T3 Code counts failed orchestration calls: the named kinds' failures
+// close the line, "Ran 2 commands, read 1 file, and 1 command failed",
+// "2 calls failed" when they are of two kinds. The other actions count
+// calls, failed or not. icon is the kind's when the fold holds
+// one kind, else a hammer, as T3 Code marks a mixed group. Task lists are
+// left out, as the fold's rows leave them out. A fold of thinking alone
+// is "Thought", "Thought (×2)". "" when there is neither.
 func foldLabel(content []session.Item, lo, hi int) (label, icon string) {
+	type count struct{ done, failed, calls int }
 	var order []toolKind
-	n := map[toolKind]int{}
+	n := map[toolKind]*count{}
 	files := map[string]bool{}
 	thoughts, calls := 0, 0
 	for i := lo; i < hi; i++ {
@@ -75,6 +81,15 @@ func foldLabel(content []session.Item, lo, hi int) (label, icon string) {
 		}
 		calls++
 		k := kindOf(c.ToolName)
+		if n[k] == nil {
+			n[k] = &count{}
+			order = append(order, k)
+		}
+		n[k].calls++
+		if c.Status == "failed" {
+			n[k].failed++
+			continue
+		}
 		if k == kindEdit {
 			if p := editPath(c); p != "" {
 				if files[p] {
@@ -83,10 +98,7 @@ func foldLabel(content []session.Item, lo, hi int) (label, icon string) {
 				files[p] = true
 			}
 		}
-		if n[k] == 0 {
-			order = append(order, k)
-		}
-		n[k]++
+		n[k].done++
 	}
 	switch {
 	case calls == 0 && thoughts == 1:
@@ -104,20 +116,36 @@ func foldLabel(content []session.Item, lo, hi int) (label, icon string) {
 	slices.SortStableFunc(pick, func(a, b toolKind) int { return a.prio - b.prio })
 	pick = pick[:min(2, len(pick))]
 	var parts []string
-	rest := 0
+	rest, failed := 0, 0
+	var failedKind toolKind
 	for _, k := range order {
+		c := n[k]
 		if !slices.Contains(pick, k) {
-			rest += n[k]
+			rest += c.calls
+			continue
+		}
+		if c.failed > 0 {
+			failed += c.failed
+			failedKind = k
+		}
+		if c.done == 0 {
 			continue
 		}
 		noun := k.many
-		if n[k] == 1 {
+		if c.done == 1 {
 			noun = k.one
 		}
-		parts = append(parts, k.verb+" "+strconv.Itoa(n[k])+" "+noun)
+		parts = append(parts, k.verb+" "+strconv.Itoa(c.done)+" "+noun)
 	}
 	if rest > 0 {
 		parts = append(parts, "Performed "+plural(rest, "other action"))
+	}
+	if failed > 0 {
+		what := "call"
+		if n[failedKind].failed == failed { // one kind failed
+			what = failedKind.fail
+		}
+		parts = append(parts, plural(failed, what)+" failed")
 	}
 	for i := 1; i < len(parts); i++ {
 		parts[i] = strings.ToLower(parts[i][:1]) + parts[i][1:]

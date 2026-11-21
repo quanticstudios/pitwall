@@ -95,8 +95,7 @@ func (d *cdraw) tail() []layout.Widget {
 		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, "error", d.th.Red, "", msg) })
 	}
 	if l := s.UsageLimit; l != nil {
-		title, msg := limitNotice(l, d.t.now)
-		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.notice(gtx, "limit", d.th.Yellow, title, msg) })
+		out = append(out, func(gtx layout.Context) layout.Dimensions { return d.limitCard(gtx, l) })
 	}
 	for _, a := range s.PendingApprovals {
 		if d.t.sent[a.ID] || a.RequestType == session.RequestPlan && s.PlanApproval != nil && s.PlanApproval.ID == a.ID {

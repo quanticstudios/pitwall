@@ -72,6 +72,16 @@ type Transcript struct {
 	// Copied, when set, tells the window a selection was copied, to show
 	// its notice over the transcript, area in the window.
 	Copied func(gtx layout.Context, text string, area image.Rectangle)
+	// ToolCalls is which tool calls show, [chat] tool_calls: ToolsAll
+	// (also ""), ToolsFailed, ToolsNone or ToolsZen.
+	ToolCalls string
+	// CodeScale is code's size over the chat's text size, [font]
+	// chat_code_size over chat_size: code blocks, diffs, commands and tool
+	// output. 0 is 1.
+	CodeScale float32
+	// Limit is the usage limit notice's resume, set by the window each
+	// frame; nil shows the notice without its buttons.
+	Limit *LimitResume
 
 	list   layout.List
 	listPx float32 // the px per sp list's offsets were laid out at
@@ -137,6 +147,7 @@ type Transcript struct {
 	selAt  map[string]int // the frame each selectable was last drawn in
 	msg    msgState       // the prompts' hover buttons, the find bar and side questions
 	cite   citeState      // the selection's toolbar and a quote's reveal, see cite.go
+	mm     minimap        // the marks at the right edge
 }
 
 // Answer is an approval answered with its buttons or keys.
@@ -759,6 +770,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	t.atTop(s, size.Y)
 	t.forget(s)
 	t.newOutput(gtx, d, s, size)
+	t.drawMinimap(gtx, d, s, col, size)
 	t.drawAside(gtx, d, size)
 	t.drawFind(gtx, d, size)
 	t.drawConfirm(gtx, d, x0, size)
@@ -925,6 +937,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	running := runningTurns(d.s)
 	stopped := interruptedTurns(d.s)
 	quiet := quietSettings(d.s.Content)
+	mode := t.toolMode()
 	t.tool.shells.index(d.s.Content)
 	k := 0
 	lastOf := map[string]int{} // each turn's last block: only it runs
@@ -964,17 +977,20 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 			start = len(t.rows)
 		}
 		show := t.toggled(gtx, turnID(d.s, whole), true)
-		t.turnRows(gtx, d, b, run, quiet)
-		if work := len(t.rows) > start; work && !run && last {
+		t.turnRows(gtx, d, b, run, quiet, mode)
+		// Zen has no Worked for line, as T3 Code folds no turn in it.
+		if work := len(t.rows) > start; work && !run && last && mode != ToolsZen {
 			if !show {
 				t.rows = append(t.rows[:start], slices.DeleteFunc(slices.Clone(t.rows[start:]), func(r trow) bool { return r.res == nil })...)
 			}
 			t.rows = slices.Insert(t.rows, start, trow{b: whole, seg: segTurn, open: show})
 		}
-		if b.todo >= 0 {
+		if b.todo >= 0 && mode != ToolsZen {
 			t.rows = append(t.rows, trow{b: b, seg: segTodo, i: b.todo})
 		}
-		if b.reply >= 0 {
+		// Zen shows a reply once its turn ends: before, it may be words
+		// between calls.
+		if b.reply >= 0 && !(mode == ToolsZen && run) {
 			// A request answered before the reply came stays with the work
 			// it was about, above the reply.
 			for ; k < len(t.done) && t.done[k].at <= b.reply; k++ {
@@ -1008,7 +1024,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 // summary, fold". A fold of one call is that call's row, as T3 Code draws
 // one, except the newest while the turn runs, whose header says what it
 // does now.
-func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, quiet map[int]bool) {
+func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, quiet map[int]bool, mode string) {
 	g := t.fold[:0]
 	defer func() { t.fold = g }()
 	fold := func(final bool) {
@@ -1017,13 +1033,21 @@ func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, q
 		}
 		gb := b
 		gb.lo, gb.hi, gb.reply, gb.tools = g[0], g[len(g)-1]+1, -1, 0
+		thoughts := 0
 		for _, i := range g {
-			if d.s.Content[i].Kind == session.KindToolCall {
+			switch d.s.Content[i].Kind {
+			case session.KindToolCall:
 				gb.tools++
+			case session.KindReasoningText, session.KindReasoningSummaryText:
+				thoughts++
 			}
 		}
 		items := g // read before g grows again
 		g = g[:0]
+		// With calls hidden, hooks and notices left alone make no line.
+		if mode != ToolsAll && gb.tools == 0 && thoughts == 0 {
+			return
+		}
 		if len(items) == 1 && gb.tools == 1 && !(run && final) {
 			t.rows = append(t.rows, trow{b: gb, seg: segItem, i: gb.lo, top: true})
 			return
@@ -1038,9 +1062,19 @@ func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, q
 		}
 	}
 	for i := b.lo; i < b.hi; i++ {
+		it := &d.s.Content[i]
 		switch {
-		case i == b.reply || quiet[i] || isTodo(d.s.Content[i].Tool) || t.tool.shells.isAttached(i):
-		case outside(&d.s.Content[i]):
+		case i == b.reply || quiet[i] || isTodo(it.Tool) || t.tool.shells.isAttached(i):
+		case mode == ToolsZen:
+			if zenShows(it) {
+				kind := segProse
+				if it.Kind == session.KindToolCall {
+					kind = segItem
+				}
+				t.rows = append(t.rows, trow{b: b, seg: kind, i: i, top: true})
+			}
+		case it.Kind == session.KindToolCall && callHidden(mode, it.Tool):
+		case outside(it):
 			fold(false)
 			t.rows = append(t.rows, trow{b: b, seg: segProse, i: i})
 		default:

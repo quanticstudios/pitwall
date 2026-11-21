@@ -58,6 +58,10 @@ func (d *Daemon) chatEnqueue(pane string, in session.QueuedInput, l letter) {
 	}
 	l.chat = in.ID
 	q.rows = append(q.rows, chatRow{in, l})
+	// why: the queue goes on with the work a limit stopped when it resets, so the limit resume would continue twice.
+	if d.dropResume(pane) {
+		d.changed()
+	}
 	d.chatSync(pane)
 }
 

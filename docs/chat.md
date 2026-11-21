@@ -136,6 +136,29 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
   a compaction is a "Conversation compacted" divider, and API errors, retries
   and plan limits are cards.
 - A finished turn's footer shows its time, tokens and cost.
+- The header's Tools button picks which tool calls show, as `[chat]
+  tool_calls` does: Tools (all of them), Failed only (a call shows while it
+  runs and stays only if it fails), No tools (thinking stays) and Zen (your
+  messages and each turn's final reply, once the turn ends). Errors,
+  approvals, questions and plans always show. In Zen, the find bar shows the
+  words between calls while it is open.
+- A work log's line names at most two kinds of call, commands and edits
+  before reads and searches, then counts the rest, "Ran 2 commands, read 1
+  file, and performed 3 other actions". A failed call is not counted as
+  done: the line ends "and 1 command failed", and its icon turns red.
+- A strip at the transcript's right edge has a mark for each of your
+  messages, each error in red and each question in yellow. Hover one to see
+  "Jump to message: …" with its first line; click to scroll to it. It hides
+  when the chat is too narrow to leave room beside the column.
+- When the agent stops on its plan's usage limit, the notice says when it
+  resets and offers Continue at, which queues `continue` for a minute after
+  the reset, and Snooze until then, which hides the tab in the inbox until
+  that time. A queued continue, or pitwall's own resume when
+  `[agents] resume_after_limit` is on, reads "Continues at 15:01" with
+  Cancel. The queue survives a restart. Past the reset, Continue now sends
+  it. This works for Claude Code and Codex, in panes and in New task chats;
+  Antigravity CLI prints no usage limit message pitwall knows, so its chats
+  show no notice.
 - Long or old chats open at once: pitwall reads the transcript from its end
   and loads older turns as you scroll up.
 
@@ -193,7 +216,11 @@ Answer agy's questions in the TUI (Alt+T).
 claude = "chat"     # or "terminal": show Claude Code panes as the TUI, Alt+T away from the chat
 codex = "chat"      # or "terminal": the same for Codex panes
 antigravity = "chat" # or "terminal": New task starts agy's TUI, and agy panes show as the TUI
-width = "standard"  # or "comfortable" (736 dp), "full": the transcript's column
+width = "standard"  # or "comfortable" (736 dp), "full": the transcript's and composer's column
+tool_calls = "all"  # or "failed", "none", "zen": which tool calls show
+
+[font]
+chat_code_size = 0  # code in the chat; 0 follows chat_size
 ```
 
 `standard` is 960 dp, enough for a 120-column diff. Reply prose stops near 96

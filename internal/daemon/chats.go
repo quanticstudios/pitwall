@@ -1435,6 +1435,12 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	}
 	if how != "" || c.snap.Busy() {
 		c.cfg.Queue = append(c.cfg.Queue, queued(m))
+		// why: a queue held at a usage limit goes when it resets and stands in for the limit resume, which would continue twice.
+		d.mu.Lock()
+		if d.dropResume(c.id) {
+			d.changed()
+		}
+		d.mu.Unlock()
 		d.chatNext(ctx, c)
 		return "", cmp.Or(note, "queued"), nil
 	}

@@ -103,6 +103,9 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 	if ok {
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
+		t.ToolCalls, t.CodeScale = u.cfg.Chat.ToolCalls, u.codeScale()
+		paneLimit(st, id, &s, gtx.Now)
+		t.Limit = u.limitResume(st, id, ws, &s)
 		t.CopyOnSelect = u.cfg.CopyOnSelect
 		t.Copied = func(gtx gl.Context, s string, r image.Rectangle) {
 			u.showNotice(gtx, copiedText(s), r.Sub(u.contentOrigin))

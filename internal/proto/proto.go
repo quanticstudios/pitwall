@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 95 added no message: a daemon at LimitQueueLevel queues a pane
+// chat's ChatSend How "queue" at an idle prompt, and drops a chat's limit
+// resume when a message is queued.
 // Level 94 added no message: a daemon at PastedFileLevel saves a
 // pasted-text attachment to a file and gives the agent its path, up to
 // MaxPastedText.
@@ -249,7 +252,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 94
+const Level = 95
 
 // PastedFileLevel is the first daemon that saves a ChatSend's pasted-text
 // attachment to a file in the tab's paste folder and puts the file's path
@@ -261,6 +264,12 @@ const PastedFileLevel = 94
 // MaxPastedText is the most text one pasted-text attachment carries to a
 // daemon at PastedFileLevel.
 const MaxPastedText = 8 << 20
+
+// LimitQueueLevel is the first daemon that queues a pane chat's ChatSend
+// How "queue" while its agent is idle, and drops a chat's limit resume
+// when a message is queued, so a continue queued at a usage limit goes
+// once, when the limit resets.
+const LimitQueueLevel = 95
 
 // SmartQueueLevel is the first daemon that joins a chat's queue into one
 // prompt, takes ChatQueue Actions "separate" and "together", and steers a

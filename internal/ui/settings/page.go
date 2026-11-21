@@ -797,13 +797,33 @@ func (p *Page) appearance() []section {
 			{label: "Interface font", desc: "Sidebar, dialogs and this page. Geist ships with pitwall.", extra: "ui family typeface",
 				control: p.fontPicker("ui_family", f.UIFamily, config.DefaultUIFamily)},
 			{label: "Interface text size", extra: "ui font", control: p.stepper("font", "ui_size", f.UISize, 6, 48, 1, config.DefaultUISize)},
-			{label: "Chat text size", desc: "Messages, code and the composer in the desktop chat. Follows the interface text size until you change it.",
+			{label: "Chat text size", desc: "Messages and the composer in the desktop chat, and its code until you set the chat code size. Follows the interface text size until you change it.",
 				extra: "chat_size font zoom bigger smaller", control: p.stepper("font", "chat_size", f.ChatSize, 6, 48, 1, f.UISize)},
+			{label: "Chat code size", desc: "Code blocks, diffs, commands and tool output in the desktop chat. Follows the chat text size until you change it.",
+				extra: "chat_code_size font mono code", control: p.stepper("font", "chat_code_size", cmp.Or(f.ChatCodeSize, f.ChatSize), 6, 48, 1, f.ChatSize)},
 			{label: "Terminal font", desc: "Any installed family. Characters it lacks come from mono_fallback, then any monospace font.", extra: "mono family typeface",
 				control: p.fontPicker("mono_family", f.MonoFamily, config.DefaultMonoFamily)},
 			{label: "Terminal text size", extra: "mono font", control: p.stepper("font", "mono_size", f.MonoSize, 6, 48, 1, config.DefaultMonoSize)},
 			{label: "Line height", desc: "Terminal rows as a multiple of the font's height.", extra: "spacing",
 				control: p.stepper("font", "line_height", f.LineHeight, 0.8, 3, 0.05, 1)},
+		}},
+		{title: "Chat", rows: []row{
+			{label: "Chat width", desc: "How wide the desktop chat's messages and composer grow. Comfortable is 736 dp, standard 960 dp, full the whole tab. Reply text stops near 96 characters either way.",
+				extra: "width column reading comfortable standard full", control: p.labeled("chat.width", []string{"comfortable", "standard", "full"}, []string{"Comfortable", "Standard", "Full"}, chatWidthName(p.s.Chat.Width), func(o string) {
+					if o == "standard" {
+						p.save("chat", "width", nil)
+					} else {
+						p.saveValue("chat", "width", config.Quote(o))
+					}
+				})},
+			{label: "Tool calls in chat", desc: "Failed only hides a call once it succeeds. None hides every call and shows thinking while the agent works. Zen shows only your messages and each turn's final reply. Errors, approvals and questions always show. The chat header's Tools button cycles these.",
+				extra: "tool_calls tools hide zen failed calls commands", control: p.labeled("chat.tool_calls", config.ToolModes, []string{"All", "Failed only", "None", "Zen"}, cmp.Or(p.s.Chat.ToolCalls, config.ToolsAll), func(o string) {
+					if o == config.ToolsAll {
+						p.save("chat", "tool_calls", nil)
+					} else {
+						p.saveValue("chat", "tool_calls", config.Quote(o))
+					}
+				})},
 		}},
 		{title: "Panes", rows: []row{
 			{label: "Confirm close", desc: "Ask before closing a tab or pane with an agent working or waiting on you mid-turn. Pinned tabs always ask to unpin first.",
@@ -838,6 +858,17 @@ func (p *Page) appearance() []section {
 				extra: "remote_control rc phone claude.ai", control: p.toggle("appearance", "remote_control", p.s.RemoteControl)},
 		}},
 	}
+}
+
+// chatWidthName is [chat] width's value for a resolved width in dp.
+func chatWidthName(dp int) string {
+	switch dp {
+	case config.ChatComfortable:
+		return "comfortable"
+	case 0:
+		return "full"
+	}
+	return "standard"
 }
 
 // stepper is aide-styled − value + with a reset arrow once the value is
