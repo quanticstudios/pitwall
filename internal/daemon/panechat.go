@@ -488,7 +488,7 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			}
 			// A turn's usage report says the context as the meter reads it.
 			if es[i].Type == session.EventUsage && pc.ctx > 0 {
-				ctx, w := pc.ctx, contextWindow(pc.model, tui)
+				ctx, w := pc.ctx, contextWindow(pc.model, tui, pc.ctx)
 				es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
 			}
 		}
@@ -724,7 +724,7 @@ func (pc *paneChat) settings(l paneLive) {
 	if pc.ctx == 0 {
 		return
 	}
-	w := contextWindow(pc.model, l.tui.model)
+	w := contextWindow(pc.model, l.tui.model, pc.ctx)
 	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != pc.ctx || u.MaxTokens == nil || *u.MaxTokens != w {
 		ctx := pc.ctx
 		pc.reduce([]session.Event{{Type: session.EventUsage, ContextTokens: &ctx, MaxTokens: &w}})
@@ -755,17 +755,51 @@ func contextUsage(line []byte) (int64, string, bool) {
 	return t, l.Message.Model, t > 0
 }
 
-// contextWindow is a Claude model's context window: 1M for a [1m] model id,
-// one the TUI names "… 1M", or Sonnet 5.5, which Claude Code 2.1.329's
-// /context gives 1M; else 200K.
-// shortcut: a table of what Claude Code shows today; read the TUI's own total if a model's differs.
-func contextWindow(model, tui string) int64 {
+// contextWindow is a Claude model's context window, as Claude Code
+// 2.1.330 reports it (modelUsage.contextWindow): 1M for every Claude 5
+// model (Opus, Sonnet, Haiku 5.5, Fable 5.2, Opus 5), for a [1m] id and
+// for a model the TUI names "… 1M"; 200K for an older model. used is the
+// context in use: past 200K the window can only be the larger one.
+// shortcut: a table of what Claude Code reports today; read the TUI's own total if a model's differs.
+func contextWindow(model, tui string, used int64) int64 {
 	m := strings.ToLower(model)
-	if strings.HasSuffix(m, "[1m]") || strings.HasSuffix(tui, " 1M") ||
-		strings.HasPrefix(m, "claude-sonnet-5-5") || strings.HasPrefix(tui, "Sonnet 5.5") {
+	if used > 200_000 || strings.HasSuffix(m, "[1m]") || strings.HasSuffix(tui, " 1M") {
 		return 1_000_000
 	}
-	return 200_000
+	if g := claudeGeneration(m); g > 0 && g < 5 {
+		return 200_000
+	}
+	if g := tuiGeneration(tui); g > 0 && g < 5 {
+		return 200_000
+	}
+	return 1_000_000
+}
+
+var (
+	claudeGen = regexp.MustCompile(`^claude-(?:[a-z]+-)?([0-9]+)`)
+	tuiGen    = regexp.MustCompile(`\b([0-9]+)(?:\.[0-9]+)?\b`)
+)
+
+// claudeGeneration is the major version in a Claude model id, as 5 in
+// claude-opus-5-5 or 3 in claude-3-5-sonnet-20241022; 0 when it has none.
+func claudeGeneration(id string) int {
+	m := claudeGen.FindStringSubmatch(id)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// tuiGeneration is the major version in the model name Claude Code's
+// footer shows, as 4 in "Opus 4.6"; 0 when it has none.
+func tuiGeneration(name string) int {
+	m := tuiGen.FindStringSubmatch(name)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 // turnStart is when the running turn started, zero for none.

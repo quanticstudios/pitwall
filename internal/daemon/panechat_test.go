@@ -388,8 +388,8 @@ func TestPaneChatModelSurvivesTranscript(t *testing.T) {
 func TestPaneChatContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":"hi"}}
-{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T10:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":4000,"cache_read_input_tokens":36000,"output_tokens":90}}}
-{"type":"assistant","uuid":"s1","isSidechain":true,"timestamp":"2026-11-19T10:00:02Z","message":{"id":"m2","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":150000}}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-19T10:00:01Z","message":{"id":"m1","model":"claude-opus-4-6","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":4000,"cache_read_input_tokens":36000,"output_tokens":90}}}
+{"type":"assistant","uuid":"s1","isSidechain":true,"timestamp":"2026-11-19T10:00:02Z","message":{"id":"m2","model":"claude-opus-4-6","content":[],"usage":{"input_tokens":150000}}}
 `
 	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
@@ -399,15 +399,31 @@ func TestPaneChatContext(t *testing.T) {
 	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 40002 || u.MaxTokens == nil || *u.MaxTokens != 200_000 {
 		t.Fatalf("usage %+v: want 40002 of 200K, the sidechain's skipped", u)
 	}
-	pc.catchUp(paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 5.5 1M"}})
+	pc.catchUp(paneLive{p: &fakePane{}, tui: phoneSettings{model: "Opus 4.6 1M"}})
 	if u := pc.snap.Usage; *u.MaxTokens != 1_000_000 {
-		t.Errorf("window %d with the TUI on Opus 5.5 1M: want 1M", *u.MaxTokens)
+		t.Errorf("window %d with the TUI on Opus 4.6 1M: want 1M", *u.MaxTokens)
 	}
-	if w := contextWindow("claude-sonnet-5-5", ""); w != 1_000_000 {
-		t.Errorf("window of Sonnet 5.5: %d, want 1M as its /context says", w)
-	}
-	if w := contextWindow("claude-opus-5-5[1m]", ""); w != 1_000_000 {
-		t.Errorf("window of a [1m] id: %d", w)
+	// What Claude Code 2.1.330 reports as modelUsage.contextWindow.
+	for _, c := range []struct {
+		model, tui string
+		used, want int64
+	}{
+		{"claude-opus-5-5", "", 300_000, 1_000_000},
+		{"claude-opus-5-5", "Opus 5.5", 40_000, 1_000_000},
+		{"claude-sonnet-5-5", "", 0, 1_000_000},
+		{"claude-haiku-5-5", "", 0, 1_000_000},
+		{"claude-fable-5-2", "", 0, 1_000_000},
+		{"claude-opus-5", "", 0, 1_000_000},
+		{"", "", 0, 1_000_000},
+		{"claude-opus-5-5[1m]", "", 0, 1_000_000},
+		{"claude-opus-4-6", "", 0, 200_000},
+		{"claude-3-5-sonnet-20241022", "", 0, 200_000},
+		{"", "Sonnet 4.5", 0, 200_000},
+		{"claude-opus-4-6", "", 250_000, 1_000_000}, // past 200K it can only be the larger window
+	} {
+		if w := contextWindow(c.model, c.tui, c.used); w != c.want {
+			t.Errorf("contextWindow(%q, %q, %d) = %d, want %d", c.model, c.tui, c.used, w, c.want)
+		}
 	}
 }
 
