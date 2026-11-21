@@ -27,7 +27,6 @@ type spyProvider struct {
 	fail string
 	edit func(n int) // what turn n does to the files, while it runs
 
-
 	mu    sync.Mutex
 	froms []session.Origin
 	sends []string

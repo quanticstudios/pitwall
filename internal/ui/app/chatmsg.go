@@ -16,22 +16,38 @@ type ChatAsker interface {
 	ChatAsides(id string) []proto.ChatAsideResult
 }
 
+// RewindChecker is optionally implemented by a Backend: the daemon's
+// answers to the window's ChatRewindCheck about chat id that came since
+// the last call.
+type RewindChecker interface {
+	RewindChecks(id string) []proto.ChatRewindFiles
+}
+
 // chatTools sets what chat id's transcript t offers on its prompts, as
-// its daemon and agent take them, hands it the side questions answered,
-// and reports whether the chat takes side questions. A pane chat
-// rewinds through Claude Code's picker and does not fork; a chat tab
-// does both.
+// its daemon and agent take them, hands it the side questions answered
+// and the rewinds checked, and reports whether the chat takes side
+// questions. A Claude Code pane chat rewinds through its picker and does
+// not fork; a chat tab does both. A Codex or Antigravity chat tab rewinds
+// from RewindFilesLevel, through a fork of its session or a recap; their
+// panes have no picker pitwall drives.
 func (u *ui) chatTools(st *model.State, id string, t *panel.Transcript) bool {
 	c := findChat(st, id)
 	claude := c != nil && c.Provider == model.ProviderClaude
 	pane := paneChat(st, id)
 	level := u.link().Level
 	t.TurnRewind = !pane
-	t.CanRewind = claude && (pane && level >= proto.PaneRewindLevel || !pane && level >= proto.ChatForkLevel)
+	t.CanRewind = claude && (pane && level >= proto.PaneRewindLevel || !pane && level >= proto.ChatForkLevel) ||
+		c != nil && !pane && level >= proto.RewindFilesLevel
 	t.CanFork = claude && !pane && level >= proto.ChatForkLevel
+	t.FilesRewind = t.CanRewind && level >= proto.RewindFilesLevel
 	if a, ok := u.b.(ChatAsker); ok {
 		for _, r := range a.ChatAsides(id) {
 			t.Answered(r.ID, r.Answer, r.Err)
+		}
+	}
+	if r, ok := u.b.(RewindChecker); ok {
+		for _, c := range r.RewindChecks(id) {
+			t.RewindChecked(c)
 		}
 	}
 	return claude && level >= proto.ChatAsideLevel
@@ -64,16 +80,24 @@ func (u *ui) chatActions(id string, acts []panel.MessageAction, pane bool, cmp *
 		switch a.Kind {
 		case panel.ActEdit:
 			cmp.SetText(a.Text)
+		case panel.ActRewindCheck:
+			u.send(proto.ChatRewindCheck{Chat: id, Turn: rewindTurn(a, pane)})
 		case panel.ActRewind:
-			turn := a.Turn
-			if pane {
-				turn = a.Item
-			}
-			u.send(proto.ChatRewind{Chat: id, Turn: turn, KeepFiles: true})
-			cmp.AwaitRewind(turn, a.Text) // a refused rewind leaves the box as it was
+			turn := rewindTurn(a, pane)
+			u.send(proto.ChatRewind{Chat: id, Turn: turn, KeepFiles: a.KeepFiles, Stash: a.Stash})
+			cmp.AwaitRewind(turn, a.Text, a.Attachments) // a refused rewind leaves the box as it was
 		case panel.ActFork:
 			u.send(proto.ChatFork{Chat: id, Turn: a.Turn})
 		}
 	}
 	return len(acts) > 0
+}
+
+// rewindTurn is how the daemon names the prompt action a rewinds to: its
+// turn in a chat tab, the prompt itself in a pane chat.
+func rewindTurn(a panel.MessageAction, pane bool) string {
+	if pane {
+		return a.Item
+	}
+	return a.Turn
 }

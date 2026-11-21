@@ -22,3 +22,13 @@ func (b *backend) ChatAsides(id string) []proto.ChatAsideResult {
 	delete(b.asides, id)
 	return r
 }
+
+// RewindChecks implements app.RewindChecker: the daemon's answers to chat
+// id's ChatRewindCheck that came since the last call.
+func (b *backend) RewindChecks(id string) []proto.ChatRewindFiles {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r := b.rewinds[id]
+	delete(b.rewinds, id)
+	return r
+}

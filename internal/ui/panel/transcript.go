@@ -63,6 +63,10 @@ type Transcript struct {
 	// TurnRewind says the chat rewinds and forks whole turns: they show only
 	// on a prompt that opened its turn.
 	TurnRewind bool
+	// FilesRewind says the daemon checks and reverts the files on a rewind
+	// (proto.RewindFilesLevel): the confirm lists them and offers Revert
+	// files too.
+	FilesRewind bool
 	// Invalidate asks for a frame from another goroutine: the side panel's
 	// markdown file and its pictures, read in the background.
 	Invalidate func()

@@ -12,22 +12,35 @@ import (
 )
 
 // A Claude pane chat rewinds but does not fork, a chat tab does both, and
-// a Codex pane chat offers neither, nor side questions.
+// a Codex pane chat offers neither, nor side questions. Codex and
+// Antigravity chat tabs rewind from RewindFilesLevel, and every chat that
+// rewinds offers the files from it too.
 func TestChatTools(t *testing.T) {
-	u := &ui{}
 	st := &model.State{
 		Panes: []model.Pane{{ID: "claude", Provider: model.ProviderClaude, Transcript: "/x/a.jsonl"},
 			{ID: "codex", Provider: model.ProviderCodex, Transcript: "/x/rollout.jsonl"}},
-		Chats: []model.Chat{{ID: "tab", Provider: model.ProviderClaude}},
+		Chats: []model.Chat{{ID: "tab", Provider: model.ProviderClaude}, {ID: "codextab", Provider: model.ProviderCodex},
+			{ID: "agytab", Provider: model.ProviderAntigravity}},
 	}
 	for _, tc := range []struct {
-		id                   string
-		rewind, fork, asides bool
-	}{{"claude", true, false, true}, {"tab", true, true, true}, {"codex", false, false, false}} {
+		id                          string
+		level                       int
+		rewind, fork, asides, files bool
+	}{
+		{"claude", proto.Level, true, false, true, true},
+		{"tab", proto.Level, true, true, true, true},
+		{"codex", proto.Level, false, false, false, false},
+		{"codextab", proto.Level, true, false, false, true},
+		{"agytab", proto.Level, true, false, false, true},
+		{"tab", proto.RewindFilesLevel - 1, true, true, true, false},
+		{"claude", proto.RewindFilesLevel - 1, true, false, true, false},
+		{"codextab", proto.RewindFilesLevel - 1, false, false, false, false},
+	} {
+		u := &ui{b: &linkedFake{FakeBackend: NewFakeBackend(), level: tc.level}}
 		var tr panel.Transcript
 		aside := u.chatTools(st, tc.id, &tr)
-		if tr.CanRewind != tc.rewind || tr.CanFork != tc.fork || aside != tc.asides {
-			t.Errorf("%s: rewind %v fork %v aside %v", tc.id, tr.CanRewind, tr.CanFork, aside)
+		if tr.CanRewind != tc.rewind || tr.CanFork != tc.fork || aside != tc.asides || tr.FilesRewind != tc.files {
+			t.Errorf("%s at %d: rewind %v fork %v aside %v files %v", tc.id, tc.level, tr.CanRewind, tr.CanFork, aside, tr.FilesRewind)
 		}
 	}
 }
@@ -51,9 +64,9 @@ func TestAsideOf(t *testing.T) {
 
 // A prompt sent mid-turn shares its turn's id: a pane chat rewinds to the
 // prompt itself, by its own id, and a chat tab by its turn, the only way
-// it rewinds.
+// it rewinds. The check asks by the same name, and the rewind carries the
+// button the confirm took.
 func TestChatActionsRewind(t *testing.T) {
-	acts := []panel.MessageAction{{Kind: panel.ActRewind, Turn: "t1", Item: "p2", Text: "and also this"}}
 	for _, tc := range []struct {
 		pane bool
 		turn string
@@ -61,22 +74,24 @@ func TestChatActionsRewind(t *testing.T) {
 		b := NewFakeBackend()
 		u := &ui{b: b}
 		var cmp chatin.Composer
+		u.chatActions("c", []panel.MessageAction{{Kind: panel.ActRewindCheck, Turn: "t1", Item: "p2"}}, tc.pane, &cmp)
+		acts := []panel.MessageAction{{Kind: panel.ActRewind, Turn: "t1", Item: "p2", Text: "and also this", Stash: true}}
 		u.chatActions("c", acts, tc.pane, &cmp)
-		if got := b.Sent(); len(got) != 1 || got[0] != (proto.ChatRewind{Chat: "c", Turn: tc.turn, KeepFiles: true}) {
-			t.Errorf("pane %v: sent %v, want a rewind of %s", tc.pane, got, tc.turn)
+		rewind := proto.ChatRewind{Chat: "c", Turn: tc.turn, Stash: true}
+		if got := b.Sent(); len(got) != 2 || got[0] != (proto.ChatRewindCheck{Chat: "c", Turn: tc.turn}) || got[1] != rewind {
+			t.Errorf("pane %v: sent %v, want a check and a rewind of %s", tc.pane, got, tc.turn)
 		}
 		// The prompt comes back only once the rewind went through: a
 		// refused one leaves the box as it was.
 		cmp.SetText("my draft")
-		rewind := proto.ChatRewind{Chat: "c", Turn: tc.turn, KeepFiles: true}
 		cmp.Result(chatin.Result{Req: rewind, Message: "Claude Code's rewind list shows this message like a later one"}, time.Now())
 		if cmp.Text() != "my draft" {
 			t.Errorf("pane %v: composer %q after a refused rewind, want the draft kept", tc.pane, cmp.Text())
 		}
 		u.chatActions("c", acts, tc.pane, &cmp)
 		cmp.Result(chatin.Result{Req: rewind}, time.Now())
-		if cmp.Text() != "and also this" {
-			t.Errorf("pane %v: composer %q after the rewind went through", tc.pane, cmp.Text())
+		if cmp.Text() != "my draft\nand also this" {
+			t.Errorf("pane %v: composer %q after the rewind went through, want the draft above the prompt", tc.pane, cmp.Text())
 		}
 	}
 }
