@@ -51,6 +51,7 @@ type Composer struct {
 	meterBtn          widget.Clickable // the context meter, for its hover card
 	q                 queueState
 	mention           mentionState
+	slash             slashState
 	branch            branchChip
 	rm                map[int]*widget.Clickable // per image, its remove x
 	hov               map[int]*gesture.Hover    // per image, the pointer on its thumbnail
@@ -113,6 +114,9 @@ type Env struct {
 	// word's query, best first; nil while they are listed, and Mentions
 	// itself nil where the files can't be listed.
 	Mentions func(query string) []string
+	// Commands is whether the daemon sends the chat's slash commands
+	// (proto.SlashLevel); without them the / menu says so.
+	Commands bool
 	// Branch is the git branch the chat's folder is on, "" outside a
 	// repo; Copy puts text on the clipboard.
 	Branch string
@@ -183,7 +187,7 @@ func (c *Composer) SetText(s string) {
 func (c *Composer) Images() []Image { return c.draft.Ordered(c.Text()) }
 
 // Slash is the command word the draft starts with while the caret is in
-// it, for a slash-command menu.
+// it, which the / menu completes.
 func (c *Composer) Slash() (string, bool) {
 	_, end := c.ed.Selection()
 	return Slash(c.Text(), end)
@@ -429,6 +433,10 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 		}
 	}
 	c.out = append(c.out, m)
+	if name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " "); strings.HasPrefix(text, "/") &&
+		slices.ContainsFunc(env.Snap.Commands, func(c session.Command) bool { return c.Name == name }) {
+		slashUsed[name]++
+	}
 	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: at}
 	c.note = ""
 	c.ed.SetText("")
@@ -538,7 +546,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		if tok >= 0 {
 			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward})
 		}
-		if c.mention.open() {
+		if c.mention.open() || c.slash.open() {
 			for _, n := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameTab, key.NameReturn, key.NameEnter} {
 				fs = append(fs, key.Filter{Focus: ed, Name: n})
 			}
@@ -553,6 +561,14 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 		e, ok := ev.(key.Event)
 		if !ok || e.State != key.Press {
+			continue
+		}
+		if c.slash.open() && e.Modifiers == 0 && e.Name != key.NameDeleteBackward {
+			c.slashKey(gtx, e)
+			continue
+		}
+		if c.slash.note != "" && e.Modifiers == 0 && e.Name == key.NameEscape {
+			c.slash.shut, c.slash.note = c.Text(), ""
 			continue
 		}
 		if c.mention.open() && e.Modifiers == 0 && e.Name != key.NameDeleteBackward {
@@ -610,6 +626,8 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 	}
 	c.mentionClicks(gtx)
 	c.mentionUpdate(gtx, env)
+	c.slashClicks(gtx)
+	c.slashUpdate(env)
 	c.branchEvents(gtx, env)
 	for n, b := range c.rm {
 		if b.Clicked(gtx) {
@@ -726,6 +744,9 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	}
 	if c.mention.open() {
 		c.mentionPop(gtx, th)
+	}
+	if c.slash.shown() {
+		c.slashPop(gtx, th)
 	}
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(full, h)}
@@ -879,6 +900,7 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 		c.tokens(gtx, th)
 		c.mentionChips(gtx, th)
 		c.mentionAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
+		c.slashAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
 		return d
 	})
 }

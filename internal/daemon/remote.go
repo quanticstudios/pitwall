@@ -429,8 +429,13 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string, quoted ...str
 	}
 	ctx := context.Background()
 	d.mu.Lock()
-	claude := d.paneProvider(pane) == model.ProviderClaude
+	prov := d.paneProvider(pane)
 	d.mu.Unlock()
+	claude := prov == model.ProviderClaude
+	if prov == model.ProviderAntigravity && agySlashLine(text) && len(quotes) == 0 {
+		// why: agy's slash menu draws as a command is typed, and an Enter after it drew picks its highlighted row; one in the same write takes the line as typed (agyCommand).
+		return d.typeAndEnter(pane, p, append(input.Text(text), press(key.NameReturn, m)...))
+	}
 	var data []byte
 	if text != "" {
 		data = input.Paste(text, m)
@@ -509,6 +514,31 @@ func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
 	d.mail.daemonPrompt[pane] = true
 	d.mu.Unlock()
 	err := d.handle(context.Background(), proto.Input{Pane: pane, Data: d.steerKey(pane, p.Modes())})
+	if err != nil {
+		d.mu.Lock()
+		d.mail.daemonPrompt[pane] = previous
+		d.mu.Unlock()
+	}
+	return err
+}
+
+// agySlashLine reports whether text is one line that starts a slash
+// command, which agy's menu would take over.
+func agySlashLine(text string) bool {
+	return strings.HasPrefix(text, "/") && !strings.ContainsAny(text, "\r\n")
+}
+
+// typeAndEnter writes data, a line and its Enter, into pane p as one
+// write, recorded as the user's submission as pressEnter records one.
+func (d *Daemon) typeAndEnter(pane string, p Pane, data []byte) error {
+	if agent.FormUp(p.Snapshot(), "") {
+		return errors.New("a form came up; answer it in its tab")
+	}
+	d.mu.Lock()
+	previous := d.mail.daemonPrompt[pane]
+	d.mail.daemonPrompt[pane] = true
+	d.mu.Unlock()
+	err := d.handle(context.Background(), proto.Input{Pane: pane, Data: data})
 	if err != nil {
 		d.mu.Lock()
 		d.mail.daemonPrompt[pane] = previous

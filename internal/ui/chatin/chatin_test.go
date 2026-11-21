@@ -235,6 +235,7 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
+	slashUsed = map[string]int{} // each test starts with nothing sent
 	h := &harness{t: t, snap: session.Snapshot{SessionID: "c1", SessionState: session.StateReady}, now: time.Now()}
 	h.frame()
 	h.frame()
@@ -245,7 +246,7 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old, Separate: h.separate,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
 		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) },
 		Mentions: func(q string) []string {
 			var out []string

@@ -657,3 +657,28 @@ func TestElicitation(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+// A command the agent advertises reaches the snapshot with its
+// description, and picking it with an argument sends the line as the
+// prompt's text, which is how an ACP agent such as agy runs one.
+func TestSlashCommandPrompt(t *testing.T) {
+	update := notification("session/update", map[string]any{"sessionId": "s1", "update": map[string]any{
+		"sessionUpdate": "available_commands_update", "availableCommands": []any{
+			map[string]any{"name": "plan", "description": "Plan carefully before executing a task."}}}})
+	steps := script(t)[:2]
+	steps[1].Send = append([]json.RawMessage{update}, steps[1].Send...)
+	steps = append(steps, step{Receive: rpc(3, "session/prompt", map[string]any{"sessionId": "s1",
+		"prompt": []any{map[string]string{"type": "text", "text": "/plan add the tests"}}}),
+		Send: []json.RawMessage{result(3, map[string]string{"stopReason": "end_turn"})}})
+	h, err := start(t, steps, session.Origin{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := h.wait(t, session.EventCommands); len(e.Commands) != 1 || e.Commands[0].Name != "plan" || e.Commands[0].Description == "" {
+		t.Fatalf("commands: %+v", e.Commands)
+	}
+	if _, err = h.d.Send(context.Background(), session.Message{Text: "/plan add the tests"}); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, session.EventTurnCompleted)
+}

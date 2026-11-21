@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
 )
 
 // claudeAutoContinue reads the option behind Claude Code's /config row
@@ -21,27 +22,9 @@ func claudeAutoContinue(p model.Pane) bool {
 	return claudeAutoContinueFile(filepath.Join(dir, "settings.json"))
 }
 
-// claudeConfigDir is the config dir pane p's Claude Code reads: its
-// CLAUDE_CONFIG_DIR, else ~/.claude; "" with no home.
-func claudeConfigDir(p model.Pane) string {
-	dir := os.Getenv("CLAUDE_CONFIG_DIR")
-	for _, e := range p.Env {
-		if v, ok := strings.CutPrefix(e, "CLAUDE_CONFIG_DIR="); ok {
-			dir = v
-		}
-	}
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		dir = filepath.Join(home, ".claude")
-	}
-	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(p.Cwd, dir)
-	}
-	return dir
-}
+// claudeConfigDir is the config dir pane p's Claude Code reads
+// (claude.ConfigDir).
+func claudeConfigDir(p model.Pane) string { return claude.ConfigDir(p.Env, p.Cwd) }
 
 // claudeSettingsFile is the model and effortLevel in Claude Code's user
 // settings at path, "" for one unset, unknown or unreadable. Never writes.

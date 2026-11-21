@@ -42,7 +42,8 @@ func TestMain(m *testing.M) {
 	testenv.Main(m)
 }
 
-// fakeClaude replays FAKE_CLAUDE (a stdout capture): each user line on
+// fakeClaude replays FAKE_CLAUDE (a stdout capture): it answers the
+// driver's initialize with FAKE_CLAUDE_INIT, and each user line on
 // stdin gets the capture's next lines, up to and including a result or a
 // control_request, which waits for the next stdin line of any type. It
 // logs its arguments and stdin to FAKE_CLAUDE_LOG. FAKE_CLAUDE_MODE crash
@@ -83,8 +84,19 @@ func fakeClaude() {
 		l, err := in.ReadBytes('\n')
 		if len(l) > 0 {
 			logf.Write(l)
-			var msg struct{ Type string }
+			var msg struct {
+				Type    string
+				Request struct{ Subtype string }
+			}
 			json.Unmarshal(l, &msg)
+			if msg.Type == "control_request" && msg.Request.Subtype == "initialize" {
+				// FAKE_CLAUDE_INIT is the answer's file; with none, the CLI's
+				// answer is lost, as a CLI that predates initialize loses it.
+				if b, err := os.ReadFile(os.Getenv("FAKE_CLAUDE_INIT")); err == nil {
+					os.Stdout.Write(b)
+				}
+				continue
+			}
 			switch {
 			case (msg.Type != "user" && !asked) || mode == "hang":
 			case mode == "crash":
@@ -197,7 +209,7 @@ func (r *run) emitted() []session.Event {
 }
 
 // stdin is what the driver wrote, one decoded line each, after the
-// fake's argument line.
+// fake's argument line, less its initialize request.
 func (r *run) stdin() (args []string, lines []map[string]any) {
 	r.t.Helper()
 	b, err := os.ReadFile(r.log)
@@ -210,6 +222,9 @@ func (r *run) stdin() (args []string, lines []map[string]any) {
 		var v map[string]any
 		if err := json.Unmarshal([]byte(l), &v); err != nil {
 			r.t.Fatalf("%s: %v", l, err)
+		}
+		if req, _ := v["request"].(map[string]any); v["type"] == "control_request" && req["subtype"] == "initialize" {
+			continue
 		}
 		lines = append(lines, v)
 	}
@@ -731,7 +746,7 @@ func TestInterrupt(t *testing.T) {
 	}
 	r.close(5 * time.Second)
 	b, _ := json.Marshal(r.controls("control_request"))
-	if string(b) != `[{"request":{"subtype":"interrupt"},"request_id":"req_1","type":"control_request"}]` {
+	if string(b) != `[{"request":{"subtype":"interrupt"},"request_id":"req_2","type":"control_request"}]` {
 		t.Errorf("control requests = %s", b)
 	}
 }
@@ -745,9 +760,9 @@ func TestSet(t *testing.T) {
 	}
 	r.close(5 * time.Second)
 	b, _ := json.Marshal(r.controls("control_request"))
-	want := `[{"request":{"model":"claude-opus-5-5","subtype":"set_model"},"request_id":"req_1","type":"control_request"},` +
-		`{"request":{"settings":{"effortLevel":"medium"},"subtype":"apply_flag_settings"},"request_id":"req_2","type":"control_request"},` +
-		`{"request":{"mode":"plan","subtype":"set_permission_mode"},"request_id":"req_3","type":"control_request"}]`
+	want := `[{"request":{"model":"claude-opus-5-5","subtype":"set_model"},"request_id":"req_2","type":"control_request"},` +
+		`{"request":{"settings":{"effortLevel":"medium"},"subtype":"apply_flag_settings"},"request_id":"req_3","type":"control_request"},` +
+		`{"request":{"mode":"plan","subtype":"set_permission_mode"},"request_id":"req_4","type":"control_request"}]`
 	if string(b) != want {
 		t.Errorf("control requests = %s\nwant %s", b, want)
 	}
@@ -803,6 +818,7 @@ func TestSkillText(t *testing.T) {
 		want  string
 	}{
 		{"fix it", nil, "fix it"},
+		{"/compact keep the tests", nil, "/compact keep the tests"},
 		{"fix it", s, "/review\nfix it"},
 		{"/review", s, "/review"},
 		{"/review the diff", s, "/review the diff"},

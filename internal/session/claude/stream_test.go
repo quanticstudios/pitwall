@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -40,10 +42,28 @@ const initLine = `{"type":"system","subtype":"init","cwd":"/tmp/acme-api","sessi
 
 func TestInitCommands(t *testing.T) {
 	s := newStream("SESSION")
+	s.conf = t.TempDir()
+	review := filepath.Join(s.conf, "skills", "review", "SKILL.md")
+	os.MkdirAll(filepath.Dir(review), 0o755)
+	os.WriteFile(review, []byte("---\ndescription: Review the branch\n---\n"), 0o600)
 	snap, events := reduce(t, s, base(), initLine)
-	want := []session.Command{{Name: "review"}, {Name: "doctor", Terminal: true}, {Name: "color", Terminal: true}, {Name: "compact"}, {Name: "config", Terminal: true}}
-	if !reflect.DeepEqual(snap.Commands, want) {
+	// The init's own list first, described from the config dir and the
+	// built-ins; then the built-ins that open the terminal, which -p
+	// leaves out.
+	want := []session.Command{{Name: "review", Description: "Review the branch", Source: "user"},
+		{Name: "doctor", Description: Builtin("doctor"), Terminal: true},
+		{Name: "color", Description: Builtin("color"), Terminal: true}, {Name: "compact", Description: Builtin("compact")},
+		{Name: "config", Description: "Open settings", Terminal: true, Aliases: []string{"settings"}}}
+	if len(snap.Commands) <= len(want) || !reflect.DeepEqual(snap.Commands[:len(want)], want) {
 		t.Fatalf("commands: %+v", snap.Commands)
+	}
+	for _, c := range snap.Commands[len(want):] {
+		if !c.Terminal || c.Description == "" || c.Name == "config" || c.Name == "doctor" {
+			t.Errorf("after the init's list: %+v", c)
+		}
+	}
+	if !slices.ContainsFunc(snap.Commands, func(c session.Command) bool { return c.Name == "resume" }) {
+		t.Error("no /resume, which opens the terminal")
 	}
 	// Each turn repeats system/init; the same list emits nothing.
 	if _, events = reduce(t, s, snap, initLine); len(events) != 0 {
@@ -262,5 +282,53 @@ func TestStreamSteered(t *testing.T) {
 	}
 	if es := s.line([]byte(`{"type":"command_lifecycle","command_uuid":"other","state":"started"}`)); len(es) != 0 {
 		t.Fatalf("a line Send wrote: %+v", es)
+	}
+}
+
+// The answer to the driver's initialize, as claude 2.1.330 gave it in a
+// temp config dir: descriptions without their scope tag, which becomes
+// the source, plugins' commands marked, aliases and hints kept, internal
+// ones left out, and the terminal built-ins after. An answer to another
+// request lists nothing.
+func TestInitializeCommands(t *testing.T) {
+	s := newStream("SESSION")
+	s.initID = "req_1"
+	answer := func(id string) string {
+		return `{"type":"control_response","response":{"subtype":"success","request_id":"` + id + `","response":{"commands":[` +
+			`{"name":"myskill","description":"My skill does things (user)","argumentHint":"target"},` +
+			`{"name":"deploy","description":"Deploy it (project)","argumentHint":""},` +
+			`{"name":"demo:demo-skill","description":"skill of demo (plugin)","argumentHint":""},` +
+			`{"name":"usage","description":"Show session cost","argumentHint":"","aliases":["cost","stats"],"builtin":true},` +
+			`{"name":"heapdump","description":"Dump the heap","builtin":true},` +
+			`{"name":"__remote-workflow","description":"internal","builtin":true}]}}}`
+	}
+	if _, events := reduce(t, s, base(), answer("req_9")); len(events) != 0 {
+		t.Fatalf("an answer to another request listed %+v", events)
+	}
+	snap, _ := reduce(t, s, base(), answer("req_1"))
+	want := []session.Command{
+		{Name: "myskill", Description: "My skill does things", Hint: "target", Source: "user"},
+		{Name: "deploy", Description: "Deploy it", Source: "project"},
+		{Name: "demo:demo-skill", Description: "skill of demo", Source: "plugin"},
+		{Name: "usage", Description: "Show session cost", Aliases: []string{"cost", "stats"}},
+	}
+	if len(snap.Commands) <= len(want) || !slices.EqualFunc(snap.Commands[:len(want)], want, session.Command.Equal) {
+		t.Fatalf("commands: %+v", snap.Commands)
+	}
+	for _, c := range snap.Commands[len(want):] {
+		if !c.Terminal || hiddenCommand(c.Name) {
+			t.Errorf("after the answer's own: %+v", c)
+		}
+	}
+	// The first turn's init lists the same names: no new list. One that
+	// differs, as after /reload-plugins, lists again, described.
+	same := `{"type":"system","subtype":"init","session_id":"SESSION","slash_commands":["usage","myskill","deploy","demo:demo-skill","heapdump","__remote-workflow"]}`
+	if _, events := reduce(t, s, snap, same); slices.ContainsFunc(events, func(e session.Event) bool { return e.Type == session.EventCommands }) {
+		t.Fatalf("the same names listed again: %+v", events)
+	}
+	more := `{"type":"system","subtype":"init","session_id":"SESSION","slash_commands":["usage","myskill","deploy","demo:demo-skill","fresh"]}`
+	snap, _ = reduce(t, s, snap, more)
+	if i := slices.IndexFunc(snap.Commands, func(c session.Command) bool { return c.Name == "fresh" }); i < 0 || snap.Commands[0].Description != "Show session cost" {
+		t.Fatalf("after a reload: %+v", snap.Commands)
 	}
 }
