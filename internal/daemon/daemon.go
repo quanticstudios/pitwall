@@ -160,6 +160,8 @@ type Options struct {
 	AutoSendFailures func() bool
 	Head             func(ctx context.Context, dir string) (string, error)
 	Failures         func(ctx context.Context, dir string) ([]forge.FailedCheck, error)
+	// SuggestNext reads [chat] suggest_next; nil means off.
+	SuggestNext func() bool
 	// SendReviewOnRequest reads [git] send_review_on_request; nil means off.
 	SendReviewOnRequest func() bool
 	Reviews             func(context.Context, string, int) ([]forge.Thread, []forge.Comment, error)
@@ -302,6 +304,8 @@ type Daemon struct {
 	mail          mail                         // see talk.go
 	reviews       map[string]string            // second opinions: reviewer pane to the pane it reviews; see opinion.go
 	chats         map[string]*chat             // live chats by id; see chats.go
+	suggests      suggestJobs                  // each chat's latest suggested-prompt run; see chatsuggest.go
+	srvSeen       seenServers                  // the tab each server found was in; see servers.go
 	// archiving are the chats dropChat closes, until their folder is archived.
 	archiving map[string]chan struct{}
 	// unarchiveMu runs one unarchive at a time: two of one chat would race
@@ -444,6 +448,7 @@ func Defaults() Options {
 		StartupPerAgentDelay: setting(config.Path(), func(s config.Settings) time.Duration { return s.StartupPerAgentDelay }),
 
 		SendReviewOnRequest: func() bool { s, _ := config.Load(); return s.SendReviewOnRequest },
+		SuggestNext:         func() bool { s, _ := config.Load(); return s.Chat.SuggestNext },
 		Reviews:             forge.Reviews,
 		Merge: func(ctx context.Context, dir string, number int) error {
 			s, _ := config.Load()
@@ -1077,6 +1082,14 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if f, ok := m.(proto.ChatFind); ok {
 			go func() { c.queue(d.chatFind(f)) }() // a reply to this client alone; a pane chat's reads its whole transcript
+			continue
+		}
+		if s, ok := m.(proto.ServerStop); ok {
+			go func() { c.queue(d.serverStop(ctx, s)) }() // a reply to this client alone, once it stopped or the grace ran out
+			continue
+		}
+		if s, ok := m.(proto.ChatSuggest); ok {
+			go func() { c.queue(d.chatSuggest(ctx, s)) }() // a reply to this client alone, once the agent answered
 			continue
 		}
 		if reply, ok := d.chatRequest(ctx, m); ok {

@@ -387,6 +387,8 @@ type ui struct {
 	stashes     *stashFiles                  // the composers' stashed drafts on disk, see stash.go
 	load        chatLoad                     // the buttons of a chat that did not load
 	drawn       map[string]bool              // the chats whose composer layoutPanes drew this frame
+	suggested   map[string]suggestAsk        // per chat, the turn whose next prompt it asked for
+	srvStops    map[string]srvStops          // per tab, this frame's answers to ServerStop
 	usage       usageWatch                   // token use for the tabs' hover cards
 	invalidate  func()                       // the window's Invalidate; nil in tests
 

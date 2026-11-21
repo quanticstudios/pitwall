@@ -61,6 +61,10 @@ type backend struct {
 	rewinds map[string][]proto.ChatRewindFiles
 	// finds are, per chat, the newest find result not yet taken.
 	finds map[string]proto.ChatFindResult
+	// suggests is each chat's latest suggested next prompt; stops, per
+	// tab, the ServerStop answers not yet taken.
+	suggests map[string]proto.ChatSuggestResult
+	stops    map[string][]proto.ServerStopResult
 	// mon is the daemon's latest MonitorSample and monAt when it came. It
 	// stays across a reconnect, for the view's stale state.
 	mon     proto.MonitorSample
@@ -578,6 +582,16 @@ func (b *backend) recvLoop() {
 				b.finds = map[string]proto.ChatFindResult{}
 			}
 			b.finds[m.Chat] = m // an older one the window did not take is stale
+		case proto.ChatSuggestResult:
+			if b.suggests == nil {
+				b.suggests = map[string]proto.ChatSuggestResult{}
+			}
+			b.suggests[m.Chat] = m
+		case proto.ServerStopResult:
+			if b.stops == nil {
+				b.stops = map[string][]proto.ServerStopResult{}
+			}
+			b.stops[m.Workspace] = append(b.stops[m.Workspace], m)
 		case proto.FaviconResult:
 			b.icons[m.Dir] = &m
 			if m.Root != "" {

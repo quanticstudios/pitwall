@@ -77,6 +77,7 @@ width = "standard"                      # or "comfortable" (736 dp), "full": a c
 follow_up = "queue"                     # or "steer": what the send key does while the agent works; Ctrl+Enter does the other
 send_key = "enter"                      # or "ctrl+enter": Ctrl+Enter sends and Enter adds a line
 tool_calls = "all"                      # or "failed", "none", "zen": which tool calls the chat shows
+suggest_next = false                    # after a turn, offer a predicted next prompt (Tab); uses the agent's plan
 
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag

@@ -117,6 +117,8 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		t.PRs, t.Open, t.Invalidate = st.PRs, func(target string) { u.openChatTarget(st, id, dir, target) }, u.invalidate
 		t.Run = func(cmd string) { u.runCode(st, id, cmd) }
 		aside := u.chatTools(st, id, t)
+		t.Servers = u.serverList(st, ws)
+		u.serverStops(gtx, ws.ID, t)
 		if focus {
 			for {
 				if _, ok := gtx.Event(key.Filter{Name: "F", Required: key.ModShortcut}); !ok {
@@ -156,6 +158,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			cwd = p.Cwd
 		}
 		env.Mentions, env.Branch = u.mentions(cwd), ws.Branch
+		env.Suggest = u.suggestion(st, id, &s, cmp)
 		env.Copy = func(s string) { putClipboard(gtx, s) }
 		gtx.Metric = u.chatMetric(gtx.Metric)
 		gl.Flex{Axis: gl.Vertical}.Layout(gtx,
@@ -192,6 +195,13 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 				gtx.Execute(op.InvalidateCmd{}) // the transcript laid out before this
 			}
 			u.send(m)
+		}
+		for _, a := range t.ServerActions() {
+			if a.Open != "" {
+				openLink(a.Open)
+				continue
+			}
+			u.send(proto.ServerStop{Workspace: ws.ID, PID: a.PID, Port: a.Port, Force: a.Force})
 		}
 		for _, a := range t.Answers() {
 			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision, Reason: a.Reason})

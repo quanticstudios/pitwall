@@ -60,6 +60,9 @@ type side struct {
 	jump string // Changes: a file to scroll to, once
 	path string // File: the file as asked, relative to Dir or absolute
 
+	servers bool // the Servers view, over file
+	srv     srvState
+
 	pv    *preview
 	img   paint.ImageOp
 	lines []string
@@ -111,14 +114,14 @@ func (t *Transcript) CloseFiles() bool {
 // showChanges shows turn's changes, scrolled to file when it is one.
 func (t *Transcript) showChanges(turn, file string) {
 	s := &t.side
-	s.on, s.file, s.turn, s.jump = true, false, turn, file
+	s.on, s.file, s.servers, s.turn, s.jump = true, false, false, turn, file
 	s.list.Position = layout.Position{}
 }
 
 // showFile shows file p in the File view, read again.
 func (t *Transcript) showFile(p string) {
 	s := &t.side
-	s.on, s.file, s.path = true, true, p
+	s.on, s.file, s.servers, s.path = true, true, false, p
 	t.readSide()
 }
 
@@ -285,10 +288,13 @@ func (t *Transcript) sidePanel(gtx layout.Context, d *cdraw, size image.Point) {
 		fs = t.changesOf(d, b)
 	}
 	if t.click("side:changes").Clicked(gtx) {
-		s.file = false
+		s.file, s.servers = false, false
+	}
+	if t.click("side:servers").Clicked(gtx) {
+		s.servers = true
 	}
 	if t.click("side:file").Clicked(gtx) {
-		s.file = true
+		s.file, s.servers = true, false
 		if s.path == "" && len(fs) > 0 {
 			t.showFile(fs[0].path)
 		}
@@ -314,10 +320,14 @@ func (t *Transcript) sidePanel(gtx layout.Context, d *cdraw, size image.Point) {
 	g := gtx
 	g.Constraints = layout.Exact(body)
 	cl := clip.Rect{Max: body}.Push(gtx.Ops)
-	if s.file {
+	switch {
+	case s.servers:
+		s.find.Close()
+		t.serversView(g, d, body)
+	case s.file:
 		s.find.Close()
 		t.fileView(g, d, body)
-	} else {
+	default:
 		t.changesView(g, d, b, haveTurn, fs, body)
 		s.find.Layout(g, th, body, "Find in changes", s.find.count())
 	}
@@ -337,10 +347,17 @@ func (t *Transcript) sideHead(gtx layout.Context, d *cdraw, w, h, files int) {
 	tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return hrow(gtx, gtx.Dp(theme.Space2XS),
 			func(gtx layout.Context) layout.Dimensions {
-				return d.tabButton(gtx, t.click("side:changes"), "Changes", count, !s.file)
+				return d.tabButton(gtx, t.click("side:changes"), "Changes", count, !s.file && !s.servers)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				return d.tabButton(gtx, t.click("side:file"), "File", "", s.file)
+				return d.tabButton(gtx, t.click("side:file"), "File", "", s.file && !s.servers)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				n := ""
+				if rows := len(serverRows(t.Servers.List)); rows > 0 {
+					n = strconv.Itoa(rows)
+				}
+				return d.tabButton(gtx, t.click("side:servers"), "Servers", n, s.servers)
 			})
 	})
 	at(gtx, image.Pt(pad, (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
@@ -348,7 +365,7 @@ func (t *Transcript) sideHead(gtx layout.Context, d *cdraw, w, h, files int) {
 		id, ic, tip string
 	}
 	bs := []btn{{"side:close", "", "Close (Esc)"}}
-	if s.file && s.pv != nil {
+	if s.file && !s.servers && s.pv != nil {
 		bs = append([]btn{{"side:refresh", icRefresh, "Read again"}, {"side:open", icExternal, "Open outside pitwall"}}, bs...)
 	}
 	x := w - pad

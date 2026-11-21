@@ -115,6 +115,56 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
   their number keys and Enter.
 - **Ctrl+Backspace** deletes a word, or a whole chip.
 
+## Suggested next prompt
+
+Turn on **Suggest next prompt** in Settings, or `[chat] suggest_next =
+true`. After a turn ends, an empty composer shows a predicted next message
+in muted text with a **Tab** key cap. **Tab** fills it in to edit or send,
+typing replaces it, and **Escape** dismisses it.
+
+Each suggestion is one headless run of the chat's own agent, under the
+pane's or chat's account, so it uses some of that agent's plan:
+
+| Agent       | Run                                                                   |
+| ----------- | --------------------------------------------------------------------- |
+| Claude Code | `claude -p` on haiku                                                  |
+| Codex       | `codex exec --ephemeral` on its cheapest listed model, low effort     |
+| Antigravity | `agy -p` on a flash model; pitwall deletes the conversation agy saves |
+
+The run sees the last six prompts and replies, at most 8,000 characters,
+not the tool calls. It saves no session and runs no tools, hooks or MCP
+servers. pitwall asks once per turn and only while the composer is empty,
+never while the agent works and never in a guarded tab. A turn that starts
+stops a run still going. T3 Code asks the live session instead (Claude's
+`--prompt-suggestions`, Codex's `thread/sample`), which reuses its prompt
+cache; a pane chat has no such session to ask, so pitwall pays for a short
+context on a cheap model instead.
+
+## Servers
+
+The **Servers** tab of the chat's side panel lists the dev servers the tab
+runs. While one runs, a globe button in the chat header opens it, and the
+sidebar row shows its lowest port. Each row is `localhost:3000`, then who
+started it, **Agent** or **Terminal**, the process name and its pid.
+
+- **Open** opens it in your browser. A tab on another machine has no Open:
+  its localhost is not yours.
+- **Stop** sends SIGTERM to the server's job: its process group, so `npm run
+  dev` and the node it started stop together, unless that group holds the
+  agent or a pane's shell, when only the server's process gets it. One still
+  running 3 seconds later shows **Force stop**, which asks before SIGKILL.
+
+pitwall looks every 3 seconds at the processes under the tab's panes, in
+their terminal sessions, and under its chat's agent process, and at the TCP
+ports they listen on, on the wildcard or loopback address: from /proc on
+Linux, `lsof` on macOS. It reads each process's parent, group, session and
+name, never its arguments or environment. A server keeps its tab after the
+shell that started it exits. The agents' own ports are left out. Codex runs
+every turn in one app-server that all its TUIs share; a server it starts
+goes to the one Codex tab whose folder holds the server's, and to none when
+two do. A server that daemonizes into a session of its own leaves the tab.
+Windows lists none.
+
 ## The transcript
 
 - It follows the newest line while Claude writes and jumps to the end when
@@ -230,6 +280,7 @@ codex = "chat"      # or "terminal": the same for Codex panes
 antigravity = "chat" # or "terminal": New task starts agy's TUI, and agy panes show as the TUI
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's and composer's column
 tool_calls = "all"  # or "failed", "none", "zen": which tool calls show
+suggest_next = false # after a turn, offer a predicted next prompt; uses the agent's plan
 
 [font]
 chat_code_size = 0  # code in the chat; 0 follows chat_size

@@ -88,3 +88,6 @@ func peerPID(nc net.Conn) int {
 // procBusy cannot tell an agent's processes apart here, so it reports
 // busy and parking never ends the agent.
 func procBusy(int, string) bool { return true }
+
+// exeOf is readExe, for the Servers panel.
+func exeOf(pid int) string { return readExe(pid) }

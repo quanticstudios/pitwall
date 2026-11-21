@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 97 added State.Servers, ServerStop, ServerStopResult, ChatSuggest
+// and ChatSuggestResult: a chat's Servers panel and its suggested next
+// prompt (ServersLevel, SuggestLevel).
 // Level 96 added ChatRewindCheck, ChatRewindFiles and ChatRewind.Stash:
 // a window lists the files a rewind puts back before it asks, and a
 // daemon at RewindFilesLevel refuses a rewind of the files while another
@@ -259,7 +262,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 96
+const Level = 97
 
 // PastedFileLevel is the first daemon that saves a ChatSend's pasted-text
 // attachment to a file in the tab's paste folder and puts the file's path
@@ -315,6 +318,13 @@ const ChatPageLevel = 86
 // ChatNowLevel is the first daemon sure to take ChatSend How "now": level
 // 85 daemons came both before and after it, and the older ones refuse it.
 const ChatNowLevel = 86
+
+// ServersLevel is the first daemon that fills State.Servers and takes
+// ServerStop.
+const ServersLevel = 97
+
+// SuggestLevel is the first daemon that answers ChatSuggest.
+const SuggestLevel = 97
 
 // EmptyPaneChatLevel is the first daemon that answers Chat* messages for a
 // pane chat before a hook named its transcript, with an empty chat; a
@@ -569,6 +579,10 @@ func Since(msg any) int {
 		return ChatFindLevel
 	case ChatAside, ChatAsideResult:
 		return ChatAsideLevel
+	case ServerStop, ServerStopResult:
+		return ServersLevel
+	case ChatSuggest, ChatSuggestResult:
+		return SuggestLevel
 	case ChatTerminal:
 		return ChatTerminalLevel
 	case ChatUnarchive:
@@ -1391,6 +1405,8 @@ var Messages = []any{
 	ChatRename{}, ChatPin{},
 	ChatUnarchive{},
 	ChatAside{}, ChatAsideResult{},
+	ServerStop{}, ServerStopResult{},
+	ChatSuggest{}, ChatSuggestResult{},
 	AgentExplain{}, AgentExplanation{},
 	Image{}, ImageResult{},
 	OpenForm{}, FormAnswer{},
@@ -1585,6 +1601,38 @@ type ChatFindResult struct {
 	Hits        []session.FindHit
 	More        bool
 	Err         string
+}
+
+// ChatSuggest asks for a predicted next message in Chat after its turn
+// Turn ended: a one-off run of the chat's agent, headless, on its cheapest
+// model. The daemon answers ChatSuggestResult to the asking client once,
+// and runs at most once per turn whoever asks. It refuses while the
+// agent works, in a guarded tab, and with [chat] suggest_next off.
+type ChatSuggest struct{ Chat, Turn string }
+
+// ChatSuggestResult answers ChatSuggest: Text, "" when the agent sees no
+// clear next step, or Err when there is none (Code: off, busy, guarded,
+// stale, unsupported, not-found or provider).
+type ChatSuggestResult struct{ Chat, Turn, Text, Code, Err string }
+
+// ServerStop stops PID, one of State.Servers[Workspace] listening on
+// Port: SIGTERM to its job, or with Force SIGKILL. The daemon signals
+// only a process it lists for that tab now.
+type ServerStop struct {
+	Workspace string
+	PID, Port int
+	Force     bool
+}
+
+// ServerStopResult answers ServerStop once the process is gone or the
+// grace after SIGTERM ran out: Running when it still runs (the window
+// then asks before Force), Err when it was not signalled.
+type ServerStopResult struct {
+	Workspace string
+	PID, Port int
+	Force     bool
+	Running   bool
+	Err       string
 }
 
 // ChatResult answers a Chat* request.

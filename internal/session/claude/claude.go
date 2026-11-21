@@ -459,6 +459,10 @@ func (d *driver) request(ctx context.Context, req map[string]any) error {
 	return d.write(map[string]any{"type": "control_request", "request_id": fmt.Sprintf("req_%d", d.reqs), "request": req})
 }
 
+// PID is the provider process's id, for the Servers panel: what it
+// started is the chat's.
+func (d *driver) PID() int { return d.cmd.Process.Pid }
+
 // Close closes stdin, which ends the CLI, and kills it when ctx ends
 // first. It returns once every event is out.
 func (d *driver) Close(ctx context.Context) error {

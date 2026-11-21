@@ -211,6 +211,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		if time.Since(portsAt) >= portPoll {
 			portsAt = time.Now()
 			d.checkPorts()
+			d.checkServers()
 		}
 	}
 }

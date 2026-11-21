@@ -138,6 +138,10 @@ func (d *driver) wait(stdout io.Closer) {
 	close(d.exited)
 }
 
+// PID is the provider process's id, for the Servers panel: what it
+// started is the chat's.
+func (d *driver) PID() int { return d.cmd.Process.Pid }
+
 // Close closes stdin, which ends the CLI, and kills it when ctx ends
 // first. It returns once every event is out.
 func (d *driver) Close(ctx context.Context) error {

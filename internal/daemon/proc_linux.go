@@ -356,3 +356,6 @@ func peerPID(nc net.Conn) int {
 	}
 	return pid
 }
+
+// exeOf is readExe, for the Servers panel.
+func exeOf(pid int) string { return readExe(pid) }
