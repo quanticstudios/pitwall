@@ -275,13 +275,15 @@ type Command struct {
 	Terminal    bool   `json:"terminal,omitempty"`
 }
 
-// terminalCommands open an interactive menu, editor or login flow in
-// Claude Code's TUI. A chat has no TUI to show them in, so the chat window
-// sends the user to the tab's terminal instead.
+// terminalCommands are Claude Code's slash commands that open a screen of
+// their own in its TUI. A chat has no TUI to show them in, so the chat
+// window opens the terminal for them. /model and /effort are the
+// composer's chips, and /usage, /context and /status the chat's cards, so
+// they stay out.
 var terminalCommands = []string{
-	"agents", "config", "doctor", "exit", "export", "hooks", "ide", "install-github-app",
-	"login", "logout", "mcp", "memory", "permissions", "plugin", "privacy-settings",
-	"resume", "rewind", "status", "statusline", "terminal-setup", "theme", "vim",
+	"add-dir", "agents", "allowed-tools", "bashes", "bug", "config", "doctor", "export", "feedback", "hooks", "ide",
+	"install-github-app", "login", "mcp", "memory", "output-style", "permissions", "plugin", "plugins",
+	"privacy-settings", "resume", "rewind", "settings", "tasks", "terminal-setup", "theme",
 }
 
 // TerminalCommand reports whether the slash command name needs the TUI.

@@ -18,6 +18,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -33,23 +34,12 @@ import (
 // behind the dialog, types the command once the TUI is up, and goes back to
 // the chat when the dialog closes.
 
-// tuiCommands are Claude Code's slash commands that open a screen of their
-// own. /model and /effort are the composer's chips, and /usage, /context,
-// /cost and /status the chat's cards, so they stay out.
-var tuiCommands = map[string]bool{
-	"login": true, "config": true, "settings": true, "permissions": true, "allowed-tools": true,
-	"mcp": true, "agents": true, "hooks": true, "memory": true, "theme": true, "resume": true, "plugin": true,
-	"plugins": true, "ide": true, "export": true, "rewind": true, "tasks": true, "bashes": true, "doctor": true,
-	"output-style": true, "privacy-settings": true, "add-dir": true, "install-github-app": true, "feedback": true,
-	"bug": true, "terminal-setup": true,
-}
-
-// tuiCommand is the command text runs when it is one of tuiCommands, ""
-// otherwise.
+// tuiCommand is the command text runs when session.TerminalCommand
+// names it, "" otherwise.
 func tuiCommand(text string) string {
 	t := strings.TrimSpace(text)
 	name, _, _ := strings.Cut(strings.TrimPrefix(t, "/"), " ")
-	if !strings.HasPrefix(t, "/") || !tuiCommands[name] {
+	if !strings.HasPrefix(t, "/") || !session.TerminalCommand(name) {
 		return ""
 	}
 	return t
