@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 )
@@ -34,7 +35,7 @@ func TestToolKinds(t *testing.T) {
 }
 
 // TestLogStatus: a running fold's header says its newest running call as
-// its row says it.
+// its row says it, and for how long it has run.
 func TestLogStatus(t *testing.T) {
 	bash := func(cmd, status string) session.Item {
 		return session.Item{Kind: session.KindToolCall, Tool: &session.ToolCall{ToolName: "Bash", Command: cmd, Status: status}}
@@ -54,8 +55,9 @@ func TestLogStatus(t *testing.T) {
 		{[]session.Item{bash("make", "running"), read}, "Read · " + filepath.Join("internal", "vt", "vt.go")},
 		{[]session.Item{bash("make", "running"), todo}, "Bash · make"},
 		{[]session.Item{{Kind: session.KindReasoningText, Text: "plain thinking"}}, ""},
+		{[]session.Item{{Kind: session.KindToolCall, CreatedAt: "2026-11-19T14:00:48Z", Tool: &session.ToolCall{ToolName: "Bash", Command: "make", Status: "running"}}}, "Bash · make · 0:12"},
 	} {
-		if got := logStatus(c.items, 0, len(c.items), dir); got != c.want {
+		if got := logStatus(c.items, 0, len(c.items), dir, time.Date(2026, 11, 19, 14, 1, 0, 0, time.UTC)); got != c.want {
 			t.Errorf("logStatus = %q, want %q", got, c.want)
 		}
 	}

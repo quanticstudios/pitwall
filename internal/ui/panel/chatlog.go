@@ -55,6 +55,9 @@ func (d *cdraw) logHead(gtx layout.Context, r *trow) layout.Dimensions {
 				return spinner(gtx, gtx.Dp(11), th.Surface, th.Blue, d.sec)
 			})
 			x += gtx.Dp(11) + gtx.Dp(theme.SpaceS)
+		} else if failed(d.s.Content, b.lo, b.hi) { // a folded failure still shows
+			icon(gtx, image.Pt(x, (hh-gtx.Dp(12))/2), "x", 12, th.Readable(th.Red, th.Surface))
+			x += gtx.Dp(12) + gtx.Dp(theme.SpaceS)
 		}
 		room := w - x - gtx.Dp(10)
 		if n := turnTokens(d.s, b.turn); n > 0 && r.tokens {
@@ -73,7 +76,8 @@ func (d *cdraw) logHead(gtx layout.Context, r *trow) layout.Dimensions {
 		// else how many.
 		var tc op.CallOp
 		var td layout.Dimensions
-		if thought(d.s.Content, b.lo, b.hi) && !running {
+		thinks := thought(d.s.Content, b.lo, b.hi) && !running
+		if thinks {
 			tc, td = title(strings.Replace(logTitle(took, 0, false), "Worked", "Thought", 1))
 		} else if k := toolKinds(d.s.Content, b.lo, b.hi); k != "" {
 			tc, td = title(logTitle(took, 0, running) + " · " + k)
@@ -82,9 +86,17 @@ func (d *cdraw) logHead(gtx layout.Context, r *trow) layout.Dimensions {
 			tc, td = title(logTitle(took, b.tools, running))
 		}
 		at(gtx, image.Pt(x, (hh-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
-		// A running log, folded, still says what the turn is doing now.
+		// A running fold, folded, still says what it is doing now; one of
+		// thinking alone says its first line.
 		x += td.Size.X + gtx.Dp(theme.SpaceS)
-		if st := logStatus(d.s.Content, b.lo, b.hi, d.t.Dir); running && st != "" && room-td.Size.X > gtx.Dp(48) {
+		st := ""
+		switch {
+		case running:
+			st = logStatus(d.s.Content, b.lo, b.hi, d.t.Dir, d.t.now)
+		case thinks:
+			st = firstThought(d.s.Content, b.lo, b.hi)
+		}
+		if st != "" && room-td.Size.X > gtx.Dp(48) {
 			g := gtx
 			g.Constraints.Max.X = room - td.Size.X - gtx.Dp(theme.SpaceS)
 			sc, sd := measure(g, func(gtx layout.Context) layout.Dimensions {
@@ -141,6 +153,27 @@ func logID(s *session.Snapshot, b block) string {
 		return "log:now:" + b.turn
 	}
 	return "log:" + s.Content[b.lo].ID
+}
+
+// failed is whether a call in content[lo:hi] failed.
+func failed(content []session.Item, lo, hi int) bool {
+	for i := lo; i < hi; i++ {
+		if c := content[i].Tool; content[i].Kind == session.KindToolCall && c != nil && c.Status == "failed" {
+			return true
+		}
+	}
+	return false
+}
+
+// firstThought is the first line of the first reasoning in
+// content[lo:hi] that has text, "" for none.
+func firstThought(content []session.Item, lo, hi int) string {
+	for i := lo; i < hi; i++ {
+		if t := strings.TrimSpace(content[i].Text); t != "" {
+			return firstLine(t)
+		}
+	}
+	return ""
 }
 
 // thought is whether content[lo:hi] is all reasoning: a fold that says

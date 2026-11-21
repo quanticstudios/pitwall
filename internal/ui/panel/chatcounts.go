@@ -88,20 +88,24 @@ func toolKinds(content []session.Item, lo, hi int) string {
 }
 
 // logStatus is the one line a running fold's header shows after its
-// counts: its newest running call as its row says it, "Bash · go test
-// ./...". dir shortens a call's path. "" for none. The turn's summaries
-// draw outside the fold, above it.
-func logStatus(content []session.Item, lo, hi int, dir string) string {
+// counts: its newest running call as its row says it, and how long it has
+// run by now, "Bash · go test ./... · 0:12". dir shortens a call's path.
+// "" for none. The turn's summaries draw outside the fold, above it.
+func logStatus(content []session.Item, lo, hi int, dir string, now time.Time) string {
 	for i := hi - 1; i >= lo; i-- {
 		if c := content[i].Tool; content[i].Kind == session.KindToolCall && c != nil && c.Status == "running" && !isTodo(c) {
-			v := summarize(c, nil, time.Time{}, time.Time{})
+			v := summarize(c, nil, itemTime(&content[i]), now)
 			if v.path {
 				v.arg = relPath(dir, v.arg)
 			}
+			s := v.verb
 			if a := firstLine(v.arg); a != "" {
-				return v.verb + " · " + a
+				s += " · " + a
 			}
-			return v.verb
+			if v.result != "" {
+				s += " · " + v.result
+			}
+			return s
 		}
 	}
 	return ""
