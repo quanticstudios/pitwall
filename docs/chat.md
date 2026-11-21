@@ -161,6 +161,18 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
   show no notice.
 - Long or old chats open at once: pitwall reads the transcript from its end
   and loads older turns as you scroll up.
+- Ctrl+F (Cmd+F in mac) finds in the whole chat: your prompts, the replies,
+  thinking and plans, older turns not loaded yet and long messages shown cut
+  too: the background service searches the whole transcript, the window
+  only what it shows. The bar counts "3 of 12"; Enter goes to the match
+  above, Shift+Enter to the one below. A match in older turns loads them,
+  and one in a folded work log, thought, plan or hidden turn opens it. Past
+  5,000 matches the bar keeps the newest, and its count ends in +. An older
+  background service cannot search: the bar then finds in what the window
+  has loaded, and reads the older turns in while it is open.
+- With the pointer on the Changes panel, Ctrl+F finds in every file of the
+  turn's diff instead. Enter goes to the next match, Shift+Enter to the
+  one before, and Escape closes the bar.
 
 ## Codex panes
 

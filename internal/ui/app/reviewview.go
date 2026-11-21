@@ -136,6 +136,7 @@ type reviewView struct {
 	hunkClick          map[int]*widget.Clickable
 	tag                int // takes the view's keys
 	focus              bool
+	find               reviewFind // Ctrl+F's bar over the diff
 
 	edit             widget.Editor
 	editing          bool
@@ -168,6 +169,7 @@ type reviewView struct {
 func (r *reviewView) show(ws, dir, base string, turn bool, invalidate func()) {
 	r.hide()
 	r.on, r.ws, r.dir, r.focus = true, ws, dir, true
+	r.find.bar.Close()
 	r.sel, r.selPath, r.cur, r.anchor, r.scrollTo, r.rowsDirty, r.editing, r.status = 0, "", -1, -1, -1, true, false, ""
 	r.fileList.Axis, r.diffList.Axis = gl.Vertical, gl.Vertical
 	r.fileList.Position, r.diffList.Position = gl.Position{}, gl.Position{}
@@ -1037,6 +1039,7 @@ func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 		filters = append(filters, key.Filter{Focus: &r.tag, Name: k})
 	}
 	filters = append(filters,
+		key.Filter{Focus: &r.tag, Name: "F", Required: key.ModShortcut},
 		key.Filter{Focus: &r.tag, Name: "S", Optional: key.ModShift},
 		key.Filter{Focus: &r.tag, Name: "U", Optional: key.ModShift},
 		key.Filter{Focus: &r.tag, Name: key.NameUpArrow, Optional: key.ModShift},
@@ -1055,8 +1058,14 @@ func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 			rows = r.rowsOf(f)
 		}
 		switch e.Name {
+		case "F":
+			r.find.bar.Open()
 		case key.NameEscape:
-			if r.editing {
+			// why: this filter takes Escape whatever has the focus, the find bar's field too.
+			if r.find.bar.On() {
+				r.find.close()
+				r.focus = true
+			} else if r.editing {
 				r.editing, r.focus = false, true
 			} else {
 				r.hide()

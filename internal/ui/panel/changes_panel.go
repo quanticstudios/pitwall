@@ -75,6 +75,8 @@ type side struct {
 	tipSince, tipShown time.Time
 	peekOf             string // the change card's row the pointer rests on
 	peekSince          time.Time
+
+	find sideFind // the Changes view's find bar
 }
 
 // changeCache is a turn's changes, worked out once per change of its
@@ -101,6 +103,7 @@ func (t *Transcript) ToggleFiles() {
 func (t *Transcript) CloseFiles() bool {
 	was := t.side.on
 	t.side.on = false
+	t.side.find.Close()
 	t.side.md.Close()
 	return was
 }
@@ -274,6 +277,7 @@ func (t *Transcript) sidePanel(gtx layout.Context, d *cdraw, size image.Point) {
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.Sidebar, clip.Rect{Max: size}.Op())
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Max: image.Pt(gtx.Dp(1), size.Y)}.Op())
+	t.sideOver(gtx)
 
 	b, haveTurn := t.sideTurn(d)
 	var fs []fileChange
@@ -311,9 +315,11 @@ func (t *Transcript) sidePanel(gtx layout.Context, d *cdraw, size image.Point) {
 	g.Constraints = layout.Exact(body)
 	cl := clip.Rect{Max: body}.Push(gtx.Ops)
 	if s.file {
+		s.find.Close()
 		t.fileView(g, d, body)
 	} else {
 		t.changesView(g, d, b, haveTurn, fs, body)
+		s.find.Layout(g, th, body, "Find in changes", s.find.count())
 	}
 	cl.Pop()
 	o.Pop()
@@ -483,10 +489,12 @@ func (t *Transcript) changesView(gtx layout.Context, d *cdraw, b block, ok bool,
 		}
 		s.jump = ""
 	}
+	turnID := d.s.Content[b.lo].ID
+	t.sideFindUpdate(gtx, turnID, fs)
+	t.sideFindJump(gtx, d)
 	s.list.Axis = layout.Vertical
 	pad := gtx.Dp(sidePad)
 	w := size.X - 2*pad
-	turnID := d.s.Content[b.lo].ID
 	s.list.Layout(gtx, len(fs)+2, func(gtx layout.Context, i int) layout.Dimensions {
 		gtx.Constraints = layout.Constraints{Min: image.Pt(size.X, 0), Max: image.Pt(size.X, 1<<20)}
 		switch {

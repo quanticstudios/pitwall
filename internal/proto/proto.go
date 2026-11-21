@@ -52,7 +52,9 @@ import (
 // a window lists the files a rewind puts back before it asks, and a
 // daemon at RewindFilesLevel refuses a rewind of the files while another
 // agent works in the folder or files changed after the agent's last turn,
-// unless Stash, and keeps the files in a backup ref first.
+// unless Stash, and keeps the files in a backup ref first. It also added
+// ChatFind and ChatFindResult: a find in a whole chat, its history not
+// loaded yet too (ChatFindLevel).
 // Level 95 added no message: a daemon at LimitQueueLevel queues a pane
 // chat's ChatSend How "queue" at an idle prompt, and drops a chat's limit
 // resume when a message is queued.
@@ -279,6 +281,10 @@ const LimitQueueLevel = 95
 // RewindFilesLevel added ChatRewindCheck, ChatRewindFiles and
 // ChatRewind.Stash; a window offers Revert files too only from it.
 const RewindFilesLevel = 96
+
+// ChatFindLevel added ChatFind and ChatFindResult. Below it a window
+// finds in what it has loaded of a chat.
+const ChatFindLevel = 96
 
 // SmartQueueLevel is the first daemon that joins a chat's queue into one
 // prompt, takes ChatQueue Actions "separate" and "together", and steers a
@@ -559,6 +565,8 @@ func Since(msg any) int {
 		return ImageLevel
 	case ChatRewindCheck, ChatRewindFiles:
 		return RewindFilesLevel
+	case ChatFind, ChatFindResult:
+		return ChatFindLevel
 	case ChatAside, ChatAsideResult:
 		return ChatAsideLevel
 	case ChatTerminal:
@@ -1399,6 +1407,7 @@ var Messages = []any{
 	HostCheck{}, HostCheckResult{},
 	ChatTerminal{},
 	ChatRewindCheck{}, ChatRewindFiles{},
+	ChatFind{}, ChatFindResult{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -1562,6 +1571,21 @@ type ChatAside struct{ Chat, ID, Question string }
 
 // ChatAsideResult answers ChatAside ID: Answer, or Err when there is none.
 type ChatAsideResult struct{ Chat, ID, Answer, Err string }
+
+// ChatFind finds Query in all of Chat, the history a window has not
+// read yet and the long fields a snapshot cuts too, case folded as
+// session.Fold folds: its prompts, the assistant's text and reasoning,
+// and plans (session.FindText). The daemon answers with ChatFindResult.
+type ChatFind struct{ Chat, Query string }
+
+// ChatFindResult answers ChatFind Query: the matches by item, oldest
+// first; More says it left older ones out. Err says why there are none.
+type ChatFindResult struct {
+	Chat, Query string
+	Hits        []session.FindHit
+	More        bool
+	Err         string
+}
 
 // ChatResult answers a Chat* request.
 type ChatResult struct {

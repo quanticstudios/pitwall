@@ -23,13 +23,20 @@ type RewindChecker interface {
 	RewindChecks(id string) []proto.ChatRewindFiles
 }
 
+// ChatFinder is optionally implemented by a Backend: the newest answer
+// to the window's ChatFind for chat id that came since the last call.
+type ChatFinder interface {
+	ChatFound(id string) (proto.ChatFindResult, bool)
+}
+
 // chatTools sets what chat id's transcript t offers on its prompts, as
 // its daemon and agent take them, hands it the side questions answered
-// and the rewinds checked, and reports whether the chat takes side
-// questions. A Claude Code pane chat rewinds through its picker and does
-// not fork; a chat tab does both. A Codex or Antigravity chat tab rewinds
-// from RewindFilesLevel, through a fork of its session or a recap; their
-// panes have no picker pitwall drives.
+// and the rewinds checked, and what the daemon found, and reports whether
+// the chat takes side questions. Below ChatFindLevel, t finds in what the
+// window holds. A Claude Code pane chat rewinds through its picker and
+// does not fork; a chat tab does both. A Codex or Antigravity chat tab
+// rewinds from RewindFilesLevel, through a fork of its session or a
+// recap; their panes have no picker pitwall drives.
 func (u *ui) chatTools(st *model.State, id string, t *panel.Transcript) bool {
 	c := findChat(st, id)
 	claude := c != nil && c.Provider == model.ProviderClaude
@@ -40,6 +47,15 @@ func (u *ui) chatTools(st *model.State, id string, t *panel.Transcript) bool {
 		c != nil && !pane && level >= proto.RewindFilesLevel
 	t.CanFork = claude && !pane && level >= proto.ChatForkLevel
 	t.FilesRewind = t.CanRewind && level >= proto.RewindFilesLevel
+	t.Find = nil
+	if level >= proto.ChatFindLevel {
+		t.Find = func(q string) { u.send(proto.ChatFind{Chat: id, Query: q}) }
+	}
+	if f, ok := u.b.(ChatFinder); ok {
+		if r, ok := f.ChatFound(id); ok {
+			t.Found(r.Query, r.Hits, r.More, r.Err)
+		}
+	}
 	if a, ok := u.b.(ChatAsker); ok {
 		for _, r := range a.ChatAsides(id) {
 			t.Answered(r.ID, r.Answer, r.Err)

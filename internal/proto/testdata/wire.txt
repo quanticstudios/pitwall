@@ -52,6 +52,8 @@ proto.ChatArchive{Chat string; Delete bool}
 proto.ChatAside{Chat string; ID string; Question string}
 proto.ChatAsideResult{Chat string; ID string; Answer string; Err string}
 proto.ChatDeltas{Chat string; Snapshot []uint8; Seq int64; Deltas [][]uint8; Older int64; Page int64; Item []uint8}
+proto.ChatFind{Chat string; Query string}
+proto.ChatFindResult{Chat string; Query string; Hits []session.FindHit; More bool; Err string}
 proto.ChatFork{Chat string; Turn string; Worktree string}
 proto.ChatInterrupt{Chat string}
 proto.ChatNew{SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Provider model.Provider; Model string; Effort string; Mode string; Prompt string; FakeStartFailure string; Images []string; Attachments []session.Attachment; Skill *session.Skill; Name string; ParentPane string}
@@ -175,6 +177,7 @@ sample.Mem{Total uint64; Used uint64; Available uint64; Cached uint64; Free uint
 sample.Net{Name string; Addr string; RxBps float64; TxBps float64; RxTotal uint64; TxTotal uint64}
 sample.Snapshot{Time time.Time; Host sample.Host; CPU sample.CPU; Mem sample.Mem; Drives []sample.Drive; Nets []sample.Net}
 session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
+session.FindHit{Item string; At []int; Runes int}
 session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; Error string; Alone bool; Sending bool}
 session.Skill{Provider model.Provider; ID string; Name string; Path string}
 skillshare.AuditResult{Unknown bool; Blocked []string; Findings []skillshare.Finding}

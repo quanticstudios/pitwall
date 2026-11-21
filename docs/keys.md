@@ -453,6 +453,7 @@ In [the desktop chat](chat.md)'s composer:
 | Alt+T                   | Flip to Claude Code's TUI and back (Cmd+Option+T in mac)       |
 | Ctrl+= / Ctrl+-         | Chat text a point bigger (Ctrl++ too) / smaller, saved as `[font] chat_size` (Cmd in mac) |
 | Ctrl+0                  | Chat text back to the interface size (Cmd+0 in mac)            |
+| Ctrl+F                  | Find in the whole chat, or with the pointer on the Changes panel in its diff (Cmd+F in mac); Enter and Shift+Enter move, Esc closes |
 
 `[chat] send_key = "ctrl+enter"` swaps the send key: Ctrl+Enter sends,
 Enter and Shift+Enter add a line, and Ctrl+Shift+Enter with a draft does

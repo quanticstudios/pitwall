@@ -1161,6 +1161,7 @@ type ChatRename struct{ Chat, Title string }             // ChatRename and ChatP
 type ChatPin struct{ Chat string; Pinned bool }         // aide's task-history pin, in config.json; not the tab's pin
 type ChatUnarchive struct{ Chat string } // proto.ChatUnarchiveLevel (46)
 type ChatList struct{ Archived bool } // archived chats are not in State; this lists them
+type ChatFind struct{ Chat, Query string } // proto.ChatFindLevel (94): the whole chat, older pages and cut items too
 
 // Daemon to client.
 
@@ -1179,6 +1180,13 @@ type ChatDeltas struct {
 }
 
 type ChatListResult struct{ Chats []model.Chat }
+
+type ChatFindResult struct { // answers ChatFind Query
+	Chat, Query string
+	Hits        []session.FindHit // per item, oldest first: each match's rune offset in session.FindText's text
+	More        bool              // the newest 5,000 matches came; older items hold more
+	Err         string
+}
 ```
 
 Snapshots and deltas cross the socket as their JSON, so the GUI, the CLI

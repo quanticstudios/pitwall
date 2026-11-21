@@ -1075,6 +1075,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			go func() { c.queue(d.chatAside(ctx, a)) }() // a reply to this client alone, once its agent is done
 			continue
 		}
+		if f, ok := m.(proto.ChatFind); ok {
+			go func() { c.queue(d.chatFind(f)) }() // a reply to this client alone; a pane chat's reads its whole transcript
+			continue
+		}
 		if reply, ok := d.chatRequest(ctx, m); ok {
 			c.queue(reply) // a reply to this client alone
 			continue

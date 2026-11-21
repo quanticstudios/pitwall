@@ -624,7 +624,11 @@ are on the left with their status (M, A, D, R for a rename, ? for untracked)
 and line counts; the selected file's diff is on the right, with both line
 numbers and the unchanged lines between hunks folded into a row you click to
 unfold. j and k move between files, n and p between hunks, the arrows
-between lines, Shift+arrows select a range. A binary file, an untracked file
+between lines, Shift+arrows select a range. Ctrl+F (Cmd+F in mac) finds
+in every file's diff, folded unchanged lines and files over 3,000 changed
+lines too: Enter goes to the next match and Shift+Enter to the one before,
+a match in another file selects it and unfolds the lines around the match,
+and Escape closes the bar, then the view. A binary file, an untracked file
 over 1 MiB and a file with over 3,000 changed lines show a line about
 themselves instead; the last has a button to show its diff anyway.
 

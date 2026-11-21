@@ -32,3 +32,13 @@ func (b *backend) RewindChecks(id string) []proto.ChatRewindFiles {
 	delete(b.rewinds, id)
 	return r
 }
+
+// ChatFound implements app.ChatFinder: the newest find result for chat id
+// that came since the last call.
+func (b *backend) ChatFound(id string) (proto.ChatFindResult, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.finds[id]
+	delete(b.finds, id)
+	return r, ok
+}

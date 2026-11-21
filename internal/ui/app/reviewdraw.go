@@ -24,6 +24,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/review"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -43,6 +44,10 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 	event.Op(gtx.Ops, &r.tag)
 	files, base, root, errText, loaded := r.snapshot()
 	r.follow(files)
+	if r.find.update(gtx, files) {
+		r.focus = true // the keys back to the view
+	}
+	r.findJump(files)
 
 	headH := u.reviewHeader(gtx, st, files, base, root)
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, headH), Max: image.Pt(size.X, headH+1)}.Op())
@@ -86,6 +91,11 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 	if f := r.file(files); f != nil {
 		u.reviewDiff(dg, files, f, root)
 	}
+	o.Pop()
+	// The find bar over the diff's rows, under the file's header.
+	top := body.Min.Y + gtx.Dp(48) + 1
+	o = op.Offset(image.Pt(listW+1, top)).Push(gtx.Ops)
+	r.find.bar.Layout(gtx, th, image.Pt(size.X-listW-1, max(0, size.Y-top)), "Find in diff", r.find.count())
 	o.Pop()
 }
 
@@ -695,6 +705,7 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 // lineMetrics is the diff's row height and its number columns' width.
 type lineMetrics struct {
 	h, num, mark int
+	cw           int // a mono rune's width
 }
 
 func (u *ui) lineMetrics(gtx gl.Context, f *review.File) lineMetrics {
@@ -704,7 +715,7 @@ func (u *ui) lineMetrics(gtx gl.Context, f *review.File) lineMetrics {
 	}
 	digits := max(len(fmt.Sprint(last)), 3)
 	_, sz := textCall(gtx, u.th, u.th.MonoFont, u.monoSize(), u.th.Fg, strings.Repeat("0", digits))
-	return lineMetrics{h: sz.Y + gtx.Dp(4), num: sz.X + gtx.Dp(16), mark: sz.X/digits + gtx.Dp(8)}
+	return lineMetrics{h: sz.Y + gtx.Dp(4), num: sz.X + gtx.Dp(16), mark: sz.X/digits + gtx.Dp(8), cw: sz.X / digits}
 }
 
 func (u *ui) monoSize() unit.Sp { return u.th.MonoSize * 0.9 }
@@ -808,9 +819,12 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 	if l.Kind != ' ' {
 		drawMid(gtx, th, image.Pt(gutter+gtx.Dp(6), h), th.MonoFont, u.monoSize(), markC, string(rune(l.Kind)), w)
 	}
-	text := strings.ReplaceAll(l.Text, "\t", "    ")
+	text := reviewText(l)
 	if utf8.RuneCountInString(text) > maxLineRunes {
 		text = string([]rune(text)[:maxLineRunes])
+	}
+	if rf := &r.find; len(rf.q) > 0 {
+		panel.Mark(gtx, th, text, rf.q, rf.current(r.sel, i), gutter+m.mark, gtx.Dp(1), m.cw, h-2*gtx.Dp(1))
 	}
 	drawMid(gtx, th, image.Pt(gutter+m.mark, h), th.MonoFont, u.monoSize(), th.Fg, text, w)
 	o := op.Offset(image.Point{}).Push(gtx.Ops)

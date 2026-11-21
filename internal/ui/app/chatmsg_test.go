@@ -95,3 +95,26 @@ func TestChatActionsRewind(t *testing.T) {
 		}
 	}
 }
+
+// A daemon at ChatFindLevel finds for the chat's find bar; below it the
+// bar finds in what the window holds.
+func TestChatFindLevel(t *testing.T) {
+	st := &model.State{Chats: []model.Chat{{ID: "tab", Provider: model.ProviderCodex}}}
+	for _, level := range []int{proto.ChatFindLevel - 1, proto.ChatFindLevel} {
+		b := &linkedFake{FakeBackend: NewFakeBackend(), level: level}
+		u := &ui{b: b}
+		var tr panel.Transcript
+		u.chatTools(st, "tab", &tr)
+		if (tr.Find != nil) != (level >= proto.ChatFindLevel) {
+			t.Errorf("level %d: Find set %v", level, tr.Find != nil)
+			continue
+		}
+		if tr.Find == nil {
+			continue
+		}
+		tr.Find("needle")
+		if got := b.Sent(); len(got) != 1 || got[0] != (proto.ChatFind{Chat: "tab", Query: "needle"}) {
+			t.Errorf("sent %v", got)
+		}
+	}
+}

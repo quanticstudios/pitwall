@@ -97,6 +97,7 @@ func allMessages() []any {
 		ChatFork{Chat: "c", Turn: "2", Worktree: "try"}, ChatRewind{Chat: "c", Turn: "t1", Stash: true},
 		ChatRename{Chat: "c", Title: "Daily review"}, ChatPin{Chat: "c", Pinned: true}, ChatUnarchive{Chat: "c"}, ChatAside{Chat: "c", ID: "a1", Question: "why?"}, ChatAsideResult{Chat: "c", ID: "a1", Answer: "because"}, ChatTerminal{Chat: "c", On: true},
 		ChatRewindCheck{Chat: "c", Turn: "t1"}, ChatRewindFiles{Chat: "c", Turn: "t1", Files: []RewindFile{{Path: "new.go", From: "old.go", Status: "renamed"}}, Unsaved: []RewindFile{{Path: "mine.go", Status: "modified"}}, Refused: "no"},
+		ChatFind{Chat: "c", Query: "needle"}, ChatFindResult{Chat: "c", Query: "needle", Hits: []session.FindHit{{Item: "i", At: []int{0, 9}, Runes: 20}}, More: true},
 		ChatResult{Chat: "c", Turn: "t", Code: "busy", Message: "a turn is running"},
 		ChatDeltas{Chat: "c", Snapshot: []byte(`{}`), Seq: 1, Deltas: [][]byte{[]byte(`{"seq":2}`)}},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},
