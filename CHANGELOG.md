@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A Claude Code pane's context meter measures Claude 5 models (Opus, Sonnet and Haiku 5.5, Fable 5.2, Opus 5) against their 1M window, as Claude Code 2.1.330 reports it. It used 200K for any model but Sonnet 5.5 and `[1m]` ids, so a long Opus session read 100% in red; a session already past 200K is never measured against 200K.
+
 ## v0.3.1
 
 - A running turn's folded work log says what the turn is doing now after its counts: Claude's newest summary, else the running call, such as "Bash · go test ./...".
