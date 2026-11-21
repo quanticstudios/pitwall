@@ -90,6 +90,8 @@ type chat struct {
 	// check is the checkpoint taken for the turn being sent; the turn's
 	// summary gets it as checkpointId when it starts.
 	check string
+	// next runs chatNext when a usage limit that holds the queue resets.
+	next *time.Timer
 
 	dir    string        // the chat's eventlog folder; "" in memory only
 	log    *eventlog.Log // nil until the first command loads the chat
@@ -851,6 +853,7 @@ func (c *chat) open() {
 		return
 	}
 	c.log, c.snap, c.seq, c.published = l, snap, seq, seq
+	c.unsent()
 	c.syncQueue()
 	c.defaults()
 	if c.cfg.RecentPrompt == "" {
@@ -1415,8 +1418,10 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 			c.prompt(m, true)
 			return "", "", nil
 		case errors.Is(err, session.ErrUnsupported) && how == "now":
-			// why: Claude's CLI takes no message mid-turn, so this one stops the turn and goes ahead of the queue.
-			c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, queued(m))
+			// why: the provider takes no message mid-turn, so this one stops the turn and goes ahead of the queue, alone.
+			q := queued(m)
+			q.Alone = true
+			c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, q)
 			if err := c.drv.Interrupt(ctx); err != nil {
 				c.cfg.Queue = c.cfg.Queue[1:]
 				return "", "", err
@@ -1507,20 +1512,111 @@ func (c *chat) prompt(m session.Message, steer bool) {
 	c.commit([]session.Delta{{Type: session.DeltaItemAdd, Item: &it}}, stamp)
 }
 
-// chatNext starts the next queued message once the chat is idle, unless an
-// interrupt holds the queue or the provider is not running.
+// chatNext starts the next turn from the queue once the chat is idle,
+// unless an interrupt holds the queue, the provider is not running or
+// chatWait says why it waits: the first message that did not fail, and
+// the plain ones right after it (joins), as one prompt. Its rows wait in
+// the queue marked Sending until the turn took them, so a restart in
+// between shows them as maybe sent (unsent) instead of sending them twice.
 func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 	// A message that failed waits for Send now; the ones after it go on.
 	i := slices.IndexFunc(c.cfg.Queue, func(q session.QueuedMessage) bool { return q.Error == "" })
 	if c.drv == nil || c.cfg.Held || i < 0 || c.snap.Busy() {
 		return
 	}
-	q := c.cfg.Queue[i]
-	c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
-	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}); err != nil {
+	if why, _, until := c.wait(); why != "" {
+		if !until.IsZero() && c.next == nil {
+			c.next = time.AfterFunc(time.Until(until), func() {
+				c.do(func() { c.next = nil; d.chatNext(context.Background(), c); d.chatChanged(c) })
+			})
+		}
+		return
+	}
+	var texts []string
+	var alone []bool
+	var images []int
+	for _, q := range c.cfg.Queue[i:] {
+		if q.Error != "" {
+			break
+		}
+		texts, alone, images = append(texts, q.Text), append(alone, q.Alone || q.Skill != nil), append(images, imageCount(q.Attachments))
+	}
+	rows := slices.Clone(c.cfg.Queue[i : i+joins(texts, alone)])
+	m := session.Message{ID: rows[0].ID, Text: rows[0].Text, Attachments: rows[0].Attachments, Skill: rows[0].Skill}
+	if len(rows) > 1 {
+		m.Text, m.Attachments = joinPrompts(texts[:len(rows)], images), nil
+		for _, r := range rows {
+			m.Attachments = joinAttachments(m.Attachments, r.Attachments)
+		}
+	}
+	for k := range rows {
+		c.cfg.Queue[i+k].Sending = true
+	}
+	c.save()
+	_, note, err := d.chatTurn(ctx, c, m)
+	if note == "queued" { // the driver was busy after all: chatTurn queued m whole
+		c.cfg.Queue = c.cfg.Queue[1:]
+	}
+	for k := range rows {
+		j := slices.IndexFunc(c.cfg.Queue, func(q session.QueuedMessage) bool { return q.ID == rows[k].ID })
+		switch {
+		case j < 0:
+		case err == nil && note == "":
+			c.cfg.Queue = slices.Delete(c.cfg.Queue, j, j+1)
+		default:
+			c.cfg.Queue[j].Sending = false
+			if err != nil {
+				c.cfg.Queue[j].Error = err.Error()
+			}
+		}
+	}
+	if err != nil {
 		log.Printf("chat %s: queued message: %q", c.id, err)
-		q.Error = err.Error()
-		c.cfg.Queue = slices.Insert(c.cfg.Queue, i, q)
+	}
+}
+
+// wait is why c's queue waits although its turn may be over, ""
+// when nothing does: a question or an approval, a usage limit until it
+// resets (until), or a failed turn, which waits for the user's Send
+// (paused) unless Send let it go (Config.FailedOK).
+func (c *chat) wait() (why string, paused bool, until time.Time) {
+	s := c.snap
+	switch {
+	case len(s.PendingUserInputs) > 0:
+		return waitAnswer, false, time.Time{}
+	case len(s.PendingApprovals) > 0:
+		return waitApproval, false, time.Time{}
+	case len(s.Turns) == 0 || s.Busy():
+		return "", false, time.Time{}
+	}
+	last := s.Turns[len(s.Turns)-1]
+	if last.State != session.TurnFailed || last.ID == c.cfg.FailedOK {
+		return "", false, time.Time{}
+	}
+	if l := s.UsageLimit; l != nil && l.ResetsAt != nil {
+		if t, err := time.Parse(time.RFC3339, *l.ResetsAt); err == nil {
+			if at := t.Add(resumeDelay); at.After(time.Now()) {
+				return waitLimit(t), false, at
+			}
+			return "", false, time.Time{}
+		}
+	}
+	return waitFailed, true, time.Time{}
+}
+
+// unsent shows the queued messages a restart found marked Sending as
+// maybe sent, to wait for Retry, or drops them when the transcript has
+// their prompt. Owned by the loop.
+func (c *chat) unsent() {
+	var sent bool
+	for _, q := range c.cfg.Queue {
+		sent = sent || q.Sending && slices.ContainsFunc(c.snap.Content, func(it session.Item) bool { return it.ID == q.ID })
+	}
+	c.cfg.Queue = slices.DeleteFunc(c.cfg.Queue, func(q session.QueuedMessage) bool { return sent && q.Sending })
+	for i := range c.cfg.Queue {
+		if q := &c.cfg.Queue[i]; q.Sending {
+			q.Sending, q.Error = false, mayHaveSent
+		}
 	}
 }
 
@@ -1546,14 +1642,19 @@ func recentPrompt(text string) string {
 func (c *chat) syncQueue() {
 	inputs := make([]session.QueuedInput, 0, len(c.cfg.Queue))
 	for _, q := range c.cfg.Queue {
-		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: nonNil(q.Attachments), Recipients: []string{}, Error: q.Error})
+		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: nonNil(q.Attachments), Recipients: []string{}, Error: q.Error, Alone: q.Alone})
 	}
+	why, paused, _ := c.wait()
+	if c.cfg.Held || len(inputs) == 0 {
+		why, paused = "", false
+	}
+	paused = paused || c.cfg.Held
 	if slices.EqualFunc(inputs, c.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
-		return a.ID == b.ID && a.Text == b.Text && a.CreatedAt == b.CreatedAt && a.Error == b.Error
-	}) && c.snap.QueuePaused == c.cfg.Held {
+		return a.ID == b.ID && a.Text == b.Text && a.CreatedAt == b.CreatedAt && a.Error == b.Error && a.Alone == b.Alone
+	}) && c.snap.QueuePaused == paused && c.snap.QueueReason == why {
 		return
 	}
-	set, _ := json.Marshal(map[string]any{"queuedInputs": inputs, "queuePaused": c.cfg.Held})
+	set, _ := json.Marshal(map[string]any{"queuedInputs": inputs, "queuePaused": paused, "queueReason": why})
 	c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 }
 
@@ -1561,6 +1662,9 @@ func (c *chat) syncQueue() {
 func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (string, string, error) {
 	if m.Action == "resume" {
 		c.cfg.Held = false
+		if n := len(c.snap.Turns); n > 0 && c.snap.Turns[n-1].State == session.TurnFailed {
+			c.cfg.FailedOK = c.snap.Turns[n-1].ID
+		}
 		d.chatNext(ctx, c)
 		return "", "", nil
 	}
@@ -1583,12 +1687,17 @@ func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (str
 		c.cfg.Queue = slices.Insert(c.cfg.Queue, m.Index, q)
 	case "remove":
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
+	case "separate", "together":
+		c.cfg.Queue[i].Alone = m.Action == "separate"
 	case "steer", "now":
 		// Keep the original queue on a refused steer.
 		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
 		if !c.snap.Busy() { // ahead of the rest, as Send now promises
 			q.Error, c.cfg.Held = "", false
+			if n := len(c.snap.Turns); n > 0 && c.snap.Turns[n-1].State == session.TurnFailed {
+				c.cfg.FailedOK = c.snap.Turns[n-1].ID // Send now goes past a failed turn
+			}
 			c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, q)
 			d.chatNext(ctx, c)
 			return "", "", nil
@@ -1744,7 +1853,7 @@ func (d *Daemon) chatChanged(c *chat) {
 		ID: c.id, WorkspaceID: c.cfg.Workspace, Provider: c.cfg.Provider,
 		Model: c.cfg.Model, Effort: c.cfg.Effort, Mode: c.cfg.Mode,
 		State: c.snap.SessionState, Pending: len(c.snap.PendingApprovals) + len(c.snap.PendingUserInputs),
-		Queued: len(c.cfg.Queue), Turns: len(c.snap.Turns), Seq: c.seq,
+		Queued: len(c.cfg.Queue), QueueHeld: queueHeld(c.snap.QueuePaused, c.snap.QueueReason), Turns: len(c.snap.Turns), Seq: c.seq,
 		UpdatedAt: c.sum.UpdatedAt, Title: c.sum.Title, RecentPrompt: c.cfg.RecentPrompt, Pinned: c.cfg.Pinned,
 		Terminal: c.term,
 	}

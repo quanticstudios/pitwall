@@ -44,11 +44,15 @@ type Snapshot struct {
 	UpdatedAt         string         `json:"updatedAt"`
 	QueuedInputs      []QueuedInput  `json:"queuedInputs,omitempty"`
 	QueuePaused       bool           `json:"queuePaused,omitempty"`
-	UsageLimit        *UsageLimit    `json:"usageLimit,omitempty"`
-	Usage             *Usage         `json:"usage,omitempty"`
-	UsageReports      []UsageReport  `json:"usageReports,omitempty"`
-	UsageSummary      *UsageSummary  `json:"usageSummary,omitempty"`
-	Commands          []Command      `json:"commands,omitempty"` // the provider's slash commands, pitwall's
+	// QueueReason says why the queue waits although the turn ended, as
+	// "Waiting for your answer"; "" while it waits only for the turn.
+	// With QueuePaused it waits for Send (ChatQueue Action "resume").
+	QueueReason  string        `json:"queueReason,omitempty"`
+	UsageLimit   *UsageLimit   `json:"usageLimit,omitempty"`
+	Usage        *Usage        `json:"usage,omitempty"`
+	UsageReports []UsageReport `json:"usageReports,omitempty"`
+	UsageSummary *UsageSummary `json:"usageSummary,omitempty"`
+	Commands     []Command     `json:"commands,omitempty"` // the provider's slash commands, pitwall's
 	// Live is what a pane chat's agent shows on screen before its
 	// transcript has it: the prompt the chat sent, the reply it streams,
 	// and Antigravity's thought and running command. A reader draws it
@@ -293,6 +297,9 @@ type QueuedInput struct {
 	// Error is why the message could not be sent when its turn came; it
 	// waits for Send now (proto.ChatQueue Action "now") instead.
 	Error string `json:"error,omitempty"`
+	// Alone keeps the message out of the prompt the queue joins when a
+	// turn ends: it goes as a turn of its own (ChatQueue "separate").
+	Alone bool `json:"alone,omitempty"`
 }
 
 // UsageLimit is the rejected limit aide's thread banner displays.

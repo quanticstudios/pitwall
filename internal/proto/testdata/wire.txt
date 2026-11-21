@@ -1,4 +1,4 @@
-18.90
+18.91
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -6,7 +6,8 @@ image.Rectangle{Min image.Point; Max image.Point}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; Command string; UpdatedAt time.Time; Unseen bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Repeats int; Repeating string; Options []string; OptionNotes []string; Buttons []string; Menu bool; Background bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
-model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; Turns int; Seq int64; UpdatedAt time.Time; Terminal string}
+model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; QueueHeld string; Turns int; Seq int64; UpdatedAt time.Time; Terminal string}
+model.ChatQueue{N int; Held string}
 model.Check{Name string; State model.CheckState}
 model.Clipboard{Seq uint64; Text string}
 model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Origin model.Origin; Group model.Project; PR int; ClosedAt time.Time; Gone bool; FinishedWorker bool}
@@ -26,7 +27,7 @@ model.Project{ID string; SessionID string; Name string; Root string; Kind model.
 model.RemoteSession{Host string; Session string; Forget []string}
 model.RemoteWorker{ID string; Host string; Parent string; Since time.Time; Lost string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin; Workers []model.RemoteWorker}
-model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form}
+model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.TabStart{SessionID string; SessionName string; Parent string; ParentPane string}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
@@ -171,7 +172,7 @@ sample.Mem{Total uint64; Used uint64; Available uint64; Cached uint64; Free uint
 sample.Net{Name string; Addr string; RxBps float64; TxBps float64; RxTotal uint64; TxTotal uint64}
 sample.Snapshot{Time time.Time; Host sample.Host; CPU sample.CPU; Mem sample.Mem; Drives []sample.Drive; Nets []sample.Net}
 session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
-session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; Error string}
+session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; Error string; Alone bool; Sending bool}
 session.Skill{Provider model.Provider; ID string; Name string; Path string}
 skillshare.AuditResult{Unknown bool; Blocked []string; Findings []skillshare.Finding}
 skillshare.Call{Op string; Name string; Scope string; Dir string; Item skillshare.Item; Items []skillshare.Item; Scopes []string; Action string; All bool; Plugins bool; Force bool; Source string; Clone string; Picks []skillshare.Choice; Skills []string; Paths skillshare.Paths}

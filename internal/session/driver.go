@@ -105,6 +105,8 @@ type Config struct {
 	FakeStartFailure string            `json:"-"` // fake provider only; never persisted
 	Queue            []QueuedMessage   `json:"queue,omitempty"`
 	Held             bool              `json:"held,omitempty"` // the queue waits for the next send (after an interrupt)
+	// FailedOK is the failed turn whose hold Send let go.
+	FailedOK string `json:"failedOK,omitempty"`
 	// Continued is when the loop sent "Continue where you left off" after
 	// a restart, for the limit on those sends.
 	Continued []time.Time `json:"continued,omitempty"`
@@ -132,4 +134,9 @@ type QueuedMessage struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
 	Skill       *Skill       `json:"skill,omitempty"`
 	Error       string       `json:"error,omitempty"` // as QueuedInput.Error
+	Alone       bool         `json:"alone,omitempty"` // as QueuedInput.Alone
+	// Sending marks a message the driver was handed and the transcript
+	// does not show yet: one a restart finds is shown as maybe sent, never
+	// sent again.
+	Sending bool `json:"sending,omitempty"`
 }

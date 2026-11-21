@@ -48,6 +48,11 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 91 added State.ChatQueues and Chat.QueueHeld, and the JSON
+// fields Snapshot.QueueReason and QueuedInput.Alone: a daemon at
+// SmartQueueLevel keeps queues through restarts, sends what is queued as
+// one prompt, holds a queue with a reason, and takes ChatQueue Actions
+// "separate" and "together".
 // Level 90 added no message: a daemon at AntigravityLevel answers the
 // Chat* messages for a pane running Antigravity CLI's TUI, and starts
 // chats with Provider "antigravity" when agy is on its PATH.
@@ -236,7 +241,12 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 90
+const Level = 91
+
+// SmartQueueLevel is the first daemon that joins a chat's queue into one
+// prompt, takes ChatQueue Actions "separate" and "together", and steers a
+// managed Claude chat with Send now.
+const SmartQueueLevel = 91
 
 // QueueLevel is the first daemon that takes ChatQueue Action "now" and
 // queue actions on a pane chat, whose mid-turn messages it holds until

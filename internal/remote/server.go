@@ -163,8 +163,10 @@ type Server struct {
 	// Send types text into pane's agent once it sits at its input box,
 	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.
-	Send        func(pane, text string) (id uint64, err error)
-	Command     func(pane, command string) error
+	Send    func(pane, text string) (id uint64, err error)
+	Command func(pane, command string) error
+	// Queue sends pane's chat's queued message id now, or removes it.
+	Queue       func(pane, id, action string) error
 	OpenDesktop func(pane string) error
 	Question    func(pane, id string, option int, text string) error
 	Upload      func(pane string, data []byte) (string, error)
@@ -225,6 +227,7 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
 		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
 		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+		mux.Handle("POST /api/queue", sameOrigin(s.authed(s.queue)))
 		if s.OpenDesktop != nil {
 			mux.Handle("POST /api/open", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 				var req struct {

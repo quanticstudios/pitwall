@@ -163,9 +163,10 @@ type paneLive struct {
 	conf string         // Claude Code's config dir for it
 	prov model.Provider // the agent its hooks named
 	// queued is what the chat queued mid-turn (chatQueue), held whether
-	// an interrupt holds it.
+	// it waits for the user's Resume or Send, reason why it waits.
 	queued []session.QueuedInput
 	held   bool
+	reason string
 }
 
 // paneChatOf is pane id's chat, made on first use, and its pane's state;
@@ -188,7 +189,7 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	if ai := d.activityIndex(id); ai >= 0 {
 		l.act = d.st.Activities[ai]
 	}
-	l.queued, l.held = d.chatQueued(id)
+	l.queued, l.held, l.reason = d.chatQueued(id)
 	pc := d.paneChats[id]
 	if p.Provider != model.ProviderClaude {
 		l.conf = ""
@@ -372,9 +373,9 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	}
 	pc.settings(l)
 	if !slices.EqualFunc(l.queued, pc.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
-		return a.ID == b.ID && a.Text == b.Text && a.Error == b.Error
-	}) || l.held != pc.snap.QueuePaused {
-		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, l.queued...), "queuePaused": l.held})
+		return a.ID == b.ID && a.Text == b.Text && a.Error == b.Error && a.Alone == b.Alone
+	}) || l.held != pc.snap.QueuePaused || l.reason != pc.snap.QueueReason {
+		set, _ := json.Marshal(map[string]any{"queuedInputs": append([]session.QueuedInput{}, l.queued...), "queuePaused": l.held, "queueReason": l.reason})
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	}
 	pc.live(l)
@@ -945,13 +946,14 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		return "", errors.New("the message is empty")
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.panes[pc.id] == nil {
+		d.mu.Unlock()
 		return "", fmt.Errorf("no running pane %s", pc.id)
 	}
 	d.chatEnqueue(pc.id, session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
 		Attachments: nonNil(m.Attachments), Recipients: []string{}},
 		letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true})
+	d.mu.Unlock()
 	return "queued", nil
 }
 

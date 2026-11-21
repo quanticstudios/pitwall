@@ -231,6 +231,9 @@ type Options struct {
 	// Chats is the folder that keeps chats (eventlog.Root); "" keeps them
 	// in memory only, gone with the daemon.
 	Chats string
+	// Queues is the file that keeps pane chats' queues (panequeue.go);
+	// "" keeps them in memory only.
+	Queues string
 	// Monitor reads the machine for Monitor tabs (monitor.go); nil reads
 	// nothing and answers each watch with an Err. Defaults sets sector's
 	// sample and procs.
@@ -307,7 +310,14 @@ type Daemon struct {
 	repeats   map[string]repeatRun  // see repeat.go
 	park      parking               // see park.go
 	sendMu    sync.Mutex            // one deliver types at a time
-	turnMu    sync.Mutex            // one checkpoint at a time, so each gets its own number
+	// queueMu serializes writes of Options.Queues: queueSaved is the last
+	// one written, of generation queueWrote; queueGen, guarded by mu,
+	// numbers each look at the queues, so an older one never lands last.
+	queueMu    sync.Mutex
+	queueSaved []byte
+	queueWrote uint64
+	queueGen   uint64
+	turnMu     sync.Mutex // one checkpoint at a time, so each gets its own number
 
 	history map[string]cachedHistory // guarded by mu; routine saves reuse these blobs
 
@@ -439,6 +449,7 @@ func Defaults() Options {
 			return config.LoadWorktrees(config.Path(), root)
 		},
 		Chats:   eventlog.Root(),
+		Queues:  filepath.Join(config.StateDir(), "chat-queues.json"),
 		Monitor: sectorReader(),
 	}
 }
@@ -535,6 +546,7 @@ func NewWith(o Options) (*Daemon, error) {
 		closeAll(d.removePane(id))
 	}
 	d.loadChats()
+	d.loadQueues()
 	d.tidy()
 	d.st.Closed = model.PruneClosed(d.st.Closed, time.Now())
 	for i := range d.st.Closed {
@@ -1815,7 +1827,10 @@ func (d *Daemon) dropPane(id string) Pane {
 	}
 	delete(d.mail.wake, id)
 	delete(d.mail.queue, id)
-	delete(d.mail.chat, id)
+	if d.mail.chat[id] != nil {
+		delete(d.mail.chat, id)
+		d.queuesChanged()
+	}
 	delete(d.mail.typed, id)
 	delete(d.mail.keyAt, id)
 	delete(d.repeats, id)
@@ -2868,6 +2883,7 @@ func (d *Daemon) snapshot() model.State {
 		}
 		s.Queued[id] = len(q)
 	}
+	s.ChatQueues = d.chatQueues(s.Chats)
 	s.Drafting = maps.Clone(d.mail.drafting)
 	s.DraftHeld = maps.Clone(d.mail.held)
 	s.Delivered = maps.Clone(d.mail.delivered)

@@ -216,6 +216,7 @@ type Chat struct {
 	State        string    `json:"state"`                  // aide's sessionState: connecting, ready, running, waiting, stopped, error
 	Pending      int       `json:"pending"`                // approvals and input requests waiting on someone
 	Queued       int       `json:"queued"`                 // messages waiting for the running turn to end
+	QueueHeld    string    `json:"queueHeld,omitempty"`    // why they wait for the user (ChatQueue.Held)
 	Turns        int       `json:"turns"`
 	Seq          int64     `json:"seq"` // the seq of the chat's latest delta
 	UpdatedAt    time.Time `json:"updatedAt"`
@@ -399,6 +400,15 @@ type LimitResume struct {
 	Drafting          bool
 }
 
+// ChatQueue is a chat's queue as the sidebar and the board show it: how
+// many messages wait, and Held, why they wait for the user although the
+// turn ended, as "Waiting for your answer" or "Paused"; "" while they
+// wait only for the turn.
+type ChatQueue struct {
+	N    int
+	Held string
+}
+
 // PaneHistory is the main screen and recent scrollback, with no terminal modes.
 type PaneHistory struct {
 	Cols    int
@@ -535,6 +545,9 @@ type State struct {
 	// DraftHeld marks the panes whose queued messages wait for the user's
 	// draft. The daemon fills it in; it is not saved.
 	DraftHeld map[string]bool `json:"-"`
+	// ChatQueues is, per pane chat (by pane id) and New task chat (by chat
+	// id), what its queue holds. The daemon fills it in; it is not saved.
+	ChatQueues map[string]ChatQueue `json:"-"`
 	// Delivered is, per pane, the highest proto.Deliver.Seq the daemon typed.
 	// A pane gone from it says nothing about what was typed. The daemon fills
 	// it in; it is not saved.
