@@ -49,6 +49,9 @@ func paneRead(t *testing.T, d *Daemon, id string, snap session.Snapshot, after i
 
 func TestPaneChat(t *testing.T) {
 	d, f, _ := remoteDaemon(t)
+	// why: settle would drop pane a's activity 20 ms after a key typed into the still "> " screen below; this test reads that activity.
+	old := settleDelay.set(time.Hour)
+	t.Cleanup(func() { settleDelay.set(old) })
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	lines := `{"type":"user","uuid":"p1","timestamp":"2026-11-18T10:00:00Z","message":{"role":"user","content":"list files"}}
 {"type":"assistant","uuid":"a1","timestamp":"2026-11-18T10:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}
