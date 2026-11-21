@@ -607,7 +607,10 @@ new worktree when `worktree` is set. `rewind` restores files to the
 checkpoint of `turnId` and drops the turns from it on
 ([fork and rewind](managed-sessions.md#fork-rewind)). With `keepFiles` it
 drops the turns and leaves the files as they are, and a turn without a
-checkpoint can be rewound too.
+checkpoint can be rewound too. A rewind of the files is refused while
+another agent works in the same repository, and while files changed
+after the agent's last turn; `"stash": true` keeps those changes in the
+backup commit the rewind takes first, which its `system` item names.
 
 <a id="checkpoints"></a>
 ### checkpoints, checkpointDiff and rewindPreview

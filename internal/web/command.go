@@ -50,6 +50,7 @@ type frame struct {
 	Answers          map[string][]string `json:"answers"`
 	Delete           bool                `json:"delete"`
 	KeepFiles        bool                `json:"keepFiles"`
+	Stash            bool                `json:"stash"`
 	Root             string              `json:"root"`
 	Title            string              `json:"title"`
 	Pinned           bool                `json:"pinned"`
@@ -166,7 +167,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	case "fork":
 		m = proto.ChatFork{Chat: f.SessionID, Turn: f.TurnID, Worktree: f.Worktree}
 	case "rewind":
-		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID, KeepFiles: f.KeepFiles}
+		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID, KeepFiles: f.KeepFiles, Stash: f.Stash}
 	case "archive":
 		m = proto.ChatArchive{Chat: f.SessionID, Delete: f.Delete}
 	case "unarchive":

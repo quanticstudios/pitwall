@@ -3,16 +3,19 @@ package daemon
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -29,17 +32,48 @@ const rewindRestore = "Restore conversation"
 
 // paneRewind rewinds pane chat pc to before the prompt that started turn
 // m.Turn, through Claude Code's own picker: /rewind, up to the prompt,
-// Restore conversation. The files stay as they are. Claude Code puts the
-// prompt back in its input box; that is cleared, since the window's
-// composer takes it instead. The chat drops the prompt and what came
-// after it at once; the transcript's next prompt branches off before it.
-func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) error {
-	switch {
-	case pc.prov != model.ProviderClaude:
-		return chatError{"unsupported", "only a Claude Code pane chat rewinds; rewind Codex in its terminal"}
-	case !m.KeepFiles:
-		return chatError{"unsupported", "a Claude Code pane rewinds the conversation only; its files stay as they are"}
+// Restore conversation. Claude Code puts the prompt back in its input box;
+// that is cleared, since the window's composer takes it instead. The chat
+// drops the prompt and what came after it at once; the transcript's next
+// prompt branches off before it. Unless m.KeepFiles, the files go back
+// to pitwall's checkpoint from the prompt (rewindFiles), checked before
+// the picker opens and put back once it closed. It returns what the
+// window shows once it is done.
+func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) (string, error) {
+	if pc.prov != model.ProviderClaude {
+		return "", chatError{"unsupported", "only a Claude Code pane chat rewinds; rewind " + providerName(pc.prov) + " in its terminal"}
 	}
+	var ws, rev string
+	if !m.KeepFiles {
+		ctx := context.Background()
+		var err error
+		if ws, rev, err = d.rewindPoint(ctx, pc.id, m.Turn); err != nil {
+			return "", err
+		}
+		p, err := d.planFiles(ctx, pc.id, ws, rev)
+		if err != nil {
+			return "", err
+		}
+		if len(p.Unsaved) > 0 && !m.Stash {
+			u := &gitstat.UnsavedError{Files: p.Unsaved}
+			return "", chatError{"conflict", u.Error() + "; stash them first, or keep the changes"}
+		}
+	}
+	if err := d.paneRewindChat(pc, m); err != nil {
+		return "", err
+	}
+	if m.KeepFiles {
+		return "", nil
+	}
+	backup, err := d.rewindFiles(context.Background(), pc.id, ws, rev, m.Stash)
+	if err != nil {
+		return "", chatError{"conflict", "the conversation was rewound, but " + strings.TrimPrefix(err.Error(), "the files were not put back, so nothing was rewound: ")}
+	}
+	return "Rewound; the files are back as they were before that message" + backupNote(backup), nil
+}
+
+// paneRewindChat is paneRewind's conversation: Claude Code's picker.
+func (d *Daemon) paneRewindChat(pc *paneChat, m proto.ChatRewind) error {
 	pc.mu.Lock()
 	k := rewindTarget(pc.snap.Content, m.Turn)
 	var text, id string

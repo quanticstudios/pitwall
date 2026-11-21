@@ -23,7 +23,6 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/flow"
-	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -231,7 +230,7 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatRewind:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) {
-			note, err := d.chatRewind(ctx, c, m.Turn, m.KeepFiles)
+			note, err := d.chatRewind(ctx, c, m.Turn, m.KeepFiles, m.Stash)
 			return "", note, err
 		}
 	case proto.ChatQueue:
@@ -524,10 +523,10 @@ func (d *Daemon) chatFork(ctx context.Context, m proto.ChatFork) proto.ChatResul
 }
 
 // chatRewind drops turn name and every turn after it: the tab's files go
-// back to the turn's checkpoint, refused as Undo turn refuses, unless
+// back to the turn's checkpoint, refused as rewindFiles refuses, unless
 // keepFiles, then the provider continues from the end of the turn before,
 // through a fork of its session whose new id replaces the chat's.
-func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string, keepFiles bool) (string, error) {
+func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string, keepFiles, stash bool) (string, error) {
 	i, err := turnIndex(c.snap, name)
 	if err != nil {
 		return "", err
@@ -540,12 +539,11 @@ func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string, keepFiles
 	if keepFiles {
 		files = "the files stay as they are"
 	} else {
-		if t.CheckpointID == "" {
-			return "", chatError{"unsupported", fmt.Sprintf("turn %d has no file checkpoint to go back to", i+1)}
+		backup, err := d.rewindFiles(ctx, c.id, c.cfg.Workspace, t.CheckpointID, stash)
+		if err != nil {
+			return "", err
 		}
-		if err := gitstat.RewindTurn(ctx, d.tabDir(c.cfg.Workspace), c.cfg.Workspace, t.CheckpointID); err != nil {
-			return "", chatError{"conflict", "the files were not put back, so nothing was rewound: " + err.Error()}
-		}
+		files += backupNote(backup)
 	}
 	c.stop("rewind")
 	for _, gone := range c.snap.Turns[i:] {
@@ -1021,6 +1019,7 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 			d.chatLimit(c, *e.Limit)
 		}
 	case session.EventTurnCompleted:
+		d.turnEnd(c.cfg.Workspace) // before the chat reads as ready, so later edits count as the user's
 		if e.Point != "" {
 			if c.cfg.Points == nil {
 				c.cfg.Points = map[string]string{}

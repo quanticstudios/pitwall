@@ -63,7 +63,9 @@ proto.ChatQueue{Chat string; Queue []session.QueuedMessage; Action string; ID st
 proto.ChatRead{Chat string; After int64; Before int64; Item string}
 proto.ChatRename{Chat string; Title string}
 proto.ChatResult{Chat string; Turn string; Code string; Message string}
-proto.ChatRewind{Chat string; Turn string; KeepFiles bool}
+proto.ChatRewind{Chat string; Turn string; KeepFiles bool; Stash bool}
+proto.ChatRewindCheck{Chat string; Turn string}
+proto.ChatRewindFiles{Chat string; Turn string; Files []proto.RewindFile; Unsaved []proto.RewindFile; Refused string}
 proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; How string}
 proto.ChatSet{Chat string; Model string; Effort string; Mode string; Provider model.Provider}
 proto.ChatTerminal{Chat string; On bool}
@@ -127,6 +129,7 @@ proto.RenameWorkspace{WorkspaceID string; Name string}
 proto.ReopenTab{ID string; AtRoot bool}
 proto.Reparent{WorkspaceID string; ParentTab string; Origin model.Origin}
 proto.Resize{Pane string; Cols int; Rows int; CellW int; CellH int}
+proto.RewindFile{Path string; From string; Status string}
 proto.Scroll{Pane string; Lines int; Prompts int}
 proto.Scrollback{Pane string; Lines int}
 proto.ScrollbackResult{Pane string; Text string}

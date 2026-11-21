@@ -23,7 +23,7 @@ func forkDaemon(t *testing.T, spy *spyProvider, check bool) *Daemon {
 	o := f.options()
 	o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: spy}
 	if check {
-		o.Checkpoint = gitstat.Checkpoint
+		o.Checkpoint, o.EndTurn = gitstat.Checkpoint, gitstat.EndTurn
 	}
 	return newDaemon(t, o)
 }
@@ -170,16 +170,18 @@ func TestChatRewind(t *testing.T) {
 	gitIn(t, repo, "add", "-A")
 	gitIn(t, repo, "commit", "-m", "init")
 
-	spy := &spyProvider{}
-	d := forkDaemon(t, spy, true)
-	id := chatDo(t, d, proto.ChatNew{Dir: repo}).Chat
-	edit := func(n int) { // what turn n did to the files
+	spy := &spyProvider{edit: func(n int) { // what turn n does to the files
 		write("f.txt", strings.Repeat("x", n)+"\n")
 		if n == 2 {
 			write("new.txt", "made by turn 2\n")
 		}
-	}
-	chatTurns(t, d, id, edit, "one", "two", "three")
+	}}
+	d := forkDaemon(t, spy, true)
+	id := chatDo(t, d, proto.ChatNew{Dir: repo}).Chat
+	chatTurns(t, d, id, nil, "one", "two", "three")
+	spy.mu.Lock()
+	spy.edit = nil
+	spy.mu.Unlock()
 	resume := chatConfig(t, d, id).Resume
 	at := chatConfig(t, d, id).Points[chatTurnID(t, d, id, 0)]
 
@@ -189,9 +191,11 @@ func TestChatRewind(t *testing.T) {
 	if read("f.txt") != "x\n" || read("new.txt") != "" {
 		t.Errorf("files after the rewind: f.txt %q, new.txt %q; want turn 2's start", read("f.txt"), read("new.txt"))
 	}
-	want := []string{"user-prompt: one", "assistant-text: Handled: one", "system: Rewound to before turn 2; its files are back as they were when it started"}
-	if got := chatItems(t, d, id); !slices.Equal(got, want) {
-		t.Fatalf("transcript after the rewind %q, want %q", got, want)
+	got := chatItems(t, d, id)
+	if len(got) != 3 || !slices.Equal(got[:2], []string{"user-prompt: one", "assistant-text: Handled: one"}) ||
+		!strings.HasPrefix(got[2], "system: Rewound to before turn 2; its files are back as they were when it started. The files from before are saved in commit ") ||
+		!strings.Contains(got[2], "git restore --source=") {
+		t.Fatalf("transcript after the rewind %q", got)
 	}
 	if c := chatSummary(d, id); c.Turns != 1 {
 		t.Errorf("%d turns after the rewind, want 1", c.Turns)

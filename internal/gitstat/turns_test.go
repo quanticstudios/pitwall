@@ -330,8 +330,12 @@ func TestRewindTurn(t *testing.T) {
 		writeFile(t, dir, "f.txt", v)
 	}
 	writeFile(t, dir, "new.txt", "made by turn 3\n")
-	if err := RewindTurn(ctx, dir, "w", revs[1]); err != nil {
+	if _, err := EndTurn(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
+	}
+	backup, err := RewindTurn(ctx, dir, "w", revs[1], false)
+	if err != nil || backup == "" {
+		t.Fatalf("rewind: backup %q, %v", backup, err)
 	}
 	if got := readFile(t, dir, "f.txt"); got != "1\n" {
 		t.Errorf("f.txt = %q after the rewind, want turn 2's start", got)
@@ -342,17 +346,17 @@ func TestRewindTurn(t *testing.T) {
 	if turn, err := LatestTurn(ctx, dir, "w"); err != nil || turn.Rev != revs[1] || turn.Redo == "" {
 		t.Fatalf("LatestTurn = %+v, %v; want turn 2's checkpoint with a redo", turn, err)
 	}
-	if err := RewindTurn(ctx, dir, "w", revs[1]); err != nil {
-		t.Errorf("a rewind with nothing to put back: %v", err)
+	if b, err := RewindTurn(ctx, dir, "w", revs[1], false); err != nil || b != "" {
+		t.Errorf("a rewind with nothing to put back: backup %q, %v", b, err)
 	}
 	if err := RedoTurn(ctx, dir, "w"); err != nil || readFile(t, dir, "f.txt") != "3\n" {
 		t.Fatalf("redo: %v, f.txt %q", err, readFile(t, dir, "f.txt"))
 	}
-	if err := RewindTurn(ctx, dir, "w", revs[2]); err == nil {
+	if _, err := RewindTurn(ctx, dir, "w", revs[2], true); err == nil {
 		t.Error("rewound to a dropped checkpoint")
 	}
 	commit(t, dir)
-	if err := RewindTurn(ctx, dir, "w", revs[0]); !errors.Is(err, ErrHeadMoved) {
+	if _, err := RewindTurn(ctx, dir, "w", revs[0], true); !errors.Is(err, ErrHeadMoved) {
 		t.Errorf("rewind after a commit: %v, want ErrHeadMoved", err)
 	}
 }
