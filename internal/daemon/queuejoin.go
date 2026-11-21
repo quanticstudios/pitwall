@@ -93,6 +93,7 @@ const (
 	waitAnswer   = "Waiting for your answer"
 	waitApproval = "Waiting for your approval"
 	waitFailed   = "The last turn failed"
+	waitStart    = "Waiting for the agent to start"
 	// mayHaveSent is a queued message's Error when pitwall stopped
 	// between handing it to the agent and seeing it arrive.
 	mayHaveSent = "pitwall stopped while sending this, so it may have been sent: Retry sends it again"

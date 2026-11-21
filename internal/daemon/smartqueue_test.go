@@ -209,6 +209,35 @@ func TestPaneQueueWaits(t *testing.T) {
 	if why, _, _ := wait(" Which file?", " > 1. a.go", "   2. b.go", " Esc to cancel"); why != waitAnswer {
 		t.Errorf("a form on screen: %q", why)
 	}
+	// A restart's resumed agent takes nothing until restartWait passed and
+	// its input box shows, a hook or not.
+	box := []string{"────────", "❯ ", "────────"}
+	d.mu.Lock()
+	d.resumed["a"] = time.Now().Add(-time.Second)
+	d.live.hookAt["a"] = time.Now()
+	d.mu.Unlock()
+	if why, _, _ := wait(box...); why != waitStart {
+		t.Errorf("resuming: %q, want %q", why, waitStart)
+	}
+	d.mu.Lock()
+	d.resumed["a"] = time.Now().Add(-restartWait)
+	d.mu.Unlock()
+	if why, _, _ := wait(); why != waitStart {
+		t.Errorf("resumed, no box: %q, want %q", why, waitStart)
+	}
+	if why, _, _ := wait(box...); why != "" {
+		t.Errorf("resumed with its box: %q", why)
+	}
+	d.mu.Lock()
+	d.mail.queue["a"] = append([]letter{{text: restartLine, plain: true}}, d.mail.queue["a"]...)
+	d.mu.Unlock()
+	if why, _, _ := wait(box...); why != waitStart {
+		t.Errorf("behind the restart line: %q", why)
+	}
+	d.mu.Lock()
+	d.mail.queue["a"] = d.mail.queue["a"][1:]
+	delete(d.resumed, "a")
+	d.mu.Unlock()
 	set(model.StateError, "API Error: 500")
 	if err := d.paneQueue("a", proto.ChatQueue{Action: "resume"}); err != nil {
 		t.Fatal(err)

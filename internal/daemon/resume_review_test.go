@@ -85,6 +85,7 @@ func TestLimitResumeInterruptedContinuationGetsRestartNudge(t *testing.T) {
 		d.mu.Unlock()
 		t.Fatal("interrupted continuation shows the expired limit error")
 	}
+	d.resumed["a"] = time.Now().Add(-restartWait) // as if it resumed that long ago
 	d.mu.Unlock()
 	readyLimit(d, "a")
 	d.deliver("a")

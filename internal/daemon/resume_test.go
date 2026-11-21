@@ -260,8 +260,9 @@ func TestResumeNotSet(t *testing.T) {
 
 // TestRestartCarriesTurns: across a daemon restart, a resumed agent whose
 // turn had finished stays done, so pitwall wait counts it, and one that
-// was mid-turn gets restartLine typed, without a header, once its resume
-// SessionStart arrives. A pane that does not resume keeps neither.
+// was mid-turn gets restartLine typed, without a header, once restartWait
+// passed and its resume SessionStart arrived. A pane that does not resume
+// keeps neither.
 func TestRestartCarriesTurns(t *testing.T) {
 	oldSettle := sendSettle.set(10 * time.Millisecond)
 	t.Cleanup(func() { sendSettle.set(oldSettle) })
@@ -297,6 +298,9 @@ func TestRestartCarriesTurns(t *testing.T) {
 	if got := f.pane(1).got(); got != "" {
 		t.Fatalf("typed %q before the agent was back", got)
 	}
+	d.mu.Lock()
+	d.resumed["mid"] = time.Now().Add(-restartWait) // as if it resumed that long ago
+	d.mu.Unlock()
 	claudeHook(t, d, "mid", `{"session_id":"s2","hook_event_name":"SessionStart","source":"resume"}`)
 	want := restartLine + "\r"
 	if got := gotAfter(t, f.pane(1), 0, len(want)); got != want {

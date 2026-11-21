@@ -373,6 +373,12 @@ func (d *Daemon) deliver(pane string) {
 		return
 	}
 	l := q[i]
+	// why: Claude 2.1.330 drops a Return typed while --resume still loads, though its hooks already came, and the line stays in its box.
+	if at, ok := d.resumed[pane]; ok && l.chat == "" && l.text == restartLine && time.Since(at) < restartWait {
+		d.wake(pane, restartWait-time.Since(at))
+		d.mu.Unlock()
+		return
+	}
 	if l.chat != "" && waiting {
 		// why: a queued message never answers a question, an approval, a form, or a failed or limited turn.
 		if again > 0 && !d.closing {

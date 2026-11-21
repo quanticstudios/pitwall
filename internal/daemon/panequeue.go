@@ -35,6 +35,9 @@ type chatQueue struct {
 	// (queueWait); paused when only the user's Send lets them go.
 	reason string
 	paused bool
+	// started: the agent a restart resumed was back at its box once
+	// (resumeStarted), so a later misread of its screen holds nothing.
+	started bool
 }
 
 type chatRow struct {
@@ -321,8 +324,8 @@ func (d *Daemon) chatReason(pane string) (wait bool, again time.Duration) {
 		return false, 0
 	case !until.IsZero():
 		return true, max(0, time.Until(until))
-	case why == waitAnswer:
-		return true, sendLook.get() // a form leaves the screen with no hook
+	case why == waitAnswer || why == waitStart:
+		return true, sendLook.get() // a form leaves the screen, and an agent draws its box, with no hook
 	}
 	return true, 0
 }
@@ -336,6 +339,19 @@ func (d *Daemon) queueWait(pane string, q *chatQueue, g vt.Grid) (why string, pa
 	var a model.Activity
 	if i := d.activityIndex(pane); i >= 0 {
 		a = d.st.Activities[i]
+	}
+	if a.State == model.StateWorking {
+		return "", false, time.Time{} // the turn, which the queue waits for anyway
+	}
+	if at, ok := d.resumed[pane]; ok && !q.started {
+		if !d.resumeStarted(pane, at, g) {
+			return waitStart, false, time.Time{}
+		}
+		q.started = true
+	}
+	// why: what was queued waited for the turn a restart cut, which restartLine continues first.
+	if slices.ContainsFunc(d.mail.queue[pane], func(l letter) bool { return l.chat == "" && l.text == restartLine }) {
+		return waitStart, false, time.Time{}
 	}
 	switch a.State {
 	case model.StatePendingApproval, model.StatePlanReady:
@@ -363,6 +379,20 @@ func (d *Daemon) queueWait(pane string, q *chatQueue, g vt.Grid) (why string, pa
 		return waitAnswer, false, time.Time{}
 	}
 	return "", false, time.Time{}
+}
+
+// resumeStarted reports whether pane's agent, which a restart resumed at
+// at, is back at its input box with screen g: restartWait has passed and
+// Claude Code or Codex drew the box. A hook proves less: Claude 2.1.330
+// sends Stop for a tool call the restart cut while it still loads, and
+// what is typed then goes in with the next prompt, its blank lines spaces.
+// Callers hold d.mu.
+func (d *Daemon) resumeStarted(pane string, at time.Time, g vt.Grid) bool {
+	if time.Since(at) < restartWait {
+		return false
+	}
+	p := d.paneProvider(pane)
+	return p != model.ProviderClaude && p != model.ProviderCodex || agent.InputReady(p, g)
 }
 
 // savedQueue is a chatQueue as Options.Queues keeps it, by pane.
