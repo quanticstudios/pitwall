@@ -42,6 +42,9 @@ func TestJoinPrompts(t *testing.T) {
 	if got != want {
 		t.Fatalf("joinPrompts:\n%q\nwant\n%q", got, want)
 	}
+	if got := joinPrompts([]string{"", "  ", "b"}, []int{1, 1, 0}); got != "b" {
+		t.Fatalf("image-only rows: %q, want b", got)
+	}
 }
 
 // enqueue queues texts on pane chat a, as paneSend does mid-turn, and
@@ -427,5 +430,99 @@ func TestChatQueuesState(t *testing.T) {
 	want := map[string]model.ChatQueue{"a": {N: 2, Held: "Paused"}, "c1": {N: 3}, "c3": {N: 1, Held: waitFailed}}
 	if len(got) != len(want) || got["a"] != want["a"] || got["c1"] != want["c1"] || got["c3"] != want["c3"] {
 		t.Fatalf("ChatQueues %s", b)
+	}
+}
+
+// Rows wait for the agent they were queued for: one that exits, or a
+// pane that now runs another agent, holds them until Send, which hands
+// them to the agent there now and refuses a pane with none.
+func TestPaneQueueOrphaned(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	d.mu.Lock()
+	d.chatEnqueue("a", session.QueuedInput{ID: "r1", Text: "go on"}, letter{text: "go on", plain: true, window: true, owner: model.ProviderClaude})
+	d.st.Activities[d.activityIndex("a")].State = model.StateCompleted
+	d.mu.Unlock()
+	wait := func() (string, bool) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		why, paused, _ := d.queueWait("a", d.mail.chat["a"], vt.Grid{})
+		return why, paused
+	}
+	if why, _ := wait(); why != "" {
+		t.Fatalf("its own agent: %q", why)
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Provider = model.ProviderTerminal
+	d.mu.Unlock()
+	if why, paused := wait(); why != waitGone || !paused {
+		t.Fatalf("agent gone: %q paused %v", why, paused)
+	}
+	if err := d.paneQueue("a", proto.ChatQueue{Action: "resume"}); err == nil {
+		t.Fatal("Send into a shell was taken")
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Provider = model.ProviderCodex
+	d.mu.Unlock()
+	if why, _ := wait(); why != waitGone {
+		t.Fatalf("another agent: %q", why)
+	}
+	if err := d.paneQueue("a", proto.ChatQueue{Action: "resume"}); err != nil {
+		t.Fatal(err)
+	}
+	if why, _ := wait(); why != "" {
+		t.Fatalf("after Send to codex: %q", why)
+	}
+	d.mu.Lock()
+	owner := d.mail.chat["a"].rows[0].l.owner
+	d.mu.Unlock()
+	if owner != model.ProviderCodex {
+		t.Fatalf("owner %q after Send", owner)
+	}
+}
+
+// Send now on one row of a held chat queue sends that row alone and
+// leaves the rest held, in their places.
+func TestChatSendNowOne(t *testing.T) {
+	drv := &stubDriver{emit: func(session.Event) {}}
+	c := &chat{drv: drv, cfg: session.Config{Held: true, Queue: []session.QueuedMessage{{ID: "a", Text: "first"}, {ID: "b", Text: "second"}, {ID: "c", Text: "third"}}}}
+	d := &Daemon{}
+	if _, _, err := d.chatQueue(context.Background(), c, proto.ChatQueue{Action: "now", ID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, q := range c.cfg.Queue {
+		left = append(left, q.ID)
+	}
+	if got := drv.got(); !slices.Equal(got, []string{"send second"}) || !slices.Equal(left, []string{"a", "c"}) || !c.cfg.Held {
+		t.Fatalf("driver %q, left %q, held %v", got, left, c.cfg.Held)
+	}
+}
+
+// Send now on a pane chat's held queue types that row and leaves the rest
+// held.
+func TestPaneSendNowOne(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	f.pane(0).mu.Lock()
+	f.pane(0).screen = []string{"> "}
+	f.pane(0).mu.Unlock()
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].State = model.StateCompleted
+	d.mu.Unlock()
+	ids := enqueue(d, "one", "two", "three")
+	d.mu.Lock()
+	d.chatHold("a", true)
+	d.mu.Unlock()
+	before := len(f.pane(0).got())
+	if err := d.paneQueue("a", proto.ChatQueue{Action: "now", ID: ids[1]}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), before, len("two")); !strings.Contains(got, "two") || strings.Contains(got, "one") {
+		t.Fatalf("typed %q", got)
+	}
+	d.mu.Lock()
+	rows, held, _ := d.chatQueued("a")
+	d.mu.Unlock()
+	if len(rows) != 2 || rows[0].ID != ids[0] || rows[1].ID != ids[2] || !held {
+		t.Fatalf("left %+v held %v", rows, held)
 	}
 }

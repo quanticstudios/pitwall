@@ -214,6 +214,16 @@ func (d *Daemon) paneQueue(pane string, m proto.ChatQueue) error {
 				q.errOK = d.st.Activities[i].UpdatedAt
 			}
 			q.paused = false
+			if d.queueOrphaned(pane, q) {
+				prov := d.paneProvider(pane)
+				if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); !paneSteers(prov) || i < 0 || d.st.Panes[i].Exited {
+					d.mu.Unlock()
+					return invalid("no agent runs in this pane to send them to")
+				}
+				for i := range q.rows {
+					q.rows[i].l.owner = prov // Send hands them to the agent there now
+				}
+			}
 		}
 		d.chatHold(pane, false)
 		d.chatSync(pane)
@@ -336,6 +346,9 @@ func (d *Daemon) chatReason(pane string) (wait bool, again time.Duration) {
 // failed turn, which waits for the user's Send (paused). Callers hold
 // d.mu.
 func (d *Daemon) queueWait(pane string, q *chatQueue, g vt.Grid) (why string, paused bool, until time.Time) {
+	if d.queueOrphaned(pane, q) {
+		return waitGone, true, time.Time{}
+	}
 	var a model.Activity
 	if i := d.activityIndex(pane); i >= 0 {
 		a = d.st.Activities[i]
@@ -381,6 +394,18 @@ func (d *Daemon) queueWait(pane string, q *chatQueue, g vt.Grid) (why string, pa
 	return "", false, time.Time{}
 }
 
+// queueOrphaned reports whether the agent q's rows were queued for left
+// pane: it exited, or another program or agent runs there. Such rows never
+// go on their own, into a shell or to another agent. Callers hold d.mu.
+func (d *Daemon) queueOrphaned(pane string, q *chatQueue) bool {
+	for _, r := range q.rows {
+		if r.l.owner != "" && d.agentGone(pane, r.l) {
+			return true
+		}
+	}
+	return false
+}
+
 // resumeStarted reports whether pane's agent, which a restart resumed at
 // at, is back at its input box with screen g: restartWait has passed and
 // Claude Code or Codex drew the box. A hook proves less: Claude 2.1.330
@@ -408,12 +433,13 @@ type savedRow struct {
 	Text   string              `json:"text"`
 	Images []string            `json:"images,omitempty"`
 	Quoted []string            `json:"quoted,omitempty"`
+	Owner  model.Provider      `json:"owner,omitempty"` // the agent it was queued for
 }
 
 func saveRows(rows []chatRow) []savedRow {
 	out := make([]savedRow, len(rows))
 	for i, r := range rows {
-		out[i] = savedRow{In: r.in, Text: r.l.text, Images: r.l.images, Quoted: r.l.quoted}
+		out[i] = savedRow{In: r.in, Text: r.l.text, Images: r.l.images, Quoted: r.l.quoted, Owner: r.l.owner}
 	}
 	return out
 }
@@ -421,7 +447,7 @@ func saveRows(rows []chatRow) []savedRow {
 func loadRows(rows []savedRow) []chatRow {
 	out := make([]chatRow, len(rows))
 	for i, r := range rows {
-		out[i] = chatRow{r.In, letter{text: r.Text, images: r.Images, quoted: r.Quoted, plain: true, window: true, chat: r.In.ID}}
+		out[i] = chatRow{r.In, letter{text: r.Text, images: r.Images, quoted: r.Quoted, plain: true, window: true, chat: r.In.ID, owner: r.Owner}}
 	}
 	return out
 }

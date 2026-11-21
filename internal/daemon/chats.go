@@ -1541,10 +1541,21 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 		}
 		texts, alone, images = append(texts, q.Text), append(alone, q.Alone || q.Skill != nil), append(images, imageCount(q.Attachments))
 	}
-	rows := slices.Clone(c.cfg.Queue[i : i+joins(texts, alone)])
+	d.chatSendRows(ctx, c, i, joins(texts, alone))
+}
+
+// chatSendRows starts a turn with queue rows i to i+n of c, joined into
+// one prompt. They wait in the queue marked Sending until the driver took
+// them: then they go, else they stay with why. Owned by the loop.
+func (d *Daemon) chatSendRows(ctx context.Context, c *chat, i, n int) {
+	rows := slices.Clone(c.cfg.Queue[i : i+n])
+	texts, images := make([]string, n), make([]int, n)
+	for k, r := range rows {
+		texts[k], images[k] = r.Text, imageCount(r.Attachments)
+	}
 	m := session.Message{ID: rows[0].ID, Text: rows[0].Text, Attachments: rows[0].Attachments, Skill: rows[0].Skill}
 	if len(rows) > 1 {
-		m.Text, m.Attachments = joinPrompts(texts[:len(rows)], images), nil
+		m.Text, m.Attachments = joinPrompts(texts, images), nil
 		for _, r := range rows {
 			m.Attachments = joinAttachments(m.Attachments, r.Attachments)
 		}
@@ -1690,18 +1701,18 @@ func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (str
 	case "separate", "together":
 		c.cfg.Queue[i].Alone = m.Action == "separate"
 	case "steer", "now":
+		if !c.snap.Busy() {
+			// Send now sends this one alone, at once; the rest keep their place, and a held queue stays held.
+			c.cfg.Queue[i].Error = ""
+			d.chatSendRows(ctx, c, i, 1)
+			if j := slices.IndexFunc(c.cfg.Queue, func(o session.QueuedMessage) bool { return o.ID == q.ID }); j >= 0 && c.cfg.Queue[j].Error != "" {
+				return "", "", errors.New(c.cfg.Queue[j].Error)
+			}
+			return "", "", nil
+		}
 		// Keep the original queue on a refused steer.
 		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
-		if !c.snap.Busy() { // ahead of the rest, as Send now promises
-			q.Error, c.cfg.Held = "", false
-			if n := len(c.snap.Turns); n > 0 && c.snap.Turns[n-1].State == session.TurnFailed {
-				c.cfg.FailedOK = c.snap.Turns[n-1].ID // Send now goes past a failed turn
-			}
-			c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, q)
-			d.chatNext(ctx, c)
-			return "", "", nil
-		}
 		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}, m.Action)
 		if err != nil {
 			c.cfg.Queue, c.cfg.Held = queue, held

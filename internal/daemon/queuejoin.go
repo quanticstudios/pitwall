@@ -55,10 +55,12 @@ func joinPrompts(texts []string, images []int) string {
 			top = max(top, n)
 			return "[Image #" + strconv.Itoa(n+off) + "]"
 		})
-		if i > 0 {
-			b.WriteString("\n\n")
+		if t = strings.TrimSpace(t); t != "" { // an image alone adds no line
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(t)
 		}
-		b.WriteString(strings.TrimSpace(t))
 		off += max(top, images[i])
 	}
 	return b.String()
@@ -94,6 +96,7 @@ const (
 	waitApproval = "Waiting for your approval"
 	waitFailed   = "The last turn failed"
 	waitStart    = "Waiting for the agent to start"
+	waitGone     = "The agent these were queued for left this pane"
 	// mayHaveSent is a queued message's Error when pitwall stopped
 	// between handing it to the agent and seeing it arrive.
 	mayHaveSent = "pitwall stopped while sending this, so it may have been sent: Retry sends it again"

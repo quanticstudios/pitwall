@@ -952,7 +952,7 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	}
 	d.chatEnqueue(pc.id, session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
 		Attachments: nonNil(m.Attachments), Recipients: []string{}},
-		letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true})
+		letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true, owner: l.prov})
 	d.mu.Unlock()
 	return "queued", nil
 }
