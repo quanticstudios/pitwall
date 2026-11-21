@@ -235,6 +235,7 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
+	slashUsed = map[string]int{} // each test starts with nothing sent
 	h := &harness{t: t, snap: session.Snapshot{SessionID: "c1", SessionState: session.StateReady}, now: time.Now()}
 	h.frame()
 	h.frame()

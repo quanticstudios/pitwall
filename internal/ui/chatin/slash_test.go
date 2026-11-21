@@ -2,6 +2,7 @@ package chatin
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"gioui.org/io/key"
@@ -27,18 +28,33 @@ func names(cs []session.Command) []string {
 	return out
 }
 
-// Names that start with the query come first, then the ones that have
-// it inside, each in the list's order; case does not count.
+// The ranking: the name or an alias that is the query, then one that
+// starts with it, a word that does, one that has it inside, the letters
+// in order, then the description; within each, the more used first, then
+// the list's order. Case does not count.
 func TestSlashMatches(t *testing.T) {
-	for q, want := range map[string][]string{
-		"co":  {"compact", "config", "context", "Code-Review", "decompose"},
-		"CON": {"config", "context"},
-		"":    names(testCommands),
-		"mod": {"model"},
-		"zz":  nil,
+	cmds := append(slices.Clone(testCommands),
+		session.Command{Name: "usage", Description: "Show session cost", Aliases: []string{"cost", "stats"}},
+		session.Command{Name: "review", Description: "Review the branch"})
+	for _, c := range []struct {
+		q    string
+		used map[string]int
+		want []string
+	}{
+		{"co", nil, []string{"compact", "config", "context", "Code-Review", "usage", "decompose"}},
+		{"CON", nil, []string{"config", "context", "compact"}}, // compact's description has "con"
+		{"", nil, names(cmds)},
+		{"mod", nil, []string{"model"}},
+		{"cost", nil, []string{"usage"}},                // an alias that is the query
+		{"rev", nil, []string{"review", "Code-Review"}}, // a word of the name
+		{"cmpt", nil, []string{"compact"}},              // the letters in order
+		{"summarizing", nil, []string{"compact"}},       // the description
+		{"co", map[string]int{"context": 3, "config": 1}, []string{"context", "config", "compact", "Code-Review", "usage", "decompose"}},
+		{"", map[string]int{"model": 2}, append([]string{"model"}, slices.DeleteFunc(names(cmds), func(n string) bool { return n == "model" })...)},
+		{"zz", nil, nil},
 	} {
-		if got := names(SlashMatches(testCommands, q)); !slices.Equal(got, want) {
-			t.Errorf("SlashMatches(%q) = %q, want %q", q, got, want)
+		if got := names(SlashMatches(cmds, c.q, c.used)); !slices.Equal(got, c.want) {
+			t.Errorf("SlashMatches(%q, %v) = %q, want %q", c.q, c.used, got, c.want)
 		}
 	}
 }
@@ -129,7 +145,8 @@ func TestSlashMenuNotes(t *testing.T) {
 	}{
 		{true, nil, "/", oldNote},
 		{false, nil, "/", noListNote},
-		{false, testCommands, "/tmp/x", noMatchNote},
+		{false, testCommands, "/zzz", noMatchNote},
+		{false, testCommands, "/tmp/x", ""}, // a path: no menu at all
 	} {
 		h.old, h.snap.Commands = c.old, c.cmds
 		h.c.SetText("")
@@ -139,6 +156,10 @@ func TestSlashMenuNotes(t *testing.T) {
 		}
 	}
 	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).Text != "/tmp/x" {
+		t.Fatalf("Enter on a path sent %+v", m)
+	}
+	h.typ("/zzz")
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).Text != "/zzz" {
 		t.Fatalf("Enter under a note sent %+v", m)
 	}
 	h.typ("/zz")
@@ -169,5 +190,100 @@ func TestSlashMenuKeepsHighlight(t *testing.T) {
 	h.typ("n")
 	if got := h.c.slash.rows[h.c.slash.sel].Name; got != "config" || h.c.slash.sel != 0 {
 		t.Fatalf("a new query highlights %q at %d, want the first row", got, h.c.slash.sel)
+	}
+}
+
+// The pointer moving onto a row highlights it; Down then moves on from
+// there, and the pointer resting on its row does not pull it back.
+func TestSlashHover(t *testing.T) {
+	s := slashState{rows: testCommands}
+	s.hovered = "config"
+	if !s.hover() || s.sel != 2 || s.picked != "config" {
+		t.Fatalf("moving onto config: sel %d, picked %q", s.sel, s.picked)
+	}
+	s.sel = 3 // Down
+	if s.hover() || s.sel != 3 {
+		t.Fatalf("a resting pointer took the highlight back to %d", s.sel)
+	}
+	s.hovered = ""
+	if s.hover() || s.sel != 3 {
+		t.Fatal("the pointer leaving moved the highlight")
+	}
+}
+
+// A highlighted row whose description the row cuts shows it whole above
+// the menu; one that fits shows nothing more.
+func TestSlashFullDescription(t *testing.T) {
+	h := newHarness(t)
+	long := strings.Repeat("A description much longer than any menu row could ever show. ", 4)
+	h.snap.Commands = []session.Command{{Name: "short", Description: "Fits"}, {Name: "shortlong", Description: long}}
+	h.typ("/short")
+	if h.c.slash.full != "" {
+		t.Fatalf("a description that fits showed whole: %q", h.c.slash.full)
+	}
+	h.press(key.NameDownArrow, 0)
+	h.frame()
+	if h.c.slash.full != long {
+		t.Fatalf("the cut description: %q", h.c.slash.full)
+	}
+}
+
+// The note at a row's right: the terminal, else where the command comes
+// from; nothing for a built-in.
+func TestRowNote(t *testing.T) {
+	for c, want := range map[*session.Command]string{
+		{Name: "config", Terminal: true, Source: "user"}: terminalNote,
+		{Name: "ship", Source: "user"}:                   "Personal",
+		{Name: "deploy", Source: "project"}:              "Project",
+		{Name: "demo:skill", Source: "plugin"}:           "Plugin",
+		{Name: "compact"}:                                "",
+	} {
+		if got := rowNote(*c); got != want {
+			t.Errorf("rowNote(%+v) = %q, want %q", *c, got, want)
+		}
+	}
+}
+
+// Sending one of the chat's commands counts it, so the menu offers it
+// first next time; a line that is no command counts nothing.
+func TestSlashUsedOnSend(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Commands = testCommands
+	h.c.SetText("/model opus")
+	h.press(key.NameReturn, 0)
+	h.c.SetText("/nope")
+	h.press(key.NameReturn, 0)
+	if slashUsed["model"] != 1 || len(slashUsed) != 1 {
+		t.Fatalf("used %v", slashUsed)
+	}
+	h.typ("/")
+	if h.c.slash.rows[0].Name != "model" {
+		t.Fatalf("the used command is not first: %q", names(h.c.slash.rows))
+	}
+}
+
+// A chip's popover open over the composer keeps the / menu shut, and the
+// menu comes back once the popover closes.
+func TestSlashMenuUnderPopover(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Commands = testCommands
+	h.c.setMenu(h.now, true)
+	h.typ("/co")
+	if h.c.slash.shown() {
+		t.Fatal("the / menu opened under a popover")
+	}
+	h.c.setMenu(h.now, false)
+	h.frame()
+	if !h.c.slash.open() {
+		t.Fatal("the / menu stayed shut after the popover closed")
+	}
+}
+
+// Two letters match names only by prefix, word or substring: no letters
+// in order, no description, which would list most of the menu.
+func TestSlashMatchesShortQuery(t *testing.T) {
+	cmds := []session.Command{{Name: "frontend"}, {Name: "effort", Description: "from fr"}, {Name: "fork"}}
+	if got := names(SlashMatches(cmds, "fr", nil)); !slices.Equal(got, []string{"frontend"}) {
+		t.Fatalf("/fr lists %q", got)
 	}
 }

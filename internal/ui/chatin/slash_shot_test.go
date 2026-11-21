@@ -36,6 +36,7 @@ func TestSlashShots(t *testing.T) {
 	cmds := append([]session.Command{
 		{Name: "ship", Description: "Push the branch and open the pull request", Source: "user"},
 		{Name: "frontend:component", Description: "Scaffold a component with its test", Source: "project"},
+		{Name: "review-pr", Description: "Review a pull request against the team's checklist", Hint: "<number>", Source: "plugin"},
 	}, claude.Commands("", "")...)
 	light, _ := config.Builtin("aide-light")
 	lt, _ := theme.New(light, config.Font{})

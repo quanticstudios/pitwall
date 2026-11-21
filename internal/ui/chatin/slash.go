@@ -13,6 +13,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
@@ -31,6 +32,11 @@ type slashState struct {
 	shut   string // the text Esc closed the menu on; it stays shut until the text changes
 	anchor image.Rectangle
 	tag    int // the menu's own press target
+	// hovered is the row under the pointer this frame, and was last
+	// frame's: the pointer moving onto a row highlights it, a pointer
+	// resting on one leaves the keys' highlight alone.
+	hovered, was string
+	full         string // the highlighted row's description when the row cuts it, shown whole above the menu
 }
 
 // The menu's notes: a command that runs in the agent's terminal, and
@@ -48,22 +54,85 @@ func (s *slashState) open() bool { return len(s.rows) > 0 }
 // shown reports whether the menu shows at all: rows or a note.
 func (s *slashState) shown() bool { return s.open() || s.note != "" }
 
-// SlashMatches is cmds whose name has query in it, ignoring case: the
-// names that start with it first, then the rest, each in cmds' order.
-func SlashMatches(cmds []session.Command, query string) []session.Command {
+// SlashMatches is cmds that match query, ignoring case, best first: a
+// name or alias that is the query, then one that starts with it, then
+// one with a word (after - _ : or a space) that does, then one that has
+// it inside, then a name with its letters in order, then a description
+// that has it, these two only for a query of three letters or more.
+// Within each, the commands used more come first (used, by name), then
+// cmds' own order.
+//
+// Adapted from herdr-chat-plus (MIT): mods/chat/commands.js (matchCommands)
+// Adapted from T3 Code (MIT): apps/web/src/components/chat/composerSlashCommandSearch.ts
+func SlashMatches(cmds []session.Command, query string, used map[string]int) []session.Command {
 	q := strings.ToLower(query)
-	var first, rest []session.Command
+	type match struct {
+		c    session.Command
+		tier int
+	}
+	var ms []match
 	for _, c := range cmds {
-		n := strings.ToLower(c.Name)
-		switch {
-		case strings.HasPrefix(n, q):
-			first = append(first, c)
-		case strings.Contains(n, q):
-			rest = append(rest, c)
+		if t := slashTier(c, q); t >= 0 {
+			ms = append(ms, match{c, t})
 		}
 	}
-	return append(first, rest...)
+	slices.SortStableFunc(ms, func(a, b match) int {
+		if a.tier != b.tier {
+			return a.tier - b.tier
+		}
+		return used[b.c.Name] - used[a.c.Name]
+	})
+	out := make([]session.Command, len(ms))
+	for i, m := range ms {
+		out[i] = m.c
+	}
+	return out
 }
+
+// slashTier is how well c matches q (see SlashMatches), -1 for not.
+func slashTier(c session.Command, q string) int {
+	names := append([]string{c.Name}, c.Aliases...)
+	best := -1
+	for i, n := range names {
+		n = strings.ToLower(n)
+		t := -1
+		switch {
+		case n == q:
+			t = 0
+		case strings.HasPrefix(n, q):
+			t = 1
+		case slices.ContainsFunc(strings.FieldsFunc(n, func(r rune) bool { return strings.ContainsRune("-_: ", r) }), func(w string) bool { return strings.HasPrefix(w, q) }):
+			t = 2
+		case strings.Contains(n, q):
+			t = 3
+		case i == 0 && len(q) >= 3 && subsequence(n, q):
+			t = 4
+		}
+		if t >= 0 && (best < 0 || t < best) {
+			best = t
+		}
+	}
+	if best < 0 && len(q) >= 3 && strings.Contains(strings.ToLower(c.Description), q) {
+		best = 5
+	}
+	return best
+}
+
+// subsequence reports whether q's letters appear in s in order.
+func subsequence(s, q string) bool {
+	for _, r := range q {
+		i := strings.IndexRune(s, r)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(string(r)):]
+	}
+	return true
+}
+
+// slashUsed counts the commands this window sent or picked, by name,
+// which SlashMatches ranks by. It lasts as long as the window.
+var slashUsed = map[string]int{}
 
 // slashUpdate opens, narrows or closes the menu for the draft's /word.
 // A new query highlights the first row; the same query keeps the row it
@@ -80,7 +149,11 @@ func (c *Composer) slashUpdate(env Env) {
 		return
 	}
 	q := strings.TrimPrefix(word, "/")
-	s.rows, s.note = SlashMatches(env.Snap.Commands, q), ""
+	if strings.ContainsAny(q, "/\\") { // why: a second slash makes the word a path, as /tmp/x (T3 Code's isPathWord)
+		s.rows, s.note = nil, ""
+		return
+	}
+	s.rows, s.note = SlashMatches(env.Snap.Commands, q, slashUsed), ""
 	switch {
 	case q != s.query:
 		s.sel = 0
@@ -181,6 +254,7 @@ func (c *Composer) slashPop(gtx layout.Context, th *theme.Theme) {
 			first = s.sel
 		}
 		shown := s.rows[first:min(len(s.rows), first+mentionRows)]
+		s.hovered, s.full = "", ""
 		var kids []layout.FlexChild
 		for i, cmd := range shown {
 			kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -199,8 +273,49 @@ func (c *Composer) slashPop(gtx layout.Context, th *theme.Theme) {
 	event.Op(gtx.Ops, &s.tag) // why: a press on the menu goes no further
 	call.Add(gtx.Ops)
 	cl.Pop()
+	if s.full != "" {
+		c.slashFull(gtx, th, d.Size.X)
+	}
 	o.Pop()
 	op.Defer(gtx.Ops, rec.Stop())
+	if s.hover() {
+		gtx.Execute(op.InvalidateCmd{}) // the rows drew with the old highlight
+	}
+}
+
+// hover moves the highlight to the row the pointer moved onto this
+// frame, and reports whether it did; a pointer that rests where it was
+// leaves the keys' highlight alone.
+func (s *slashState) hover() bool {
+	if s.hovered == s.was {
+		return false
+	}
+	s.was = s.hovered
+	i := slices.IndexFunc(s.rows, func(r session.Command) bool { return r.Name == s.hovered })
+	if i < 0 || i == s.sel {
+		return false
+	}
+	s.sel, s.picked = i, s.hovered
+	return true
+}
+
+// slashFull is the highlighted command's whole description, wrapped,
+// in a card of the menu's width w right above it, as T3 Code's tooltip
+// on a cut description. The menu's rows do not move for it.
+func (c *Composer) slashFull(gtx layout.Context, th *theme.Theme, w int) {
+	g := gtx
+	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
+	m := op.Record(gtx.Ops)
+	d := layout.UniformInset(theme.SpaceS).Layout(g, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min = image.Point{}
+		return widget.Label{MaxLines: 4}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Small), c.slash.full, colorOp(gtx, th.Fg))
+	})
+	call := m.Stop()
+	o := op.Offset(image.Pt(0, -d.Size.Y-gtx.Dp(theme.SpaceXS))).Push(gtx.Ops)
+	rect := image.Rectangle{Max: image.Pt(w, d.Size.Y)}
+	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
+	call.Add(gtx.Ops)
+	o.Pop()
 }
 
 // slashNote is the menu's one muted line when it lists no command.
@@ -226,6 +341,9 @@ func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Com
 	b := c.click("slash:" + cmd.Name)
 	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("/" + cmd.Name).Add(gtx.Ops)
+		if b.Hovered() {
+			c.slash.hovered = cmd.Name
+		}
 		h, w := gtx.Dp(28), gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}
 		fill := theme.Transparent
@@ -241,9 +359,9 @@ func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Com
 		pad, gap := gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceM)
 		inner := w - 2*pad
 		noteW := 0
-		if cmd.Terminal {
+		if note := rowNote(cmd); note != "" {
 			m := op.Record(gtx.Ops)
-			nd := text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, terminalNote)
+			nd := text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
 			note := m.Stop()
 			noteW = nd.Size.X + gap
 			o := op.Offset(image.Pt(w-pad-nd.Size.X, (h-nd.Size.Y)/2)).Push(gtx.Ops)
@@ -271,11 +389,37 @@ func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Com
 				return layout.Dimensions{Size: image.Pt(name.Size.X+gtx.Dp(theme.SpaceXS)+hd.Size.X, name.Size.Y), Baseline: name.Baseline}
 			},
 			func(gtx layout.Context) layout.Dimensions {
+				if on && cmd.Description != "" {
+					g := gtx
+					g.Constraints.Max.X = 1 << 20
+					m := op.Record(gtx.Ops)
+					if text(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, cmd.Description).Size.X > gtx.Constraints.Max.X {
+						c.slash.full = cmd.Description
+					}
+					m.Stop()
+				}
 				return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, cmd.Description)
 			})
 		o.Pop()
 		return layout.Dimensions{Size: rect.Max}
 	})
+}
+
+// rowNote is the quiet note at a row's right: that the command opens
+// the agent's terminal, else where it comes from, as T3 Code's source
+// badge says; "" for a built-in.
+func rowNote(c session.Command) string {
+	switch {
+	case c.Terminal:
+		return terminalNote
+	case c.Source == "user":
+		return "Personal"
+	case c.Source == "project":
+		return "Project"
+	case c.Source == "plugin":
+		return "Plugin"
+	}
+	return ""
 }
 
 // nameShare is the most of a row the name and its hint take, so a long

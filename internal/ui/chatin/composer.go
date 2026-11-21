@@ -433,6 +433,10 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 		}
 	}
 	c.out = append(c.out, m)
+	if name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " "); strings.HasPrefix(text, "/") &&
+		slices.ContainsFunc(env.Snap.Commands, func(c session.Command) bool { return c.Name == name }) {
+		slashUsed[name]++
+	}
 	c.last = &sent{text: text, draft: Draft{Images: imgs, last: c.draft.last}, at: at}
 	c.note = ""
 	c.ed.SetText("")
