@@ -67,7 +67,7 @@ func (c *Composer) AddQuote(text string, src Source) bool {
 	case strings.TrimSpace(text) == "":
 		return false
 	case utf8.RuneCountInString(text) > MaxQuote:
-		c.note = "The selection is too long to quote: select less, or copy and paste it"
+		c.note, c.noteOK = "The selection is too long to quote: select less, or copy and paste it", false
 		return false
 	}
 	c.insertToken(c.draft.AddPart(Part{Kind: PartQuote, Text: text, Src: src}))
@@ -81,7 +81,7 @@ func (c *Composer) AddQuote(text string, src Source) bool {
 func (c *Composer) AddTerminal(text, label string) int {
 	text = strings.Trim(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	if strings.TrimSpace(text) == "" {
-		c.note = "The selection has no text to add"
+		c.note, c.noteOK = "The selection has no text to add", false
 		return 0
 	}
 	if c.files && Fold(text, utf8.RuneCountInString(c.draft.Expand(c.Text()))) {
@@ -130,10 +130,10 @@ func (c *Composer) foldPaste(s string) bool {
 	over := utf8.RuneCountInString(c.draft.Expand(c.Text()))+utf8.RuneCountInString(s) > MessageLimit
 	switch {
 	case len(s) > MaxPasted:
-		c.note = "The paste is over 8 MiB: save it to a file in the project and @ mention it"
+		c.note, c.noteOK = "The paste is over 8 MiB: save it to a file in the project and @ mention it", false
 		return true
 	case c.attached() >= maxImages && over:
-		c.note = "The paste is too long for this message: remove an attachment, then paste again"
+		c.note, c.noteOK = "The paste is too long for this message: remove an attachment, then paste again", false
 		return true
 	case c.attached() >= maxImages:
 		return false
@@ -264,7 +264,7 @@ func (c *Composer) partEvents(gtx layout.Context, env Env) {
 		}
 		if u.body.Clicked(gtx) && p.Kind == PartQuote {
 			if env.Reveal == nil || !env.Reveal(p.Src) {
-				c.note = "The quoted reply is no longer in this chat"
+				c.note, c.noteOK = "The quoted reply is no longer in this chat", false
 			}
 		}
 	}
