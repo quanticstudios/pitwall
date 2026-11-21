@@ -129,7 +129,7 @@ func (pc *paneChat) commands(l paneLive, now time.Time) {
 			s.cmds, s.stamp = list(dir, l.cwd), st
 		}
 	}
-	if !slices.Equal(s.cmds, pc.snap.Commands) {
+	if !slices.EqualFunc(s.cmds, pc.snap.Commands, session.Command.Equal) {
 		pc.reduce([]session.Event{{Type: session.EventCommands, Commands: slices.Clone(s.cmds)}})
 	}
 }

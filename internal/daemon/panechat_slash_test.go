@@ -92,7 +92,7 @@ func TestPaneChatCommands(t *testing.T) {
 	}
 
 	cs, _ := paneRead(t, d, "b", session.Snapshot{}, 0)
-	if !slices.Equal(cs.Commands, codex.Builtins) {
+	if !slices.EqualFunc(cs.Commands, codex.Builtins, session.Command.Equal) {
 		t.Fatalf("codex commands: %d, want its %d built-ins", len(cs.Commands), len(codex.Builtins))
 	}
 

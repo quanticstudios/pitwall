@@ -83,3 +83,60 @@ func TestCommands(t *testing.T) {
 		t.Fatalf("no dirs: %d commands", len(got))
 	}
 }
+
+// The second probe of agy acp 1.5.13: a skill.md spelled in lower case,
+// plugins' skills from the user's two plugin folders and the project's,
+// each plugin needing its plugin.json, one turned off in config.json;
+// and what it left out: .gemini/skills in the project, a skill nested a
+// folder deeper, and a skills.json entry.
+func TestCommandsPlugins(t *testing.T) {
+	dir := t.TempDir()
+	home, proj := filepath.Join(dir, "home"), filepath.Join(dir, "proj")
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skill := func(root, name string) {
+		write(filepath.Join(root, name, "SKILL.md"), "---\nname: "+name+"\ndescription: "+name+"\n---\n")
+	}
+	os.MkdirAll(filepath.Join(proj, ".git"), 0o755)
+	write(filepath.Join(home, ".gemini/antigravity-cli/skills/u-cap/skill.md"), "---\nname: u-cap\ndescription: capital file\n---\n")
+	for _, p := range []struct{ root, name string }{
+		{filepath.Join(home, ".gemini/config/plugins"), "plugon"},
+		{filepath.Join(home, ".gemini/config/plugins"), "plugoff"},
+		{filepath.Join(home, ".gemini/antigravity-cli/plugins"), "plugcli"},
+		{filepath.Join(proj, ".agents/plugins"), "plugproj"},
+	} {
+		write(filepath.Join(p.root, p.name, "plugin.json"), `{"name":"`+p.name+`"}`)
+		skill(filepath.Join(p.root, p.name, "skills"), "s-"+p.name)
+	}
+	skill(filepath.Join(home, ".gemini/config/plugins/nomanifest/skills"), "s-nomanifest")
+	write(filepath.Join(home, ".gemini/config/config.json"), `{"plugins":{"plugoff":{"enabled":false},"plugon":{"enabled":true}}}`)
+	skill(filepath.Join(proj, ".gemini/skills"), "g-proj")
+	skill(filepath.Join(proj, ".agents/skills/group"), "n-nested")
+	skill(filepath.Join(dir, "extra"), "x-extra")
+	write(filepath.Join(proj, ".agents/skills.json"), `{"entries":[{"path":"`+filepath.Join(dir, "extra")+`"}]}`)
+
+	var custom []string
+	for _, c := range Commands(home, proj) {
+		if c.Source != "" {
+			custom = append(custom, c.Name+"="+c.Source)
+		}
+	}
+	want := []string{"s-plugcli=plugin", "s-plugon=plugin", "s-plugproj=plugin", "u-cap=user"}
+	if !slices.Equal(custom, want) {
+		t.Fatalf("got %q, want %q", custom, want)
+	}
+	stamp := CommandsStamp(home, proj)
+	p := filepath.Join(home, ".gemini/config/config.json")
+	write(p, `{"plugins":{"plugon":{"enabled":false}}}`)
+	os.Chtimes(p, time.Now(), time.Now().Add(time.Hour))
+	if CommandsStamp(home, proj) == stamp {
+		t.Fatal("turning a plugin off left the stamp")
+	}
+}

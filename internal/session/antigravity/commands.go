@@ -2,6 +2,7 @@ package antigravity
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,18 +29,18 @@ var Builtins = []session.Command{
 	{Name: "browser", Description: "Delegate web browsing, UI verification, and in-browser debugging to the browser subagent.", Hint: "<task>"},
 	{Name: "btw", Description: "Ask a side question in the background without interrupting the main conversation.", Hint: "<query>"},
 	{Name: "changelog", Description: "Open the interactive release notes viewer or print CLI changes in headless mode.", Terminal: true},
-	{Name: "clear", Description: "Clear the terminal and reset active conversation contexts."},
-	{Name: "codesearch", Description: "Open the interactive Code Search panel to search code across the workspace.", Hint: "<query>", Terminal: true},
+	{Name: "clear", Description: "Clear the terminal and reset active conversation contexts.", Aliases: []string{"new"}},
+	{Name: "codesearch", Description: "Open the interactive Code Search panel to search code across the workspace.", Hint: "<query>", Terminal: true, Aliases: []string{"cs", "search"}},
 	{Name: "compact", Description: "Summarize the conversation so far into a compaction checkpoint to free up context, and optionally continue with <message>.", Hint: "[message]"},
-	{Name: "config", Description: "Open the interactive Settings Editor overlay.", Terminal: true},
+	{Name: "config", Description: "Open the interactive Settings Editor overlay.", Terminal: true, Aliases: []string{"settings"}},
 	{Name: "context", Description: "Open the context usage visualization panel.", Terminal: true},
 	{Name: "copy", Description: "Copy the last agent response, the n-th most recent response, or the latest /btw answer.", Hint: "[n|btw]"},
 	{Name: "credits", Description: "View remaining AI credits and purchase links."},
 	{Name: "diff", Description: "Open the interactive diff viewer to view changes, turns, and commits.", Terminal: true},
 	{Name: "effort", Description: "Set or inspect the active model's reasoning effort level (low through max, depending on the model).", Hint: "[level]"},
-	{Name: "exit", Description: "Close the TUI session and restore your host shell."},
+	{Name: "exit", Description: "Close the TUI session and restore your host shell.", Aliases: []string{"quit"}},
 	{Name: "feedback", Description: "Open the feedback submission panel.", Terminal: true},
-	{Name: "fork", Description: "Clone the current conversation thread into a new parallel session."},
+	{Name: "fork", Description: "Clone the current conversation thread into a new parallel session.", Aliases: []string{"branch"}},
 	{Name: "goal", Description: "Run autonomously until the goal is verified complete, without intermediate pauses.", Hint: "<objective>"},
 	{Name: "grill-me", Description: "Have the agent interview you one question at a time, with a recommended answer for each, before it starts work.", Hint: "[task]"},
 	{Name: "help", Description: "Open the help panel showing commands and shortcuts.", Terminal: true},
@@ -52,11 +53,11 @@ var Builtins = []session.Command{
 	{Name: "open", Description: "Force the path to open inside your default system editor.", Hint: "<path>"},
 	{Name: "permissions", Description: "Open the interactive tool permissions manager panel.", Terminal: true},
 	{Name: "plan", Description: "Explore the codebase, clarify requirements, and draft a reviewable Implementation Plan.", Hint: "[task]"},
-	{Name: "plugin", Description: "Open the interactive Plugins Manager or run inline install, uninstall, enable, disable, and list commands.", Terminal: true},
+	{Name: "plugin", Description: "Open the interactive Plugins Manager or run inline install, uninstall, enable, disable, and list commands.", Terminal: true, Aliases: []string{"plugins"}},
 	{Name: "remote-control", Description: "Toggle Remote Control for the active terminal session.", Hint: "[on/off]"},
 	{Name: "rename", Description: "Rename the current session thread.", Hint: "<name>"},
-	{Name: "resume", Description: "Open the conversation picker overlay to select and load previous threads.", Terminal: true},
-	{Name: "rewind", Description: "Roll back your conversation history to a previous message.", Terminal: true},
+	{Name: "resume", Description: "Open the conversation picker overlay to select and load previous threads.", Terminal: true, Aliases: []string{"switch", "conversation"}},
+	{Name: "rewind", Description: "Roll back your conversation history to a previous message.", Terminal: true, Aliases: []string{"undo"}},
 	{Name: "run-workflow", Description: "Write and run a dynamic workflow script that orchestrates many agents."},
 	{Name: "schedule", Description: "Set a one-shot timer or recurring cron schedule that wakes the agent with an instruction.", Hint: "<when> <task>"},
 	{Name: "skills", Description: "Browse loaded local and global Agent Skills. Run /skills reload to reload skills from disk.", Terminal: true},
@@ -65,7 +66,7 @@ var Builtins = []session.Command{
 	{Name: "tasks", Description: "Open the Task Manager panel to monitor background shell execution logs.", Terminal: true},
 	{Name: "teamwork", Description: "Launch collaborative multi-agent teams for long-horizon projects (paid plans).", Hint: "<task>"},
 	{Name: "title", Description: "Toggle or set terminal window title updates.", Hint: "[on/off]"},
-	{Name: "usage", Description: "Display model quota usage."},
+	{Name: "usage", Description: "Display model quota usage.", Aliases: []string{"quota"}},
 	{Name: "voice", Description: "Talk with the agent by voice (/voice live) or dictate a prompt (/voice dictate).", Terminal: true},
 }
 
@@ -76,6 +77,16 @@ var Builtins = []session.Command{
 var (
 	userSkills    = []string{".gemini/antigravity-cli/skills", ".gemini/config/skills", ".gemini/skills"}
 	projectSkills = []string{".agents/skills", ".agent/skills"}
+)
+
+// userPlugins are the folders under home agy 1.5.13 loads plugins from,
+// and projectPlugins the one in each folder from the repo root down: each
+// plugin a folder with a plugin.json, its skills in skills/, listed under
+// their own names. ~/.gemini/config/config.json turns one off with
+// plugins.<name>.enabled false.
+var (
+	userPlugins    = []string{".gemini/config/plugins", ".gemini/antigravity-cli/plugins"}
+	projectPlugins = []string{".agents/plugins"}
 )
 
 // Commands is what agy's / menu lists for a session in cwd with home as
@@ -99,11 +110,15 @@ func Commands(home, cwd string) []session.Command {
 }
 
 // CommandsStamp changes when a skill Commands reads is added, removed or
-// written. It stats the files and reads none.
+// written, or the config that turns plugins off is. It stats the files
+// and reads only that config.
 func CommandsStamp(home, cwd string) string {
 	var b strings.Builder
 	for _, f := range skillFiles(home, cwd) {
 		fmt.Fprintf(&b, "%s %d %d\n", f.path, f.mod, f.size)
+	}
+	if fi, err := os.Stat(filepath.Join(home, ".gemini", "config", "config.json")); home != "" && err == nil {
+		fmt.Fprintf(&b, "config %d %d\n", fi.ModTime().UnixNano(), fi.Size())
 	}
 	return b.String()
 }
@@ -132,17 +147,79 @@ func skillFiles(home, cwd string) []skillFile {
 		}
 	}
 	slices.Reverse(project)
+	roots = append(roots, project...)
+	off := pluginsOff(home)
+	for _, dir := range pluginRoots(home, cwd) {
+		ents, _ := os.ReadDir(dir)
+		for _, e := range ents {
+			if _, err := os.Stat(filepath.Join(dir, e.Name(), "plugin.json")); err == nil && !off[e.Name()] {
+				roots = append(roots, root{filepath.Join(dir, e.Name(), "skills"), "plugin"})
+			}
+		}
+	}
 	var out []skillFile
-	for _, r := range append(roots, project...) {
+	for _, r := range roots {
 		ents, _ := os.ReadDir(r.dir)
 		for _, e := range ents {
-			p := filepath.Join(r.dir, e.Name(), "SKILL.md")
-			if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			if p, fi := skillMD(filepath.Join(r.dir, e.Name())); p != "" {
 				out = append(out, skillFile{dir: e.Name(), path: p, source: r.source, mod: fi.ModTime().UnixNano(), size: fi.Size()})
 			}
 		}
 	}
 	return out
+}
+
+// skillMD is dir's SKILL.md, which agy also takes spelled skill.md, and
+// its info; "" for none.
+func skillMD(dir string) (string, os.FileInfo) {
+	for _, n := range []string{"SKILL.md", "skill.md"} {
+		p := filepath.Join(dir, n)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			return p, fi
+		}
+	}
+	return "", nil
+}
+
+// pluginRoots are the plugin folders under home, then the project's
+// from the repo root down to cwd.
+func pluginRoots(home, cwd string) []string {
+	var out, project []string
+	if home != "" {
+		for _, d := range userPlugins {
+			out = append(out, filepath.Join(home, d))
+		}
+	}
+	for d := filepath.Clean(cwd); cwd != ""; d = filepath.Dir(d) {
+		for _, p := range projectPlugins {
+			project = append(project, filepath.Join(d, p))
+		}
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil || filepath.Dir(d) == d {
+			break
+		}
+	}
+	slices.Reverse(project)
+	return append(out, project...)
+}
+
+// pluginsOff are the plugins ~/.gemini/config/config.json turns off.
+func pluginsOff(home string) map[string]bool {
+	off := map[string]bool{}
+	b, err := os.ReadFile(filepath.Join(home, ".gemini", "config", "config.json"))
+	if home == "" || err != nil {
+		return off
+	}
+	var c struct {
+		Plugins map[string]struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"plugins"`
+	}
+	if json.Unmarshal(b, &c) == nil {
+		for name, p := range c.Plugins {
+			off[name] = p.Enabled != nil && !*p.Enabled
+		}
+	}
+	return off
 }
 
 // read is f's command: named by its frontmatter, else its folder; false
