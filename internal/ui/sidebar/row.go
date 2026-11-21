@@ -285,6 +285,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, "Waits: your draft")
 			}})
+		case QueueLabel(v.st, ws) != "":
+			// Queued messages say so in place of the time, quietly.
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, QueueLabel(v.st, ws))
+			}})
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
@@ -706,6 +711,29 @@ func statusHeight(gtx layout.Context, th *theme.Theme, status string) int {
 	}
 	_, l2 := rowLines(gtx, th)
 	return gtx.Dp(statusGap) + l2
+}
+
+// QueueLabel is how many messages ws's chats queued, as "2 queued", or
+// "2 held" when one of them waits for the user; "" for none.
+func QueueLabel(st *model.State, ws model.Workspace) string {
+	n, held := 0, false
+	add := func(id string) {
+		q := st.ChatQueues[id]
+		n, held = n+q.N, held || q.Held != ""
+	}
+	if ws.Chat != "" {
+		add(ws.Chat)
+	}
+	for _, ap := range st.AgentPanes(ws) {
+		add(ap.Pane.ID)
+	}
+	switch {
+	case n == 0:
+		return ""
+	case held:
+		return fmt.Sprintf("%d held", n)
+	}
+	return fmt.Sprintf("%d queued", n)
 }
 
 // draftHeld reports whether the user's draft holds messages to an agent of ws.
