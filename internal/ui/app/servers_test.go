@@ -17,6 +17,7 @@ import (
 	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ports"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -165,8 +166,17 @@ func TestSuggestGates(t *testing.T) {
 func TestServersWindow(t *testing.T) {
 	u, b, frame := suggestUI(t, nil)
 	tr := u.transcripts["c1"]
-	if tr == nil || len(tr.Servers.List) != 1 || tr.Servers.Note != "" {
+	if tr == nil || len(tr.Servers.List) != 1 {
 		t.Fatalf("transcript servers %+v", tr)
+	}
+	if !ports.Supported {
+		if tr.Servers.Note == "" {
+			t.Fatal("no note where pitwall cannot list servers")
+		}
+		return
+	}
+	if tr.Servers.Note != "" {
+		t.Fatalf("note %q", tr.Servers.Note)
 	}
 	tr.ShowServers()
 	frame()

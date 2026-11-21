@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -26,6 +28,15 @@ type fgPane struct {
 func (p fgPane) Foreground() int { return p.fg }
 func (p fgPane) Cwd() string     { return p.cwd }
 func (p fgPane) Close() error    { return nil }
+
+// absPath is the slash path p as an absolute path here: on a drive on
+// Windows.
+func absPath(p string) string {
+	if runtime.GOOS == "windows" {
+		return `C:` + filepath.FromSlash(p)
+	}
+	return p
+}
 
 type fixedPID int
 
@@ -135,7 +146,7 @@ func serversDaemon(t *testing.T) (*Daemon, *sysFake) {
 			self: {PID: self, PPID: 1, PGID: self, SID: self, Name: "pitwall"},
 		},
 		ports:  map[int][]int{12: {3000, 3001}, 20: {9999}, 21: {8000}, 31: {3002}, 47: {5173}, 60: {5432}, self: {7777}},
-		cwd:    map[int]string{47: "/work/app/web"},
+		cwd:    map[int]string{47: absPath("/work/app/web")},
 		ignore: map[int]bool{},
 	}
 	sys.install(t)
@@ -145,7 +156,7 @@ func serversDaemon(t *testing.T) (*Daemon, *sysFake) {
 		d.st.Workspaces = append(d.st.Workspaces, model.Workspace{ID: id, SessionID: "s"})
 	}
 	d.st.Panes = []model.Pane{{ID: "p1", WorkspaceID: "w1"}, {ID: "p2", WorkspaceID: "w2", Provider: model.ProviderClaude}, {ID: "p4", WorkspaceID: "w4", Provider: model.ProviderCodex}}
-	d.panes = map[string]Pane{"p1": fgPane{fg: 11, cwd: "/work/one"}, "p2": fgPane{fg: 20, cwd: "/work/two"}, "p4": fgPane{fg: 40, cwd: "/work/app"}}
+	d.panes = map[string]Pane{"p1": fgPane{fg: 11, cwd: absPath("/work/one")}, "p2": fgPane{fg: 20, cwd: absPath("/work/two")}, "p4": fgPane{fg: 40, cwd: absPath("/work/app")}}
 	c := &chat{id: "c3"}
 	c.procOf.Store(&pider{fixedPID(30)})
 	if d.chats == nil {
@@ -204,13 +215,13 @@ func TestCheckServers(t *testing.T) {
 	d.mu.Lock()
 	d.st.Workspaces = append(d.st.Workspaces, model.Workspace{ID: "w5", SessionID: "s"})
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: "p5", WorkspaceID: "w5", Provider: model.ProviderCodex})
-	d.panes["p5"] = fgPane{fg: 50, cwd: "/work"}
+	d.panes["p5"] = fgPane{fg: 50, cwd: absPath("/work")}
 	d.mu.Unlock()
 	sys.mu.Lock()
 	sys.table[50] = ports.Proc{PID: 50, PPID: 1, PGID: 50, SID: 50, Name: "codex"}
 	sys.table[48] = ports.Proc{PID: 48, PPID: 46, PGID: 46, SID: 45, Name: "astro"}
 	sys.ports[48] = []int{4321}
-	sys.cwd[48] = "/work/app/site"
+	sys.cwd[48] = absPath("/work/app/site")
 	sys.mu.Unlock()
 	d.checkServers()
 	if got := d.state().Servers["w4"]; len(got) != 1 || got[0].PID != 47 {
