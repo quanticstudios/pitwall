@@ -235,14 +235,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				)
 			}})
 		}
-		// The first open port of the tab's block, a dev server. On a Host it
-		// listens there, and localhost here would not reach it.
-		if l := v.st.Listening[ws.ID]; len(l) > 0 && s.Host == "" && s.hostOf(ws.ID) == "" {
+		// The first open port of the tab's block, else of a server the tab
+		// started: a dev server. On a Host it listens there, and localhost
+		// here would not reach it.
+		if port, _ := tabPort(v.st, ws.ID); port > 0 && s.Host == "" && s.hostOf(ws.ID) == "" {
 			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 				if ghost {
-					return PortChip(gtx, th, l[0], base)
+					return PortChip(gtx, th, port, base)
 				}
-				return clickable(gtx, &r.port, func(gtx layout.Context) layout.Dimensions { return PortChip(gtx, th, l[0], base) })
+				return clickable(gtx, &r.port, func(gtx layout.Context) layout.Dimensions { return PortChip(gtx, th, port, base) })
 			}})
 		}
 		if inRepo && hasPR {

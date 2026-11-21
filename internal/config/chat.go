@@ -12,6 +12,7 @@ type Chat struct {
 	FollowUp    string `toml:"follow_up" enum:"queue,steer" doc:"What the send key does while the agent works: queue holds the message until the turn ends; steer sends it into the running turn, where the agent takes it (a slash command still queues). Ctrl+Enter does the other one, Cmd+Enter on macOS"`
 	SendKey     string `toml:"send_key" enum:"enter,ctrl+enter" doc:"The composer's send key: enter sends with Enter, Shift+Enter adds a line; ctrl+enter sends with Ctrl+Enter (Cmd+Enter on macOS), Enter adds a line, and Ctrl+Shift+Enter does the other follow-up"`
 	ToolCalls   string `toml:"tool_calls" enum:"all,failed,none,zen" doc:"Which tool calls the desktop chat shows: all; failed hides a call once it succeeds; none hides every call; zen shows only your messages and each turn's final reply. Errors, approvals and questions always show. The chat header's Tools button cycles it"`
+	SuggestNext bool   `toml:"suggest_next" doc:"After a turn ends, an empty composer shows a predicted next message in muted text; Tab fills it in. Each suggestion is one extra headless run of the chat's agent on its cheapest model, billed to the agent's plan, so it is off by default. Never while the agent works, at most once per turn, never in a guarded tab"`
 }
 
 // Tool call visibility, [chat] tool_calls.
@@ -48,6 +49,9 @@ type ChatSettings struct {
 	// CtrlEnter is true when Ctrl+Enter sends and Enter adds a line.
 	CtrlEnter bool
 	ToolCalls string // one of ToolModes
+	// SuggestNext shows a predicted next prompt in an empty composer after
+	// a turn ends.
+	SuggestNext bool
 }
 
 func defaultChat() Chat {
@@ -56,7 +60,7 @@ func defaultChat() Chat {
 
 // resolveChat fills in [chat]'s values from c.
 func resolveChat(c Chat) (ChatSettings, []issue) {
-	var out ChatSettings
+	out := ChatSettings{SuggestNext: c.SuggestNext}
 	var issues []issue
 	switch c.Claude {
 	case "", "chat":

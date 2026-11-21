@@ -1,4 +1,4 @@
-18.96
+18.97
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -26,8 +26,9 @@ model.Program{App string; State string; Kind string; Progress int; Message strin
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.RemoteSession{Host string; Session string; Forget []string}
 model.RemoteWorker{ID string; Host string; Parent string; Since time.Time; Lost string}
+model.Server{PID int; Name string; Ports []int; Agent bool}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin; Workers []model.RemoteWorker}
-model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form}
+model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; Servers map[string][]model.Server; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.TabStart{SessionID string; SessionName string; Parent string; ParentPane string}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
@@ -70,6 +71,8 @@ proto.ChatRewindCheck{Chat string; Turn string}
 proto.ChatRewindFiles{Chat string; Turn string; Files []proto.RewindFile; Unsaved []proto.RewindFile; Refused string}
 proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; How string}
 proto.ChatSet{Chat string; Model string; Effort string; Mode string; Provider model.Provider}
+proto.ChatSuggest{Chat string; Turn string}
+proto.ChatSuggestResult{Chat string; Turn string; Text string; Code string; Err string}
 proto.ChatTerminal{Chat string; On bool}
 proto.ChatUnarchive{Chat string}
 proto.CloseDoneWorkers{WorkspaceID string}
@@ -143,6 +146,8 @@ proto.SecondOpinion{Pane string; Agent string}
 proto.SeePane{Pane string}
 proto.SelectTab{WorkspaceID string; TabID string}
 proto.Send{Pane string; From string; Text string}
+proto.ServerStop{Workspace string; PID int; Port int; Force bool}
+proto.ServerStopResult{Workspace string; PID int; Port int; Force bool; Running bool; Err string}
 proto.SessionKill{SessionID string}
 proto.SessionLink{SessionID string; Host string; Remote string; Forget []string; Unforget []string; Kill bool}
 proto.SessionMatch{Workspace string; Pane string; Match vt.Match; Snippet string; Time time.Time; Transcript bool; Hidden bool}

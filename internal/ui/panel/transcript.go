@@ -77,6 +77,9 @@ type Transcript struct {
 	// CopyOnSelect copies a mouse selection once the button comes up, as
 	// a terminal pane's [term] copy_on_select does.
 	CopyOnSelect bool
+	// Servers is the side panel's Servers view: what the chat's tab runs
+	// that listens on a port.
+	Servers ServerList
 	// Copied, when set, tells the window a selection was copied, to show
 	// its notice over the transcript, area in the window.
 	Copied func(gtx layout.Context, text string, area image.Rectangle)

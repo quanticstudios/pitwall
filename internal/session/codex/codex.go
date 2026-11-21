@@ -516,6 +516,19 @@ func (d *driver) Interrupt(ctx context.Context) error {
 // Set (thread/settings/update) is not wired yet.
 func (d *driver) Set(context.Context, session.Settings) error { return session.ErrUnsupported }
 
+// PID is the provider process's id, for the Servers panel: what it
+// started is the chat's.
+// The app-server restarts after a crash, so it is read each time; 0
+// while none runs.
+func (d *driver) PID() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.p == nil || d.p.cmd.Process == nil {
+		return 0
+	}
+	return d.p.cmd.Process.Pid
+}
+
 func (d *driver) Close(ctx context.Context) error {
 	d.mu.Lock()
 	if d.closing {

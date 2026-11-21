@@ -558,6 +558,11 @@ type State struct {
 	// missing. The daemon fills it in and replaces it whole; it is not
 	// saved.
 	Listening map[string][]int `json:"-"`
+	// Servers is, per tab, the processes its panes and its chat's agent
+	// started that listen on a loopback or wildcard TCP port, by first
+	// port; a tab with none is missing. The daemon fills it in and
+	// replaces it whole; it is not saved.
+	Servers map[string][]Server `json:"-"`
 	// DevProxyPort is the port this daemon's local dev proxy actually bound.
 	// Zero means no proxy is listening. It is not saved.
 	DevProxyPort int `json:"-"`
@@ -577,6 +582,16 @@ type State struct {
 	// Forms are the open forms of `pitwall form`, oldest first. The daemon
 	// fills it in; it is not saved.
 	Forms []Form `json:"-"`
+}
+
+// Server is a process that listens on TCP ports, for a chat's Servers
+// panel: its name (the kernel's, never its arguments), its ports
+// ascending, and whether an agent started it rather than a terminal.
+type Server struct {
+	PID   int
+	Name  string
+	Ports []int
+	Agent bool
 }
 
 // TabStart is the immutable context of a successful client-chosen id.

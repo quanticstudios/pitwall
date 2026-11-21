@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -74,6 +75,9 @@ type chat struct {
 	seq    int64
 	drv    session.Driver
 	starts int // Provider.Start calls; an event of an earlier one is dropped
+	// procOf is the latest started driver, for the Servers panel: its
+	// process's pid; unset for a driver with none. Read off the loop.
+	procOf atomic.Pointer[pider]
 	recent []session.Delta
 	// recentSize is the bytes of recent's JSON (keepRecent).
 	recentSize int
@@ -1004,7 +1008,11 @@ func (c *chat) emitter(start int) func(session.Event) {
 // request: Close ends it.
 func (c *chat) start(from session.Origin) (session.Driver, error) {
 	c.starts++
-	return c.prov.Start(context.Background(), c.cfg, from, c.emitter(c.starts))
+	drv, err := c.prov.Start(context.Background(), c.cfg, from, c.emitter(c.starts))
+	if p, ok := drv.(interface{ PID() int }); ok && err == nil {
+		c.procOf.Store(&pider{p})
+	}
+	return drv, err
 }
 
 // chatEvent applies a driver's event to the chat.

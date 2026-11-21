@@ -233,8 +233,11 @@ func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 		s.events = append(s.events, OpenPR{WorkspaceID: ws.ID})
 	}
 	for r.port.Clicked(gtx) {
-		if l := v.st.Listening[ws.ID]; len(l) > 0 {
-			s.events = append(s.events, OpenPort{Port: l[0], URL: s.devURL(ws)})
+		switch port, block := tabPort(v.st, ws.ID); {
+		case block:
+			s.events = append(s.events, OpenPort{Port: port, URL: s.devURL(ws)})
+		case port > 0:
+			s.events = append(s.events, OpenPort{Port: port})
 		}
 	}
 	for r.archive.Clicked(gtx) {
@@ -266,4 +269,19 @@ func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 		s.events = append(s.events, e)
 		s.closeMenus()
 	}
+}
+
+// tabPort is the port a tab's row shows: the first open one of its port
+// block (block true, which the dev proxy may front), else the lowest a
+// server the tab started listens on; 0 for none.
+func tabPort(st *model.State, ws string) (port int, block bool) {
+	if l := st.Listening[ws]; len(l) > 0 {
+		return l[0], true
+	}
+	for _, sv := range st.Servers[ws] {
+		if len(sv.Ports) > 0 && (port == 0 || sv.Ports[0] < port) {
+			port = sv.Ports[0]
+		}
+	}
+	return port, false
 }

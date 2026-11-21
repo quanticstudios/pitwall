@@ -46,6 +46,7 @@ const (
 type chatHead struct {
 	term, panel, more, back, aide widget.Clickable
 	files                         widget.Clickable // the chat's Files and Changes panel
+	servers                       widget.Clickable // its Servers view, while the tab runs one
 	menu                          bool             // the more menu is open
 	menuAt                        time.Time        // when it last opened or closed, for its fade
 	backdrop                      int              // the click outside the menu that closes it
@@ -168,6 +169,11 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	for h.tools.Clicked(gtx) {
 		u.cycleTools()
 	}
+	for h.servers.Clicked(gtx) {
+		if tr != nil {
+			tr.ShowServers()
+		}
+	}
 	for h.more.Clicked(gtx) {
 		h.setMenu(!h.menu, gtx.Now)
 	}
@@ -234,9 +240,23 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 			})
 		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
+	// What the tab's servers were when the transcript last drew, a frame ago.
+	if tr != nil && len(tr.Servers.List) > 0 {
+		kind := kit.Ghost
+		if tr.ServersOpen() {
+			kind = kit.Secondary
+		}
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.tipped(gtx, h, &h.servers, serversTip(tr.Servers.List), func(gtx gl.Context) gl.Dimensions {
+				return kit.IconButton(gtx, th, &h.servers, kind, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
+					sidebar.IconPath(gtx, panel.IconGlobe, size, col)
+				})
+			})
+		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+	}
 	if tr != nil {
 		kind := kit.Ghost
-		if tr.FilesOpen() {
+		if tr.FilesOpen() && !tr.ServersOpen() {
 			kind = kit.Secondary
 		}
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {

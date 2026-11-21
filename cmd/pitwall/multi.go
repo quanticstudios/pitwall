@@ -313,6 +313,7 @@ func (m *multi) merge() {
 		st.DraftHeld = join(st.DraftHeld, s.DraftHeld)
 		st.Delivered = join(st.Delivered, s.Delivered)
 		st.Listening = join(st.Listening, s.Listening)
+		st.Servers = join(st.Servers, s.Servers)
 		if st.Notice == "" {
 			st.Notice = s.Notice
 		}
@@ -1258,6 +1259,22 @@ func (m *multi) Chat(id string) (session.Snapshot, bool) {
 		return h.b.Chat(id)
 	}
 	return session.Snapshot{}, false
+}
+
+// ChatSuggestion answers from the backend of the host that owns chat id.
+func (m *multi) ChatSuggestion(id string) (proto.ChatSuggestResult, bool) {
+	if h := m.of(id); h != nil {
+		return h.b.ChatSuggestion(id)
+	}
+	return proto.ChatSuggestResult{}, false
+}
+
+// ServerStops answers from the backend of the host that owns tab ws.
+func (m *multi) ServerStops(ws string) []proto.ServerStopResult {
+	if h := m.of(ws); h != nil {
+		return h.b.ServerStops(ws)
+	}
+	return nil
 }
 
 // ChatAsides answers from the backend of the host that owns chat id.

@@ -51,6 +51,8 @@ type Composer struct {
 	// typedFor is the question the draft was last edited under, "" for
 	// none: only a draft typed while a question shows answers it.
 	typedFor string
+	// dismissed is the suggestion Escape dismissed.
+	dismissed string
 
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
 	modeBtn, modelBtn widget.Clickable
@@ -166,6 +168,9 @@ type Env struct {
 	// QueueEditMods are the modifiers that with Up edit the newest queued
 	// message: Alt, or Alt+Shift where the window keeps Alt+Up; 0 is Alt.
 	QueueEditMods key.Modifiers
+	// Suggest is a predicted next prompt: the empty box shows it muted in
+	// place of the placeholder, Tab fills it in and Escape dismisses it.
+	Suggest string
 }
 
 type imageRead struct {
@@ -637,6 +642,9 @@ func (c *Composer) keyEvents(gtx layout.Context, env Env) {
 		if tok >= 0 {
 			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward})
 		}
+		if c.suggestion(env) != "" {
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameTab})
+		}
 		if c.mention.open() || c.slash.open() {
 			for _, n := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameTab, key.NameReturn, key.NameEnter} {
 				fs = append(fs, key.Filter{Focus: ed, Name: n})
@@ -685,11 +693,20 @@ func (c *Composer) keyEvents(gtx layout.Context, env Env) {
 				k := c.hist.keep
 				c.hist = recall{}
 				c.bringBack(k)
+			case c.suggestion(env) != "":
+				c.dismissed = env.Suggest
 			case env.Esc != nil && env.Esc(): // the transcript closed its side panel
 			case env.Snap.Busy():
 				c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
 			}
 		case key.NameTab:
+			if sug := c.suggestion(env); e.Modifiers == 0 && sug != "" {
+				ed.SetText(sug)
+				n := ed.Len()
+				ed.SetCaret(n, n)
+				c.draft.Sync(c.Text())
+				break
+			}
 			c.cycleMode(env, gtx.Now)
 		case key.NameReturn, key.NameEnter:
 			switch {
@@ -1028,6 +1045,38 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 	return layout.Dimensions{Size: rect.Max}
 }
 
+// suggestion is env's suggested prompt while the box can take it: empty,
+// the agent idle, no @ or / menu open, and Escape not having dismissed it.
+func (c *Composer) suggestion(env Env) string {
+	if env.Suggest == "" || env.Suggest == c.dismissed || c.ed.Len() != 0 || len(c.draft.Images) > 0 ||
+		c.mention.open() || c.slash.open() || env.Snap != nil && env.Snap.Busy() {
+		return ""
+	}
+	return env.Suggest
+}
+
+// suggestHint draws suggestion sug where the placeholder goes, cut to
+// one line, and after it a Tab key cap saying how to take it.
+func (c *Composer) suggestHint(gtx layout.Context, th *theme.Theme, size unit.Sp, sug string) {
+	km := op.Record(gtx.Ops)
+	kd := text(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, "Tab")
+	kcall := km.Stop()
+	pad := image.Pt(gtx.Dp(theme.SpaceXS), gtx.Dp(theme.Space2XS))
+	box := kd.Size.Add(pad.Mul(2))
+	gap := gtx.Dp(theme.SpaceS)
+	tg := gtx
+	tg.Constraints.Max.X = max(0, gtx.Constraints.Max.X-box.X-gap)
+	d := text(tg, th, th.UIFont, size, th.Muted, sug)
+	r := image.Rectangle{Min: image.Pt(d.Size.X+gap, (d.Size.Y-box.Y)/2)}
+	r.Max = r.Min.Add(box)
+	rad := gtx.Dp(theme.RadiusControl)
+	paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(r, rad).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(r.Inset(gtx.Dp(1)), max(0, rad-gtx.Dp(1))).Op(gtx.Ops))
+	o := op.Offset(r.Min.Add(pad)).Push(gtx.Ops)
+	kcall.Add(gtx.Ops)
+	o.Pop()
+}
+
 // field is the editor: one line at rest, growing to ten, then scrolling;
 // the placeholder while empty, and each image token drawn as a chip.
 func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
@@ -1039,7 +1088,11 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 		if c.ed.Len() == 0 {
 			lg := gtx
 			lg.Constraints.Min = image.Point{}
-			text(lg, th, th.UIFont, size, th.Muted, Placeholder(env.Snap))
+			if sug := c.suggestion(env); sug != "" {
+				c.suggestHint(lg, th, size, sug)
+			} else {
+				text(lg, th, th.UIFont, size, th.Muted, Placeholder(env.Snap))
+			}
 		}
 		d := c.ed.Layout(gtx, th.Shaper, th.UIFont, size, colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.Surface, th.Primary, 0.35)))
 		c.tokens(gtx, th)

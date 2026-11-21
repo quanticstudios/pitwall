@@ -13,6 +13,25 @@ func (b *backend) SearchResults() []proto.SearchAllResult {
 	return r
 }
 
+// ChatSuggestion implements app.Suggester: chat id's latest answer to
+// ChatSuggest.
+func (b *backend) ChatSuggestion(id string) (proto.ChatSuggestResult, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.suggests[id]
+	return r, ok
+}
+
+// ServerStops implements app.ServerStopper: the answers to tab ws's
+// ServerStops that came since the last call.
+func (b *backend) ServerStops(ws string) []proto.ServerStopResult {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r := b.stops[ws]
+	delete(b.stops, ws)
+	return r
+}
+
 // ChatAsides implements app.ChatAsker: the answers to chat id's side
 // questions that came since the last call.
 func (b *backend) ChatAsides(id string) []proto.ChatAsideResult {
