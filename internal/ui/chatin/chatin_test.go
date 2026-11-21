@@ -246,6 +246,8 @@ type harness struct {
 	// (proto.PastedFileLevel); reveal is the transcript's Reveal.
 	files  bool
 	reveal func(Source) bool
+	// opts, when set, changes the composer's Env each frame.
+	opts func(*Env)
 }
 
 func newHarness(t *testing.T) *harness {
@@ -260,6 +262,14 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) env() Env {
+	e := h.baseEnv()
+	if h.opts != nil {
+		h.opts(&e)
+	}
+	return e
+}
+
+func (h *harness) baseEnv() Env {
 	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Answer: h.answer, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
 		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) }, TextFiles: h.files, Reveal: h.reveal,
 		Mentions: func(q string) []string {

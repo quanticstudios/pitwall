@@ -2,7 +2,6 @@ package chatin
 
 import (
 	"context"
-	"encoding/base64"
 	"image"
 	"image/color"
 	"io"
@@ -38,10 +37,14 @@ import (
 
 // Composer is a desktop chat's send box: a card under the transcript with
 // the draft, its pasted images, and a row with the permission mode, the
-// model and effort, the context meter and Send or Stop. Enter sends, or
-// queues while Claude works, Ctrl+Enter sends into the running turn,
-// Shift+Enter adds a line, Shift+Tab cycles the mode, Escape stops the
-// turn. Keep one per chat and its draft survives tab switches.
+// model and effort, the stash, the context meter and Send or Stop. Enter
+// sends, or queues while the agent works ([chat] follow_up), Ctrl+Enter
+// does the other follow-up, Shift+Enter adds a line ([chat] send_key
+// swaps Enter and Ctrl+Enter), Up and Down recall sent prompts, Ctrl+S
+// stashes the draft, Alt+Up edits the newest queued message,
+// Ctrl+Shift+Enter sends the oldest now, Shift+Tab cycles the mode,
+// Escape stops the turn. Keep one per chat and its draft survives tab
+// switches.
 type Composer struct {
 	ed    widget.Editor
 	draft Draft
@@ -85,6 +88,14 @@ type Composer struct {
 	noteAt  string         // the text when an image's note went up: taking its token out is no edit that clears it
 	last    *sent          // the last send, until it is answered
 	rewind  *rewinding     // a rewind sent, whose prompt fills the box once it succeeds
+	hist    recall         // the sent prompt Up put in the box
+	qedit   queueEdit      // the queued message Alt+Up put in the box
+
+	stash      []Stash // the chat's stashed drafts, newest first
+	stashSet   bool    // SetStashes gave them
+	stashDirty bool    // changed since StashChanged
+	stashSel   int     // the menu's highlighted row
+	stashBtn   widget.Clickable
 
 	mode, model, effort held
 	bypass              bool // the chat has run in bypass permissions, so Shift+Tab may go back to it
@@ -142,6 +153,18 @@ type Env struct {
 	// Reveal scrolls the transcript to a quote's source and flashes it;
 	// false when the transcript no longer has it.
 	Reveal func(Source) bool
+	// History is the chat's prompts, oldest first, for Up and Down to
+	// recall (Recallable picks them); nil where there are none. It runs on
+	// those keys alone. Full reads a cut prompt whole, which a later
+	// History holds.
+	History func() []Sent
+	Full    func(item string)
+	// Steer is [chat] follow_up = "steer": the send key steers a working
+	// agent and Ctrl+Enter queues. CtrlEnter is send_key = "ctrl+enter".
+	Steer, CtrlEnter bool
+	// QueueEditMods are the modifiers that with Up edit the newest queued
+	// message: Alt, or Alt+Shift where the window keeps Alt+Up; 0 is Alt.
+	QueueEditMods key.Modifiers
 }
 
 type imageRead struct {
@@ -351,6 +374,8 @@ const (
 	ButtonSend                  // idle with a draft: the arrow, which sends
 	ButtonStop                  // working and empty: the square, which stops the turn
 	ButtonQueue                 // working with a draft: Queue, with a quiet Stop beside it
+	ButtonSteer                 // working with a draft the send key steers: Steer, with Stop beside it
+	ButtonSave                  // editing a queued message: Save
 )
 
 // ButtonOf is the main button for a chat with s and a draft or none.
@@ -368,57 +393,26 @@ func ButtonOf(s *session.Snapshot, draft bool) Button {
 	return ButtonSendOff
 }
 
+// button is the main button now: ButtonOf, Steer where the send key
+// steers, Save while a queued message is edited.
+func (c *Composer) button(env Env) Button {
+	b := ButtonOf(env.Snap, c.hasDraft())
+	switch {
+	case c.qedit.id != "":
+		return ButtonSave
+	case b == ButtonQueue && followUp(env, c.Text(), false) != "queue":
+		return ButtonSteer
+	}
+	return b
+}
+
 func (c *Composer) hasDraft() bool {
 	return strings.TrimSpace(c.Text()) != "" || len(c.draft.Images) > 0
 }
 
 // PullBack puts queued message q back in the box, after any draft, its
 // images renumbered into the draft.
-func (c *Composer) PullBack(q session.QueuedInput) {
-	text := q.Text
-	type swap struct{ mark, tok string }
-	var swaps []swap
-	for i, a := range q.Attachments {
-		var tok, old string
-		switch a.Kind {
-		case "pasted-text":
-			tok = c.draft.AddPart(Part{Kind: PartPasted, Text: a.Text, Label: a.Name})
-			if n, ok := strings.CutPrefix(a.ID, "pasted-"); ok {
-				old = "[Pasted text #" + n + "]"
-			}
-		case "image":
-			data, err := base64.StdEncoding.DecodeString(a.Data)
-			if err != nil {
-				continue
-			}
-			thumb, err := Cover(data, c.thumbSide())
-			if err != nil {
-				continue
-			}
-			tok = c.draft.Add(Image{Data: data, Mime: a.MimeType, Thumb: paint.NewImageOp(thumb), side: c.thumbSide()})
-			if n, ok := strings.CutPrefix(a.ID, "image-"); ok {
-				old = "[Image #" + n + "]"
-			}
-		default:
-			continue
-		}
-		// why: through a mark, so #1 renumbered to #2 is not then taken for the old #2.
-		mark := "\x00" + itoa(i) + "\x00"
-		if old != "" && strings.Contains(text, old) {
-			text = strings.Replace(text, old, mark, 1)
-		} else {
-			text = strings.TrimRight(text, " ") + " " + mark
-		}
-		swaps = append(swaps, swap{mark, tok})
-	}
-	for _, sw := range swaps {
-		text = strings.Replace(text, sw.mark, sw.tok, 1)
-	}
-	if cur := c.Text(); strings.TrimSpace(cur) != "" {
-		text = strings.TrimRight(cur, "\n") + "\n" + text
-	}
-	c.SetText(text)
-}
+func (c *Composer) PullBack(q session.QueuedInput) { c.pull(q.Text, q.Attachments, nil, "\n") }
 
 // toggle opens b's popover, or closes it when it is the one open.
 func (c *Composer) toggle(now time.Time, b *widget.Clickable) {
@@ -446,9 +440,9 @@ func (c *Composer) setMenu(now time.Time, open bool) {
 	}
 }
 
-// submit sends the draft, or queues it behind the running turn; now sends
-// it into the running turn instead, as Ctrl+Enter does.
-func (c *Composer) submit(env Env, at time.Time, now bool) {
+// submit sends the draft; to a working agent it queues or steers as
+// followUp says, other for the other follow-up's key.
+func (c *Composer) submit(env Env, at time.Time, other bool) {
 	text := c.Text()
 	imgs := c.draft.Ordered(text)
 	if strings.TrimSpace(text) == "" && len(imgs) == 0 {
@@ -458,7 +452,7 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 		c.note = "Wait for the image to attach"
 		return
 	}
-	if len(imgs) == 0 && len(c.draft.Parts) == 0 && !now && env.Answer != nil && asking(env.Snap) && c.typedFor == asked(env.Snap) && !SlashCommand(text) && env.Answer(text) {
+	if len(imgs) == 0 && len(c.draft.Parts) == 0 && !other && env.Answer != nil && asking(env.Snap) && c.typedFor == asked(env.Snap) && !SlashCommand(text) && env.Answer(text) {
 		c.note = ""
 		c.ed.SetText("")
 		c.draft.Clear()
@@ -476,12 +470,7 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 	}
 	m := proto.ChatSend{Chat: env.Chat, Text: out, Attachments: atts}
 	if env.Snap.Busy() || Pending(env.Snap) {
-		m.How = "queue"
-		if now && env.Now {
-			m.How = "now"
-		} else if now {
-			m.How = "steer"
-		}
+		m.How = followUp(env, text, other)
 	}
 	c.out = append(c.out, m)
 	if name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " "); strings.HasPrefix(text, "/") &&
@@ -491,7 +480,7 @@ func (c *Composer) submit(env Env, at time.Time, now bool) {
 	kept := c.draft
 	kept.Images = imgs
 	c.last = &sent{text: text, draft: kept, at: at}
-	c.note = ""
+	c.note, c.hist = "", recall{}
 	c.ed.SetText("")
 	c.draft.Clear()
 	c.editing, c.confirm = "", 0
@@ -573,6 +562,21 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.Reading(env, env.ReadImage)
 		}
 	}
+	c.queueEditGone(env)
+	c.recallWhole(env)
+	c.keyEvents(gtx, env)
+	c.others(gtx, env)
+}
+
+// keyEvents takes the composer's own keys. others runs it again last, so
+// the keys it asks for next frame follow what the frame changed: Gio
+// routes a key by the filters of the frame before.
+func (c *Composer) keyEvents(gtx layout.Context, env Env) {
+	ed := &c.ed
+	qmods := env.QueueEditMods
+	if qmods == 0 {
+		qmods = key.ModAlt
+	}
 	for {
 		start, end := ed.Selection()
 		fs := []event.Filter{
@@ -581,6 +585,26 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			key.Filter{Focus: ed, Name: key.NameReturn, Required: key.ModShortcut},
 			key.Filter{Focus: ed, Name: key.NameEnter, Required: key.ModShortcut},
 			key.Filter{Focus: ed, Name: "V", Required: key.ModShortcut | key.ModShift},
+			key.Filter{Focus: ed, Name: key.NameReturn, Required: key.ModShortcut | key.ModShift},
+			key.Filter{Focus: ed, Name: key.NameEnter, Required: key.ModShortcut | key.ModShift},
+			key.Filter{Focus: ed, Name: "S", Required: key.ModCtrl},
+		}
+		if c.stashOpen() {
+			for _, n := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameReturn, key.NameEnter, key.NameDeleteForward} {
+				fs = append(fs, key.Filter{Focus: ed, Name: n})
+			}
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModCtrl})
+		}
+		if up, down := c.recallKeys(env); up {
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameUpArrow})
+			if down {
+				fs = append(fs, key.Filter{Focus: ed, Name: key.NameDownArrow})
+			}
+		} else if down {
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDownArrow})
+		}
+		if start == 0 && end == 0 && c.qedit.id == "" && !c.arrowsTaken() && len(c.shownQueue(env.Snap, gtx.Now)) > 0 {
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameUpArrow, Required: qmods})
 		}
 		// A token right before the caret goes whole on Backspace, and on a
 		// word delete with only spaces after it.
@@ -618,6 +642,10 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		if !ok || e.State != key.Press {
 			continue
 		}
+		if c.stashOpen() && (e.Modifiers == 0 && e.Name != key.NameDeleteBackward || e.Name == key.NameDeleteBackward && e.Modifiers == key.ModCtrl) {
+			c.stashMenuKey(gtx.Now, e)
+			continue
+		}
 		if c.slash.open() && e.Modifiers == 0 && e.Name != key.NameDeleteBackward {
 			c.slashKey(gtx, e)
 			continue
@@ -639,6 +667,12 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 				c.confirm = 0
 			case c.menu:
 				c.setMenu(gtx.Now, false)
+			case c.qedit.id != "":
+				c.cancelQueued()
+			case c.recalling():
+				k := c.hist.keep
+				c.hist = recall{}
+				c.bringBack(k)
 			case env.Esc != nil && env.Esc(): // the transcript closed its side panel
 			case env.Snap.Busy():
 				c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
@@ -646,7 +680,28 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		case key.NameTab:
 			c.cycleMode(env, gtx.Now)
 		case key.NameReturn, key.NameEnter:
-			c.submit(env, gtx.Now, true)
+			switch {
+			case e.Modifiers&key.ModShift != 0: // with send_key ctrl+enter and a draft, the other follow-up
+				if env.CtrlEnter && c.hasDraft() && c.qedit.id == "" {
+					c.submit(env, gtx.Now, true)
+				} else {
+					c.steerOldest(env, gtx.Now)
+				}
+			case c.qedit.id != "":
+				c.saveQueued(env)
+			default:
+				c.submit(env, gtx.Now, !env.CtrlEnter)
+			}
+		case "S":
+			c.stashKey(gtx.Now)
+		case key.NameUpArrow:
+			if e.Modifiers != 0 {
+				c.editQueued(env, gtx.Now)
+			} else {
+				c.recallStep(env, true)
+			}
+		case key.NameDownArrow:
+			c.recallStep(env, false)
 		case key.NameDeleteBackward:
 			if e.Modifiers != 0 {
 				tok = word
@@ -656,6 +711,12 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			c.draft.Sync(c.Text())
 		}
 	}
+}
+
+// others takes the editor's events and the clicks, after the composer's
+// keys, then the keys again.
+func (c *Composer) others(gtx layout.Context, env Env) {
+	ed := &c.ed
 	empty := ed.Len() == 0 && len(c.draft.Images) == 0
 	for {
 		ev, ok := ed.Update(gtx)
@@ -672,7 +733,14 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			if empty && env.Key != nil && env.Key(string(key.NameReturn)) {
 				break
 			}
-			c.submit(env, gtx.Now, false)
+			switch {
+			case env.CtrlEnter:
+				ed.Insert("\n")
+			case c.qedit.id != "":
+				c.saveQueued(env)
+			default:
+				c.submit(env, gtx.Now, false)
+			}
 		case widget.ChangeEvent:
 			c.draft.Sync(c.Text())
 			c.typedFor = asked(env.Snap)
@@ -699,13 +767,35 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 		}
 	}
 	if c.sendBtn.Clicked(gtx) {
-		switch ButtonOf(env.Snap, c.hasDraft()) {
+		switch c.button(env) {
 		case ButtonStop:
 			c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
-		case ButtonSend, ButtonQueue:
+		case ButtonSave:
+			c.saveQueued(env)
+		case ButtonSend, ButtonQueue, ButtonSteer:
 			c.submit(env, gtx.Now, false)
 		}
 		gtx.Execute(key.FocusCmd{Tag: ed})
+	}
+	if c.stashBtn.Clicked(gtx) {
+		c.stashSel = 0
+		c.toggle(gtx.Now, &c.stashBtn)
+		gtx.Execute(key.FocusCmd{Tag: ed})
+	}
+	if c.stashOpen() {
+		for i := range c.stash {
+			if c.click("stashrm:" + itoa(i)).Clicked(gtx) {
+				c.dropStash(gtx.Now, i)
+				gtx.Execute(key.FocusCmd{Tag: ed})
+				break
+			}
+			if c.click("stash:" + itoa(i)).Clicked(gtx) {
+				c.setMenu(gtx.Now, false)
+				c.unstash(i)
+				gtx.Execute(key.FocusCmd{Tag: ed})
+				break
+			}
+		}
 	}
 	if c.stopBtn.Clicked(gtx) {
 		c.out = append(c.out, proto.ChatInterrupt{Chat: env.Chat})
@@ -760,6 +850,7 @@ func (c *Composer) events(gtx layout.Context, env Env) {
 			}
 		}
 	}
+	c.keyEvents(gtx, env)
 }
 
 // Layout handles the frame's input and draws the card centered in
@@ -1068,12 +1159,29 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.branchLayout(gtx, th, env) }),
 		}
+		// The stash's chip ends the row, while drafts are stashed; its
+		// popover's anchor is the row's end less its width.
+		var stashSize image.Point
+		if len(c.stash) > 0 {
+			left = append(left, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					d := c.pick(gtx, th, &c.stashBtn, "archive", itoa(len(c.stash)), pickFg(th), false)
+					c.tip(gtx, th, &c.stashBtn, d.Size, StashTip(len(c.stash)), false)
+					stashSize = d.Size
+					return d
+				})
+			}))
+		}
 		// The chips take what the buttons leave, cut at its edge, so Send
 		// stays in a narrow or large-text chat.
 		chips := func(gtx layout.Context) layout.Dimensions {
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 			gtx.Constraints.Min.X = 0
 			d := layout.Flex{Alignment: layout.Middle}.Layout(gtx, left...)
+			if stashSize != (image.Point{}) {
+				x0, y := gtx.Dp(theme.SpaceS)+d.Size.X-stashSize.X, c.barY+(rowH-stashSize.Y)/2
+				c.anchors[&c.stashBtn] = image.Rectangle{Min: image.Pt(x0, y), Max: image.Pt(x0+stashSize.X, y+stashSize.Y)}
+			}
 			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, d.Size.Y)}
 		}
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -1086,7 +1194,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if ButtonOf(env.Snap, c.hasDraft()) != ButtonQueue {
+				if b := c.button(env); b != ButtonQueue && b != ButtonSteer {
 					return layout.Dimensions{}
 				}
 				return layout.Inset{Right: theme.SpaceXS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1096,9 +1204,13 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				b := ButtonOf(env.Snap, c.hasDraft())
+				b := c.button(env)
 				d := c.send(gtx, th, b)
-				tip := map[Button]string{ButtonSendOff: "Send (Enter)", ButtonSend: "Send (Enter)", ButtonStop: "Stop (Esc)", ButtonQueue: "Queue: sends when Claude finishes (Enter). Send now: Ctrl+Enter"}[b]
+				send, other := sendKeys(env)
+				tip := map[Button]string{ButtonSendOff: "Send (" + send + ")", ButtonSend: "Send (" + send + ")", ButtonStop: "Stop (Esc)",
+					ButtonQueue: "Queue: sends when the agent finishes (" + send + "). Send now: " + other,
+					ButtonSteer: "Steer: sends into the running turn (" + send + "). Queue: " + other,
+					ButtonSave:  "Save the queued message (" + send + "). Esc cancels"}[b]
 				c.tip(gtx, th, &c.sendBtn, d.Size, tip, true)
 				return d
 			}),
@@ -1262,6 +1374,12 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Di
 		case ButtonQueue:
 			fill, fg = th.Primary, th.OnPrimary
 			semantic.LabelOp("Queue").Add(gtx.Ops)
+		case ButtonSteer:
+			fill, fg = th.Primary, th.OnPrimary
+			semantic.LabelOp("Steer").Add(gtx.Ops)
+		case ButtonSave:
+			fill, fg = th.Primary, th.OnPrimary
+			semantic.LabelOp("Save").Add(gtx.Ops)
 		case ButtonSend:
 			fill, fg = th.Primary, th.OnPrimary
 			semantic.LabelOp("Send").Add(gtx.Ops)
@@ -1282,6 +1400,8 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Di
 			stopSquare(gtx, is, fg)
 		case ButtonQueue:
 			sidebar.Icon(gtx, "list-plus", is, fg)
+		case ButtonSave:
+			sidebar.Icon(gtx, "check", is, fg)
 		default:
 			sidebar.Icon(gtx, "arrow-up", is, fg)
 		}
@@ -1342,6 +1462,8 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 		pw = gtx.Dp(160)
 	case &c.modeBtn:
 		pw = gtx.Dp(220)
+	case &c.stashBtn:
+		pw = min(gtx.Dp(400), c.cardSize.X)
 	}
 	pg := gtx
 	pg.Constraints = layout.Constraints{Min: image.Pt(pw, 0), Max: image.Pt(pw, gtx.Constraints.Max.Y)}
@@ -1368,6 +1490,9 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 				}))
 			}
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+		}
+		if c.which == &c.stashBtn {
+			return c.stashMenu(gtx, th)
 		}
 		kids = append(kids, layout.Rigid(heading(th, "Model")))
 		for _, v := range ModelsOf(env.Snap.Provider) {

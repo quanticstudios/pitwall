@@ -14,6 +14,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -165,6 +166,9 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			cmp.AddQuote(c.Text, c.Src)
 			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the quote came
 		}
+		if list, ok := cmp.StashChanged(); ok {
+			u.stashes.save(stashKey(id), list)
+		}
 		// One selection at a time, the newest: the transcript's or the draft's.
 		if t.Began() {
 			cmp.Deselect()
@@ -220,7 +224,20 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		Commands: u.link().Level >= proto.SlashLevel}
 	env.Key, env.Esc, env.Answer, env.Reveal = t.Key, t.CloseFiles, t.Answer, t.Reveal
 	env.TextFiles = u.link().Level >= proto.PastedFileLevel
+	env.History, env.Full = func() []chatin.Sent { return panel.Prompts(s) }, t.Full
+	env.Steer, env.CtrlEnter = u.cfg.Chat.Steer, u.cfg.Chat.CtrlEnter
+	env.QueueEditMods = queueEditMods(u.nav.bind())
 	return env
+}
+
+// queueEditMods are the modifiers that with Up edit a chat's newest
+// queued message: Alt, or Alt+Shift where the window binds Alt+Up, as
+// the aide preset's prev_tab does, since the window takes its keys first.
+func queueEditMods(b *config.Bindings) key.Modifiers {
+	if b.Action(key.Event{Name: key.NameUpArrow, Modifiers: key.ModAlt}) != "" {
+		return key.ModAlt | key.ModShift
+	}
+	return key.ModAlt
 }
 
 // chatSteers reports whether Send now goes into chat id's running turn
@@ -250,10 +267,18 @@ func (u *ui) composer(st *model.State, id string) *chatin.Composer {
 	c := u.composers[id]
 	if c == nil {
 		c = new(chatin.Composer)
+		if u.stashes == nil {
+			u.stashes = newStashFiles()
+		}
+		c.SetStashes(u.stashes.load(stashKey(id)))
 		u.composers[id] = c
 	}
 	return c
 }
+
+// stashKey names chat id's stashed drafts: its host's, as two daemons'
+// chats may share an id.
+func stashKey(id string) string { return curHost() + "\x00" + id }
 
 // chatLive is whether a chat in state may still add to its transcript
 // without a change that pushes a new State.

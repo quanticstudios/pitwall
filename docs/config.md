@@ -74,6 +74,8 @@ claude = "chat"                         # or "terminal": how Claude Code panes s
 codex = "chat"                          # or "terminal": the same for Codex panes
 antigravity = "chat"                    # or "terminal": New task starts agy's TUI; agy panes show as the TUI
 width = "standard"                      # or "comfortable" (736 dp), "full": a chat tab's column
+follow_up = "queue"                     # or "steer": what the send key does while the agent works; Ctrl+Enter does the other
+send_key = "enter"                      # or "ctrl+enter": Ctrl+Enter sends and Enter adds a line
 
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag
