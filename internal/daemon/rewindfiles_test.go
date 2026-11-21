@@ -84,7 +84,7 @@ func TestChatRewindFiles(t *testing.T) {
 	}
 	before := chatItems(t, d, id)
 	res := chatDo(t, d, proto.ChatRewind{Chat: id, Turn: one})
-	if res.Code != "conflict" || !strings.Contains(res.Message, "mine.txt") || !strings.Contains(res.Message, "stash them first") {
+	if res.Code != "conflict" || !strings.Contains(res.Message, "mine.txt") || !strings.Contains(res.Message, "stash it first") {
 		t.Fatalf("rewind with an unsaved file: %+v", res)
 	}
 	if got := chatItems(t, d, id); !slices.Equal(got, before) || read("mine.txt") == "" || read("new.txt") == "" {

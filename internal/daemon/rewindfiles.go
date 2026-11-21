@@ -131,7 +131,7 @@ func (d *Daemon) rewindFiles(ctx context.Context, self, ws, rev string, stash bo
 	var u *gitstat.UnsavedError
 	switch {
 	case errors.As(err, &u):
-		return "", chatError{"conflict", u.Error() + "; stash them first, or keep the changes"}
+		return "", unsavedRefusal(u)
 	case err != nil:
 		return "", chatError{"conflict", "the files were not put back, so nothing was rewound: " + err.Error()}
 	}
@@ -146,6 +146,12 @@ func backupNote(backup string) string {
 	}
 	short := backup[:min(len(backup), 12)]
 	return fmt.Sprintf(". The files from before are saved in commit %s; to get them back, run git restore --source=%s --worktree -- :/", short, short)
+}
+
+// unsavedRefusal is a rewind's refusal for files changed after the agent's
+// last turn.
+func unsavedRefusal(u *gitstat.UnsavedError) error {
+	return chatError{"conflict", u.Error() + "; stash " + plural(len(u.Files), "it", "them") + " first, or keep the changes"}
 }
 
 func plural(n int, one, many string) string {

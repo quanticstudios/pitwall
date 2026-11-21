@@ -55,8 +55,7 @@ func (d *Daemon) paneRewind(pc *paneChat, m proto.ChatRewind) (string, error) {
 			return "", err
 		}
 		if len(p.Unsaved) > 0 && !m.Stash {
-			u := &gitstat.UnsavedError{Files: p.Unsaved}
-			return "", chatError{"conflict", u.Error() + "; stash them first, or keep the changes"}
+			return "", unsavedRefusal(&gitstat.UnsavedError{Files: p.Unsaved})
 		}
 	}
 	if err := d.paneRewindChat(pc, m); err != nil {
