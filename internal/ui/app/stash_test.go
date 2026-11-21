@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"testing"
@@ -51,7 +52,7 @@ func TestStashFiles(t *testing.T) {
 	if _, err := os.Stat(f.path("c1")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the emptied file stays: %v", err)
 	}
-	if st, err := os.Stat(f.path("c2")); err != nil || st.Mode().Perm() != 0o600 {
+	if st, err := os.Stat(f.path("c2")); err != nil || runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows has no mode bits
 		t.Fatalf("the file's mode: %v %v", st.Mode(), err)
 	}
 }
