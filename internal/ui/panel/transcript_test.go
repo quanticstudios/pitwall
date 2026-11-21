@@ -446,3 +446,28 @@ func TestTranscriptRunningFold(t *testing.T) {
 		t.Fatal("the turn's end opened the log the user closed")
 	}
 }
+
+// TestTranscriptKeepScroll: a reader scrolled up who changes the chat's
+// text size keeps the same row at the top, at the same place in it.
+func TestTranscriptKeepScroll(t *testing.T) {
+	th, s := theme.Dark(), longChat(60)
+	tr := &Transcript{}
+	var ops op.Ops
+	frame := func(px float32) {
+		ops.Reset()
+		tr.Layout(layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: px, PxPerSp: px}, Constraints: layout.Exact(image.Pt(800, 600)), Now: time.Now()}, th, s, false)
+	}
+	frame(1)
+	frame(1)
+	tr.list.Position.BeforeEnd, tr.list.Position.First, tr.list.Position.Offset = true, 20, 30
+	frame(1)
+	first, off := tr.list.Position.First, tr.list.Position.Offset
+	frame(2)
+	if tr.list.Position.First != first || tr.list.Position.Offset != 2*off {
+		t.Errorf("at twice the size: row %d at %d, want row %d at %d", tr.list.Position.First, tr.list.Position.Offset, first, 2*off)
+	}
+	frame(1)
+	if tr.list.Position.First != first || tr.list.Position.Offset != off {
+		t.Errorf("back: row %d at %d, want row %d at %d", tr.list.Position.First, tr.list.Position.Offset, first, off)
+	}
+}

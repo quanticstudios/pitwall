@@ -359,8 +359,9 @@ tool rows, cards, the work log, the composer and the queue, with the space
 around them and the `[chat] width` column, so a bigger size wraps the same
 words per line. Code in the chat keeps its size relative to the prose, so
 one setting covers both. The chat header stays at `ui_size`. In a chat,
-Ctrl+= and Ctrl+- (Cmd in the mac preset) step it a point at a time between
-6 and 48 and write it here, and Ctrl+0 removes it again; Settings, Chat
+Ctrl+= (or Ctrl++) and Ctrl+- (Cmd in the mac preset) step it a point at a
+time between 6 and 48 and write it here, and Ctrl+0 removes it again. A
+change keeps the message you were reading at the top; Settings, Chat
 text size, does the same. The keys are `chat_text_bigger`,
 `chat_text_smaller` and `chat_text_reset` under `[keys]`.
 

@@ -67,6 +67,7 @@ type Transcript struct {
 	Invalidate func()
 
 	list   layout.List
+	listPx float32 // the px per sp list's offsets were laid out at
 	blocks []block
 	rows   []trow
 	laid   int // transcript items laid out in the last frame
@@ -478,6 +479,16 @@ func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 // Layout draws s filling gtx's constraints, with Open in aide in a quiet
 // menu when aide is set, and the Files and Changes panel at its right
 // while it is open.
+// keepScroll keeps the row at the top where it was when the chat's text
+// size changes: the offset into it is in px, which scale with the size.
+func (t *Transcript) keepScroll(px float32) {
+	if t.listPx != 0 && px != t.listPx {
+		t.list.Position.Offset = int(float32(t.list.Position.Offset)*px/t.listPx + 0.5)
+		t.list.Position.OffsetLast = int(float32(t.list.Position.OffsetLast)*px/t.listPx + 0.5)
+	}
+	t.listPx = px
+}
+
 func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
 	return t.withSide(gtx, th, s, func(gtx layout.Context) layout.Dimensions { return t.layoutChat(gtx, th, s, aide) })
 }
@@ -539,6 +550,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		t.keepPlace(s)
 	}
 
+	t.keepScroll(gtx.Metric.PxPerSp)
 	// A new prompt, sent here, queued or typed elsewhere, takes the
 	// reader to the end wherever they scrolled.
 	if id := lastPrompt(s); id != t.prompt {

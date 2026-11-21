@@ -84,7 +84,7 @@ conventional:
 | Ctrl+Shift+H                            | Move the keyboard into the sidebar, or back to the pane   |
 | Ctrl+Shift+L                            | Show or hide the agent panel                              |
 | Alt+T                                   | On a chat tab or a pane running Claude Code: flip between the chat and the TUI |
-| Ctrl+= / Ctrl+- / Ctrl+0                | In a chat: text a point bigger / smaller / back to the interface size |
+| Ctrl+= / Ctrl+- / Ctrl+0                | In a chat: text a point bigger (Ctrl++ too) / smaller / back to the interface size |
 | Ctrl+Shift+R                            | Review the tab's changes: comment, then send to its agent |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
@@ -137,7 +137,7 @@ aide:
 | Ctrl+Shift+B                      | Move the keyboard into the sidebar, or back to the pane |
 | Ctrl+Shift+L                      | Show or hide the agent panel                   |
 | Alt+T                             | On a chat tab or a pane running Claude Code: flip between the chat and the TUI |
-| Ctrl+= / Ctrl+- / Ctrl+0          | In a chat: text a point bigger / smaller / back to the interface size |
+| Ctrl+= / Ctrl+- / Ctrl+0          | In a chat: text a point bigger (Ctrl++ too) / smaller / back to the interface size |
 | Ctrl+Shift+R                      | Review the tab's changes and comment on them   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
@@ -195,7 +195,7 @@ mac:
 | Cmd+Shift+B                             | Move the keyboard into the sidebar, or back to the pane   |
 | Cmd+L                                   | Show or hide the agent panel                              |
 | Cmd+Option+T                            | On a chat tab or a pane running Claude Code: flip between the chat and the TUI |
-| Cmd+= / Cmd+- / Cmd+0                   | In a chat: text a point bigger / smaller / back to the interface size |
+| Cmd+= / Cmd+- / Cmd+0                   | In a chat: text a point bigger (Cmd++ too) / smaller / back to the interface size |
 | Cmd+Shift+R                             | Review the tab's changes: comment, then send to its agent |
 | Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
 | Cmd+Option+U                           | Jump to the pane you last sent an agent prompt, across sessions |
@@ -443,7 +443,7 @@ In [the desktop chat](chat.md)'s composer:
 | Ctrl+Backspace          | Delete the word, or the image chip, before the cursor          |
 | Ctrl+V                  | Paste text or an image (Cmd+V on macOS)                        |
 | Alt+T                   | Flip to Claude Code's TUI and back (Cmd+Option+T in mac)       |
-| Ctrl+= / Ctrl+-         | Chat text a point bigger / smaller, saved as `[font] chat_size` (Cmd in mac) |
+| Ctrl+= / Ctrl+-         | Chat text a point bigger (Ctrl++ too) / smaller, saved as `[font] chat_size` (Cmd in mac) |
 | Ctrl+0                  | Chat text back to the interface size (Cmd+0 in mac)            |
 
 ### Markdown reader
