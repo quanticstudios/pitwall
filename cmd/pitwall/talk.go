@@ -134,6 +134,10 @@ func runSplit(args []string, out, errOut io.Writer) (int, error) {
 		return 0, printNewPane(out, state, after, w)
 	}
 	tabIdx, paneIdx, newPane, err := findNewPane(state, after, w)
+	if err != nil && watch != nil {
+		// why: a quick command can exit and its pane close before the state above; the watch, opened first, saw the pane come.
+		tabIdx, paneIdx, newPane, err = watchNewPane(watch, state, w)
+	}
 	if err != nil {
 		return 1, err
 	}
@@ -178,6 +182,25 @@ func findNewPane(before, after model.State, w model.Workspace) (tabIdx, paneIdx 
 	}
 	return i + 1, n + 1, panes[n], nil
 }
+
+// watchNewPane reads watch's states until one has a pane in tab w that
+// before had not, for a pane that may have closed again since.
+func watchNewPane(watch *watcher, before model.State, w model.Workspace) (int, int, model.Pane, error) {
+	watch.socket.SetReadDeadline(time.Now().Add(newPaneLook))
+	defer watch.socket.SetReadDeadline(time.Time{})
+	for {
+		s, err := watch.next()
+		if err != nil {
+			return 0, 0, model.Pane{}, errors.New("cannot identify the new pane from daemon state")
+		}
+		if tabIdx, paneIdx, p, err := findNewPane(before, s, w); err == nil {
+			return tabIdx, paneIdx, p, nil
+		}
+	}
+}
+
+// newPaneLook is how long watchNewPane reads the watch for a new pane.
+const newPaneLook = 5 * time.Second
 
 // printNewPane prints the address of the pane in tab w that after has and
 // before had not.
