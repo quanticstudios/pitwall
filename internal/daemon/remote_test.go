@@ -1200,3 +1200,46 @@ func TestTypeLetterImageOrder(t *testing.T) {
 		t.Fatalf("typed %q: want a.png first", got)
 	}
 }
+
+// TestPressEnterAgain: Claude Code drops a Return that comes while it
+// still loads, as on a --resume after a reboot, and the line stays in its
+// box. Within resumeLoad of the resume, pressEnter presses Enter again
+// while the box holds it, a few times at most, and only once when the
+// first one took.
+func TestPressEnterAgain(t *testing.T) {
+	defer enterLook.set(enterLook.set(200 * time.Millisecond))
+	defer replyDelay.set(replyDelay.set(time.Millisecond))
+	box := []string{"────────", "❯ pitwall restarted and resumed this session.", "────────"}
+	empty := []string{"────────", "❯ ", "────────"}
+	for _, c := range []struct {
+		name   string
+		clears bool
+		want   int
+	}{{"dropped", false, 1 + enterTries}, {"taken", true, 1}} {
+		t.Run(c.name, func(t *testing.T) {
+			d, f, _ := remoteDaemon(t)
+			d.mu.Lock()
+			d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == "a" })].Provider = model.ProviderClaude
+			if d.resumed == nil {
+				d.resumed = map[string]time.Time{}
+			}
+			d.resumed["a"] = time.Now()
+			d.mu.Unlock()
+			p := f.pane(0)
+			p.mu.Lock()
+			p.screen = box
+			if c.clears {
+				p.wrote = func() { p.screen = empty }
+			}
+			p.mu.Unlock()
+			if err := d.pressEnter("a", p, "pitwall restarted"); err != nil {
+				t.Fatal(err)
+			}
+			gotAfter(t, p, 0, c.want)
+			time.Sleep(50 * time.Millisecond) // a write still on its way would show now
+			if got := strings.Count(p.got(), "\r"); got != c.want {
+				t.Errorf("%d Enters, want %d", got, c.want)
+			}
+		})
+	}
+}

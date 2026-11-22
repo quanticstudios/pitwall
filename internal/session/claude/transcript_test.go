@@ -535,3 +535,42 @@ func TestTranscriptResumePlaceholder(t *testing.T) {
 		t.Errorf("events %+v: want none for the resume placeholder", es)
 	}
 }
+
+// TestTranscriptInterruptedCall: the session ended mid-call (the machine
+// shut down), and on resume Claude Code 2.1.330 wrote the call's result
+// as an interruption, with toolUseResult a plain string. The call ends
+// failed, not running for ever.
+func TestTranscriptInterruptedCall(t *testing.T) {
+	tr := NewTranscript()
+	snap := base()
+	for _, l := range []string{
+		`{"type":"user","uuid":"p1","timestamp":"2026-11-21T23:29:50Z","origin":{"kind":"human"},"message":{"role":"user","content":"Shutdown this pc"}}`,
+		`{"type":"assistant","uuid":"a1","timestamp":"2026-11-21T23:29:59Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"systemctl poweroff","description":"Shut down the PC"}}]}}`,
+		`{"type":"user","uuid":"r1","parentUuid":"a1","timestamp":"2026-11-22T16:21:30Z","toolDenialKind":"interrupted","sourceToolAssistantUUID":"a1","message":{"role":"user","content":[{"type":"tool_result","content":"[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]","is_error":true,"tool_use_id":"t1"}]},"toolUseResult":"[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]"}`,
+	} {
+		snap = apply(t, snap, tr.Line([]byte(l)))
+	}
+	calls := 0
+	for _, it := range snap.Content {
+		if it.Tool != nil {
+			calls++
+			if it.Tool.Status != "failed" {
+				t.Fatalf("call %s is %q after its interrupted result: want failed", it.ID, it.Tool.Status)
+			}
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("%d calls, want the one Bash call", calls)
+	}
+	for _, l := range []string{
+		`{"type":"assistant","uuid":"a2","parentUuid":"r1","timestamp":"2026-11-22T16:21:30Z","message":{"id":"m2","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`,
+		`{"type":"user","uuid":"p2","parentUuid":"a2","timestamp":"2026-11-22T16:22:17Z","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"text","text":"why is it spinning still?"}]}}`,
+	} {
+		snap = apply(t, snap, tr.Line([]byte(l)))
+	}
+	for _, tu := range snap.Turns[:len(snap.Turns)-1] {
+		if tu.State == session.TurnRunning {
+			t.Fatalf("turn %s still running after the next prompt", tu.ID)
+		}
+	}
+}

@@ -23,6 +23,9 @@ type Live struct {
 	Width    int
 	Thinking string
 	Command  string
+	// Status is the text on Claude Code's spinner row, such as
+	// "Compacting conversation… (5s)", "" with none on screen.
+	Status string
 }
 
 // LiveScreen reads Live off agent p's screen g: Claude Code, Codex or
@@ -42,6 +45,13 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 		for i := len(rows) - 2; i >= 0 && end < 0; i-- {
 			if isRule(rows[i]) && strings.HasPrefix(rows[i+1], "❯") {
 				end = i
+			}
+		}
+		// why: the spinner row sits under the turn's text; what is below it (a tip, a status line some setups print with a bullet) is no reply.
+		for i := end - 1; i >= 0 && i >= end-6; i-- {
+			if c, size := utf8.DecodeRuneInString(rows[i]); strings.ContainsRune(claudeSpinners, c) && strings.Contains(rows[i], "…") {
+				lv.Status, end = strings.TrimSpace(rows[i][size:]), i
+				break
 			}
 		}
 		echo = func(r string) bool { return strings.HasPrefix(r, "❯ ") }
@@ -120,7 +130,7 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 			break
 		}
 		if tool(r) {
-			return Live{Thinking: lv.Thinking, Command: lv.Command} // a tool call
+			return Live{Thinking: lv.Thinking, Command: lv.Command, Status: lv.Status} // a tool call
 		}
 		block = append(block, r)
 	}
@@ -177,6 +187,9 @@ func agyLive(rows []string, anchor func(string) bool) (thought, command string) 
 
 // spinner reports whether c is a frame of Antigravity's braille spinner.
 func spinner(c rune) bool { return c >= 0x2800 && c <= 0x28ff }
+
+// claudeSpinners are the glyphs Claude Code's spinner row cycles through.
+const claudeSpinners = "·✢✳✶✻✽*"
 
 // cutCols is row without its first n runes.
 func cutCols(row string, n int) string {

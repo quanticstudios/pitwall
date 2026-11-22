@@ -24,6 +24,10 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- A Claude Code pane chat no longer shows a status line printed under Claude's spinner, such as "full $51.43 last $0.31 1h 32m", as the agent's reply: the reply read off the screen stops at the spinner row.
+- A Claude Code pane chat shows "Compacting conversation…" while Claude compacts, from its spinner row, for a /compact as well as an automatic one, until the compaction lands.
+- A pane chat ends a turn the session's end cut off, such as one running when the machine shut down: when Claude Code resumes the session, the turn shows as interrupted and its call as failed, instead of spinning with a growing "Working for" time.
+- In the first minutes after pitwall resumes an agent, it presses Enter again, up to three times, when a message it typed is still in the agent's input box. Claude Code drops a Return that comes while a --resume still loads, so after a reboot pitwall's restart line stayed in the box and went out joined to the user's next message.
 - TestSkillshareOpensAndCounts waits for the skillshare badge itself, so it no longer fails at random on slow Windows runners.
 
 ## v0.3.2

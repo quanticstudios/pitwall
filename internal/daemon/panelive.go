@@ -24,6 +24,7 @@ const (
 	liveThought = "live-thought"
 	liveCall    = "live-call"
 	livePrompt  = "live-prompt"
+	liveStatus  = "live-status"
 )
 
 // echoFor is how long the prompt a chat sent shows before its transcript
@@ -74,8 +75,11 @@ func (pc *paneChat) live(l paneLive) {
 			turn = pc.lv.turn
 		}
 	}
+	var lv agent.Live
+	if l.p != nil {
+		lv = agent.LiveScreen(pc.prov, l.p.Snapshot())
+	}
 	if turn != "" && l.p != nil {
-		lv := agent.LiveScreen(pc.prov, l.p.Snapshot())
 		// why: Codex can draw its reply's last rows over again from further up; the rows read so far stay until the screen catches up.
 		if rows := stitch(pc.lv.rows, lv); rows != nil {
 			pc.lv.rows = rows
@@ -83,6 +87,11 @@ func (pc *paneChat) live(l paneLive) {
 		pc.lv.items = pc.liveItems(turn, lv)
 	} else {
 		pc.lv.rows, pc.lv.turn = nil, ""
+	}
+	// why: a compaction writes nothing to the transcript until it ends, and a /compact runs no turn; the TUI's spinner row is the only sign.
+	if st, _, _ := strings.Cut(lv.Status, " ("); strings.HasPrefix(st, "Compacting") {
+		p := pc.prov
+		pc.lv.items = append(pc.lv.items, session.Item{ID: liveStatus, Kind: session.KindSystem, Text: st, Provider: &p})
 	}
 	if e := pc.lv.echo; e != nil && (lastPrompt(pc.snap) != pc.lv.after || time.Since(pc.lv.at) > echoFor) {
 		pc.lv.echo = nil
