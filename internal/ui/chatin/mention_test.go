@@ -1,6 +1,8 @@
 package chatin
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +125,31 @@ func TestBranchChip(t *testing.T) {
 	h.frame()
 	if len(h.copied) != 1 {
 		t.Fatal("a chip outside a repo copied")
+	}
+}
+
+func TestMentionSpansAndZeroAllocs(t *testing.T) {
+	type span [2]int
+	collect := func(txt, tok string) []span {
+		var out []span
+		mentionSpans(txt, tok, func(s, e int) { out = append(out, span{s, e}) })
+		return out
+	}
+	if got, want := collect("@a.go and 界 @a.go x@a.go @a.gox @a.go", "@a.go"), []span{{0, 5}, {12, 17}, {32, 37}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("spans = %v, want %v", got, want)
+	}
+	if got, want := collect(`see @"my file.txt" ok`, `@"my file.txt"`), []span{{4, 18}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("quoted spans = %v, want %v", got, want)
+	}
+	long := strings.Repeat("hello world 界 ", 100) + "@main.go " + strings.Repeat("tail ", 100)
+	allocs := testing.AllocsPerRun(100, func() {
+		count := 0
+		mentionSpans(long, "@main.go", func(s, e int) { count += e - s })
+		if count != 8 {
+			t.Fatalf("count = %d", count)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("mentionSpans allocated %.1f times per run, want 0", allocs)
 	}
 }

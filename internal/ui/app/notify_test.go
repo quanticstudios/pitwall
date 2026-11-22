@@ -462,3 +462,69 @@ func TestNotifierWaitingBatchFocusChange(t *testing.T) {
 		})
 	}
 }
+
+// TestNotifierInvalidateNotBlockedBySend verifies that a slow/blocking desktop
+// notification sender never stalls the b.Changed() -> invalidate() relay.
+func TestNotifierInvalidateNotBlockedBySend(t *testing.T) {
+	b := NewFakeBackend()
+	set := func(state model.AgentState) {
+		b.mu.Lock()
+		b.st.Activities = []model.Activity{notifyActivity(state, time.Now())}
+		b.st.Activities[0].WorkspaceID = "w1"
+		b.bump()
+		b.mu.Unlock()
+	}
+	set(model.StateWorking)
+
+	sendStarted := make(chan struct{}, 1)
+	releaseSend := make(chan struct{})
+	invalidated := make(chan struct{}, 16)
+	n := newNotifier(
+		b,
+		config.DefaultNotifySettings(),
+		func() {
+			select {
+			case invalidated <- struct{}{}:
+			default:
+			}
+		},
+		func(ctx context.Context, _ notification) {
+			select {
+			case sendStarted <- struct{}{}:
+			default:
+			}
+			select {
+			case <-releaseSend:
+			case <-ctx.Done():
+			}
+		},
+		nil,
+		nil,
+	)
+	defer func() {
+		close(releaseSend)
+		n.close()
+	}()
+	focused := false
+	n.setView(&focused, "", "")
+
+	set(model.StatePendingApproval)
+	select {
+	case <-sendStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("notification sender never started")
+	}
+	// Drain any invalidations from the initial transition.
+	for len(invalidated) > 0 {
+		<-invalidated
+	}
+	// Trigger a backend change while send() is still blocked.
+	b.mu.Lock()
+	b.bump()
+	b.mu.Unlock()
+	select {
+	case <-invalidated:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("b.Changed() -> invalidate() stalled while send() was blocked")
+	}
+}

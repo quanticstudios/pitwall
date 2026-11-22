@@ -158,7 +158,7 @@ func (d *Daemon) serveRemote(s phone) (stop func()) {
 	var ws *web.Server
 	if s.Bundle != "" {
 		rs.Web = &web.Client{Dir: s.Bundle, Live: func(id string) bool { return remote.Paired(d.o.RemoteDir, id) }}
-		ws = &web.Server{Version: Build, Client: rs.Web}
+		ws = &web.Server{Version: Build, Client: rs.Web, Chats: chatHub{d}, Usage: d.o.Usage}
 		rs.WS = ws.WebSocket()
 	}
 	srv := &http.Server{Handler: rs.Handler(), ReadHeaderTimeout: 10 * time.Second}

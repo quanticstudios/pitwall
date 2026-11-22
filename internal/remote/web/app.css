@@ -149,6 +149,12 @@ footer.compose {
 .composer { display: flex; gap: 8px; align-items: flex-end; }
 .composer .field { max-height: 160px; }
 .composer .btn { flex: none; }
+#attachment { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#attachment[hidden] { display: none; }
+#attachment img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 1px solid var(--raised); flex: none; }
+#attachment .btn { flex: none; }
+#attach { margin-bottom: 8px; }
+#attach[hidden] { display: none; }
 
 /* The model picker */
 .scrim { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-end; justify-content: center; }

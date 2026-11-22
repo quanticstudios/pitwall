@@ -12,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
 
 // Timeout is the maximum time a teardown command may run.
@@ -46,17 +48,13 @@ func Run(ctx context.Context, path string, s config.WorktreeSettings, ports mode
 		return key == "PORT" || key == "PITWALL_PORT_BASE" || key == "PITWALL_PORTS"
 	})
 	cmd.Env = append(cmd.Env, ports.Env()...)
-	ownGroup(cmd)
-	// A child that keeps stdout open must not extend the time limit.
-	cmd.WaitDelay = time.Second
+	nowindow.Set(cmd)
+	childproc.Bound(cmd)
 	out := &tail{}
 	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil
-	}
-	if err != nil && cmd.Process != nil {
-		_ = cmd.Cancel()
 	}
 	if ctx.Err() != nil {
 		err = ctx.Err()

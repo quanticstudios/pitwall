@@ -5,10 +5,12 @@ import (
 	"path"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -153,6 +155,41 @@ func (c *Composer) mentionBefore(text string, caret int) int {
 	return -1
 }
 
+// mentionSpans calls fn with the rune span [s, e) of every whitespace-bounded
+// occurrence of tok in txt without heap allocations.
+func mentionSpans(txt, tok string, fn func(s, e int)) {
+	if tok == "" || len(tok) > len(txt) {
+		return
+	}
+	tokRunes := utf8.RuneCountInString(tok)
+	bytePos, runePos := 0, 0
+	for bytePos < len(txt) {
+		i := strings.Index(txt[bytePos:], tok)
+		if i < 0 {
+			return
+		}
+		matchByte := bytePos + i
+		runePos += utf8.RuneCountInString(txt[bytePos:matchByte])
+		endByte := matchByte + len(tok)
+		leftOK := matchByte == 0
+		if !leftOK {
+			prev, _ := utf8.DecodeLastRuneInString(txt[:matchByte])
+			leftOK = unicode.IsSpace(prev)
+		}
+		rightOK := endByte == len(txt)
+		if !rightOK {
+			next, _ := utf8.DecodeRuneInString(txt[endByte:])
+			rightOK = unicode.IsSpace(next)
+		}
+		if leftOK && rightOK {
+			fn(runePos, runePos+tokRunes)
+		}
+		_, w := utf8.DecodeRuneInString(txt[matchByte:])
+		bytePos = matchByte + w
+		runePos++
+	}
+}
+
 // mentionChips covers each picked @path in the editor with a chip, its
 // label the same text in the chip's color on the line's baseline. One
 // that wraps stays plain text.
@@ -160,20 +197,18 @@ func (c *Composer) mentionChips(gtx layout.Context, th *theme.Theme) {
 	if len(c.mention.picked) == 0 {
 		return
 	}
-	r := []rune(c.Text())
+	txt := c.Text()
+	if !strings.Contains(txt, "@") {
+		return
+	}
 	bg, fg := th.Chip(th.Blue, th.Surface)
 	size := th.Sp(theme.Large)
 	var regions []widget.Region
 	for tok := range c.mention.picked {
-		t := []rune(tok)
-		for s := 0; s+len(t) <= len(r); s++ {
-			e := s + len(t)
-			if string(r[s:e]) != tok || s > 0 && !unicode.IsSpace(r[s-1]) || e < len(r) && !unicode.IsSpace(r[e]) {
-				continue
-			}
+		mentionSpans(txt, tok, func(s, e int) {
 			regions = c.ed.Regions(s, e, regions[:0])
 			if len(regions) != 1 {
-				continue
+				return
 			}
 			rg := regions[0]
 			lm := op.Record(gtx.Ops)
@@ -188,7 +223,7 @@ func (c *Composer) mentionChips(gtx layout.Context, th *theme.Theme) {
 			o := op.Offset(image.Pt(rg.Bounds.Min.X, ly)).Push(gtx.Ops)
 			label.Add(gtx.Ops)
 			o.Pop()
-		}
+		})
 	}
 }
 
@@ -255,6 +290,10 @@ func (c *Composer) mentionRow(gtx layout.Context, th *theme.Theme, p string, on 
 		semantic.LabelOp(p).Add(gtx.Ops)
 		h, w := gtx.Dp(28), gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}
+		r := gtx.Dp(theme.RadiusControl)
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, rect, r)
+		}
 		fill := theme.Transparent
 		switch {
 		case b.Pressed():
@@ -262,9 +301,9 @@ func (c *Composer) mentionRow(gtx layout.Context, th *theme.Theme, p string, on 
 		case on:
 			fill = th.SelectedBg
 		case b.Hovered():
-			fill = th.Hover
+			fill = th.HoverElevated
 		}
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		icon, name := "file", path.Base(p)
 		dir := path.Dir(strings.TrimSuffix(p, "/"))
 		if strings.HasSuffix(p, "/") {
@@ -285,6 +324,8 @@ func (c *Composer) mentionRow(gtx layout.Context, th *theme.Theme, p string, on 
 				return text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, dir)
 			})
 		o.Pop()
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: rect.Max}
 	})
 }

@@ -349,7 +349,11 @@ func (s *Server) writer(c *conn, done <-chan struct{}) error {
 		}
 		o := c.q[0]
 		c.q[0] = out{} // release the frame when it leaves the queue
-		c.q = c.q[1:]
+		if len(c.q) == 1 {
+			c.q = c.q[:0]
+		} else {
+			c.q = c.q[1:]
+		}
 		if o.batch.Chat != "" {
 			c.held--
 			c.bytes -= o.size
