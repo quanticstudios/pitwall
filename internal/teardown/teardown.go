@@ -50,11 +50,15 @@ func Run(ctx context.Context, path string, s config.WorktreeSettings, ports mode
 	cmd.Env = append(cmd.Env, ports.Env()...)
 	nowindow.Set(cmd)
 	childproc.Bound(cmd)
+	treeKill(cmd)
 	out := &tail{}
 	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil
+	}
+	if err != nil && cmd.Process != nil {
+		_ = cmd.Cancel() // a failed command's children must not outlive it
 	}
 	if ctx.Err() != nil {
 		err = ctx.Err()

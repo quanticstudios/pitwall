@@ -281,6 +281,7 @@ func TestCLIEvents(t *testing.T) {
 		cancel()
 		t.Fatalf("timed out waiting for events (opened=%v exited=%v err=%q)", seenOpened, seenExited, errOut.String())
 	}
+	go io.Copy(io.Discard, pr) // why: events may be mid-write when the reader stops; a full pipe would hide the cancel
 	if exitCode := <-done; exitCode != 0 {
 		t.Fatalf("events Ctrl+C exit = %d, want 0 (err=%q)", exitCode, errOut.String())
 	}
