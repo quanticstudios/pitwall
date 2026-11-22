@@ -759,8 +759,9 @@ func TestReplyHoldsEnterForMenu(t *testing.T) {
 	if err := d.remoteReply("a", at, "plum"); err == nil {
 		t.Error("no error for the held Enter")
 	}
-	if got := p.got(); got != "plum" {
-		t.Errorf("sent %q", got)
+	// The held reply is cleared from the box again (clearBox): the text, then Ctrl+U, never Enter.
+	if got := gotAfter(t, p, 0, len("plum\x15")); got != "plum\x15" {
+		t.Errorf("sent %q, want the text then Ctrl+U", got)
 	}
 }
 
