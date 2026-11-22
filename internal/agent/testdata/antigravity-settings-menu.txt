@@ -1,0 +1,23 @@
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+Settings
+
+  Search:
+          ────────────────────
+
+> Agent Mode                    auto
+  Animation Speed               medium
+  Artifact Review               asks for review
+  Color Scheme                  terminal
+  Conversation Picker Grouping  none
+  Copy on Select                on
+
+  'default': standard behavior. 'accept-edits': auto-approve file edits, prompt
+  for commands. 'auto': auto-approve edits and safe commands, prompt on
+  irreversible actions. 'plan': research and plan without making changes
+  [1-6 of 25 items]
+
+Keyboard: ↑/↓ Navigate  ←/→ Change  enter Select  esc Clear Search/Exit
+
+                                                     auto · Gemini 4 Neon · high

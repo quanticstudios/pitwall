@@ -119,6 +119,7 @@ func imageCount(as []session.Attachment) int {
 const (
 	waitAnswer   = "Waiting for your answer"
 	waitApproval = "Waiting for your approval"
+	waitForm     = "Waiting: a menu is open in the agent's terminal"
 	waitFailed   = "The last turn failed"
 	waitStart    = "Waiting for the agent to start"
 	waitGone     = "The agent these were queued for left this pane"

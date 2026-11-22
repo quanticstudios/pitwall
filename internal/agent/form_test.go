@@ -107,8 +107,11 @@ func TestEmptyPlan(t *testing.T) {
 	if got := StateOf(model.ProviderClaude, g); got != model.StatePlanReady {
 		t.Errorf("state = %q, want plan-ready", got)
 	}
-	if !FormUp(g, "1. Yes, and use auto mode\n2. No") {
+	if !FormUp(model.ProviderClaude, g, "1. Yes, and use auto mode\n2. No") {
 		t.Error("empty plan must hold typed text")
+	}
+	if FormUp(model.ProviderAntigravity, g, "") {
+		t.Error("Claude's empty plan matched Antigravity")
 	}
 	if got := Offers(model.Activity{Provider: model.ProviderClaude, State: model.StatePlanReady}, g); got != nil {
 		t.Errorf("auto mode has offers: %v", got)
@@ -121,7 +124,7 @@ func TestEmptyPlan(t *testing.T) {
 	} {
 		chat := gridOf(text, "❯ ")
 		for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderPi} {
-			if ReadScreen(chat) != ScreenNone || StateOf(provider, chat) != "" || FormUp(chat, "") {
+			if ReadScreenOf(provider, chat) != ScreenNone || StateOf(provider, chat) != "" || FormUp(provider, chat, "") {
 				t.Errorf("%s: chat text matches the empty plan screen: %q", provider, text)
 			}
 		}
@@ -160,7 +163,7 @@ func TestEmptyPlanNarrow(t *testing.T) {
 		e := vt.New(width, 30, nil)
 		e.Write([]byte(strings.ReplaceAll(string(b), "\n", "\r\n")))
 		g := e.Snapshot()
-		if ReadScreen(g) != ScreenForm || State(g) != model.StatePlanReady || !FormUp(g, "") {
+		if ReadScreenOf(model.ProviderClaude, g) != ScreenForm || StateOf(model.ProviderClaude, g) != model.StatePlanReady || !FormUp(model.ProviderClaude, g, "") {
 			t.Errorf("width %d: empty plan is not waiting", width)
 		}
 	}
@@ -215,54 +218,124 @@ func TestOffersWholeForm(t *testing.T) {
 	}
 }
 
-// FormUp holds typed text and Enter for any form but a free-text one, and does
-// not take a quote of a footer, a transcript's list or the paste's own echo for
-// one.
+// FormUp holds typed text and Enter for any form of p's own but a free-text
+// one, never another agent's rules, and does not take a quote of a footer, a
+// transcript's list or the paste's own echo for one.
 func TestFormUp(t *testing.T) {
-	for _, file := range []string{"claude-question.txt", "claude-plan.txt", "claude-permission.txt", "tuios-claude-question.txt", "tuios-codex-approval.txt", "codex-trust.txt", "gemini-question.txt", "opencode-question.txt"} {
-		if !FormUp(screenFixture(t, file), "") {
-			t.Errorf("%s: no form", file)
+	for _, tc := range []struct {
+		p    model.Provider
+		file string
+		want bool
+	}{
+		{model.ProviderClaude, "claude-question.txt", true},
+		{model.ProviderClaude, "claude-plan.txt", true},
+		{model.ProviderClaude, "claude-permission.txt", true},
+		{model.ProviderClaude, "tuios-claude-question.txt", true},
+		{model.ProviderClaude, "claude-idle.txt", false},
+		{model.ProviderClaude, "claude-streaming.txt", false},
+		{model.ProviderClaude, "common-input.txt", false},
+
+		{model.ProviderCodex, "tuios-codex-approval.txt", true},
+		{model.ProviderCodex, "codex-trust.txt", true},
+		{model.ProviderCodex, "codex-ask-single.txt", true},
+		{model.ProviderCodex, "codex-idle.txt", false},
+		{model.ProviderCodex, "codex-working.txt", false},
+		{model.ProviderCodex, "common-input.txt", false},
+
+		{model.ProviderAntigravity, "antigravity-approval.txt", true},
+		{model.ProviderAntigravity, "antigravity-question.txt", true},
+		{model.ProviderAntigravity, "antigravity-trust.txt", true},
+		{model.ProviderAntigravity, "antigravity-model-menu.txt", true},
+		{model.ProviderAntigravity, "antigravity-settings-menu.txt", true},
+		{model.ProviderAntigravity, "antigravity-working.txt", false},
+		{model.ProviderAntigravity, "antigravity-working-list.txt", false},
+		{model.ProviderAntigravity, "antigravity-working-generating.txt", false},
+		{model.ProviderAntigravity, "antigravity-idle.txt", false},
+		// Antigravity never reads Claude's or Codex's forms as its own.
+		{model.ProviderAntigravity, "claude-question.txt", false},
+		{model.ProviderAntigravity, "claude-permission.txt", false},
+		{model.ProviderAntigravity, "claude-empty-plan.txt", false},
+		{model.ProviderAntigravity, "codex-trust.txt", false},
+		{model.ProviderAntigravity, "codex-ask-single.txt", false},
+
+		{model.ProviderGemini, "gemini-question.txt", true},
+		{model.ProviderGemini, "gemini-approval.txt", true},
+		{model.ProviderGemini, "gemini-working.txt", false},
+		{model.ProviderGemini, "gemini-idle.txt", false},
+
+		{model.ProviderOpenCode, "opencode-question.txt", true},
+		{model.ProviderOpenCode, "opencode-permission.txt", true},
+		{model.ProviderOpenCode, "opencode-working.txt", false},
+		{model.ProviderOpenCode, "opencode-idle.txt", false},
+
+		{model.ProviderAider, "aider-confirm.txt", true},
+		{model.ProviderAider, "aider-working.txt", false},
+		{model.ProviderAider, "aider-idle.txt", false},
+	} {
+		if got := FormUp(tc.p, screenFixture(t, tc.file), ""); got != tc.want {
+			t.Errorf("FormUp(%s, %s): got %v, want %v", tc.p, tc.file, got, tc.want)
 		}
 	}
-	for _, file := range []string{"claude-idle.txt", "codex-idle.txt", "claude-streaming.txt", "common-input.txt"} {
-		if FormUp(screenFixture(t, file), "") {
-			t.Errorf("%s: a form", file)
-		}
+	// Claude's empty plan does not match Codex, and a Codex question does not match Claude's ReadQuestion.
+	if StateOf(model.ProviderCodex, screenFixture(t, "claude-empty-plan.txt")) == model.StatePlanReady {
+		t.Error("Claude's empty plan matched Codex as plan-ready")
+	}
+	if StateOf(model.ProviderClaude, gridOf("Question 1/1", "Pick?", "› 1. A", "  2. None of the above", "enter to submit")) == model.StateAwaitingInput && ReadQuestion(model.ProviderClaude, gridOf("Question 1/1", "Pick?", "› 1. A", "  2. None of the above", "enter to submit")) != nil {
+		t.Error("Codex question matched Claude ReadQuestion")
 	}
 	menu := gridOf("Which?", "> 1. Redis", "  2. SQLite", "Press enter to confirm or esc to cancel")
 	for _, tc := range []struct {
 		name   string
+		p      model.Provider
 		g      vt.Grid
 		pasted string
 		want   bool
 	}{
-		{"menu with another footer", menu, "", true},
-		{"menu after a paste", menu, "Use Postgres", true},
-		{"footer quoted in output", gridOf("The menu says Enter to select", "> "), "", false},
-		{"numbered prompt in the transcript", gridOf("❯ 1. fix a", "  2. fix b", "⏺ Done", "❯ "), "", false},
-		{"numbered paste at the prompt", gridOf("❯ 1. do a", "  2. do b"), "1. do a\n2. do b", false},
-		{"menu after a numbered paste", gridOf("❯ 1. Redis", "  2. SQLite"), "1. do a\n2. do b", true},
-		{"menu whose option the paste names", gridOf("❯ 1. Postgres", "  2. SQLite"), "Use Postgres", true},
+		{"menu with another footer", model.ProviderClaude, menu, "", true},
+		{"menu after a paste", model.ProviderClaude, menu, "Use Postgres", true},
+		{"footer quoted in output", model.ProviderClaude, gridOf("The menu says Enter to select", "> "), "", false},
+		{"numbered prompt in the transcript", model.ProviderClaude, gridOf("❯ 1. fix a", "  2. fix b", "⏺ Done", "❯ "), "", false},
+		{"numbered paste at the prompt", model.ProviderClaude, gridOf("❯ 1. do a", "  2. do b"), "1. do a\n2. do b", false},
+		{"menu after a numbered paste", model.ProviderClaude, gridOf("❯ 1. Redis", "  2. SQLite"), "1. do a\n2. do b", true},
+		{"menu whose option the paste names", model.ProviderClaude, gridOf("❯ 1. Postgres", "  2. SQLite"), "Use Postgres", true},
+		{"agy quoted menu footer", model.ProviderAntigravity, gridOf("The menu says ↑/↓ Navigate", "> ", "esc to cancel"), "", false},
+		{"agy numbered blockquote while working", model.ProviderAntigravity, gridOf("> 1. First step", "  2. Second step", "⢿  Running command...", ">", "esc to cancel"), "", false},
+		{"agy menu while working underneath", model.ProviderAntigravity, gridOf("Switch Model", "> Gemini 4 Neon", "Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back", "esc to cancel"), "", true},
 	} {
-		if got := FormUp(tc.g, tc.pasted); got != tc.want {
+		if got := FormUp(tc.p, tc.g, tc.pasted); got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
 
 func TestChoosing(t *testing.T) {
-	for file, want := range map[string]bool{
-		"claude-question.txt":       true,
-		"tuios-claude-question.txt": true,
-		"opencode-question.txt":     true,
-		"gemini-question.txt":       true,
-		"common-input.txt":          false, // a free-text form
-		"claude-idle.txt":           false,
-		"codex-idle.txt":            false,
-		"claude-streaming.txt":      false,
+	for _, tc := range []struct {
+		p    model.Provider
+		file string
+		want bool
+	}{
+		{model.ProviderClaude, "claude-question.txt", true},
+		{model.ProviderClaude, "tuios-claude-question.txt", true},
+		{model.ProviderClaude, "common-input.txt", false}, // a free-text form
+		{model.ProviderClaude, "claude-idle.txt", false},
+		{model.ProviderClaude, "claude-streaming.txt", false},
+		{model.ProviderCodex, "codex-idle.txt", false},
+		{model.ProviderCodex, "codex-working.txt", false},
+		{model.ProviderOpenCode, "opencode-question.txt", true},
+		{model.ProviderOpenCode, "opencode-working.txt", false},
+		{model.ProviderGemini, "gemini-question.txt", true},
+		{model.ProviderGemini, "gemini-working.txt", false},
+		{model.ProviderAntigravity, "antigravity-question.txt", true},
+		{model.ProviderAntigravity, "antigravity-trust.txt", true},
+		{model.ProviderAntigravity, "antigravity-model-menu.txt", true},
+		{model.ProviderAntigravity, "antigravity-settings-menu.txt", true},
+		{model.ProviderAntigravity, "antigravity-working.txt", false},
+		{model.ProviderAntigravity, "antigravity-working-list.txt", false},
+		{model.ProviderAntigravity, "antigravity-working-generating.txt", false},
+		{model.ProviderAntigravity, "antigravity-idle.txt", false},
 	} {
-		if got := Choosing(screenFixture(t, file)); got != want {
-			t.Errorf("%s: got %v, want %v", file, got, want)
+		if got := Choosing(tc.p, screenFixture(t, tc.file)); got != tc.want {
+			t.Errorf("Choosing(%s, %s): got %v, want %v", tc.p, tc.file, got, tc.want)
 		}
 	}
 }

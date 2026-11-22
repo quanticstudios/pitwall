@@ -152,9 +152,9 @@ func (d *Daemon) settle(id string, at time.Time) {
 	if d.closing || d.panes[id] != p || d.live.hookAt[id].After(at) || i < 0 {
 		return
 	}
-	trace := agent.ExplainScreen(model.ProviderClaude, g)
-	trace.Provider = d.st.Activities[i].Provider // settle uses the common ReadScreen rules for every provider
-	switch agent.ReadScreen(g) {
+	prov := d.st.Activities[i].Provider
+	trace := agent.ExplainScreen(prov, g)
+	switch agent.ReadScreenOf(prov, g) {
 	case agent.ScreenForm:
 		return
 	case agent.ScreenNone:

@@ -45,6 +45,37 @@ func TestReadScreen(t *testing.T) {
 	}
 }
 
+func TestReadScreenOf(t *testing.T) {
+	for _, tc := range []struct {
+		p    model.Provider
+		file string
+		want Screen
+	}{
+		{model.ProviderAntigravity, "antigravity-working.txt", ScreenBusy},
+		{model.ProviderAntigravity, "antigravity-working-list.txt", ScreenBusy},
+		{model.ProviderAntigravity, "antigravity-working-generating.txt", ScreenBusy},
+		{model.ProviderAntigravity, "antigravity-approval.txt", ScreenForm},
+		{model.ProviderAntigravity, "antigravity-question.txt", ScreenForm},
+		{model.ProviderAntigravity, "antigravity-trust.txt", ScreenForm},
+		{model.ProviderAntigravity, "antigravity-model-menu.txt", ScreenForm},
+		{model.ProviderAntigravity, "antigravity-settings-menu.txt", ScreenForm},
+		{model.ProviderAntigravity, "antigravity-idle.txt", ScreenNone},
+		{model.ProviderGemini, "gemini-working.txt", ScreenBusy},
+		{model.ProviderGemini, "gemini-approval.txt", ScreenForm},
+		{model.ProviderOpenCode, "opencode-working.txt", ScreenBusy},
+		{model.ProviderOpenCode, "opencode-permission.txt", ScreenForm},
+		{model.ProviderClaude, "claude-spinner.txt", ScreenBusy},
+		{model.ProviderClaude, "claude-permission.txt", ScreenForm},
+		{model.ProviderCodex, "codex-working.txt", ScreenBusy},
+		{model.ProviderCodex, "codex-trust.txt", ScreenForm},
+		{model.ProviderAmp, "claude-permission.txt", ScreenNone},
+	} {
+		if got := ReadScreenOf(tc.p, screenFixture(t, tc.file)); got != tc.want {
+			t.Errorf("ReadScreenOf(%s, %s) = %d, want %d", tc.p, tc.file, got, tc.want)
+		}
+	}
+}
+
 // The draft fixtures are claude-idle.txt and codex-idle.txt with the box
 // changed. Claude's placeholder has the cursor on its first letter.
 func TestInputReady(t *testing.T) {

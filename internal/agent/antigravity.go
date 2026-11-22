@@ -539,6 +539,20 @@ func AgyTrustAsked(g vt.Grid) bool {
 	return strings.Contains(ScreenText(g, screenLines), "Do you trust the contents of this project?")
 }
 
+// agyMenuHint reports whether g's bottom rows show the keyboard footer of an
+// Antigravity CLI picker, menu or dialog, such as /model, /settings,
+// onboarding, folder trust, permission or question prompts. Mid-line, the
+// words are only someone quoting them.
+func agyMenuHint(g vt.Grid) bool {
+	for _, l := range bottomLines(g, screenLines) {
+		low := strings.ToLower(strings.TrimLeft(l, " │┃"))
+		if strings.HasPrefix(low, "↑/↓ navigate") || strings.HasPrefix(low, "keyboard: ↑/↓ navigate") {
+			return true
+		}
+	}
+	return false
+}
+
 // Trust and DontTrust are the answers to agy's folder-trust question:
 // Enter on its first row, which the cursor starts on, and Esc, which
 // closes agy as its "No, exit" does.

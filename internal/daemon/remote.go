@@ -356,7 +356,7 @@ func (d *Daemon) checkForms() {
 		for _, o := range agent.Offers(c.a, g) {
 			buttons = append(buttons, o.Label)
 		}
-		menu := c.a.State == model.StateAwaitingInput && (formAnnounced(c.a) || agent.Choosing(g))
+		menu := c.a.State == model.StateAwaitingInput && (formAnnounced(c.a) || agent.Choosing(c.a.Provider, g))
 		d.mu.Lock()
 		// why: the screen was read outside d.mu; a newer activity waits for its own read.
 		if i := d.activityIndex(c.a.PaneID); i >= 0 && d.st.Activities[i].UpdatedAt.Equal(c.a.UpdatedAt) {
@@ -394,7 +394,7 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	if drafted {
 		return errors.New("you have a draft in that agent's input box: send or clear it first")
 	}
-	if formHolds(a, g) {
+	if formHolds(a.Provider, a, g) {
 		return errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)
@@ -431,6 +431,9 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string, quoted ...str
 	d.mu.Lock()
 	prov := d.paneProvider(pane)
 	d.mu.Unlock()
+	if agent.FormUp(prov, p.Snapshot(), "") {
+		return errFormUp
+	}
 	claude := prov == model.ProviderClaude
 	if prov == model.ProviderAntigravity && agySlashLine(text) && len(quotes) == 0 {
 		// why: agy's slash menu draws as a command is typed, and an Enter after it drew picks its highlighted row; one in the same write takes the line as typed (agyCommand).
@@ -465,7 +468,11 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string, quoted ...str
 			}
 		}
 	}
-	return d.pressEnter(pane, p, text)
+	pasted := text
+	if pasted == "" && len(quotes) > 0 {
+		pasted = strings.Join(quotes, "\n\n")
+	}
+	return d.pressEnter(pane, p, pasted)
 }
 
 // pasteChunk is the longest paste typeLines sends, in runes. Claude Code
@@ -500,13 +507,48 @@ func typeLines(text string, m vt.Modes) []byte {
 	return b
 }
 
+// errFormUp is returned when a menu or form on the agent's screen stops
+// pitwall from typing or pressing Enter.
+var errFormUp = errors.New("a menu is open in the agent's terminal")
+
+// clearBox is the key sequence that clears pasted text from an agent's input
+// box when a form appears between pasting and Enter: Ctrl+U for each line,
+// Backspace joining earlier lines when bracketed paste kept newlines.
+func clearBox(pasted string, m vt.Modes) []byte {
+	if pasted == "" {
+		return nil
+	}
+	kill := input.Key(key.Event{Name: "U", Modifiers: key.ModCtrl, State: key.Press}, m)
+	bs := press(key.NameDeleteBackward, m)
+	lines := 1
+	if m.BracketedPaste {
+		lines += strings.Count(pasted, "\n")
+	}
+	var b []byte
+	for i := range lines {
+		if i > 0 {
+			b = append(b, bs...)
+		}
+		b = append(b, kill...)
+	}
+	return b
+}
+
 // pressEnter presses Enter on what was just pasted into pane p, after
-// replyDelay, unless a form came up since.
+// replyDelay, unless a form came up since. When a form came up, any pasted
+// text is cleared from the agent's box and errFormUp is returned so the
+// caller can hold the message in the queue.
 func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
 	time.Sleep(replyDelay.get())
+	d.mu.Lock()
+	prov := d.paneProvider(pane)
+	d.mu.Unlock()
 	// why: Enter would answer the form, whatever was pasted.
-	if agent.FormUp(p.Snapshot(), pasted) {
-		return errors.New("a form came up; what was typed stays in the agent's input")
+	if agent.FormUp(prov, p.Snapshot(), pasted) {
+		if b := clearBox(pasted, p.Modes()); len(b) > 0 {
+			_ = d.handle(context.Background(), proto.Input{Pane: pane, Data: b})
+		}
+		return errFormUp
 	}
 	// User sends record their submission separately; their later hooks must not move the target again.
 	d.mu.Lock()
@@ -521,7 +563,6 @@ func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
 		return err
 	}
 	d.mu.Lock()
-	prov := d.paneProvider(pane)
 	at, resumed := d.resumed[pane]
 	d.mu.Unlock()
 	if !resumed || time.Since(at) > resumeLoad {
@@ -574,8 +615,11 @@ func agySlashLine(text string) bool {
 // typeAndEnter writes data, a line and its Enter, into pane p as one
 // write, recorded as the user's submission as pressEnter records one.
 func (d *Daemon) typeAndEnter(pane string, p Pane, data []byte) error {
-	if agent.FormUp(p.Snapshot(), "") {
-		return errors.New("a form came up; answer it in its tab")
+	d.mu.Lock()
+	prov := d.paneProvider(pane)
+	d.mu.Unlock()
+	if agent.FormUp(prov, p.Snapshot(), "") {
+		return errFormUp
 	}
 	d.mu.Lock()
 	previous := d.mail.daemonPrompt[pane]
@@ -593,10 +637,14 @@ func (d *Daemon) typeAndEnter(pane string, p Pane, data []byte) error {
 // formDraw is how long after its hook a form may take to reach the screen.
 const formDraw = time.Second
 
-// formHolds reports whether typed text must wait for a's agent, whose screen
-// is g: a form shows, whatever a's state says, or a hook just announced one.
-func formHolds(a model.Activity, g vt.Grid) bool {
-	return formAnnounced(a) || agent.FormUp(g, "")
+// formHolds reports whether typed text must wait for prov's agent, whose
+// screen is g: a form shows for prov, whatever a's state says, or a hook
+// just announced one.
+func formHolds(prov model.Provider, a model.Activity, g vt.Grid) bool {
+	if prov == "" {
+		prov = a.Provider
+	}
+	return formAnnounced(a) || agent.FormUp(prov, g, "")
 }
 
 func formAnnounced(a model.Activity) bool {
@@ -609,8 +657,12 @@ func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string, q
 	m := p.Modes()
 	ctx := context.Background()
 	d.mu.Lock()
-	claude := d.paneProvider(pane) == model.ProviderClaude
+	prov := d.paneProvider(pane)
 	d.mu.Unlock()
+	if agent.FormUp(prov, p.Snapshot(), "") {
+		return errFormUp
+	}
+	claude := prov == model.ProviderClaude
 	for i, img := range images {
 		shown := strings.Count(screenText(p.Snapshot()), "[Image #")
 		if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.PastePaths([]string{img}, m)}); err != nil {

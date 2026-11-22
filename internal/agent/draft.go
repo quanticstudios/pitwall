@@ -27,7 +27,7 @@ func Draft(p model.Provider, g vt.Grid) bool {
 
 // InputReady reports whether the agent has drawn its input box.
 func InputReady(p model.Provider, g vt.Grid) bool {
-	if ReadScreen(g) != ScreenNone {
+	if ReadScreenOf(p, g) != ScreenNone {
 		return false
 	}
 	raw, _ := boxRows(g)

@@ -118,6 +118,7 @@ func (d *Daemon) checkLimits() {
 	type look struct {
 		id   string
 		p    Pane
+		prov model.Provider
 		turn time.Time
 	}
 	var looks []look
@@ -134,12 +135,12 @@ func (d *Daemon) checkLimits() {
 			}
 			turn = d.st.Activities[i].UpdatedAt
 		}
-		looks = append(looks, look{sp.ID, p, turn})
+		looks = append(looks, look{sp.ID, p, sp.Provider, turn})
 	}
 	d.mu.Unlock()
 	for _, l := range looks {
 		g := l.p.Snapshot()
-		if agent.ReadScreen(g) != agent.ScreenNone {
+		if agent.ReadScreenOf(l.prov, g) != agent.ScreenNone {
 			continue
 		}
 		msg, resets, ok := agent.UsageLimit(agent.ScreenText(g, 12), resumeNow())
@@ -319,7 +320,7 @@ func (d *Daemon) fireResume(id string, r *resume) {
 	if r.p != nil {
 		g = r.p.Snapshot()
 	}
-	busy := r.p != nil && agent.ReadScreen(g) != agent.ScreenNone
+	busy := r.p != nil && agent.ReadScreenOf(r.prov, g) != agent.ScreenNone
 	d.mu.Lock()
 	if d.lim.pending[id] != r {
 		d.mu.Unlock()
@@ -378,7 +379,7 @@ func (d *Daemon) fireResume(id string, r *resume) {
 	}
 	d.mu.Lock()
 	valid := d.lim.pending[id] == r && d.resumeBlocked(id, r) == ""
-	if r.p != nil && (agent.ReadScreen(g) != agent.ScreenNone || d.drafted(id, r.prov, g)) {
+	if r.p != nil && (agent.ReadScreenOf(r.prov, g) != agent.ScreenNone || d.drafted(id, r.prov, g)) {
 		valid = false
 	}
 	d.dropResume(id)

@@ -31,14 +31,17 @@ func TestReadQuestion(t *testing.T) {
 			if !strings.HasPrefix(q.Prompt, tc.prompt) || len(q.Options) != tc.options || q.Multi != tc.multi || q.Other != tc.other || q.Submit != tc.submit {
 				t.Fatalf("question: %+v", q)
 			}
-			if State(g) != model.StateAwaitingInput || ReadScreen(g) != ScreenForm {
+			if StateOf(model.ProviderClaude, g) != model.StateAwaitingInput || ReadScreenOf(model.ProviderClaude, g) != ScreenForm {
 				t.Fatal("question does not wait for input")
 			}
-			if !FormUp(g, "") {
+			if !FormUp(model.ProviderClaude, g, "") {
 				t.Fatal("question does not hold messages")
 			}
 			if ReadQuestion(model.ProviderCodex, g) != nil {
 				t.Fatal("Claude form matched Codex")
+			}
+			if FormUp(model.ProviderAntigravity, g, "") {
+				t.Fatal("Claude form matched Antigravity")
 			}
 		})
 	}
@@ -61,11 +64,17 @@ func TestCodexQuestion(t *testing.T) {
 		if q == nil || len(q.Options) != 2 || (q.Options[0].Label != "Tea" && q.Options[0].Label != "Small") || q.OtherIndex != 2 || !q.Other {
 			t.Fatalf("%s: %+v", f, q)
 		}
-		if State(g) != model.StateAwaitingInput || ReadScreen(g) != ScreenForm {
+		if StateOf(model.ProviderCodex, g) != model.StateAwaitingInput || ReadScreenOf(model.ProviderCodex, g) != ScreenForm {
 			t.Fatal("Codex question did not wait")
 		}
-		if !FormUp(g, "") {
+		if !FormUp(model.ProviderCodex, g, "") {
 			t.Errorf("%s: question does not hold messages", f)
+		}
+		if ReadQuestion(model.ProviderClaude, g) != nil {
+			t.Errorf("%s: Codex form matched Claude", f)
+		}
+		if FormUp(model.ProviderAntigravity, g, "") {
+			t.Errorf("%s: Codex form matched Antigravity", f)
 		}
 	}
 }

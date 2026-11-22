@@ -210,6 +210,9 @@ func (d *Daemon) phoneSendPaths(pane, text string, images, quoted []string) (uin
 	d.mu.Lock()
 	d.phoneSeq++
 	l := letter{text: text, images: images, quoted: quoted, plain: true, window: true, phone: d.phoneSeq, owner: prov}
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 && model.PaneChat(d.st.Panes[i]) {
+		l.row = &session.QueuedInput{ID: newUUID(), Text: text, CreatedAt: session.Stamp(time.Now()), Recipients: []string{}}
+	}
 	d.mu.Unlock()
 	return l.phone, d.userDeliver(pane, l)
 }
@@ -468,7 +471,7 @@ func (d *Daemon) typeCommand(pane, command string) (_ Pane, since time.Time, err
 		}
 		return nil, since, err
 	}
-	if agent.FormUp(p.Snapshot(), "") {
+	if agent.FormUp(prov, p.Snapshot(), "") {
 		return nil, since, errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)

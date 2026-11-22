@@ -64,6 +64,7 @@ func TestPaneLimitQueue(t *testing.T) {
 	}
 
 	// Idle with no limit, a plain send types at once.
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────"})
 	d.mu.Lock()
 	a = &d.st.Activities[d.activityIndex("a")]
 	a.State, a.Detail = model.StateCompleted, ""
