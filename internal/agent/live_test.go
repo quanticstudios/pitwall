@@ -105,3 +105,25 @@ func BenchmarkLiveScreen(b *testing.B) {
 		Fold(Unwrap(lv.Rows, lv.Width), 60)
 	}
 }
+
+// TestLiveScreenClaudeSpinner: Claude Code's spinner row closes the turn's
+// text. A status line some setups print under it with a bullet, as
+// "● full $51.43 last $0.31", is no reply, and the spinner's text, such as
+// a compaction's, comes through as Status.
+func TestLiveScreenClaudeSpinner(t *testing.T) {
+	rule := strings.Repeat("─", 60)
+	for _, tc := range []struct {
+		name, text, status string
+		rows               []string
+	}{
+		{"compacting", "", "Compacting conversation… (5s)", []string{
+			"❯ go on", "", "✻ Compacting conversation… (5s)", "  ⎿  Tip: Run tasks in the cloud", "● full  $262.69  last $13.81  3h 5m", "", rule, "❯ ", rule}},
+		{"reply", "The fix is in.", "Lollygagging… (6m 52s · ↓ 36.4k tokens)", []string{
+			"❯ go on", "", "● The fix is in.", "", "· Lollygagging… (6m 52s · ↓ 36.4k tokens)", "  ⎿  Tip: Share Claude Code", "● full  $11.78  last $2.35  24m 15s", "", rule, "❯ ", rule}},
+	} {
+		lv := LiveScreen(model.ProviderClaude, gridOf(tc.rows...))
+		if got := Unwrap(lv.Rows, lv.Width); got != tc.text || lv.Status != tc.status {
+			t.Errorf("%s: text %q status %q, want %q and %q", tc.name, got, lv.Status, tc.text, tc.status)
+		}
+	}
+}

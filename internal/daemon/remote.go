@@ -518,8 +518,51 @@ func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
 		d.mu.Lock()
 		d.mail.daemonPrompt[pane] = previous
 		d.mu.Unlock()
+		return err
 	}
-	return err
+	d.mu.Lock()
+	prov := d.paneProvider(pane)
+	at, resumed := d.resumed[pane]
+	d.mu.Unlock()
+	if !resumed || time.Since(at) > resumeLoad {
+		return nil
+	}
+	// why: Claude 2.1.330 drops a Return that comes while a --resume still loads (slow after a reboot), and the text stays in its box to join the user's next message.
+	for range enterTries {
+		if !d.stillInBox(p, prov) {
+			return nil
+		}
+		if err := d.handle(context.Background(), proto.Input{Pane: pane, Data: d.steerKey(pane, p.Modes())}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// enterTries is how many more times pressEnter presses Enter on text the
+// agent's box still holds, enterLook apart, within resumeLoad of the pane's
+// resume.
+const enterTries = 3
+
+// resumeLoad is how long after pitwall resumes a pane its agent may still
+// be loading the session and drop a Return.
+const resumeLoad = 3 * time.Minute
+
+var enterLook = newTiming(1500 * time.Millisecond)
+
+// stillInBox reports whether agent prov's input box on p's screen still
+// holds text enterLook after an Enter; false at once for an agent whose
+// box pitwall cannot read.
+func (d *Daemon) stillInBox(p Pane, prov model.Provider) bool {
+	if !agent.Draft(prov, p.Snapshot()) {
+		return false
+	}
+	for end := time.Now().Add(enterLook.get()); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		if !agent.Draft(prov, p.Snapshot()) {
+			return false
+		}
+	}
+	return true
 }
 
 // agySlashLine reports whether text is one line that starts a slash
