@@ -870,7 +870,8 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 	}()
 	defer nc.Close()
-	stop := context.AfterFunc(ctx, func() { nc.Close() })
+	raw := nc // why: jsonClient replaces nc below, while this closure may already run
+	stop := context.AfterFunc(ctx, func() { raw.Close() })
 	defer stop()
 
 	nc, isJSON, err := jsonClient(nc)
