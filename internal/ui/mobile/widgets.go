@@ -109,15 +109,10 @@ func chevronDown(gtx C, col color.NRGBA, size int) { sidebar.Icon(gtx, "chevron-
 
 // field draws ed in a ringed box with hint while it is empty. A tap
 // anywhere in the box focuses ed, which brings up the soft keyboard.
-func field(gtx C, th *theme.Theme, ed *widget.Editor, hint string, f font.Font) D {
+func field(gtx C, th *theme.Theme, ed *widget.Editor, fs *widget.Clickable, hint string, f font.Font) D {
 	ring := th.BorderStrong
 	if gtx.Focused(ed) {
 		ring = theme.Mix(th.Bg, th.Primary, 0.6)
-	}
-	fs := fields[ed]
-	if fs == nil {
-		fs = new(widget.Clickable)
-		fields[ed] = fs
 	}
 	if fs.Clicked(gtx) {
 		gtx.Execute(key.FocusCmd{Tag: ed})
@@ -142,10 +137,6 @@ func field(gtx C, th *theme.Theme, ed *widget.Editor, hint string, f font.Font) 
 		})
 	})
 }
-
-// fields are the clickables around each field's box. ponytail: never
-// freed; an app has a handful of editors.
-var fields = map[*widget.Editor]*widget.Clickable{}
 
 // sentence is s with its first letter capitalized, for an error shown on
 // screen.

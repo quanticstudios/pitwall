@@ -2,9 +2,11 @@ package mobile
 
 import (
 	"strings"
+	"time"
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
@@ -17,6 +19,7 @@ import (
 type machinesView struct {
 	back, add widget.Clickable
 	names     map[string]*widget.Editor    // by machine id
+	boxes     map[string]*widget.Clickable // by machine id
 	remove    map[string]*widget.Clickable // by machine id
 	armed     string                       // the machine whose Remove asks for a second tap
 	note      string
@@ -25,13 +28,14 @@ type machinesView struct {
 
 func (v *machinesView) editor(id, name string) *widget.Editor {
 	if v.names == nil {
-		v.names, v.remove = map[string]*widget.Editor{}, map[string]*widget.Clickable{}
+		v.names, v.boxes, v.remove = map[string]*widget.Editor{}, map[string]*widget.Clickable{}, map[string]*widget.Clickable{}
 	}
 	ed := v.names[id]
 	if ed == nil {
 		ed = &widget.Editor{SingleLine: true, Submit: true}
 		ed.SetText(name)
 		v.names[id] = ed
+		v.boxes[id] = new(widget.Clickable)
 		v.remove[id] = new(widget.Clickable)
 	}
 	return ed
@@ -65,8 +69,8 @@ func (a *App) machinesLayout(gtx C) {
 				gtx.Execute(key.FocusCmd{})
 			}
 		}
-		// A name takes effect once the field lets go of the focus.
-		if name := strings.TrimSpace(ed.Text()); !gtx.Focused(ed) && name != m.Name {
+		// A name takes effect once the field lets go of the focus, or when leaving Settings.
+		if name := strings.TrimSpace(ed.Text()); (!gtx.Focused(ed) || leave) && name != m.Name {
 			if name == "" {
 				ed.SetText(m.Name)
 			} else {
@@ -136,7 +140,10 @@ func (a *App) machineCard(gtx C, id string) D {
 			status += " as " + l.hello.Device
 		}
 	case l.offline != "":
-		status = offlineText(l.retryAt, gtx.Now)
+		status = offlineStatus(l.offline, l.retryAt, gtx.Now)
+		if left := l.retryAt.Sub(gtx.Now); left > 0 {
+			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(min(left, time.Second))})
+		}
 	}
 	removeText := "Remove"
 	if v.armed == id {
@@ -153,7 +160,7 @@ func (a *App) machineCard(gtx C, id string) D {
 						})
 					}),
 					layout.Flexed(1, func(gtx C) D {
-						return pairField(gtx, th, v.names[id], "Name", th.UIFont, false, nil)
+						return pairField(gtx, th, v.names[id], v.boxes[id], "Name", th.UIFont, false, nil)
 					}),
 					layout.Rigid(func(gtx C) D {
 						if l.hello.Version == "" {
@@ -174,7 +181,7 @@ func (a *App) machineCard(gtx C, id string) D {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 					layout.Flexed(1, func(gtx C) D {
 						return layout.Inset{Left: 22}.Layout(gtx, func(gtx C) D {
-							return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, 1, status)
+							return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, 2, status)
 						})
 					}),
 					layout.Rigid(func(gtx C) D {

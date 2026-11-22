@@ -26,6 +26,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -99,13 +100,18 @@ type chatView struct {
 
 // entryRow is an entry's widgets, kept across frames by seq.
 type entryRow struct {
-	click  widget.Clickable
-	open   bool             // a tool call shows its output
-	file   widget.Clickable // a file tool's Open
-	text   string           // the reply doc shows, parsed once
-	files  bool             // its paths are links
-	parsed bool
-	doc    mdview.Doc
+	click      widget.Clickable
+	open       bool             // a tool call shows its output
+	file       widget.Clickable // a file tool's Open
+	text       string           // the reply doc shows, parsed once
+	files      bool             // its paths are links
+	parsed     bool
+	doc        mdview.Doc
+	toolArg    string
+	toolOut    string
+	toolDone   bool
+	toolCached bool
+	toolDetab  string
 }
 
 func newChat(pane string) chatView {
@@ -356,6 +362,23 @@ func offlineText(retry, now time.Time) string {
 		return fmt.Sprintf("Offline, reconnecting in %d s", int(math.Ceil(left.Seconds())))
 	}
 	return "Offline, reconnecting"
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+// offlineStatus is offlineText paired with the stream's error reason when set.
+func offlineStatus(why string, retry, now time.Time) string {
+	base := offlineText(retry, now)
+	if w := firstLine(why); w != "" {
+		return base + " · " + w
+	}
+	return base
 }
 
 // offlineLine is the red line under the header while the stream is down,
@@ -678,17 +701,25 @@ func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 				if !r.open {
 					return D{}
 				}
-				out, f := e.Out, th.MonoFont
-				if out == "" {
-					out, f = map[bool]string{true: "No output.", false: "Running."}[e.Done], th.UIFont
+				f := th.MonoFont
+				if e.Out == "" {
+					f = th.UIFont
 				}
-				if e.Arg != "" {
-					out = e.Arg + "\n\n" + out
+				if !r.toolCached || r.toolArg != e.Arg || r.toolOut != e.Out || r.toolDone != e.Done {
+					out := e.Out
+					if out == "" {
+						out = map[bool]string{true: "No output.", false: "Running."}[e.Done]
+					}
+					if e.Arg != "" {
+						out = e.Arg + "\n\n" + out
+					}
+					r.toolArg, r.toolOut, r.toolDone = e.Arg, e.Out, e.Done
+					r.toolDetab, r.toolCached = mdview.Detab(out), true
 				}
 				return layout.Inset{Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx C) D {
 					return box(gtx, th.Bg, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return widget.Label{MaxLines: 40, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, f, 13, mdview.Detab(out), colorOp(gtx, toolOut))
+						return widget.Label{MaxLines: 40, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, f, 13, r.toolDetab, colorOp(gtx, toolOut))
 					})
 				})
 			}),
@@ -721,12 +752,15 @@ func glyph(gtx C, name string, size unit.Dp, col color.NRGBA) D {
 	return sidebar.Icon(gtx, name, gtx.Dp(size), col)
 }
 
-// spinner is the loader icon, turning once a second.
+// spinner is the loader icon, turning once a second at 30fps, or static when
+// reduced motion is on.
 func spinner(gtx C, size unit.Dp, col color.NRGBA) D {
 	s := gtx.Dp(size)
-	a := float32(gtx.Now.UnixMilli()%1000) / 1000 * 2 * math.Pi
-	defer op.Affine(f32.AffineId().Rotate(f32.Pt(float32(s)/2, float32(s)/2), a)).Push(gtx.Ops).Pop()
-	gtx.Execute(op.InvalidateCmd{})
+	if !anim.Reduced() {
+		a := float32(gtx.Now.UnixMilli()%1000) / 1000 * 2 * math.Pi
+		defer op.Affine(f32.AffineId().Rotate(f32.Pt(float32(s)/2, float32(s)/2), a)).Push(gtx.Ops).Pop()
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+	}
 	return sidebar.Icon(gtx, icLoader, s, col)
 }
 

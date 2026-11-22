@@ -31,6 +31,7 @@ import (
 // its SHA-256. Nothing is saved until pairing works.
 type pairView struct {
 	link, addr, code               widget.Editor
+	linkBox, addrBox, codeBox      widget.Clickable
 	paste, go_, swap, back, cancel widget.Clickable
 	scan, cancelScan               widget.Clickable
 	// manual shows the address and code in place of the link.
@@ -197,7 +198,7 @@ func (a *App) linkStep() []layout.Widget {
 	w = append(w,
 		fieldLabel(th, "Pairing link"),
 		func(gtx C) D {
-			return pairField(gtx, th, &p.link, "https://box.example.com/#pair=…", th.MonoFont, p.note != "", &p.paste)
+			return pairField(gtx, th, &p.link, &p.linkBox, "https://box.example.com/#pair=…", th.MonoFont, p.note != "", &p.paste)
 		},
 	)
 	w = append(w, a.pairNote()...)
@@ -215,10 +216,14 @@ func (a *App) codeStep() []layout.Widget {
 	w := a.pairHead("Pair with your computer", "The address is pitwall's ", "[remote] url", "; a code is good for 10 minutes.")
 	w = append(w,
 		fieldLabel(th, "Address"),
-		func(gtx C) D { return pairField(gtx, th, &p.addr, "https://box.example.com", th.MonoFont, false, nil) },
+		func(gtx C) D {
+			return pairField(gtx, th, &p.addr, &p.addrBox, "https://box.example.com", th.MonoFont, false, nil)
+		},
 		gap(14),
 		fieldLabel(th, "Code"),
-		func(gtx C) D { return pairField(gtx, th, &p.code, "ABCD2345…", th.MonoFont, p.note != "", nil) },
+		func(gtx C) D {
+			return pairField(gtx, th, &p.code, &p.codeBox, "ABCD2345…", th.MonoFont, p.note != "", nil)
+		},
 	)
 	w = append(w, a.pairNote()...)
 	return append(w, gap(14), a.pairButton("Pair"), gap(6), a.swapButton("Paste a link instead"))
@@ -290,18 +295,13 @@ func (a *App) swapButton(s string) layout.Widget {
 // pairField is a ringed single-line field with hint while it is empty:
 // primary while focused, red with bad, and with paste, a clipboard button
 // at its end. A tap anywhere in it brings up the soft keyboard.
-func pairField(gtx C, th *theme.Theme, ed *widget.Editor, hint string, f font.Font, bad bool, paste *widget.Clickable) D {
+func pairField(gtx C, th *theme.Theme, ed *widget.Editor, fs *widget.Clickable, hint string, f font.Font, bad bool, paste *widget.Clickable) D {
 	ring := th.BorderStrong
 	switch {
 	case bad:
 		ring = th.Red
 	case gtx.Focused(ed):
 		ring = theme.Mix(th.Bg, th.Primary, 0.7)
-	}
-	fs := fields[ed]
-	if fs == nil {
-		fs = new(widget.Clickable)
-		fields[ed] = fs
 	}
 	if fs.Clicked(gtx) {
 		gtx.Execute(key.FocusCmd{Tag: ed})

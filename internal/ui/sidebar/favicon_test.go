@@ -11,6 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
+
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -311,5 +315,29 @@ func TestGroupRoot(t *testing.T) {
 	g.Icon = ""
 	if f := s.groupFavicon(v, g); f == nil || f.letter != "A" {
 		t.Errorf("back to the repo's icon: %+v", f)
+	}
+}
+
+// TestFaviconSizeCache verifies drawing the same favicon at alternating sizes
+// (e.g. Inbox 14dp row icon vs 11dp group tag) caches each size without thrashing.
+func TestFaviconSizeCache(t *testing.T) {
+	img, err := png.Decode(bytes.NewReader(pngOf(t, 32, color.NRGBA{R: 40, G: 120, B: 220, A: 255})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &favicon{src: img}
+	var ops op.Ops
+	gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	f.draw(gtx, 14)
+	f.draw(gtx, 11)
+	op14, op11 := f.ops[14], f.ops[11]
+	if len(f.ops) != 2 || op14.Size() != image.Pt(14, 14) || op11.Size() != image.Pt(11, 11) {
+		t.Fatalf("ops after first pass: len=%d, sizes=%v %v", len(f.ops), op14.Size(), op11.Size())
+	}
+	ops.Reset()
+	f.draw(gtx, 14)
+	f.draw(gtx, 11)
+	if f.ops[14] != op14 || f.ops[11] != op11 {
+		t.Fatal("favicon rescaled/recreated ImageOp instead of reusing cached size entry")
 	}
 }

@@ -457,7 +457,7 @@ func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment
 	if a.Data == "" { // a snapshot's copy, until the item comes whole (Transcript.Full)
 		return d.fileChip(gtx, "image", a.Name)
 	}
-	tb := d.t.thumbs.snapshot(d.t.thumbs.get(item+"/"+a.ID, a, nil))
+	tb := d.t.thumbs.snapshot(d.t.thumbs.get(item+"/"+a.ID, a, d.t.Invalidate))
 	if tb.ready && tb.size == (image.Point{}) {
 		return d.fileChip(gtx, "image", a.Name)
 	}
@@ -465,7 +465,7 @@ func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment
 	w := gtx.Dp(72)
 	if tb.ready {
 		w = min(max(h*tb.size.X/tb.size.Y, gtx.Dp(48)), gtx.Dp(180))
-	} else {
+	} else if d.t.Invalidate == nil {
 		d.t.live = true
 	}
 	k := item + "/" + a.ID

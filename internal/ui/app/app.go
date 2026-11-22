@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"image"
 	"image/color"
 	"log"
@@ -299,11 +300,18 @@ type ui struct {
 	// which its header names for a moment.
 	chatSizeAt time.Time
 	sidebar    sidebar.Sidebar
-	panes      map[string]*paneUI
-	open       widget.Clickable // empty-state button
-	modal      modal
-	modeTag    int // holds key focus in tab mode, so typed text skips the pane
-	closeTag   int // a press anywhere closes a pinned switcher
+	// sidebarRev tracks state and host changes for sidebar view & badge caching.
+	sidebarRev   uint64
+	lastStateVer uint64
+	lastHostSig  uint64
+	needYou      int
+	needYouRev   uint64
+	needYouAt    time.Time
+	panes        map[string]*paneUI
+	open         widget.Clickable // empty-state button
+	modal        modal
+	modeTag      int // holds key focus in tab mode, so typed text skips the pane
+	closeTag     int // a press anywhere closes a pinned switcher
 
 	forms     map[string]*formUI // pitwall form's forms, by id, see form.go
 	formFocus string             // the form that last took the keys
@@ -727,6 +735,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.Answers = u.canAnswer()
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
+	u.syncSidebarRev(&st)
 	u.sidebar.DevProxyPort = st.DevProxyPort
 	for _, p := range u.panes {
 		p.rect = image.Rectangle{}
@@ -777,6 +786,7 @@ func (u *ui) layout(gtx gl.Context) {
 	for id, p := range u.panes {
 		u.focusClicks(gtx, p, id)
 	}
+	palEdChanged := u.paletteEdUpdate(gtx, &st)
 	for u.modal.kind == modalNone {
 		u.nav.paneChatKey, u.nav.chatTextKey = u.paneChatKey(&st), u.chatTextKeys(&st)
 		filters := append(u.nav.keyFilters(&st), u.popupFilters()...)
@@ -796,7 +806,11 @@ func (u *ui) layout(gtx gl.Context) {
 			continue
 		}
 		if u.pal.open {
-			u.paletteKey(&st, ev.(key.Event))
+			ke := ev.(key.Event)
+			if !(palEdChanged && u.paletteEditable() && isPrintablePaletteKey(ke)) {
+				u.paletteKey(&st, ke)
+				u.pal.syncEditor()
+			}
 			st = u.b.State()
 			u.nav.sync(&st)
 			u.openRequested(&st, gtx.Now)
@@ -868,7 +882,11 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	event.Op(gtx.Ops, &u.modeTag)
-	if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open || u.hints.on || u.sidebar.Focused() && !u.sidebar.Editing()) && !gtx.Focused(&u.modeTag) {
+	if u.paletteEditable() {
+		if !gtx.Focused(&u.pal.ed) {
+			gtx.Execute(key.FocusCmd{Tag: &u.pal.ed})
+		}
+	} else if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open || u.hints.on || u.sidebar.Focused() && !u.sidebar.Editing()) && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
@@ -983,9 +1001,10 @@ func (u *ui) layout(gtx gl.Context) {
 		if u.cfg.LimitsInSidebar {
 			u.sidebar.Limits = u.limits.get()
 		}
+		u.syncSidebarRev(&st)
 		u.sidebar.BoardOn = u.boardOn
 		u.sidebar.MonitorOn = u.mon.on
-		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(&st), gtx.Now)
+		u.sidebar.NeedYou = u.cachedNeedYou(&st, gtx.Now)
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
 		if p := findPane(&st, u.nav.pip); p != nil {
@@ -1048,6 +1067,60 @@ func asFilters(fs []key.Filter) []event.Filter {
 		out[i] = f
 	}
 	return out
+}
+
+func hostsSig(hs []sidebar.HostInfo) uint64 {
+	h := fnv.New64a()
+	var b [1]byte
+	for _, hi := range hs {
+		h.Write([]byte(hi.Name))
+		h.Write([]byte{0})
+		if hi.Up {
+			b[0] = 1
+		} else {
+			b[0] = 0
+		}
+		h.Write(b[:])
+		h.Write([]byte(hi.Note))
+		h.Write([]byte{0})
+		h.Write([]byte(hi.Color))
+		h.Write([]byte{0})
+		for _, s := range hi.Sessions {
+			h.Write([]byte(s))
+			h.Write([]byte{0})
+		}
+		h.Write([]byte{1})
+	}
+	return h.Sum64()
+}
+
+func (u *ui) syncSidebarRev(st *model.State) {
+	if st.Version == 0 {
+		u.sidebar.Rev = 0
+		return
+	}
+	hsig := hostsSig(u.hosts)
+	if u.sidebarRev == 0 || st.Version != u.lastStateVer || hsig != u.lastHostSig {
+		u.sidebarRev++
+		u.lastStateVer, u.lastHostSig = st.Version, hsig
+	}
+	u.sidebar.Rev = u.sidebarRev
+}
+
+func (u *ui) cachedNeedYou(st *model.State, now time.Time) int {
+	if u.sidebar.Rev != 0 && u.needYouRev == u.sidebar.Rev && (u.needYouAt.IsZero() || now.Before(u.needYouAt)) {
+		return u.needYou
+	}
+	u.needYou = board.NeedCount(st, u.boardHosts(st), now)
+	u.needYouRev = u.sidebar.Rev
+	var soonest time.Time
+	for _, w := range st.Workspaces {
+		if w.SnoozedUntil.After(now) && (soonest.IsZero() || w.SnoozedUntil.Before(soonest)) {
+			soonest = w.SnoozedUntil
+		}
+	}
+	u.needYouAt = soonest
+	return u.needYou
 }
 
 func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {

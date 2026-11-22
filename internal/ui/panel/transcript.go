@@ -22,6 +22,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -104,11 +105,24 @@ type Transcript struct {
 	listPx     float32 // the px per sp list's offsets were laid out at
 	prevLayout string  // the last frame's resolved ChatLayout, for keeping scroll on switch
 	blocks     []block
+	blocksKey  blocksKey
+	blocksSet  bool
+	hasTurns   bool   // any item in s.Content carries a TurnID
+	lastPrmpt  string // cached lastPrompt(s) for blocksKey
+	baseLen    int    // prefix of rows that is cached across frames
 	rows       []trow
+	rowsKey    rowsKey
+	rowsSet    bool
+	rowsGen    uint64
+	visFolds   []visFold
+	prevFolds  []visFold
+	drawnFolds map[string]visFold
 	laid       int // transcript items laid out in the last frame
 	live       bool
+	wakeAt     time.Time
 	epoch      time.Time
 	now        time.Time
+	hrefs      map[string]string // memoized os.Stat -> FileURL (or "") by abs path
 
 	open   map[string]bool // folds the user opened or closed, by id
 	fold   []int           // the items of the fold buildRows lays out
@@ -269,15 +283,51 @@ type trow struct {
 type rowSeg uint8
 
 const (
-	segBlock   rowSeg = iota // a prompt or a system line
-	segHead                  // a turn's work log header
-	segItem                  // an item in an open work log
-	segProse                 // an item written for the reader, between the folds
-	segTurn                  // Worked for over a finished turn's work, Working for under a running one's
-	segReply                 // a turn's reply
-	segTodo                  // a turn's task list, its last task-list call i
-	segChanges               // a finished turn's change card
+	segBlock       rowSeg = iota // a prompt or a system line
+	segHead                      // a turn's work log header
+	segItem                      // an item in an open work log
+	segProse                     // an item written for the reader, between the folds
+	segTurn                      // Worked for over a finished turn's work, Working for under a running one's
+	segReply                     // a turn's reply
+	segTodo                      // a turn's task list, its last task-list call i
+	segChanges                   // a finished turn's change card
+	segInterrupted               // a stopped turn's Interrupted line
 )
+
+func (r *trow) isTail() bool { return r.tail != nil || r.seg == segInterrupted }
+
+type visFold struct {
+	id  string
+	def bool
+	c   *widget.Clickable
+}
+
+type blocksKey struct {
+	sessionID    string
+	rev          int64
+	contentLen   int
+	firstID      string
+	lastID       string
+	lastUpdated  string
+	lastTextLen  int
+	lastToolOut  int
+	lastToolStat string
+	doneLen      int
+	doneHash     uint64
+}
+
+type rowsKey struct {
+	blocksKey
+	sessionState  string
+	running       bool
+	turnsLen      int
+	lastTurnState string
+	lastTurnEnd   string
+	toolMode      string
+	openHash      uint64
+	openLen       int
+	dir           string
+}
 
 // Answers returns the approvals answered since the last call, once each.
 func (t *Transcript) Answers() []Answer {
@@ -748,7 +798,10 @@ const copiedFor = 1500 * time.Millisecond
 func (t *Transcript) isCopied(key string) bool {
 	at, ok := t.copied[key]
 	if ok && t.now.Sub(at) < copiedFor {
-		t.live = true
+		exp := at.Add(copiedFor)
+		if t.wakeAt.IsZero() || exp.Before(t.wakeAt) {
+			t.wakeAt = exp
+		}
 		return true
 	}
 	return false
@@ -879,7 +932,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	prev := t.drawn
-	t.now, t.live, t.laid, t.drawn, t.drawnWas, t.size = gtx.Now, false, 0, t.drawnWas[:0], prev, size
+	t.now, t.live, t.wakeAt, t.laid, t.drawn, t.drawnWas, t.size = gtx.Now, false, time.Time{}, 0, t.drawnWas[:0], prev, size
 	t.frame++
 	t.settle(gtx, s)
 	t.findUpdate(gtx, s)
@@ -891,8 +944,24 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	}
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: size}.Op())
 
-	d := &cdraw{t: t, th: th, s: s, sec: gtx.Now.Sub(t.epoch).Seconds()}
-	t.blocks = blocks(s.Content, t.blocks, t.cuts(s)...)
+	sec := gtx.Now.Sub(t.epoch).Seconds()
+	if anim.Reduced() {
+		sec = 0
+	}
+	d := &cdraw{t: t, th: th, s: s, sec: sec}
+	bk := t.makeBlocksKey(s)
+	if !t.blocksSet || bk != t.blocksKey {
+		t.blocks = blocks(s.Content, t.blocks, t.cuts(s)...)
+		t.lastPrmpt = lastPrompt(s)
+		t.hasTurns = false
+		for i := range s.Content {
+			if s.Content[i].TurnID != nil {
+				t.hasTurns = true
+				break
+			}
+		}
+		t.blocksKey, t.blocksSet = bk, true
+	}
 	var col, x0, planH int
 	if t.isLedger() {
 		d.ledger = true
@@ -942,11 +1011,19 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		t.typeIn = nil
 	}
 
+	t.pollVisFolds(lgtx)
 	added := t.prepended(s)
 	if d.ledger {
 		t.buildLedgerRows(lgtx, d)
+		t.rowsSet = false // why: the cached rows are Column's; switching back must rebuild them
 	} else {
-		t.buildRows(lgtx, d)
+		rk := t.makeRowsKey(s, bk)
+		if !t.rowsSet || rk != t.rowsKey {
+			t.buildBaseRows(lgtx, d)
+			t.rowsKey, t.rowsSet = rk, true
+			t.rowsGen++
+		}
+		t.attachTail(d)
 	}
 	if added > 0 {
 		t.keepPlace(s)
@@ -966,8 +1043,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	t.keepScroll(lgtx.Metric.PxPerSp)
 	// A new prompt, sent here, queued or typed elsewhere, takes the
 	// reader to the end wherever they scrolled.
-	if id := lastPrompt(s); id != t.prompt {
-		t.prompt = id
+	if t.lastPrmpt != t.prompt {
+		t.prompt = t.lastPrmpt
 		t.ToEnd()
 	}
 	// It follows the newest row once it overflows, from the end the first
@@ -990,6 +1067,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	if t.span.drag { // the button held: the newest line does not pull the view away
 		t.list.Position.BeforeEnd = true
 	}
+	t.prevFolds, t.visFolds = t.visFolds, t.prevFolds[:0]
 	t.list.Layout(lgtx, len(t.rows)+2, t.msg.record(func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
@@ -1031,12 +1109,12 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			}
 			if r.inTurn {
 				rowX, rowW = x0+d.geom.gutterW, d.geom.textW
-				if r.tail == nil && r.res == nil && r.seg == segItem {
+				if !r.isTail() && r.res == nil && r.seg == segItem {
 					dx = gtx.Dp(rowPad - theme.Space2XS)
 					rowW += dx
 				}
 			}
-		} else if r.tail == nil && r.res == nil && (r.seg == segHead || r.seg == segItem) {
+		} else if !r.isTail() && r.res == nil && (r.seg == segHead || r.seg == segItem) {
 			// A line of work starts at the prose's edge, as T3 Code's rows
 			// do: its chevron where the text starts, its hover past it.
 			dx = gtx.Dp(rowPad - theme.Space2XS)
@@ -1045,20 +1123,39 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		gtx.Constraints = layout.Constraints{Max: image.Pt(rowW, gtx.Constraints.Max.Y)}
 		off := op.Offset(image.Pt(rowX-dx, topY)).Push(gtx.Ops)
 		var dims layout.Dimensions
+		recordFold := func(id string, def bool) {
+			f := visFold{id: id, def: def}
+			t.visFolds = append(t.visFolds, f)
+			if !gtx.Source.Enabled() && len(t.drawnFolds) < 64 {
+				if t.drawnFolds == nil {
+					t.drawnFolds = map[string]visFold{}
+				}
+				if _, ok := t.drawnFolds[id]; !ok {
+					t.drawnFolds[id] = f
+				}
+			}
+		}
 		switch {
 		case r.tail != nil:
 			dims = r.tail(gtx)
+		case r.seg == segInterrupted:
+			dims = d.interrupted(gtx)
 		case r.res != nil:
+			recordFold("res:"+r.res.id, false)
 			if r.b.kind == blockAsk {
 				t.laid++
 			}
 			dims = d.resolvedLine(gtx, r.res, r.open)
 		case r.seg == segHead:
+			recordFold(logID(s, r.b), false)
 			if !r.open {
 				t.laid += r.b.hi - r.b.lo
 			}
 			dims = d.logHead(gtx, r)
 		case r.seg == segTurn:
+			if !r.running {
+				recordFold(turnID(s, r.b), true)
+			}
 			dims = d.turnLine(gtx, r)
 		case r.seg == segItem:
 			t.laid++
@@ -1113,8 +1210,10 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	if aide {
 		d.moreMenu(gtx, size)
 	}
-	if t.live {
+	if t.live && !anim.Reduced() {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+	} else if !t.wakeAt.IsZero() {
+		gtx.Execute(op.InvalidateCmd{At: t.wakeAt})
 	}
 	return layout.Dimensions{Size: size}
 }
@@ -1403,11 +1502,112 @@ func (t *Transcript) keys(gtx layout.Context) {
 	}
 }
 
-// buildRows lays the blocks, the answered requests' lines and the tail
-// out as the list's rows: a turn as its work log's header, each item of
-// the open log, and its reply. It takes the clicks on the logs' headers,
-// so a fold changes the rows in the frame it is clicked.
-func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
+// pollVisFolds applies clicks on fold headers drawn in the previous frame
+// before checking the row cache so a click flips the fold on the same frame.
+func (t *Transcript) pollVisFolds(gtx layout.Context) {
+	pollOne := func(f visFold, g layout.Context) {
+		c := t.clicks[f.id]
+		if c == nil {
+			return
+		}
+		open := isOpen(t.open, f.id, f.def)
+		changed := false
+		for c.Clicked(g) {
+			open = !open
+			changed = true
+		}
+		if changed {
+			t.open[f.id] = open
+		}
+	}
+	for _, f := range t.visFolds {
+		pollOne(f, gtx)
+	}
+	if !gtx.Source.Enabled() {
+		for _, f := range t.drawnFolds {
+			pollOne(f, layout.Context{})
+		}
+	}
+}
+
+func (t *Transcript) makeBlocksKey(s *session.Snapshot) blocksKey {
+	k := blocksKey{
+		sessionID:  s.SessionID,
+		rev:        s.Revision,
+		contentLen: len(s.Content),
+		doneLen:    len(t.done),
+	}
+	if n := len(s.Content); n > 0 {
+		k.firstID = s.Content[0].ID
+		last := &s.Content[n-1]
+		k.lastID = last.ID
+		k.lastUpdated = last.UpdatedAt
+		k.lastTextLen = len(last.Text)
+		if last.Tool != nil {
+			k.lastToolOut = len(last.Tool.Output)
+			k.lastToolStat = last.Tool.Status
+		}
+	}
+	if len(t.done) > 0 {
+		var h uint64 = 14695981039346656037
+		for i := range t.done {
+			r := &t.done[i]
+			for j := range len(r.id) {
+				h ^= uint64(r.id[j])
+				h *= 1099511628211
+			}
+			h ^= uint64(r.at)
+			h *= 1099511628211
+			if r.gone {
+				h ^= 1
+				h *= 1099511628211
+			}
+		}
+		k.doneHash = h
+	}
+	return k
+}
+
+func openMapHash(m map[string]bool) uint64 {
+	var h uint64
+	for k, v := range m {
+		var kh uint64 = 14695981039346656037
+		for i := range len(k) {
+			kh ^= uint64(k[i])
+			kh *= 1099511628211
+		}
+		if v {
+			kh ^= 0x9e3779b97f4a7c15
+		}
+		h ^= kh
+	}
+	return h
+}
+
+func (t *Transcript) makeRowsKey(s *session.Snapshot, bk blocksKey) rowsKey {
+	k := rowsKey{
+		blocksKey:    bk,
+		sessionState: s.SessionState,
+		running:      s.Running,
+		turnsLen:     len(s.Turns),
+		toolMode:     t.toolMode(),
+		openHash:     openMapHash(t.open),
+		openLen:      len(t.open),
+		dir:          t.Dir,
+	}
+	if n := len(s.Turns); n > 0 {
+		last := &s.Turns[n-1]
+		k.lastTurnState = last.State
+		if last.CompletedAt != nil {
+			k.lastTurnEnd = *last.CompletedAt
+		}
+	}
+	return k
+}
+
+// buildBaseRows lays the blocks and answered requests' lines out as the
+// cached base rows (without per-frame tail closures).
+func (t *Transcript) buildBaseRows(gtx layout.Context, d *cdraw) {
 	t.rows = t.rows[:0]
 	running := runningTurns(d.s)
 	stopped := interruptedTurns(d.s)
@@ -1423,7 +1623,7 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 	for bi, b := range t.blocks {
 		// A stopped turn ends on a quiet Interrupted line.
 		if bi > 0 && t.blocks[bi-1].turn != "" && t.blocks[bi-1].turn != b.turn && stopped[t.blocks[bi-1].turn] {
-			t.rows = append(t.rows, trow{tail: d.interrupted})
+			t.rows = append(t.rows, trow{seg: segInterrupted})
 		}
 		for ; k < len(t.done) && t.done[k].at <= b.lo; k++ {
 			t.resRow(gtx, block{}, &t.done[k])
@@ -1479,15 +1679,29 @@ func (t *Transcript) buildRows(gtx layout.Context, d *cdraw) {
 		t.changeRow(d, b, run)
 	}
 	if n := len(t.blocks); n > 0 && stopped[t.blocks[n-1].turn] {
-		t.rows = append(t.rows, trow{tail: d.interrupted})
+		t.rows = append(t.rows, trow{seg: segInterrupted})
 	}
 	for ; k < len(t.done); k++ {
 		t.resRow(gtx, block{}, &t.done[k])
 	}
+	for i := range t.rows {
+		t.rows[i].gap = rowGap(t.rows, i)
+		t.rows[i].rank = rowRank(t.rows, i)
+	}
+	t.baseLen = len(t.rows)
+}
+
+// attachTail appends this frame's tail widgets (pending approvals, errors,
+// working line) in place after the cached base rows without copying baseRows.
+func (t *Transcript) attachTail(d *cdraw) {
+	if len(t.rows) > t.baseLen {
+		clear(t.rows[t.baseLen:])
+		t.rows = t.rows[:t.baseLen]
+	}
 	for _, w := range d.tail() {
 		t.rows = append(t.rows, trow{tail: w})
 	}
-	for i := range t.rows {
+	for i := t.baseLen; i < len(t.rows); i++ {
 		t.rows[i].gap = rowGap(t.rows, i)
 		t.rows[i].rank = rowRank(t.rows, i)
 	}
@@ -1573,7 +1787,7 @@ func rowRank(rows []trow, i int) int {
 	r := &rows[i]
 	k := 0
 	switch {
-	case r.tail != nil:
+	case r.isTail():
 	case r.res != nil && r.b.kind == blockAsk: // the question call's own line
 		k = r.b.lo*rankItem + 3
 	case r.res != nil:
@@ -1621,8 +1835,8 @@ func rowGap(rows []trow, i int) unit.Dp {
 		return 0
 	}
 	r, prev := &rows[i], &rows[i-1]
-	prompt := func(r *trow) bool { return r.tail == nil && r.res == nil && r.b.kind == blockPrompt }
-	sameTurn := r.tail == nil && r.res == nil && prev.tail == nil && prev.res == nil && r.b.kind == blockTurn && prev.b.kind == blockTurn && r.b.turn == prev.b.turn
+	prompt := func(r *trow) bool { return !r.isTail() && r.res == nil && r.b.kind == blockPrompt }
+	sameTurn := !r.isTail() && r.res == nil && !prev.isTail() && prev.res == nil && r.b.kind == blockTurn && prev.b.kind == blockTurn && r.b.turn == prev.b.turn
 	switch {
 	case sameTurn && r.seg == segItem && !r.top:
 		return 0
@@ -1634,7 +1848,7 @@ func rowGap(rows []trow, i int) unit.Dp {
 		return gapTurn
 	case prompt(prev):
 		return gapPrompt
-	case r.tail == nil && r.res == nil && r.b.kind == blockTurn && prev.tail == nil && prev.res == nil:
+	case !r.isTail() && r.res == nil && r.b.kind == blockTurn && !prev.isTail() && prev.res == nil:
 		return gapTurn
 	}
 	return gapInTurn

@@ -4,9 +4,12 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gioui.org/io/key"
+	gl "gioui.org/layout"
+	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -24,6 +27,7 @@ type palette struct {
 	peek     bool // tab search's Enter peeks at a live tab (peek_tab)
 	files    bool // or files to type the paths of (pathpick.go)
 	query    string
+	ed       widget.Editor
 	sel      int // the highlighted row of rank's result
 	openedAt time.Time
 	height   anim.Value // the card's height, easing to fit the rows
@@ -43,9 +47,173 @@ func (p *palette) openAt(now time.Time) {
 		p.openedAt, p.list.selY, p.height = now, -1, anim.Value{}
 	}
 	p.open, p.query, p.sel = true, "", 0
+	p.ed.SingleLine, p.ed.Submit = true, false
+	p.ed.SetText("")
+	p.list.scroll, p.list.hasSel = 0, false
 }
 
 func (p *palette) close() { p.open, p.files, p.peek = false, false, false }
+
+// syncEditor updates p.ed when p.query was changed programmatically (or by p.key).
+func (p *palette) syncEditor() {
+	if p.ed.Text() != p.query {
+		p.ed.SetText(p.query)
+		n := p.ed.Len()
+		p.ed.SetCaret(n, n)
+	}
+}
+
+// edAtEnd reports whether p.ed's caret is at the end with no selection.
+func (p *palette) edAtEnd() bool {
+	s, e := p.ed.Selection()
+	n := p.ed.Len()
+	return s == n && e == n
+}
+
+// deleteWord removes the word (and any trailing spaces) before the caret.
+func (p *palette) deleteWord() {
+	r := []rune(p.ed.Text())
+	c, _ := p.ed.Selection()
+	c = min(max(c, 0), len(r))
+	i := c
+	for i > 0 && unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	for i > 0 && !unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	if i == c {
+		return
+	}
+	out := string(r[:i]) + string(r[c:])
+	p.ed.SetText(out)
+	p.ed.SetCaret(i, i)
+	p.query, p.sel = out, 0
+}
+
+// deleteToStart removes everything before the caret.
+func (p *palette) deleteToStart() {
+	r := []rune(p.ed.Text())
+	c, _ := p.ed.Selection()
+	c = min(max(c, 0), len(r))
+	if c == 0 {
+		return
+	}
+	out := string(r[c:])
+	p.ed.SetText(out)
+	p.ed.SetCaret(0, 0)
+	p.query, p.sel = out, 0
+}
+
+func trimLastWord(s string) string {
+	r := []rune(s)
+	i := len(r)
+	for i > 0 && unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	for i > 0 && !unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	return string(r[:i])
+}
+
+func (u *ui) paletteEditable() bool {
+	return u.pal.open && !(u.pal.search && u.all.preview != nil)
+}
+
+// paletteEdUpdate processes widget.Editor events (Unicode/IME, clipboard paste,
+// cursor navigation, Ctrl+W/U) for the open palette and routes palette
+// navigation/action keys out of p.ed before p.ed.Update can consume them.
+// It reports whether the editor handled text changes this frame.
+func (u *ui) paletteEdUpdate(gtx gl.Context, st *model.State) bool {
+	p := &u.pal
+	if !u.paletteEditable() {
+		return false
+	}
+	p.syncEditor()
+	changed := false
+	for p.open && u.paletteEditable() {
+		ev, ok := gtx.Event(
+			key.Filter{Focus: &p.ed, Name: key.NameEscape},
+			key.Filter{Focus: &p.ed, Name: key.NameReturn, Optional: key.ModShift},
+			key.Filter{Focus: &p.ed, Name: key.NameEnter, Optional: key.ModShift},
+			key.Filter{Focus: &p.ed, Name: key.NameUpArrow},
+			key.Filter{Focus: &p.ed, Name: key.NameDownArrow},
+			key.Filter{Focus: &p.ed, Name: key.NamePageUp},
+			key.Filter{Focus: &p.ed, Name: key.NamePageDown},
+			key.Filter{Focus: &p.ed, Name: key.NameTab, Optional: key.ModShift},
+			key.Filter{Focus: &p.ed, Name: "J", Required: key.ModCtrl},
+			key.Filter{Focus: &p.ed, Name: "K", Required: key.ModCtrl},
+			key.Filter{Focus: &p.ed, Name: key.NameSpace, Required: key.ModCtrl},
+			key.Filter{Focus: &p.ed, Name: "W", Required: key.ModCtrl},
+			key.Filter{Focus: &p.ed, Name: "U", Required: key.ModCtrl},
+		)
+		if !ok {
+			break
+		}
+		e, ok := ev.(key.Event)
+		if !ok {
+			continue
+		}
+		if e.State == key.Press && e.Modifiers == key.ModCtrl && (e.Name == "W" || e.Name == "U") {
+			prev := p.query
+			if e.Name == "W" {
+				p.deleteWord()
+			} else {
+				p.deleteToStart()
+			}
+			if p.query != prev {
+				changed = true
+				if p.search {
+					u.updateSearchAll()
+				}
+			}
+			continue
+		}
+		u.paletteKey(st, e)
+		p.syncEditor()
+		*st = u.b.State()
+		u.nav.sync(st)
+		u.openRequested(st, gtx.Now)
+	}
+	if !p.open || !u.paletteEditable() {
+		return changed
+	}
+	if p.tabs && p.edAtEnd() {
+		for {
+			ev, ok := gtx.Event(key.Filter{Focus: &p.ed, Name: key.NameDeleteForward})
+			if !ok {
+				break
+			}
+			if e, ok := ev.(key.Event); ok && e.State == key.Press {
+				u.tabSearchKey(st, e)
+				*st = u.b.State()
+				u.nav.sync(st)
+			}
+		}
+	}
+	for {
+		ev, ok := p.ed.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, ok := ev.(widget.ChangeEvent); ok {
+			changed = true
+		}
+	}
+	if q := p.ed.Text(); q != p.query {
+		p.query, p.sel = q, 0
+		changed = true
+		if p.search {
+			u.updateSearchAll()
+		}
+	}
+	return changed
+}
+
+func isPrintablePaletteKey(e key.Event) bool {
+	return e.Modifiers&^key.ModShift == 0 && (e.Name == key.NameSpace || len(e.Name) == 1 && e.Name[0] > ' ' && e.Name[0] <= '~')
+}
 
 // paletteEntries is every action, grouped in the order the groups first
 // appear in the config, with the chords b binds to it. A tab- or pane-mode
@@ -216,11 +384,15 @@ func (p *palette) key(rows []paletteEntry, e key.Event) *paletteEntry {
 		move(-10)
 	case e.Name == key.NamePageDown:
 		move(10)
+	case e.Name == "W" && e.Modifiers == key.ModCtrl:
+		p.query, p.sel = trimLastWord(p.query), 0
+	case e.Name == "U" && e.Modifiers == key.ModCtrl:
+		p.query, p.sel = "", 0
 	case e.Name == key.NameDeleteBackward:
 		if _, size := utf8.DecodeLastRuneInString(p.query); size > 0 {
 			p.query, p.sel = p.query[:len(p.query)-size], 0
 		}
-	case e.Modifiers&^key.ModShift == 0 && (e.Name == key.NameSpace || len(e.Name) == 1 && e.Name[0] > ' ' && e.Name[0] <= '~'):
+	case isPrintablePaletteKey(e):
 		c := strings.ToLower(string(e.Name))
 		if e.Name == key.NameSpace {
 			c = " "

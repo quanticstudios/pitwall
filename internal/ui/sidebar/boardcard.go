@@ -16,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/board"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -237,6 +238,9 @@ func (s *Sidebar) cardMark(gtx layout.Context, th *theme.Theme, st *model.State,
 // agent, a shell or a queued task.
 func (s *Sidebar) cardPill(card board.Card) func(gtx layout.Context, th *theme.Theme, base color.NRGBA) layout.Dimensions {
 	t := s.now.Sub(s.epoch).Seconds()
+	if anim.Reduced() {
+		t = 0
+	}
 	a := card.Act
 	switch card.Kind {
 	case board.KindIdle, board.KindShell, board.KindTask:
@@ -559,10 +563,11 @@ func paneDir(st *model.State, card board.Card) string {
 func (s *Sidebar) approvalButtons(th *theme.Theme, card board.Card, cs *boardCard, base color.NRGBA, armed bool) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(24)
-		switch card.Answers() {
+		ans := card.Answers()
+		switch ans {
 		case board.AnswerLong, board.AnswerGuard, board.AnswerUnknown:
 			why := "Too long to answer from a card"
-			switch card.Answers() {
+			switch ans {
 			case board.AnswerGuard:
 				why = "On the guard's deny list"
 			case board.AnswerUnknown:

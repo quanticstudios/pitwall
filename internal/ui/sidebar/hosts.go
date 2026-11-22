@@ -20,6 +20,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -225,7 +226,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 						d := gtx.Dp(8)
 						if dot != nil {
 							col := sessionDotColor(th, dot.State)
-							if model.Pulses(dot) {
+							if model.Pulses(dot) && !anim.Reduced() {
 								col = theme.Mix(bg, col, pulse(gtx.Now.Sub(s.epoch).Seconds()))
 								gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 							}

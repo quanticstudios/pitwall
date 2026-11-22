@@ -425,3 +425,34 @@ func TestHoldPlace(t *testing.T) {
 		t.Errorf("let go: %s, b armed %v", got, tr.Armed("b", now.Add(3*time.Second+Arming/2)))
 	}
 }
+
+// TestNeedCount matches Derive(ScopeAll).Count(NeedsYou) across sessions,
+// workers, snoozed/settled/detached tabs, and status-reporting programs.
+func TestNeedCount(t *testing.T) {
+	var f fixture
+	f.tab("a", model.ProviderClaude, model.Workspace{SessionID: "s1"})
+	f.act("a", model.Activity{State: model.StatePendingApproval})
+	f.tab("b", model.ProviderClaude, model.Workspace{SessionID: "s2"})
+	f.act("b", model.Activity{State: model.StateAwaitingInput})
+	f.tab("c", model.ProviderClaude, model.Workspace{SessionID: "s2", Parent: "b"})
+	f.act("c", model.Activity{State: model.StatePlanReady})
+	f.tab("snoozed", model.ProviderClaude, model.Workspace{SessionID: "s1", SnoozedUntil: now.Add(time.Hour)})
+	f.act("snoozed", model.Activity{State: model.StatePendingApproval})
+	f.tab("settled", model.ProviderClaude, model.Workspace{SessionID: "s1", Settled: now.Add(-time.Minute)})
+	f.act("settled", model.Activity{State: model.StatePendingApproval})
+	f.tab("detached", model.ProviderClaude, model.Workspace{SessionID: "s1", Detached: true})
+	f.act("detached", model.Activity{State: model.StatePendingApproval})
+	f.tab("limit", model.ProviderClaude, model.Workspace{SessionID: "s1"})
+	f.act("limit", model.Activity{State: model.StatePendingApproval, Resumes: now.Add(time.Hour)})
+	f.tab("prog", "", model.Workspace{SessionID: "s1"})
+	f.st.Panes[len(f.st.Panes)-1].Program = &model.Program{State: "input", Message: "Confirm?"}
+	f.tab("work", model.ProviderClaude, model.Workspace{SessionID: "s1"})
+	f.act("work", model.Activity{State: model.StateWorking})
+
+	b := Derive(&f.st, Options{Scope: Scope{Kind: ScopeAll}, Now: now})
+	want := b.Count(NeedsYou)
+	got := NeedCount(&f.st, nil, now)
+	if got != want || got != 3 {
+		t.Fatalf("NeedCount = %d, Derive(ScopeAll).Count(NeedsYou) = %d, want 3", got, want)
+	}
+}

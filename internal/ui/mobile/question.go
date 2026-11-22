@@ -59,7 +59,7 @@ func (c *chatView) terminalQuestion(gtx C, th *theme.Theme, env chatEnv, done fu
 		w = append(w, gap(8), func(gtx C) D { return cardButton(gtx, th, &k.questionBtns[i], o.Selected, !k.busy && env.Online, name) })
 	}
 	if q.Other {
-		w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &k.other, "Other") })
+		w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &k.other, &k.otherBox, "Other") })
 		if k.otherSend.Clicked(gtx) {
 			answer(-2, k.other.Text())
 		}

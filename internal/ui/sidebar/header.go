@@ -12,6 +12,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -31,10 +32,12 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 		session = "pitwall"
 	}
 	flash := float32(0)
-	if since := gtx.Now.Sub(s.switchedAt); !s.switchedAt.IsZero() && since < switchFlash {
-		flash = 1 - float32(since)/float32(switchFlash)
-		flash *= flash
-		gtx.Execute(op.InvalidateCmd{})
+	if !anim.Reduced() {
+		if since := gtx.Now.Sub(s.switchedAt); !s.switchedAt.IsZero() && since < switchFlash {
+			flash = 1 - float32(since)/float32(switchFlash)
+			flash *= flash
+			gtx.Execute(op.InvalidateCmd{})
+		}
 	}
 	items := []item{
 		{w: func(gtx layout.Context) layout.Dimensions {

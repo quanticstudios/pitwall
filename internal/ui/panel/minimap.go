@@ -50,12 +50,26 @@ type mmMark struct {
 	text string
 }
 
+// mmKey is what cached minimap marks depend on.
+type mmKey struct {
+	rowsGen       uint64
+	pendingInputs int
+	firstInput    string
+	pendingAppr   int
+	firstAppr     string
+	endMsg        string
+	endStopped    bool
+}
+
 // minimap is the minimap's state.
 type minimap struct {
-	tag    struct{}
-	hover  int // the mark under the pointer, -1 for none
-	hoverY int // the pointer's y in the strip
-	in     bool
+	tag      struct{}
+	hover    int // the mark under the pointer, -1 for none
+	hoverY   int // the pointer's y in the strip
+	in       bool
+	marks    []mmMark
+	marksKey mmKey
+	marksSet bool
 }
 
 // minimapMarks are rows' marks: each prompt, each error, each question
@@ -64,7 +78,7 @@ func minimapMarks(rows []trow, s *session.Snapshot) []mmMark {
 	var out []mmMark
 	for k := range rows {
 		r := &rows[k]
-		if r.tail != nil || r.res != nil {
+		if r.isTail() || r.res != nil {
 			continue
 		}
 		switch {
@@ -135,12 +149,37 @@ func mmIndex(n, h, y int) int {
 // column is col wide, and takes its hovers and clicks. It hides in a
 // chat whose side gutter is narrower than mmGutter, and with fewer than
 // mmMin marks.
+func (t *Transcript) cachedMinimapMarks(s *session.Snapshot) []mmMark {
+	m := &t.mm
+	k := mmKey{
+		rowsGen:       t.rowsGen,
+		pendingInputs: len(s.PendingUserInputs),
+		pendingAppr:   len(s.PendingApprovals),
+	}
+	if len(s.PendingUserInputs) > 0 && len(s.PendingUserInputs[0].Questions) > 0 {
+		k.firstInput = s.PendingUserInputs[0].Questions[0].Prompt
+	}
+	if len(s.PendingApprovals) > 0 {
+		k.firstAppr = deref(s.PendingApprovals[0].Detail)
+	}
+	k.endMsg, k.endStopped = endLine(s)
+	if !m.marksSet || m.marksKey != k {
+		m.marks = minimapMarks(t.rows, s)
+		m.marksKey, m.marksSet = k, true
+	}
+	return m.marks
+}
+
 func (t *Transcript) drawMinimap(gtx layout.Context, d *cdraw, s *session.Snapshot, col int, size image.Point) {
 	m := &t.mm
 	gutter := (size.X - col) / 2
-	marks := minimapMarks(t.rows, s)
+	if gutter < gtx.Dp(mmGutter) {
+		m.hover, m.in = -1, false
+		return
+	}
+	marks := t.cachedMinimapMarks(s)
 	n := len(marks)
-	if gutter < gtx.Dp(mmGutter) || n < mmMin {
+	if n < mmMin {
 		m.hover, m.in = -1, false
 		return
 	}

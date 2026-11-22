@@ -308,7 +308,7 @@ func stashKey(id string) string { return curHost() + "\x00" + id }
 // chatLive is whether a chat in state may still add to its transcript
 // without a change that pushes a new State.
 func chatLive(state string) bool {
-	return state == session.StateConnecting || state == session.StateRunning || state == session.StateWaiting
+	return state == session.StateConnecting || state == session.StateRunning
 }
 
 // chatTranscript is chat id's transcript, kept while the chat is in st,

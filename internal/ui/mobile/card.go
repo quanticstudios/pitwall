@@ -36,6 +36,7 @@ type cardState struct {
 	bad                  bool
 	questionBtns         []widget.Clickable
 	other                widget.Editor
+	otherBox             widget.Clickable
 	submit, otherSend    widget.Clickable
 	qBack, qNext         widget.Clickable
 	draft                string // the box's text when the terminal question came
@@ -50,9 +51,11 @@ type reqState struct {
 	step                       int                // current question shown on multi-question cards
 	tuiStep                    int                // last step synced from remote.Request.Step, -1 none
 	reason                     widget.Editor
+	reasonBox                  widget.Clickable
 	opts                       [][]widget.Clickable // per question
 	picked                     [][]string           // per question, the options tapped
 	texts                      []widget.Editor
+	textBoxes                  []widget.Clickable
 	draft                      string // the box's text when the request came
 	sent                       string // the answers, once sent: the card shows them
 }
@@ -81,12 +84,13 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 		}
 		for _, r := range t.Requests {
 			rs := &reqState{
-				tuiStep: -1,
-				chips:   make([]widget.Clickable, len(r.Questions)),
-				picked:  make([][]string, len(r.Questions)),
-				texts:   make([]widget.Editor, len(r.Questions)),
-				opts:    make([][]widget.Clickable, len(r.Questions)),
-				draft:   c.cmp.ed.Text(),
+				tuiStep:   -1,
+				chips:     make([]widget.Clickable, len(r.Questions)),
+				picked:    make([][]string, len(r.Questions)),
+				texts:     make([]widget.Editor, len(r.Questions)),
+				textBoxes: make([]widget.Clickable, len(r.Questions)),
+				opts:      make([][]widget.Clickable, len(r.Questions)),
+				draft:     c.cmp.ed.Text(),
 			}
 			for i, q := range r.Questions {
 				rs.opts[i] = make([]widget.Clickable, len(q.Options))
@@ -307,7 +311,7 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		if r.Kind == "plan" {
 			allow, deny = "Approve", "Keep planning"
 		}
-		w = append(w, gap(12), func(gtx C) D { return cardField(gtx, th, &rs.reason, "Reason to deny (optional)") },
+		w = append(w, gap(12), func(gtx C) D { return cardField(gtx, th, &rs.reason, &rs.reasonBox, "Reason to deny (optional)") },
 			gap(10), func(gtx C) D { return twoButtons(gtx, th, &rs.deny, deny, &rs.allow, allow, !k.busy) })
 		if sessionOffered(r) {
 			w = append(w, gap(10), func(gtx C) D { return cardButton(gtx, th, &rs.session, false, !k.busy, "Allow for this session") })
@@ -398,7 +402,7 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 	if len(q.Options) > 0 {
 		hint = "Or type an answer"
 	}
-	w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &rs.texts[i], hint) })
+	w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &rs.texts[i], &rs.textBoxes[i], hint) })
 	if rs.back.Clicked(gtx) && rs.step > 0 {
 		rs.step--
 		k.note, k.bad = "", false
@@ -718,15 +722,10 @@ func wrap(gtx C, gap unit.Dp, ws []layout.Widget) D {
 
 // cardField is a text field in the card, 48dp at one line, focused by a
 // tap anywhere in it.
-func cardField(gtx C, th *theme.Theme, ed *widget.Editor, hint string) D {
+func cardField(gtx C, th *theme.Theme, ed *widget.Editor, fs *widget.Clickable, hint string) D {
 	ring := th.BorderStrong
 	if gtx.Focused(ed) {
 		ring = theme.Mix(th.Bg, th.Primary, 0.7)
-	}
-	fs := fields[ed]
-	if fs == nil {
-		fs = new(widget.Clickable)
-		fields[ed] = fs
 	}
 	if fs.Clicked(gtx) {
 		gtx.Execute(key.FocusCmd{Tag: ed})

@@ -14,6 +14,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
@@ -88,8 +89,9 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 	// The text: one selectable string, a line per line.
 	var sb, orig strings.Builder
 	starts := make([]int, len(shown))
+	lineRunes := make([]int, len(shown))
 	runes, maxNo := 0, 0
-	texts := make([]string, len(shown))
+	hasDecor := b.nums > 0 || b.signs
 	for i, l := range shown {
 		if i > 0 {
 			sb.WriteByte('\n')
@@ -99,10 +101,14 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 		starts[i] = runes
 		orig.WriteString(l.text)
 		t := mdview.Detab(l.text)
-		texts[i] = t
 		sb.WriteString(t)
-		runes += utf8.RuneCountInString(t)
+		rc := utf8.RuneCountInString(t)
+		lineRunes[i] = rc
+		runes += rc
 		maxNo = max(maxNo, l.old, l.new)
+		if l.kind == '+' || l.kind == '-' || l.kind == '@' {
+			hasDecor = true
+		}
 	}
 	st := d.mono()
 	numW := 0
@@ -129,11 +135,10 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 	}
 	sl := d.t.sel("box:" + b.id)
 	d.copyAs(sl, tabbed(orig.String(), sb.String()))
+	d.paintMono(sl, starts, lineRunes, shown)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(1<<20, 1<<20)} // no wrapping
-	inv := st
-	inv.c = color.NRGBA{}
-	call, td := measure(g, func(gtx layout.Context) layout.Dimensions { return d.selectable(gtx, sl, inv, sb.String()) })
+	call, td := measure(g, func(gtx layout.Context) layout.Dimensions { return d.selectable(gtx, sl, st, sb.String()) })
 	py := gtx.Dp(6)
 	top := hh + py
 	h := top + td.Size.Y + py
@@ -168,61 +173,52 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 	if numW > 0 {
 		paint.FillShape(gtx.Ops, gutter, clip.Rect{Min: image.Pt(0, hh), Max: image.Pt(b.nums*numW, h)}.Op())
 	}
-	type placed struct{ y0, y1, base int }
-	pos := make([]placed, len(shown))
-	var rg []widget.Region
-	for i, l := range shown {
-		rg = sl.Regions(starts[i], starts[i]+max(utf8.RuneCountInString(texts[i]), 1), rg[:0])
-		if len(rg) == 0 {
-			pos[i] = placed{-1, -1, -1}
-			continue
-		}
-		r := rg[0]
-		y0, y1 := top+r.Bounds.Min.Y, top+r.Bounds.Max.Y
-		pos[i] = placed{y0, y1, y1 - r.Baseline}
-		tint := color.NRGBA{}
-		sign, scol := "", th.Muted
-		switch l.kind {
-		case '+':
-			tint, sign, scol = add, "+", th.Readable(th.Green, add)
-		case '-':
-			tint, sign, scol = del, "−", th.Readable(th.Red, del)
-		case '@':
-			tint = hunk
-		}
-		if tint.A > 0 {
-			paint.FillShape(gtx.Ops, tint, clip.Rect{Min: image.Pt(0, y0), Max: image.Pt(w, y1)}.Op())
-		}
-		num := func(x, n int) {
-			if n == 0 {
-				return
+	if hasDecor {
+		var rg []widget.Region
+		for i, l := range shown {
+			rg = sl.Regions(starts[i], starts[i]+max(lineRunes[i], 1), rg[:0])
+			if len(rg) == 0 {
+				continue
 			}
-			d.onBaseAt(gtx, th.MonoFont, st, th.TextQuiet, strconv.Itoa(n), x+numW-gtx.Dp(8), y1-r.Baseline, true)
-		}
-		if numW > 0 {
-			if b.nums == 2 {
-				num(0, l.old)
-				num(numW, l.new)
-			} else {
-				num(0, l.new)
+			r := rg[0]
+			y0, y1 := top+r.Bounds.Min.Y, top+r.Bounds.Max.Y
+			tint := color.NRGBA{}
+			sign, scol := "", th.Muted
+			switch l.kind {
+			case '+':
+				tint, sign, scol = add, "+", th.Readable(th.Green, add)
+			case '-':
+				tint, sign, scol = del, "−", th.Readable(th.Red, del)
+			case '@':
+				tint = hunk
 			}
-		}
-		if sign != "" {
-			d.onBaseAt(gtx, th.MonoFont, st, scol, sign, b.nums*numW+gtx.Dp(4), y1-r.Baseline, false)
+			if tint.A > 0 {
+				paint.FillShape(gtx.Ops, tint, clip.Rect{Min: image.Pt(0, y0), Max: image.Pt(w, y1)}.Op())
+			}
+			num := func(x, n int) {
+				if n == 0 {
+					return
+				}
+				d.onBaseAt(gtx, th.MonoFont, st, th.TextQuiet, strconv.Itoa(n), x+numW-gtx.Dp(8), y1-r.Baseline, true)
+			}
+			if numW > 0 {
+				if b.nums == 2 {
+					num(0, l.old)
+					num(numW, l.new)
+				} else {
+					num(0, l.new)
+				}
+			}
+			if sign != "" {
+				d.onBaseAt(gtx, th.MonoFont, st, scol, sign, b.nums*numW+gtx.Dp(4), y1-r.Baseline, false)
+			}
 		}
 	}
 
-	// The text, scrolled sideways inside its column; the selectable under
-	// it keeps selection and copy, and draws no glyphs of its own.
+	// The text, scrolled sideways inside its column, shaped once with sl.Colors/Styles.
 	tc := clip.Rect{Min: image.Pt(textX, hh), Max: image.Pt(w-padR+gtx.Dp(theme.SpaceS), h)}.Push(gtx.Ops)
 	o := op.Offset(image.Pt(textX-off, 0)).Push(gtx.Ops)
 	at(gtx, image.Pt(0, top), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return td })
-	for i, l := range shown {
-		if pos[i].y0 < 0 || texts[i] == "" {
-			continue
-		}
-		d.monoText(gtx, sl, st, starts[i], texts[i], l, pos[i].base)
-	}
 	o.Pop()
 	tc.Pop()
 
@@ -290,62 +286,52 @@ func (d *cdraw) box(gtx layout.Context, b monoBox) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(w, h+gtx.Dp(gapShowAll)+md.Size.Y)}
 }
 
-// monoText draws line l, whose text starts at rune start of sl's text, in
-// its colors on baseline base.
-func (d *cdraw) monoText(gtx layout.Context, sl *widget.Selectable, st tstyle, start int, txt string, l monoLine, base int) {
+// paintMono sets sl's Colors and Styles from shown's line kinds and spans
+// in one pass, reusing sl's slices so a frame allocates nothing new.
+func (d *cdraw) paintMono(sl *widget.Selectable, starts, lineRunes []int, shown []monoLine) {
 	th := d.th
-	type seg struct {
-		a, b int
-		c    color.NRGBA
-		bold bool
-		it   bool // a code comment, italic
-	}
-	var segs []seg
-	n := utf8.RuneCountInString(txt)
-	switch {
-	case l.kind == '$':
-		p := min(2, n)
-		segs = []seg{{0, p, th.TextQuiet, false, false}, {p, n, th.Fg, false, false}}
-	case l.kind == '@':
-		segs = []seg{{0, n, th.Muted, false, false}}
-	case l.kind == 'q':
-		segs = []seg{{0, n, th.TextQuiet, false, false}}
-	case len(l.spans) == 0:
-		segs = []seg{{0, n, st.c, false, false}}
-	default:
-		at := 0
-		for _, s := range l.spans {
-			a, b := min(s.a, n), min(s.b, n)
-			if a > at {
-				segs = append(segs, seg{at, a, st.c, false, false})
-			}
-			if b > a {
-				segs = append(segs, seg{a, b, d.ansiColor(s), s.bold, s.syn == syntax.Comment})
-			}
-			at = max(at, b)
-		}
-		if at < n {
-			segs = append(segs, seg{at, n, st.c, false, false})
-		}
-	}
-	runes := []rune(txt)
-	var rg []widget.Region
-	for _, s := range segs {
-		if s.b <= s.a {
+	boldFont := semibold(th.MonoFont)
+	italFont := th.MonoFont
+	italFont.Style = font.Italic
+	boldItal := boldFont
+	boldItal.Style = font.Italic
+	sl.Colors, sl.Styles = sl.Colors[:0], sl.Styles[:0]
+	for i, l := range shown {
+		n := lineRunes[i]
+		if n == 0 {
 			continue
 		}
-		rg = sl.Regions(start+s.a, start+s.b, rg[:0])
-		if len(rg) == 0 {
-			continue
+		start := starts[i]
+		switch {
+		case l.kind == '$':
+			p := min(2, n)
+			sl.Colors = append(sl.Colors, widget.TextColor{Start: start, End: start + p, Color: th.TextQuiet})
+			if p < n {
+				sl.Colors = append(sl.Colors, widget.TextColor{Start: start + p, End: start + n, Color: th.Fg})
+			}
+		case l.kind == '@':
+			sl.Colors = append(sl.Colors, widget.TextColor{Start: start, End: start + n, Color: th.Muted})
+		case l.kind == 'q':
+			sl.Colors = append(sl.Colors, widget.TextColor{Start: start, End: start + n, Color: th.TextQuiet})
+		case len(l.spans) > 0:
+			for _, s := range l.spans {
+				a, b := min(s.a, n), min(s.b, n)
+				if b <= a {
+					continue
+				}
+				sl.Colors = append(sl.Colors, widget.TextColor{Start: start + a, End: start + b, Color: d.ansiColor(s)})
+				it := s.syn == syntax.Comment
+				if s.bold || it {
+					f := boldFont
+					if s.bold && it {
+						f = boldItal
+					} else if it {
+						f = italFont
+					}
+					sl.Styles = append(sl.Styles, text.Style{Start: start + a, End: start + b, Font: f, Scale: 1})
+				}
+			}
 		}
-		f := th.MonoFont
-		if s.bold {
-			f = semibold(f)
-		}
-		if s.it {
-			f.Style = font.Italic
-		}
-		d.onBaseAt(gtx, f, st, s.c, string(runes[s.a:s.b]), rg[0].Bounds.Min.X, base, false)
 	}
 }
 

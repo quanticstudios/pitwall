@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"slices"
+	"strconv"
 	"time"
 
 	"gioui.org/layout"
@@ -522,6 +523,11 @@ type view struct {
 	now           time.Time
 	active        string
 	activeProject string
+	byID          map[string]model.Workspace
+	projects      map[string]model.Project
+	groupOfMap    map[string]string
+	draftHeld     map[string]bool
+	queueLabel    map[string]string
 	byProject     map[string][]model.Workspace // "" holds the ungrouped sessions
 	activity      map[string]*model.Activity   // a key for every live session
 	unseen        map[string]*model.Activity   // a live session's first unseen activity by priority
@@ -611,6 +617,8 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 // when separate.
 func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string, separate bool) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active, session: session, separate: separate,
+		byID: make(map[string]model.Workspace, len(st.Workspaces)), projects: make(map[string]model.Project, len(st.Projects)),
+		groupOfMap: make(map[string]string, len(st.Workspaces)), draftHeld: map[string]bool{}, queueLabel: map[string]string{},
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
 		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}, status: map[string]string{}, program: map[string]*model.Program{}}
 	if v.now.IsZero() {
@@ -627,6 +635,7 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 	groups := map[string]bool{}
 	for _, p := range st.Projects {
 		groups[p.ID] = true
+		v.projects[p.ID] = p
 	}
 	v.groups = groups
 	v.remote = map[string]bool{}
@@ -638,12 +647,14 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 	detached := map[string]bool{}
 	for _, ws := range st.Workspaces {
 		detached[ws.ID] = ws.Detached
+		v.byID[ws.ID] = ws
 	}
 	for _, ws := range st.Workspaces {
 		g := ws.ProjectID
 		if !groups[g] {
 			g = "" // a session whose group is gone shows as ungrouped
 		}
+		v.groupOfMap[ws.ID] = g
 		if ws.ID == active {
 			v.activeProject = g
 		}
@@ -666,11 +677,32 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 		if p := AgentOf(st, ws); p != "" {
 			v.agent[ws.ID] = p
 		}
-		if aps := st.AgentPanes(ws); len(aps) > 1 {
+		aps := st.AgentPanes(ws)
+		if len(aps) > 1 {
 			v.agents[ws.ID] = aps
 		}
 		if p := tabProgram(st, ws, v.agents[ws.ID]); p != nil {
 			v.program[ws.ID] = p
+		}
+		qn, qheld := 0, false
+		if ws.Chat != "" {
+			q := st.ChatQueues[ws.Chat]
+			qn, qheld = qn+q.N, qheld || q.Held != ""
+		}
+		for _, ap := range aps {
+			if st.DraftHeld[ap.Pane.ID] {
+				v.draftHeld[ws.ID] = true
+			}
+			if q, ok := st.ChatQueues[ap.Pane.ID]; ok {
+				qn, qheld = qn+q.N, qheld || q.Held != ""
+			}
+		}
+		if qn > 0 {
+			if qheld {
+				v.queueLabel[ws.ID] = strconv.Itoa(qn) + " held"
+			} else {
+				v.queueLabel[ws.ID] = strconv.Itoa(qn) + " queued"
+			}
 		}
 	}
 	v.own = map[string]*model.Activity{}
@@ -749,6 +781,9 @@ func (v *view) ownActivity(id string) *model.Activity {
 func (v *view) groupOf(id string) string {
 	if r := v.rootOf[id]; r != "" {
 		id = r
+	}
+	if v.groupOfMap != nil {
+		return v.groupOfMap[id]
 	}
 	for g, wss := range v.byProject {
 		for _, ws := range wss {

@@ -10,8 +10,28 @@ import (
 
 // synLines is a tool box's tokens per line, lexed once per text.
 type synLines struct {
-	lang, src string
-	spans     [][]span
+	lang    string
+	perLine bool
+	hash    uint64
+	count   int
+	total   int
+	spans   [][]span
+}
+
+func monoLinesHash(lines []monoLine) (uint64, int) {
+	var h uint64 = 14695981039346656037
+	total := 0
+	for _, l := range lines {
+		s := l.text
+		total += len(s)
+		for i := range len(s) {
+			h ^= uint64(s[i])
+			h *= 1099511628211
+		}
+		h ^= 0xff
+		h *= 1099511628211
+	}
+	return h, total
 }
 
 // highlight gives the code lines of box id, a Read preview's or an
@@ -22,19 +42,15 @@ func (d *cdraw) highlight(id, lang string, lines []monoLine, perLine bool) {
 	if syntax.Lang(lang) == "" || len(lines) == 0 {
 		return
 	}
-	texts := make([]string, len(lines))
-	var sb strings.Builder
-	for i, l := range lines {
-		texts[i] = mdview.Detab(l.text) // as box draws it, so the runes match
-		if i > 0 {
-			sb.WriteByte('\n')
-		}
-		sb.WriteString(texts[i])
-	}
+	hash, total := monoLinesHash(lines)
 	ts := &d.t.tool
 	c, ok := ts.syn[id]
-	if !ok || c.lang != lang || c.src != sb.String() {
-		c = synLines{lang: lang, src: sb.String(), spans: lexLines(lang, texts, perLine)}
+	if !ok || c.lang != lang || c.perLine != perLine || c.hash != hash || c.count != len(lines) || c.total != total {
+		texts := make([]string, len(lines))
+		for i, l := range lines {
+			texts[i] = mdview.Detab(l.text) // as box draws it, so the runes match
+		}
+		c = synLines{lang: lang, perLine: perLine, hash: hash, count: len(lines), total: total, spans: lexLines(lang, texts, perLine)}
 		if ts.syn == nil {
 			ts.syn = map[string]synLines{}
 		}

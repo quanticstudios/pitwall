@@ -506,10 +506,9 @@ func (s *Sidebar) scopeMenu(gtx layout.Context, th *theme.Theme, st *model.State
 			bd.open = false
 		}
 	}
+	// Block presses outside the menu so dismissing it never clicks cards underneath.
 	cl := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-	pass := pointer.PassOp{}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &bd.menuTag)
-	pass.Pop()
 	cl.Pop()
 	t := anim.At(gtx, bd.opened, anim.Menu)
 	defer kit.PopIn(gtx, t, rect, 4)()
@@ -676,17 +675,40 @@ func (s *Sidebar) boardColumns(gtx layout.Context, th *theme.Theme, st *model.St
 	first := len(bd.last) == 0
 	for _, c := range cols {
 		x := bd.colX[c] - bd.x
+		visible := x+bd.colW > 0 && x < area.Dx()
+		list := bd.b.Cols[c]
+		if !visible {
+			hasFlying := false
+			for _, card := range list {
+				if _, moving := bd.moves[card.ID]; moving {
+					hasFlying = true
+					break
+				}
+				if prev, ok := bd.last[card.ID]; ok && prev.col != c {
+					hasFlying = true
+					break
+				}
+			}
+			if !hasFlying {
+				for _, card := range list {
+					if prev, ok := bd.last[card.ID]; ok {
+						next[card.ID] = prev
+					} else {
+						next[card.ID] = cardPlace{image.Pt(bd.colX[c]+gtx.Dp(8), headH), c}
+					}
+				}
+				continue
+			}
+		}
 		cr := image.Rect(x, 0, x+bd.colW, h)
 		r := gtx.Dp(theme.RadiusCard)
 		paint.FillShape(gtx.Ops, th.BorderSubtle, clip.UniformRRect(cr, r).Op(gtx.Ops))
 		paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(cr.Inset(1), r-1).Op(gtx.Ops))
 		s.columnHead(gtx, th, c, image.Rect(x, 0, x+bd.colW, headH))
 		body := image.Rect(x+gtx.Dp(8), headH, x+bd.colW-gtx.Dp(8), h-gtx.Dp(8))
-		list := bd.b.Cols[c]
 		cg := gtx
 		cg.Constraints = layout.Constraints{Min: image.Pt(body.Dx(), 0), Max: image.Pt(body.Dx(), 1<<20)}
 		y := 0
-		visible := x+bd.colW > 0 && x < area.Dx()
 		cl := clip.Rect(body).Push(gtx.Ops)
 		if len(list) == 0 {
 			o := op.Offset(body.Min.Add(image.Pt(gtx.Dp(6), gtx.Dp(6)))).Push(gtx.Ops)
