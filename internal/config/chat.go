@@ -9,7 +9,7 @@ type Chat struct {
 	Codex       string `toml:"codex" enum:"chat,terminal" doc:"chat shows every pane running Codex's TUI, however it started, as a desktop chat once Codex's hooks name its session, with the TUI one key away (chat_terminal); terminal shows such panes as the TUI, still one key from the chat"`
 	Antigravity string `toml:"antigravity" enum:"chat,terminal" doc:"chat starts Antigravity (agy) from the New task dialog and its presets as a desktop chat over agy acp, with Antigravity (terminal) beside it for the TUI, and shows every pane running agy's TUI as a chat once its hooks name the conversation; terminal runs the TUI in a pane and shows such panes as the TUI. pitwall new always starts the TUI"`
 	Width       string `toml:"width" enum:"comfortable,standard,full" doc:"The transcript's and the composer's column: comfortable is 736 dp, standard 960 dp (fits a 120-column diff), full uses the whole tab. Reply prose stops near 96 characters either way"`
-	FollowUp    string `toml:"follow_up" enum:"queue,steer" doc:"What the send key does while the agent works: queue holds the message until the turn ends; steer sends it into the running turn, where the agent takes it (a slash command still queues). Ctrl+Enter does the other one, Cmd+Enter on macOS"`
+	FollowUp    string `toml:"follow_up" enum:"queue,steer" doc:"What the send key does while the agent works: steer (the default) sends it into the running turn, where the agent takes it at its next step as it does a message typed in its terminal; queue holds it until the turn ends. A slash command always queues. Ctrl+Enter does the other one, Cmd+Enter on macOS"`
 	SendKey     string `toml:"send_key" enum:"enter,ctrl+enter" doc:"The composer's send key: enter sends with Enter, Shift+Enter adds a line; ctrl+enter sends with Ctrl+Enter (Cmd+Enter on macOS), Enter adds a line, and Ctrl+Shift+Enter does the other follow-up"`
 	ToolCalls   string `toml:"tool_calls" enum:"all,failed,none,zen" doc:"Which tool calls the desktop chat shows: all; failed hides a call once it succeeds; none hides every call; zen shows only your messages and each turn's final reply. Errors, approvals and questions always show. The chat header's Tools button cycles it"`
 	SuggestNext bool   `toml:"suggest_next" doc:"After a turn ends, an empty composer shows a predicted next message in muted text; Tab fills it in. Each suggestion is one extra headless run of the chat's agent on its cheapest model, billed to the agent's plan, so it is off by default. Never while the agent works, at most once per turn, never in a guarded tab"`
@@ -55,7 +55,7 @@ type ChatSettings struct {
 }
 
 func defaultChat() Chat {
-	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", FollowUp: "queue", SendKey: "enter", ToolCalls: ToolsAll}
+	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", FollowUp: "steer", SendKey: "enter", ToolCalls: ToolsAll}
 }
 
 // resolveChat fills in [chat]'s values from c.
@@ -97,11 +97,12 @@ func resolveChat(c Chat) (ChatSettings, []issue) {
 		issues = append(issues, issue{"chat.width", fmt.Sprintf("%q is not comfortable, standard or full; using standard", c.Width)})
 	}
 	switch c.FollowUp {
-	case "", "queue":
-	case "steer":
-		out.Steer = true
+	case "queue":
+	case "", "steer":
+		out.Steer = true // why: the agent takes a message mid-turn, as it does when typed in its terminal
 	default:
-		issues = append(issues, issue{"chat.follow_up", fmt.Sprintf("%q is not queue or steer; using queue", c.FollowUp)})
+		out.Steer = true
+		issues = append(issues, issue{"chat.follow_up", fmt.Sprintf("%q is not queue or steer; using steer", c.FollowUp)})
 	}
 	switch c.SendKey {
 	case "", "enter":
