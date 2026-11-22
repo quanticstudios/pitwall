@@ -7,8 +7,6 @@ package mobile
 import (
 	"context"
 	"errors"
-	"image"
-	"image/color"
 	"log"
 	"runtime"
 	"slices"
@@ -16,9 +14,7 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/io/key"
-	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -160,7 +156,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 				gtx = app.NewContext(&ops, e)
 				a.pollUpdates(gtx)
 				before := a.screen()
-				a.layoutFrame(gtx, e.Insets)
+				a.layoutFrame(gtx)
 				if a.screen() == before {
 					break
 				}
@@ -530,27 +526,14 @@ func (a *App) screen() screen {
 	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
 }
 
-// layoutFrame draws the window inside insets (Android 15 edge-to-edge safe
-// areas, in unzoomed dp), painting the status bar and background behind them.
-func (a *App) layoutFrame(gtx C, insets app.Insets) {
+// layoutFrame paints the background and lays the app out zoomed. It
+// ignores the frame's Insets: Android already sizes Gio's window inside the
+// system bars and the keyboard, so applying them counts both twice.
+func (a *App) layoutFrame(gtx C) {
 	paint.Fill(gtx.Ops, a.th.Bg)
-	if top := gtx.Dp(insets.Top); top > 0 {
-		paint.FillShape(gtx.Ops, a.statusColor(), clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, top)}.Op())
-	}
-	layout.Inset{Top: insets.Top, Bottom: insets.Bottom, Left: insets.Left, Right: insets.Right}.Layout(gtx, func(gtx C) D {
-		gtx.Constraints = layout.Exact(gtx.Constraints.Max)
-		gtx.Metric.PxPerDp *= zoom
-		gtx.Metric.PxPerSp *= zoom
-		a.layout(gtx)
-		return D{Size: gtx.Constraints.Max}
-	})
-}
-
-func (a *App) statusColor() color.NRGBA {
-	if a.fleet == nil || a.adding || a.reader.v != nil || (a.chat.pane != "" && a.links[a.chatM] != nil) {
-		return a.th.Bg
-	}
-	return a.th.Sidebar
+	gtx.Metric.PxPerDp *= zoom
+	gtx.Metric.PxPerSp *= zoom
+	a.layout(gtx)
 }
 
 func (a *App) layout(gtx C) {

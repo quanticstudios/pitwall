@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The phone app lays out on the whole window again. v0.3.3 applied Android's window insets on top of a window Android already keeps clear of the bars and the keyboard, so the chat squeezed into a strip under the header with the keyboard up.
 - TestManyImages skips the server's keepalive pings, so it no longer fails when a slow CI run outlasts the 30-second ping interval.
 - The chat's / menu lists Claude Code's account-gated commands, such as `/remote-control` (`/rc`), `/teleport`, `/background` and `/diff`, so typing them no longer picks a skill instead.
 - `pitwall split --wait` no longer fails with "cannot identify the new pane from daemon state" when the command exits before the daemon sends a state with its pane in it: the pane exit names it.
