@@ -1,0 +1,23 @@
+  1. Define CLI Interface & Arguments: Decide on the invocation syntax (e.g.,
+  positional expression string like calc "2 + 3 * 4" or subcommands/flags)
+  and interactive REPL mode support.
+  2. Implement Tokenizer (Lexer): Parse the input string into tokens such as
+  numbers (integers/floats), arithmetic operators (+, -, *, /, ^), and
+  parentheses ((, )).
+  3. Implement Expression Parser & Evaluator: Build a recursive-descent or
+  Shunting-Yard parser that enforces operator precedence, associativity, and
+  parentheses grouping, then evaluates the resulting expression safely.
+  4. Add Error Handling & Edge Cases: Handle invalid syntax, division by zero,
+  mismatched parentheses, and overflow/NaN cases with clear, non-zero exit
+  codes and user-friendly error messages.
+  5. Write Tests & Package: Add unit and CLI integration tests covering
+  arithmetic operations and error conditions, then configure an executable
+  entry point and usage help (--help).
+
+○ Running (sleep 4) (ctrl+o to expand)
+⢿  Running command...
+└ Tip: Use /settings to configure your environment.
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+esc to cancel                                        auto · Gemini 4 Neon · high

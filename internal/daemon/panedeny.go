@@ -29,7 +29,7 @@ func (d *Daemon) pressFeedback(pane string, at int64, reason string) error {
 	// why: the field is one line; a newline in it would send the rest as Enter.
 	reason = strings.Join(strings.Fields(remote.Clean(reason)), " ")
 	g := p.Snapshot()
-	if s := agent.State(g); a.Provider != model.ProviderClaude || s != model.StatePendingApproval && s != model.StatePlanReady {
+	if s := agent.StateOf(a.Provider, g); a.Provider != model.ProviderClaude || s != model.StatePendingApproval && s != model.StatePlanReady {
 		return errors.New("the pane shows no prompt to deny")
 	}
 	target, cursor, tab, ok := agent.Feedback(g)

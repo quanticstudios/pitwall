@@ -1,0 +1,23 @@
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+Switch Model
+
+  Search:
+          ────────────────────
+
+> Gemini 4 Neon         (current)
+  Gemini 4 Carbon
+  Gemini 4 Argon
+  Gemini 4 Hydrogen
+  Orchestrator
+  Gemini 3.8 Flash
+
+  Effort  ◂      ●━━━━━━━━━━●━━━━━━━━━━◉──────────○      ▸
+                low      medium      high       xhigh
+            Deeper reasoning for complex problems — slower but stronger
+  [1-6 of 9 items]
+
+Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back
+
+                                                     auto · Gemini 4 Neon · high

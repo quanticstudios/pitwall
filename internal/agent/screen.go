@@ -28,6 +28,12 @@ const screenLines = 12
 // does not prove a turn ended; the caller also checks the screen is still.
 func ReadScreen(g vt.Grid) Screen { return activePatterns.Load().readScreen(g, nil) }
 
+// ReadScreenOf classifies the bottom of agent p's screen using p's own rules,
+// never another agent's. An agent with no screen rules returns ScreenNone.
+func ReadScreenOf(p model.Provider, g vt.Grid) Screen {
+	return activePatterns.Load().readScreenOf(p, g, nil)
+}
+
 // why: schema 1 has no whole-row list, so these rows are matched in code.
 func (trace *ScreenTrace) emptyPlan(kind, line, low string) bool {
 	low = strings.TrimSpace(low)
@@ -43,11 +49,22 @@ func (p *screenPatterns) readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 	if ReadQuestion(model.ProviderClaude, g) != nil || ReadQuestion(model.ProviderCodex, g) != nil {
 		return ScreenForm
 	}
+	return p.readCommonScreen(true, g, trace)
+}
+
+func (p *screenPatterns) readScreenFor(prov model.Provider, g vt.Grid, trace *ScreenTrace) Screen {
+	if ReadQuestion(prov, g) != nil {
+		return ScreenForm
+	}
+	return p.readCommonScreen(prov == model.ProviderClaude, g, trace)
+}
+
+func (p *screenPatterns) readCommonScreen(claudeEmptyPlan bool, g vt.Grid, trace *ScreenTrace) Screen {
 	lines := bottomLines(g, screenLines)
 	busy := false
 	for _, l := range lines {
 		low := strings.ToLower(l)
-		if trace.containsAny("form", p.Common.Form, l, low) || trace.emptyPlan("form", l, low) {
+		if trace.containsAny("form", p.Common.Form, l, low) || claudeEmptyPlan && trace.emptyPlan("form", l, low) {
 			return ScreenForm
 		}
 		busy = busy || trace.containsAny("busy", p.Common.Busy, l, low)
@@ -57,6 +74,26 @@ func (p *screenPatterns) readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 	}
 	if busy {
 		return ScreenBusy
+	}
+	return ScreenNone
+}
+
+func (rules *screenPatterns) readScreenOf(p model.Provider, g vt.Grid, trace *ScreenTrace) Screen {
+	if _, ok := rules.Providers[p]; ok {
+		if p == model.ProviderAntigravity && agyMenuHint(g) {
+			return ScreenForm
+		}
+		switch rules.stateOf(p, g, trace) {
+		case model.StatePendingApproval, model.StatePlanReady, model.StateAwaitingInput:
+			return ScreenForm
+		case model.StateWorking:
+			return ScreenBusy
+		default:
+			return ScreenNone
+		}
+	}
+	if p == model.ProviderClaude || p == model.ProviderCodex || p == model.ProviderPi {
+		return rules.readScreenFor(p, g, trace)
 	}
 	return ScreenNone
 }
@@ -72,7 +109,20 @@ func (p *screenPatterns) state(g vt.Grid, trace *ScreenTrace) model.AgentState {
 		trace.decide("input")
 		return model.StateAwaitingInput
 	}
-	switch p.readScreen(g, trace) {
+	return p.commonState(true, p.readScreen(g, trace), g, trace)
+}
+
+func (p *screenPatterns) stateFor(prov model.Provider, g vt.Grid, trace *ScreenTrace) model.AgentState {
+	if ReadQuestion(prov, g) != nil {
+		trace.decide("input")
+		return model.StateAwaitingInput
+	}
+	claudeEmptyPlan := prov == model.ProviderClaude
+	return p.commonState(claudeEmptyPlan, p.readScreenFor(prov, g, trace), g, trace)
+}
+
+func (p *screenPatterns) commonState(claudeEmptyPlan bool, scr Screen, g vt.Grid, trace *ScreenTrace) model.AgentState {
+	switch scr {
 	case ScreenBusy:
 		trace.decide("busy")
 		return model.StateWorking
@@ -82,7 +132,7 @@ func (p *screenPatterns) state(g vt.Grid, trace *ScreenTrace) model.AgentState {
 	for _, l := range bottomLines(g, screenLines) {
 		low := strings.ToLower(l)
 		switch {
-		case trace.containsAny("plan", p.Common.Plan, l, low) || trace.emptyPlan("plan", l, low):
+		case trace.containsAny("plan", p.Common.Plan, l, low) || claudeEmptyPlan && trace.emptyPlan("plan", l, low):
 			trace.decide("plan")
 			return model.StatePlanReady
 		// Claude's AskUserQuestion and MCP input forms, Codex's question form.
@@ -105,7 +155,7 @@ func (rules *screenPatterns) stateOf(p model.Provider, g vt.Grid, trace *ScreenT
 	s, ok := rules.Providers[p]
 	if !ok {
 		if p == model.ProviderClaude || p == model.ProviderCodex || p == model.ProviderPi {
-			return rules.state(g, trace)
+			return rules.stateFor(p, g, trace)
 		}
 		if trace != nil {
 			trace.Rule = "no-screen-rules"

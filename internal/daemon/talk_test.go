@@ -903,9 +903,9 @@ func TestWindowDeliverEnter(t *testing.T) {
 		before, after string
 		text, want    string
 	}{
-		{"menu with another footer", "❯ ", menu + "Press enter to confirm or esc to cancel", "use a.go", "use a.go"},
-		{"gemini's form", "❯ ", "Answer Questions\nWhich?\n│ ● 1. Postgres │\n│   2. SQLite   │", "use a.go", "use a.go"},
-		{"menu after a quoted footer", "The menu says Enter to select\n❯ ", menu + "Enter to select · Esc to cancel", "use a.go", "use a.go"},
+		{"menu with another footer", "❯ ", menu + "Press enter to confirm or esc to cancel", "use a.go", "use a.go\x15"},
+		{"gemini's form", "❯ ", "Answer Questions\nWhich?\n│ ● 1. Postgres │\n│   2. SQLite   │", "use a.go", "use a.go\x15"},
+		{"menu after a quoted footer", "The menu says Enter to select\n❯ ", menu + "Enter to select · Esc to cancel", "use a.go", "use a.go\x15"},
 		{"quoted footer", "The menu says Enter to select\n❯ ", "The menu says Enter to select\n❯ use a.go", "use a.go", "use a.go\r"},
 		{"numbered reply", "❯ ", "❯ 1. do a\n  2. do b", "1. do a\n2. do b", "1. do a 2. do b\r"},
 	} {

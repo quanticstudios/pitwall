@@ -125,20 +125,34 @@ func (d *Daemon) chatTake(pane string, q []letter, i int) (letter, int) {
 	if len(rows) == 0 {
 		return q[i], 1
 	}
-	texts, alone, images := make([]string, len(rows)), make([]bool, len(rows)), make([]int, len(rows))
-	for k, r := range rows {
-		texts[k], alone[k], images[k] = r.l.text, r.in.Alone, len(r.l.images)
-	}
-	rows = rows[:joins(texts, alone)]
-	l := rows[0].l
-	if len(rows) > 1 {
-		l.text = joinPrompts(texts[:len(rows)], images)
-		l.images, l.quoted = nil, nil
-		for _, r := range rows {
-			l.images = append(l.images, r.l.images...)
-			l.quoted = append(l.quoted, r.l.quoted...)
+	if rows[0].l.steer {
+		rows = rows[:1]
+	} else {
+		texts, alone, images := make([]string, len(rows)), make([]bool, len(rows)), make([]int, len(rows))
+		for k, r := range rows {
+			texts[k], alone[k], images[k] = r.l.text, r.in.Alone, len(r.l.images)
+		}
+		rows = rows[:joins(texts, alone)]
+		if len(rows) > 1 {
+			l := rows[0].l
+			l.text = joinPrompts(texts[:len(rows)], images)
+			l.images, l.quoted = nil, nil
+			for _, r := range rows {
+				l.images = append(l.images, r.l.images...)
+				l.quoted = append(l.quoted, r.l.quoted...)
+			}
+			for _, r := range rows {
+				cq.rows = slices.DeleteFunc(cq.rows, func(o chatRow) bool { return o.in.ID == r.in.ID })
+			}
+			cq.sending = rows
+			if d.dropResume(pane) { // the queue goes on with the work a limit stopped
+				d.changed()
+			}
+			d.queuesChanged()
+			return l, len(rows)
 		}
 	}
+	l := rows[0].l
 	for _, r := range rows {
 		cq.rows = slices.DeleteFunc(cq.rows, func(o chatRow) bool { return o.in.ID == r.in.ID })
 	}
@@ -169,6 +183,51 @@ func (d *Daemon) chatSent(pane string, err error) {
 	}
 	q.rows = slices.Insert(q.rows, 0, rows...)
 	d.chatSync(pane)
+}
+
+// chatHoldForm puts the rows chatTake began typing back at the head of
+// pane's queue as live rows held on waitForm, to go automatically once the
+// menu closes. Callers hold d.mu.
+func (d *Daemon) chatHoldForm(pane string) {
+	q := d.mail.chat[pane]
+	if q == nil || len(q.sending) == 0 {
+		return
+	}
+	rows := q.sending
+	q.sending = nil
+	for i := range rows {
+		rows[i].in.Error = ""
+	}
+	q.rows = slices.Insert(q.rows, 0, rows...)
+	q.reason = waitForm
+	d.chatSync(pane)
+	if !d.closing {
+		d.wake(pane, sendLook.get())
+	}
+}
+
+// chatReturn puts an immediate or steer chat message that could not be sent
+// into pane's chat queue at its head: as a live row waiting on waitForm when
+// err is errFormUp, or as a failed row with Retry for any other error.
+// Callers hold d.mu.
+func (d *Daemon) chatReturn(pane string, in session.QueuedInput, l letter, err error) {
+	q := d.mail.chat[pane]
+	if q == nil {
+		q = &chatQueue{}
+		d.mail.chat[pane] = q
+	}
+	l.chat, l.row, l.phone = in.ID, nil, 0
+	if errors.Is(err, errFormUp) {
+		in.Error = ""
+		q.reason = waitForm
+	} else {
+		in.Error = err.Error()
+	}
+	q.rows = slices.Insert(q.rows, 0, chatRow{in: in, l: l})
+	d.chatSync(pane)
+	if errors.Is(err, errFormUp) && !d.closing {
+		d.wake(pane, sendLook.get())
+	}
 }
 
 // chatHold holds pane's queue, as a managed chat's interrupt does, or
@@ -279,10 +338,13 @@ func (d *Daemon) paneQueue(pane string, m proto.ChatQueue) error {
 	d.chatSync(pane)
 	var l letter
 	if now != nil {
-		// A phone letter: Claude Code takes it into the running turn, or types it now.
-		d.phoneSeq++
+		// A steer letter: Claude Code, Codex and Antigravity take it into the
+		// running turn, or type it now, and keep its row so an async failure
+		// or open menu puts it back visibly instead of losing it.
+		now.in.Error = ""
+		rowCopy := now.in
 		l = now.l
-		l.chat, l.phone, l.owner = "", d.phoneSeq, d.paneProvider(pane)
+		l.chat, l.phone, l.steer, l.owner, l.row = "", 0, true, d.paneProvider(pane), &rowCopy
 	}
 	d.mu.Unlock()
 	if now == nil {
@@ -338,7 +400,7 @@ func (d *Daemon) chatReason(pane string) (wait bool, again time.Duration) {
 		return false, 0
 	case !until.IsZero():
 		return true, max(0, time.Until(until))
-	case why == waitAnswer || why == waitStart:
+	case why == waitAnswer || why == waitForm || why == waitStart:
 		return true, sendLook.get() // a form leaves the screen, and an agent draws its box, with no hook
 	}
 	return true, 0
@@ -353,11 +415,15 @@ func (d *Daemon) queueWait(pane string, q *chatQueue, g vt.Grid) (why string, pa
 	if d.queueOrphaned(pane, q) {
 		return waitGone, true, time.Time{}
 	}
+	prov := d.paneProvider(pane)
 	var a model.Activity
 	if i := d.activityIndex(pane); i >= 0 {
 		a = d.st.Activities[i]
 	}
 	if a.State == model.StateWorking {
+		if g.Rows > 0 && agent.FormUp(prov, g, "") {
+			return waitForm, false, time.Time{}
+		}
 		return "", false, time.Time{} // the turn, which the queue waits for anyway
 	}
 	if at, ok := d.resumed[pane]; ok && !q.started {
@@ -392,8 +458,8 @@ func (d *Daemon) queueWait(pane string, q *chatQueue, g vt.Grid) (why string, pa
 		}
 		return waitFailed, true, time.Time{}
 	}
-	if g.Rows > 0 && agent.ReadScreen(g) == agent.ScreenForm {
-		return waitAnswer, false, time.Time{}
+	if g.Rows > 0 && (agent.FormUp(prov, g, "") || agent.ReadScreenOf(prov, g) == agent.ScreenForm) {
+		return waitForm, false, time.Time{}
 	}
 	return "", false, time.Time{}
 }

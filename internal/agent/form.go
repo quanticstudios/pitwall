@@ -111,26 +111,60 @@ func cursorMenu(g vt.Grid) (label string, ok bool) {
 	return "", false
 }
 
-// Choosing reports whether g's screen shows a menu of options, where Enter
-// picks the highlighted one instead of sending what was pasted.
-func Choosing(g vt.Grid) bool {
-	_, ok := cursorMenu(g)
-	return ok || MenuHint(g)
+// Choosing reports whether agent p's screen g shows a menu of options, where
+// Enter picks the highlighted one instead of sending what was pasted. Each
+// agent is checked with its own rules only.
+func Choosing(p model.Provider, g vt.Grid) bool {
+	switch p {
+	case model.ProviderAntigravity:
+		return agyMenuHint(g) || StateOf(p, g) == model.StateAwaitingInput
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi:
+		_, ok := cursorMenu(g)
+		return ok || MenuHint(g)
+	case model.ProviderGemini:
+		_, ok := cursorMenu(g)
+		return ok
+	case model.ProviderOpenCode:
+		return MenuHint(g)
+	default:
+		return false
+	}
 }
 
-// FormUp reports whether g's screen shows a form that typed text and Enter
-// would answer: a menu, a permission prompt or a plan. A free-text form takes
-// them, so it does not count. pasted is text just typed: a numbered list of
-// its own, echoed at the prompt from its first row, is not a menu.
-func FormUp(g vt.Grid, pasted string) bool {
-	if ReadQuestion(model.ProviderClaude, g) != nil || ReadQuestion(model.ProviderCodex, g) != nil {
-		return true
+// FormUp reports whether agent p's screen g shows a form that typed text and
+// Enter would answer: a menu, a permission prompt or a plan, checked against
+// p's own rules only. A free-text form takes them, so it does not count.
+// pasted is text just typed: a numbered list of its own, echoed at the prompt
+// from its first row, is not a menu.
+func FormUp(p model.Provider, g vt.Grid, pasted string) bool {
+	switch p {
+	case model.ProviderAntigravity:
+		if agyMenuHint(g) {
+			return true
+		}
+		s := StateOf(p, g)
+		return s == model.StatePendingApproval || s == model.StatePlanReady || s == model.StateAwaitingInput
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi:
+		if ReadQuestion(p, g) != nil {
+			return true
+		}
+		if s := StateOf(p, g); s == model.StatePendingApproval || s == model.StatePlanReady || MenuHint(g) {
+			return true
+		}
+		label, ok := cursorMenu(g)
+		return ok && (pasted == "" || !strings.HasPrefix(squeeze(pasted), "1"+squeeze(label)))
+	case model.ProviderGemini:
+		if s := StateOf(p, g); s == model.StatePendingApproval || s == model.StatePlanReady || s == model.StateAwaitingInput {
+			return true
+		}
+		label, ok := cursorMenu(g)
+		return ok && (pasted == "" || !strings.HasPrefix(squeeze(pasted), "1"+squeeze(label)))
+	case model.ProviderOpenCode, model.ProviderAider:
+		s := StateOf(p, g)
+		return s == model.StatePendingApproval || s == model.StatePlanReady || s == model.StateAwaitingInput
+	default:
+		return false
 	}
-	if s := State(g); s == model.StatePendingApproval || s == model.StatePlanReady || MenuHint(g) {
-		return true
-	}
-	label, ok := cursorMenu(g)
-	return ok && (pasted == "" || !strings.HasPrefix(squeeze(pasted), "1"+squeeze(label)))
 }
 
 // Offers is what the form on g's screen takes for a, beyond Allow and Deny:
@@ -146,7 +180,7 @@ func Offers(a model.Activity, g vt.Grid) []Offer {
 	if a.Provider != model.ProviderClaude && a.Provider != model.ProviderCodex {
 		return nil
 	}
-	if State(g) != a.State {
+	if StateOf(a.Provider, g) != a.State {
 		return nil
 	}
 	rows := screenRows(g)

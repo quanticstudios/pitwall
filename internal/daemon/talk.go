@@ -14,6 +14,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -104,7 +105,7 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 		return nil, true, fmt.Errorf("%s is working on a turn", sp.Provider)
 	}
 	switch g := p.Snapshot(); {
-	case agent.ReadScreen(g) == agent.ScreenForm:
+	case agent.ReadScreenOf(sp.Provider, g) == agent.ScreenForm || agent.FormUp(sp.Provider, g, ""):
 		return nil, true, fmt.Errorf("%s shows a prompt to answer", sp.Provider)
 	case drafting && agent.Draft(sp.Provider, g):
 		return nil, true, errDraft
@@ -178,7 +179,9 @@ type letter struct {
 	// it was for.
 	phone uint64
 	owner model.Provider
-	chat  string // a pane chat's queued message's id (chatQueue)
+	chat  string               // a pane chat's queued message's id (chatQueue)
+	steer bool                 // steers a running turn once no form holds it
+	row   *session.QueuedInput // pane chat row to restore if an immediate send cannot land
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -302,8 +305,8 @@ func (d *Daemon) readyWindow(pane string, phone bool) (Pane, error) {
 		return nil, fmt.Errorf("%s is busy", prov)
 	case drafting && agent.Draft(prov, p.Snapshot()):
 		return nil, errDraft
-	case formHolds(a, p.Snapshot()):
-		return nil, fmt.Errorf("%s shows a form to answer", prov)
+	case formHolds(prov, a, p.Snapshot()):
+		return nil, fmt.Errorf("%s: %w", prov, errFormUp)
 	}
 	return p, nil
 }
@@ -333,8 +336,8 @@ func (d *Daemon) deliver(pane string) {
 		return // checkWaking wakes a parked pane's letters once it is back
 	}
 	first := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.window })
-	phone := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.phone != 0 })
-	firstPhone := first >= 0 && d.mail.queue[pane][first].phone != 0
+	phone := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.phone != 0 || l.steer })
+	firstPhone := first >= 0 && (d.mail.queue[pane][first].phone != 0 || d.mail.queue[pane][first].steer)
 	d.mu.Unlock()
 	// i is the letter to type: the first, or a letter from the window, which
 	// passes one that cannot go, as that one may wait on the question it answers.
@@ -349,6 +352,7 @@ func (d *Daemon) deliver(pane string) {
 		i = phone
 		p, err = d.readyWindow(pane, true)
 	}
+	unecho := false
 	d.mu.Lock()
 	held := errors.Is(err, errDraft)
 	if held != d.mail.held[pane] {
@@ -359,10 +363,22 @@ func (d *Daemon) deliver(pane string) {
 		}
 		d.changed()
 	}
+	if errors.Is(err, errFormUp) && i < len(d.mail.queue[pane]) {
+		if l := d.mail.queue[pane][i]; l.chat == "" && l.phone == 0 && l.row != nil {
+			// A desktop-chat immediate/steer send hit a form before typing:
+			// surface it as a held queued row with the menu reason.
+			d.dropLetter(pane, i)
+			d.chatReturn(pane, *l.row, l, errFormUp)
+			unecho = true
+		}
+	}
 	if (held || first >= 0 && err != nil) && !d.closing && len(d.mail.queue[pane]) > 0 {
 		d.wake(pane, sendLook.get())
 	}
 	d.mu.Unlock()
+	if unecho {
+		d.unechoPane(pane)
+	}
 	if err != nil {
 		return
 	}
@@ -389,7 +405,7 @@ func (d *Daemon) deliver(pane string) {
 	}
 	now, hook := time.Now(), d.live.hookAt[pane]
 	wait := d.mail.keyAt[pane].Add(sendQuiet.get()).Sub(now)
-	if l.phone != 0 && paneSteers(l.owner) {
+	if (l.phone != 0 || l.steer) && paneSteers(l.owner) {
 		if !d.mail.drafting[pane] {
 			wait = 0
 		}
@@ -405,9 +421,17 @@ func (d *Daemon) deliver(pane string) {
 		d.mu.Unlock()
 		return
 	}
-	// why: the agent a phone message was for may have left since the readiness check, or run a tool in the foreground.
-	if l.phone != 0 && (d.agentGone(pane, l) || d.agentAway(pane)) {
-		d.dropOrphanPhone(pane)
+	// why: the agent a phone or steer message was for may have left since the readiness check, or run a tool in the foreground.
+	if (l.phone != 0 || l.steer && l.chat == "") && (d.agentGone(pane, l) || d.agentAway(pane)) {
+		if l.phone != 0 {
+			d.dropOrphanPhone(pane)
+		} else if l.row != nil && d.agentGone(pane, l) {
+			d.dropLetter(pane, i)
+			d.chatReturn(pane, *l.row, l, errors.New(waitGone))
+			d.mu.Unlock()
+			d.unechoPane(pane)
+			return
+		}
 		if len(d.mail.queue[pane]) > 0 {
 			d.wake(pane, sendLook.get())
 		}
@@ -441,16 +465,48 @@ func (d *Daemon) deliver(pane string) {
 		d.saveQueues() // why: the rows are marked as being typed before they are
 	}
 	err = d.typeLetter(pane, p, l.images, text, l.quoted)
+	if err != nil {
+		d.unechoPane(pane)
+		d.mu.Lock()
+		switch {
+		case isChat && errors.Is(err, errFormUp):
+			d.chatHoldForm(pane)
+			log.Printf("pane %s: a queued message waits for the open menu: %q", pane, err)
+		case isChat:
+			d.chatSent(pane, err)
+			log.Printf("pane %s: a queued message was not sent: %q", pane, err)
+		case l.row != nil:
+			d.chatReturn(pane, *l.row, l, err)
+			if l.phone != 0 && !errors.Is(err, errFormUp) {
+				d.notePhoneDropped(pane, l.phone)
+			}
+			log.Printf("pane %s: a message returned to the chat queue: %q", pane, err)
+		case errors.Is(err, errFormUp):
+			if d.panes[pane] != nil && !d.closing {
+				d.mail.queue[pane] = slices.Insert(d.mail.queue[pane], 0, l)
+				d.wake(pane, sendLook.get())
+				d.changed()
+			}
+			log.Printf("pane %s: a message waits for the open menu: %q", pane, err)
+		default:
+			if l.phone != 0 {
+				d.notePhoneDropped(pane, l.phone)
+			}
+			if l.text != restartLine {
+				d.st.Notice = "Message not sent: " + err.Error()
+				d.changed()
+			}
+			log.Printf("pane %s: message not sent: %q", pane, err)
+		}
+		d.mu.Unlock()
+		return
+	}
 	if isChat {
 		d.mu.Lock()
-		d.chatSent(pane, err)
+		d.chatSent(pane, nil)
 		d.mu.Unlock()
 	}
-	if err != nil && isChat {
-		log.Printf("pane %s: a queued message was not sent: %q", pane, err)
-	} else if err != nil {
-		log.Printf("pane %s: a message was lost: %q", pane, err)
-	} else if l.notice != "" {
+	if l.notice != "" {
 		d.mu.Lock()
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
 			d.st.Notice = l.notice + string(d.st.Panes[i].Provider)

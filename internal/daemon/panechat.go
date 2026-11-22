@@ -1083,16 +1083,24 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		}
 		paths = append(paths, r.Path)
 	}
+	if remote.Clean(sm.Text) == "" && len(paths) == 0 && len(texts) == 0 {
+		return "", errors.New("the message is empty")
+	}
 	d.mu.Lock()
 	d.chatHold(pc.id, false)
 	d.mu.Unlock()
+	row := session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
+		Attachments: nonNil(m.Attachments), Recipients: []string{}}
+	let := letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true, owner: l.prov}
 	// why: "queue" waits even at an idle prompt, so a continue queued at a usage limit goes when it resets.
-	if (!busy(l.act.State) || l.act.Background) && m.How != "queue" || m.How == "now" || m.How == "steer" {
+	immediate := (!busy(l.act.State) || l.act.Background) && m.How != "queue" || m.How == "now" || m.How == "steer"
+	formUp := l.p != nil && formHolds(l.prov, l.act, l.p.Snapshot()) || waits(l.act.State)
+	if immediate && !formUp {
 		pc.mu.Lock()
 		pc.catchUp(l) // the echo goes once a prompt after the last one read lands
 		pc.echoPrompt(sm.Text)
 		pc.mu.Unlock()
-		_, err := d.phoneSendPaths(pc.id, sm.Text, paths, texts)
+		err := d.paneSendNow(pc.id, row, let)
 		if err != nil {
 			pc.mu.Lock()
 			pc.unecho()
@@ -1100,19 +1108,49 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		}
 		return "", err
 	}
-	if remote.Clean(sm.Text) == "" && len(paths) == 0 {
-		return "", errors.New("the message is empty")
+	if immediate && formUp {
+		let.steer = m.How == "now" || m.How == "steer"
 	}
 	d.mu.Lock()
 	if d.panes[pc.id] == nil {
 		d.mu.Unlock()
 		return "", fmt.Errorf("no running pane %s", pc.id)
 	}
-	d.chatEnqueue(pc.id, session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
-		Attachments: nonNil(m.Attachments), Recipients: []string{}},
-		letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true, owner: l.prov})
+	d.chatEnqueue(pc.id, row, let)
 	d.mu.Unlock()
+	d.chatReason(pc.id)
 	return "queued", nil
+}
+
+// paneSendNow delivers a pane chat's immediate or steer message, keeping its
+// chat row so an open menu or typing failure returns it visibly to the queue
+// instead of losing it.
+func (d *Daemon) paneSendNow(pane string, row session.QueuedInput, l letter) error {
+	d.mu.Lock()
+	prov := d.paneProvider(pane)
+	d.mu.Unlock()
+	if !model.IsAgent(prov) || prov == model.ProviderTerminal {
+		return errors.New("that tab runs no agent; type into a shell in its tab")
+	}
+	if d.paneExited(pane) {
+		return errors.New("the agent in that tab has exited")
+	}
+	rowCopy := row
+	l.owner, l.steer, l.row = prov, true, &rowCopy
+	return d.userDeliver(pane, l)
+}
+
+// unechoPane drops pane's prompt echo when delivery fails or falls back to
+// the queue. Never called with d.mu held.
+func (d *Daemon) unechoPane(pane string) {
+	d.mu.Lock()
+	pc := d.paneChats[pane]
+	d.mu.Unlock()
+	if pc != nil {
+		pc.mu.Lock()
+		pc.unecho()
+		pc.mu.Unlock()
+	}
 }
 
 // dialogCommand reports whether m is /usage, /cost or /status alone, which

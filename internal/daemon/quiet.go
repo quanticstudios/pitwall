@@ -117,7 +117,7 @@ func (d *Daemon) checkQuiet() {
 // prov: pitwall reads that agent's forms, and the screen shows none, nor
 // a turn running.
 func quietPrompt(prov model.Provider, g vt.Grid) bool {
-	return slices.Contains(nudgeable, prov) && agent.StateOf(prov, g) == "" && agent.ReadScreen(g) == agent.ScreenNone
+	return slices.Contains(nudgeable, prov) && agent.StateOf(prov, g) == "" && agent.ReadScreenOf(prov, g) == agent.ScreenNone
 }
 
 // continueQuiet types continue into pane id once its screen, read again

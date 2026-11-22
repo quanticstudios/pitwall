@@ -138,7 +138,7 @@ func (d *Daemon) checkPark(now time.Time) {
 	var parked []string
 	for _, l := range looks {
 		g := l.p.Snapshot()
-		still := agent.InputReady(l.prov, g) && agent.ReadScreen(g) == agent.ScreenNone && !agent.Draft(l.prov, g)
+		still := agent.InputReady(l.prov, g) && agent.ReadScreenOf(l.prov, g) == agent.ScreenNone && !agent.Draft(l.prov, g)
 		d.mu.Lock()
 		i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id })
 		if i < 0 || d.panes[l.id] != l.p {

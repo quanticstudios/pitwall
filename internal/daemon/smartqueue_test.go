@@ -209,8 +209,8 @@ func TestPaneQueueWaits(t *testing.T) {
 		t.Errorf("limit: %q paused %v until %v, want %v", why, paused, until, resets.Add(resumeDelay))
 	}
 	set(model.StateCompleted, "")
-	if why, _, _ := wait(" Which file?", " > 1. a.go", "   2. b.go", " Esc to cancel"); why != waitAnswer {
-		t.Errorf("a form on screen: %q", why)
+	if why, _, _ := wait(" Which file?", " > 1. a.go", "   2. b.go", " Esc to cancel"); why != waitForm {
+		t.Errorf("a form on screen: %q, want %q", why, waitForm)
 	}
 	// A restart's resumed agent takes nothing until restartWait passed and
 	// its input box shows, a hook or not.
