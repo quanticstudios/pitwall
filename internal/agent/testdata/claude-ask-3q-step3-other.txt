@@ -1,0 +1,15 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Toppings  ☐ Size  ✔ Submit  →
+
+Which size?
+
+  1. Small
+     8 oz
+  2. Large
+     16 oz
+❯ 3. Medium
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in Omarchy-launch-editor · Esc to
+cancel

@@ -1,0 +1,15 @@
+? Which color?
+? Which toppings?
+? Which size?
+
+Question
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Question 3/3: Which size?
+
+> 1. Small
+  2. Large
+  3. Write-in...
+
+  ↑/↓ Navigate · ← Back · enter Submit All · esc Skip
+esc to cancel                                                             auto · Gemini 4 Neon · low

@@ -93,6 +93,7 @@ type paneChat struct {
 	limit func() (flow.Limit, bool)
 	lv    liveState // what the screen shows ahead of the transcript (live)
 	slash slashList // the agent's / menu
+	ask   *liveAsk  // active TUI question synced with the pane's screen
 }
 
 // slashList is a pane chat's slash commands and what they were read for.
@@ -406,15 +407,19 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	}
 	a := l.act
 	isClaude := pc.prov == model.ProviderClaude
+	var liveQ *agent.Question
+	if l.p != nil && (isClaude || pc.prov == model.ProviderCodex || pc.prov == model.ProviderAntigravity) {
+		liveQ = agent.ReadQuestion(pc.prov, l.p.Snapshot())
+	}
 	switch {
 	case !isClaude && a.State == model.StatePendingApproval:
-		// shortcut: Codex's and Antigravity's questions and plans stay in the terminal; only their approvals reach the chat.
 		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
-	case isClaude && waits(a.State) && (a.State != model.StateAwaitingInput || agent.ReadQuestion(model.ProviderClaude, l.p.Snapshot()) != nil):
+	case isClaude && waits(a.State) && (a.State != model.StateAwaitingInput || liveQ != nil):
 		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
 	default:
 		pc.reduce(pc.tr.Resolve())
 	}
+	pc.syncQuestion(l, liveQ)
 	pc.offers(l)
 	// Claude Code marks a turn's end in the transcript; a hook saying the
 	// agent stopped after the turn began ends one it did not mark.
@@ -1227,79 +1232,7 @@ func (d *Daemon) paneApprove(id string, l paneLive, m proto.ChatApprove) error {
 	return d.remoteAnswer(id, at, true)
 }
 
-// paneAnswer picks each question's answers on Claude Code's question
-// pages in turn: an option by its label, else Other with the text.
-func (d *Daemon) paneAnswer(id string, l paneLive, m proto.ChatAnswer) error {
-	pc, _, ok := d.paneChatOf(id)
-	if !ok {
-		return errResolved
-	}
-	pc.mu.Lock()
-	var qs []session.Question
-	for _, in := range pc.snap.PendingUserInputs {
-		if in.ID == m.Request {
-			qs = in.Questions
-		}
-	}
-	pc.mu.Unlock()
-	if qs == nil {
-		return errResolved
-	}
-	return d.answerPages(id, l.p, qs, m.Answers)
-}
-
-// answerPages answers qs on pane id's Claude Code question pages, as a
-// person would: each key only once the page shows the one before it, and
-// Submit answers on the review page that follows several questions or a
-// multi-select one.
-func (d *Daemon) answerPages(id string, p interface{ Snapshot() vt.Grid }, qs []session.Question, answers map[string][]string) error {
-	read := func() *agent.Question { return agent.ReadQuestion(model.ProviderClaude, p.Snapshot()) }
-	// after waits for the page with id old to go: for the next page when
-	// one should come, else nil once no question shows.
-	after := func(old string, next bool) *agent.Question {
-		deadline := time.Now().Add(menuWait.get())
-		for {
-			n := read()
-			if n != nil && n.ID != old || n == nil && !next || time.Now().After(deadline) {
-				return n
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	review := len(qs) > 1
-	q := read()
-	for k, sq := range qs {
-		if q == nil {
-			return errors.New("Claude Code shows no question to answer")
-		}
-		review = review || q.Multi
-		for _, v := range answers[sq.ID] {
-			i := slices.IndexFunc(q.Options, func(o agent.QuestionOption) bool { return o.Label == v })
-			text := ""
-			if i < 0 {
-				i, text = -2, v
-			}
-			if err := d.phoneQuestion(id, q.ID, i, text); err != nil {
-				return err
-			}
-			if q.Multi { // a tick redraws the page; the next key reads it
-				if q = after(q.ID, true); q == nil {
-					return errors.New("Claude Code's question went away mid-answer")
-				}
-			}
-		}
-		if q.Multi {
-			if err := d.phoneQuestion(id, q.ID, -1, ""); err != nil {
-				return err
-			}
-		}
-		q = after(q.ID, k < len(qs)-1 || review)
-	}
-	if review && q != nil && len(q.Options) > 0 && q.Options[0].Label == "Submit answers" {
-		return d.phoneQuestion(id, q.ID, 0, "")
-	}
-	return nil
-}
+// paneAnswer and answerPages live in question_drive.go.
 
 // paneSet sets the model or effort through Claude Code's own pickers, for
 // this session only, and the mode through Shift+Tab (paneMode).

@@ -1,0 +1,17 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☐ Toppings  ☐ Size  ✔ Submit  →
+
+Which toppings?
+
+❯ 1. [ ] Cheese
+         Dairy
+  2. [ ] Olives
+         Fruit
+  3. [ ] Onion
+         Veg
+  4. [ ] Type something
+     Next
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

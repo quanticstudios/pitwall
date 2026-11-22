@@ -163,3 +163,13 @@ footer.compose {
 .choices .btn.on { border-color: var(--primary); color: var(--primary); }
 
 .question-option { display: block; width: 100%; min-height: 48px; margin: 8px 0; text-align: left; }
+.step-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.step-chip {
+  min-height: 28px; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 500;
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+}
+.step-chip.done { background: var(--field); color: var(--fg); }
+.step-chip.current { background: var(--raised); border-color: var(--primary); color: var(--fg); font-weight: 600; }
+.step-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.step-nav { display: flex; gap: 8px; margin-top: 10px; }
+.step-nav .btn { flex: 1; }

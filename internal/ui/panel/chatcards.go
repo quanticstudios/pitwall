@@ -321,66 +321,305 @@ func (d *cdraw) monoBox(gtx layout.Context, key, s string) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// askCard is a pending question: per question its header, the prompt
-// and its options as numbered rows, checkboxes when several may be
-// picked, the option's preview beside them when options carry one, a
-// row for a typed answer; then Answer.
+// askCard is a pending question: one question at a time with a step
+// header of clickable pill chips when there are several questions (or a
+// mirrored final Review/Submit step), numbered option rows, checkboxes
+// for multi-select, an option preview beside them when options carry
+// one, a typed Other row, and Back / Next or Submit buttons. A
+// one-question single-select card stays compact with no step bar.
 func (d *cdraw) askCard(gtx layout.Context, in session.InputRequest) layout.Dimensions {
 	th := d.th
 	a := d.t.asks[in.ID]
-	_, ready := a.answers(in.Questions)
+	qs := in.Questions
+	if len(qs) == 0 {
+		return layout.Dimensions{}
+	}
+	step := min(max(a.step, 0), max(0, a.numSteps()-1))
+	multiStep := len(qs) > 1 || a.review
 	return d.card(gtx, "ask", d.agent()+" has a question", func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		var ws []layout.Widget
-		cur := a.current()
-		for qi, q := range in.Questions {
-			if qi >= len(a.opts) {
-				break
-			}
-			active := qi == cur && len(in.Questions) > 1
+		if multiStep {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return d.question(gtx, active, func(gtx layout.Context) layout.Dimensions {
-					return vstack(gtx, gtx.Dp(theme.SpaceS), func(gtx layout.Context) layout.Dimensions {
-						return vstack(gtx, gtx.Dp(theme.SpaceXS),
-							func(gtx layout.Context) layout.Dimensions {
-								if q.Header == "" && !q.Multi {
-									return layout.Dimensions{}
-								}
-								return hrow(gtx, gtx.Dp(theme.SpaceS),
-									func(gtx layout.Context) layout.Dimensions {
-										if q.Header == "" {
-											return layout.Dimensions{}
-										}
-										return d.tag(gtx, q.Header)
-									},
-									func(gtx layout.Context) layout.Dimensions {
-										if !q.Multi {
-											return layout.Dimensions{}
-										}
-										return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Pick any")
-									})
-							},
-							func(gtx layout.Context) layout.Dimensions {
-								c := th.Fg
-								if qi != cur {
-									c = th.Muted
-								}
-								return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), c, 1.45}, q.Prompt)
-							})
-					}, func(gtx layout.Context) layout.Dimensions { return d.askOptions(gtx, a, qi, q, qi == cur) })
-				})
+				return d.stepBar(gtx, a, qs, step)
+			})
+		}
+		if a.onReview() {
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+				return d.askReview(gtx, in, a)
+			})
+		} else if step < len(qs) && step < len(a.opts) {
+			q := qs[step]
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+				return vstack(gtx, gtx.Dp(theme.SpaceXS),
+					func(gtx layout.Context) layout.Dimensions {
+						if multiStep || q.Header == "" {
+							return layout.Dimensions{}
+						}
+						return d.tag(gtx, q.Header)
+					},
+					func(gtx layout.Context) layout.Dimensions {
+						return d.selectable(gtx, d.t.sel("q:"+in.ID+"/"+q.ID), tstyle{medium(th.UIFont), th.Sp(theme.Body), th.Fg, 1.45}, q.Prompt)
+					},
+					func(gtx layout.Context) layout.Dimensions {
+						if !q.Multi {
+							return layout.Dimensions{}
+						}
+						return d.lbl(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "Pick any")
+					},
+				)
+			})
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+				return d.askOptions(gtx, a, step, q, true)
+			})
+		}
+		if a.note != "" {
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+				return d.selectable(gtx, d.t.sel("qnote:"+in.ID), d.small(th.Readable(th.Red, th.Surface)), a.note)
 			})
 		}
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-			return d.keyButton(gtx, &a.submit, true, "Answer", "", ready)
+			return d.askFooter(gtx, a, qs, step, multiStep)
 		})
-		return vstack(gtx, gtx.Dp(theme.SpaceS), ws...)
+		return vstack(gtx, gtx.Dp(theme.SpaceM), ws...)
 	})
 }
 
+// stepBar draws the pill chips for every question (and the Submit chip
+// when the card mirrors a final review step), clickable to jump steps.
+func (d *cdraw) stepBar(gtx layout.Context, a *ask, qs []session.Question, step int) layout.Dimensions {
+	th := d.th
+	var chips []layout.Widget
+	allNamed := true
+	for _, q := range qs {
+		if strings.TrimSpace(q.Header) == "" {
+			allNamed = false
+			break
+		}
+	}
+	for i, q := range qs {
+		if i >= len(a.chips) {
+			break
+		}
+		lbl := strings.TrimSpace(q.Header)
+		if lbl == "" {
+			if i == step {
+				lbl = "Question " + strconv.Itoa(i+1) + " of " + strconv.Itoa(len(qs))
+			} else {
+				lbl = "Question " + strconv.Itoa(i+1)
+			}
+		}
+		cur := i == step
+		done := a.stepDone(qs, i)
+		chips = append(chips, func(gtx layout.Context) layout.Dimensions {
+			return d.stepChip(gtx, &a.chips[i], lbl, cur, done)
+		})
+	}
+	if a.review && len(qs) < len(a.chips) {
+		_, ready := a.answers(qs)
+		chips = append(chips, func(gtx layout.Context) layout.Dimensions {
+			return d.stepChip(gtx, &a.chips[len(qs)], "Submit", step == len(qs), ready)
+		})
+	}
+	if allNamed && len(qs) > 1 && step < len(qs) {
+		counter := strconv.Itoa(step+1) + " of " + strconv.Itoa(len(qs))
+		chips = append(chips, func(gtx layout.Context) layout.Dimensions {
+			h := gtx.Dp(24)
+			c, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+				return d.lbl(gtx, th.UIFont, th.Sp(theme.Caption), th.Muted, counter)
+			})
+			at(gtx, image.Pt(gtx.Dp(theme.SpaceXS), (h-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
+				c.Add(gtx.Ops)
+				return td
+			})
+			return layout.Dimensions{Size: image.Pt(td.Size.X+gtx.Dp(theme.SpaceXS), h)}
+		})
+	}
+	return wrapRow(gtx, gtx.Dp(theme.SpaceS), chips...)
+}
+
+// stepChip is one small pill in the question step header.
+func (d *cdraw) stepChip(gtx layout.Context, c *widget.Clickable, txt string, current, done bool) layout.Dimensions {
+	th := d.th
+	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+		h := gtx.Dp(24)
+		px := gtx.Dp(theme.SpaceS + theme.Space2XS)
+		f := th.UIFont
+		fill, ring, fg := th.Bg, th.BorderSubtle, th.Muted
+		switch {
+		case current:
+			f = medium(th.UIFont)
+			fill, ring, fg = th.SelectedBg, theme.Mix(th.SelectedBg, th.Primary, 0.55), th.Fg
+		case done:
+			fill, ring, fg = th.SurfaceSecondary, th.BorderSubtle, th.Fg
+		}
+		if c.Pressed() {
+			fill = th.Pressed
+		} else if c.Hovered() && !current {
+			fill = th.Hover
+		}
+		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return d.lbl(gtx, f, th.Sp(theme.Small), fg, txt)
+		})
+		isz := gtx.Dp(11)
+		gap := gtx.Dp(theme.SpaceXS)
+		w := px*2 + ld.Size.X
+		if done {
+			w += isz + gap
+		}
+		rrect(gtx, image.Rect(0, 0, w, h), h/2, fill, ring)
+		x := px
+		if done {
+			icCol := th.Readable(th.Green, fill)
+			if current {
+				icCol = th.Readable(th.Primary, fill)
+			}
+			at(gtx, image.Pt(x, (h-isz)/2), func(gtx layout.Context) layout.Dimensions {
+				return sidebar.Icon(gtx, "check", isz, icCol)
+			})
+			x += isz + gap
+		}
+		at(gtx, image.Pt(x, (h-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
+			lc.Add(gtx.Ops)
+			return ld
+		})
+		return layout.Dimensions{Size: image.Pt(w, h)}
+	})
+}
+
+// askReview is the final Review step mirroring Claude Code's Submit tab:
+// a compact summary of every question and its answer, clickable to edit.
+func (d *cdraw) askReview(gtx layout.Context, in session.InputRequest, a *ask) layout.Dimensions {
+	th := d.th
+	return vstack(gtx, gtx.Dp(theme.SpaceS),
+		func(gtx layout.Context) layout.Dimensions {
+			return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, "Review your answers")
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			w := gtx.Constraints.Max.X
+			pad := gtx.Dp(theme.SpaceS)
+			var rows []layout.Widget
+			for i, q := range in.Questions {
+				if i >= len(a.revRows) {
+					break
+				}
+				vals, ok := a.answerFor(q, i)
+				if !ok && a.lastTUIAns != nil {
+					if v := a.lastTUIAns[q.ID]; len(v) > 0 {
+						vals, ok = v, true
+					}
+				}
+				ansText := "Unanswered"
+				ansCol := th.Readable(th.Yellow, th.Bg)
+				if ok {
+					ansText = strings.Join(vals, ", ")
+					ansCol = th.Fg
+				}
+				title := q.Prompt
+				if title == "" {
+					title = cmp.Or(q.Header, "Question "+strconv.Itoa(i+1))
+				}
+				rows = append(rows, func(gtx layout.Context) layout.Dimensions {
+					c := &a.revRows[i]
+					return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+						rw := gtx.Constraints.Max.X
+						px, py := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceS)
+						g := gtx
+						g.Constraints = layout.Constraints{Max: image.Pt(max(0, rw-2*px), gtx.Constraints.Max.Y)}
+						call, bd := measure(g, func(gtx layout.Context) layout.Dimensions {
+							return vstack(gtx, gtx.Dp(2),
+								func(gtx layout.Context) layout.Dimensions {
+									return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, title, 0)
+								},
+								func(gtx layout.Context) layout.Dimensions {
+									return label(gtx, th, medium(th.UIFont), th.Sp(theme.Body), ansCol, ansText, 0)
+								},
+							)
+						})
+						h := bd.Size.Y + 2*py
+						if c.Pressed() {
+							paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(image.Rect(0, 0, rw, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+						} else if c.Hovered() {
+							paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(0, 0, rw, h), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+						}
+						at(gtx, image.Pt(px, py), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return bd })
+						return layout.Dimensions{Size: image.Pt(rw, h)}
+					})
+				})
+			}
+			g := gtx
+			g.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*pad), gtx.Constraints.Max.Y)}
+			call, bd := measure(g, func(gtx layout.Context) layout.Dimensions {
+				return vstack(gtx, gtx.Dp(theme.Space2XS), rows...)
+			})
+			h := bd.Size.Y + 2*pad
+			rrect(gtx, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusPopover), th.Bg, th.BorderSubtle)
+			at(gtx, image.Pt(pad, pad), func(gtx layout.Context) layout.Dimensions { call.Add(gtx.Ops); return bd })
+			return layout.Dimensions{Size: image.Pt(w, h)}
+		},
+	)
+}
+
+// askFooter lays out Back on the left (when past step 0) and a primary
+// Next or Submit button on the right.
+func (d *cdraw) askFooter(gtx layout.Context, a *ask, qs []session.Question, step int, multiStep bool) layout.Dimensions {
+	w := gtx.Constraints.Max.X
+	var leftCall op.CallOp
+	var leftDim layout.Dimensions
+	if multiStep && step > 0 {
+		leftCall, leftDim = measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return d.keyButton(gtx, &a.back, false, "Back", "←", true)
+		})
+	}
+	var rightBtn *widget.Clickable
+	var rightTxt, rightKey string
+	var rightOn bool
+	switch {
+	case a.onReview():
+		_, ready := a.answers(qs)
+		if !ready && a.hasTUI {
+			ready = true // TUI is already on its Review screen
+		}
+		rightBtn, rightTxt, rightKey, rightOn = &a.submit, "Submit", "Enter", ready
+	case !multiStep:
+		_, ready := a.answers(qs)
+		txt := "Answer"
+		if qs[0].Multi {
+			txt, rightKey = "Submit", "Enter"
+		}
+		rightBtn, rightTxt, rightOn = &a.submit, txt, ready
+	case step == len(qs)-1 && !a.review:
+		_, curOK := a.answerFor(qs[step], step)
+		_, allOK := a.answers(qs)
+		rightBtn, rightTxt, rightKey, rightOn = &a.submit, "Submit", "Enter", curOK && (allOK || a.hasTUI)
+	default:
+		_, curOK := a.answerFor(qs[step], step)
+		rightBtn, rightTxt, rightKey, rightOn = &a.next, "Next", "Enter", curOK
+	}
+	rightCall, rightDim := measure(gtx, func(gtx layout.Context) layout.Dimensions {
+		return d.keyButton(gtx, rightBtn, true, rightTxt, rightKey, rightOn)
+	})
+	h := max(leftDim.Size.Y, rightDim.Size.Y)
+	if leftDim.Size.X > 0 {
+		at(gtx, image.Pt(0, (h-leftDim.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
+			leftCall.Add(gtx.Ops)
+			return leftDim
+		})
+	}
+	rx := max(leftDim.Size.X+gtx.Dp(theme.SpaceS), w-rightDim.Size.X)
+	if leftDim.Size.X == 0 {
+		rx = max(0, w-rightDim.Size.X)
+	}
+	at(gtx, image.Pt(rx, (h-rightDim.Size.Y)/2), func(gtx layout.Context) layout.Dimensions {
+		rightCall.Add(gtx.Ops)
+		return rightDim
+	})
+	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
 // askOptions are question qi's option rows and its typed row; with
-// previews, the rows on the left and the picked option's preview on the
-// right, or under them when the card is narrow.
+// previews, the rows on the left and the hovered or picked option's
+// preview on the right, or under them when the card is narrow.
 func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Question, keys bool) layout.Dimensions {
 	th := d.th
 	multi := a.multiQ(qi)
@@ -419,10 +658,20 @@ func (d *cdraw) askOptions(gtx layout.Context, a *ask, qi int, q session.Questio
 		return vstack(gtx, gtx.Dp(theme.SpaceXS), rs...)
 	}
 	preview := ""
+	hovered := ""
 	for oi, o := range q.Options {
-		if o.Preview != "" && (preview == "" || a.pick[qi] == oi) {
+		if o.Preview == "" {
+			continue
+		}
+		if oi < len(a.opts[qi]) && a.opts[qi][oi].Hovered() {
+			hovered = o.Preview
+		}
+		if preview == "" || a.pick[qi] == oi {
 			preview = o.Preview
 		}
+	}
+	if hovered != "" {
+		preview = hovered
 	}
 	if preview == "" {
 		return rows(gtx)
@@ -691,18 +940,4 @@ func keyFor(keys bool, i int) string {
 		return ""
 	}
 	return strconv.Itoa(i + 1)
-}
-
-// question draws one question of a card; the one the number keys act on,
-// when the card has several, has a bar in the primary color down its left.
-func (d *cdraw) question(gtx layout.Context, active bool, body layout.Widget) layout.Dimensions {
-	if !active {
-		return body(gtx)
-	}
-	bar := gtx.Dp(theme.Space2XS)
-	off := -gtx.Dp(cardPadX) + gtx.Dp(theme.SpaceS) // in the card's padding, clear of the options
-	c, dims := measure(gtx, body)
-	paint.FillShape(gtx.Ops, d.th.Primary, clip.UniformRRect(image.Rect(off, 0, off+bar, dims.Size.Y), bar/2).Op(gtx.Ops))
-	c.Add(gtx.Ops)
-	return dims
 }

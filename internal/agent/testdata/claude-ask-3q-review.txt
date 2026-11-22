@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Toppings  ☒ Size  ✔ Submit  →
+
+Review your answers
+
+ ● Which color?
+   → Blue
+ ● Which toppings?
+   → Cheese, Onion
+ ● Which size?
+   → Medium
+
+❯ 1. Submit answers
+  2. Cancel

@@ -16,8 +16,22 @@
     await wait(150);
     feed([{ id: 'i2', kind: 'input', questions: [q('a', false), q('b', true)] }]);
     tap('Red', 0);
-    tap('Blue', 1);
+    tap('□ Blue', 0);
     await submit('Green');
+    feed([{ id: 'i2b', kind: 'input', questions: [
+      { id: 'c', header: 'Color', prompt: 'Pick color', options: [{ id: 'r', label: 'Red' }, { id: 'b', label: 'Blue' }] },
+      { id: 't', header: 'Toppings', prompt: 'Pick toppings', multiSelect: true, options: [{ id: 'ch', label: 'Cheese' }, { id: 'm', label: 'Mushrooms' }] },
+      { id: 's', header: 'Size', prompt: 'Pick size', options: [{ id: 'sm', label: 'Small' }, { id: 'lg', label: 'Large' }] },
+    ] }]);
+    tap('Red');
+    tap('□ Cheese');
+    tap('Next');
+    tap('Back');
+    tap('✓ Cheese');
+    tap('□ Mushrooms');
+    tap('Next');
+    tap('Large');
+    await wait(150);
     feed([]);
     text.value = 'a draft from before';
     feed([{ id: 'i3', kind: 'input', questions: [q('q', false)] }]);

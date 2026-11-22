@@ -653,6 +653,9 @@ func (c *Composer) keyEvents(gtx layout.Context, env Env) {
 				fs = append(fs, key.Filter{Focus: ed, Name: n})
 			}
 		}
+		if ed.Len() == 0 && len(c.draft.Images) == 0 && env.Key != nil && asked(env.Snap) != "" && !c.arrowsTaken() {
+			fs = append(fs, key.Filter{Focus: ed, Name: key.NameLeftArrow}, key.Filter{Focus: ed, Name: key.NameRightArrow})
+		}
 		if word >= 0 {
 			fs = append(fs, key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModCtrl},
 				key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModAlt})
@@ -734,6 +737,10 @@ func (c *Composer) keyEvents(gtx layout.Context, env Env) {
 			}
 		case key.NameDownArrow:
 			c.recallStep(env, false)
+		case key.NameLeftArrow, key.NameRightArrow:
+			if e.Modifiers == 0 && env.Key != nil {
+				env.Key(string(e.Name))
+			}
 		case key.NameDeleteBackward:
 			if e.Modifiers != 0 {
 				tok = word

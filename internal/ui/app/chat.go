@@ -107,6 +107,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
 		t.ToolCalls, t.ChatLayout, t.CodeScale = u.cfg.Chat.ToolCalls, u.cfg.Chat.Layout, u.codeScale()
+		t.LiveSteps = u.link().Level >= proto.QuestionStepLevel
 		paneLimit(st, id, &s, gtx.Now)
 		t.Limit = u.limitResume(st, id, ws, &s)
 		t.CopyOnSelect = u.cfg.CopyOnSelect
@@ -145,7 +146,11 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 				case proto.ChatApprove:
 					t.Refused(m.Request)
 				case proto.ChatAnswer:
-					t.Refused(m.Request)
+					if m.Step != "" {
+						t.StepError(m.Request, r.Message)
+					} else {
+						t.Refused(m.Request)
+					}
 				}
 			}
 		}
@@ -210,7 +215,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			u.send(proto.ChatApprove{Chat: id, Request: a.Request, Decision: a.Decision, Reason: a.Reason})
 		}
 		for _, a := range t.Inputs() {
-			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers})
+			u.send(proto.ChatAnswer{Chat: id, Request: a.Request, Answers: a.Answers, Step: a.Step, Target: a.Target})
 			gtx.Execute(op.InvalidateCmd{}) // a key in the composer answered after the card was drawn
 		}
 		if u.chatActions(id, t.Actions(), paneChat(st, id), cmp) {

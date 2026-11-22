@@ -148,3 +148,117 @@ func TestPhoneQuestion(t *testing.T) {
 		t.Fatalf("terminal question: %v", api.questions)
 	}
 }
+
+type navAPI struct {
+	fakeAPI
+	opts []int
+}
+
+func (f *navAPI) Question(_ context.Context, _, _ string, option int, _ string) error {
+	f.opts = append(f.opts, option)
+	return nil
+}
+
+// TestPhoneQuestionSteps: a 3-question card shows one step at a time
+// with clickable step chips, Back/Next navigation keeping answers,
+// live TUI step syncing, and terminalQuestion Back (-3) / Next (-4).
+func TestPhoneQuestionSteps(t *testing.T) {
+	api := &inputAPI{}
+	var ops op.Ops
+	gtx := C{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 900)}}
+	envOf := func(tab remote.Tab) chatEnv {
+		return chatEnv{Tab: tab, Open: true, Online: true, Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			done(call(context.Background(), api))
+		}}
+	}
+	draw := func(c *chatView, env chatEnv) { ops.Reset(); c.askCard(gtx, Theme(), env) }
+
+	q1 := session.Question{ID: "c", Header: "Color", Prompt: "Pick color", Options: []session.PromptOption{{Label: "Red", Preview: "color: #f00"}, {Label: "Blue"}}}
+	q2 := session.Question{ID: "t", Header: "Toppings", Prompt: "Pick toppings", Multi: true, Options: []session.PromptOption{{Label: "Cheese"}, {Label: "Mushrooms"}}}
+	q3 := session.Question{ID: "s", Header: "Size", Prompt: "Pick size", Options: []session.PromptOption{{Label: "Small"}, {Label: "Large"}}}
+
+	cv := newChat("c")
+	c := &cv
+	env := envOf(askTab(askReq("i3q", q1, q2, q3)))
+	draw(c, env)
+	rs := c.card.reqs[0]
+	if rs.step != 0 {
+		t.Fatalf("initial step %d, want 0", rs.step)
+	}
+	// Step 1 single-select advances to step 2.
+	rs.opts[0][0].Click()
+	draw(c, env)
+	if rs.step != 1 || len(api.inputs) != 0 {
+		t.Fatalf("after step 1 pick: step %d, inputs %v", rs.step, api.inputs)
+	}
+	// Step 2 multi-select toggles Cheese and advances on Next.
+	rs.opts[1][0].Click()
+	draw(c, env)
+	if rs.step != 1 {
+		t.Fatalf("multi tap moved step to %d", rs.step)
+	}
+	rs.next.Click()
+	draw(c, env)
+	if rs.step != 2 {
+		t.Fatalf("after Next: step %d, want 2", rs.step)
+	}
+	// Back returns to step 2 with Cheese kept; chip 0 returns to step 1 with Red kept.
+	rs.back.Click()
+	draw(c, env)
+	if rs.step != 1 || !reflect.DeepEqual(rs.picked[1], []string{"Cheese"}) {
+		t.Fatalf("after Back: step %d, picked %v", rs.step, rs.picked[1])
+	}
+	rs.chips[0].Click()
+	draw(c, env)
+	if rs.step != 0 || !reflect.DeepEqual(rs.picked[0], []string{"Red"}) {
+		t.Fatalf("after chip 0: step %d, picked %v", rs.step, rs.picked[0])
+	}
+	// Jump back to step 3 via chip and pick Large -> sends all 3 answers.
+	rs.chips[2].Click()
+	draw(c, env)
+	rs.opts[2][1].Click()
+	draw(c, env)
+	want := []map[string][]string{{"c": {"Red"}, "t": {"Cheese"}, "s": {"Large"}}}
+	if !reflect.DeepEqual(api.inputs, want) {
+		t.Fatalf("inputs %v, want %v", api.inputs, want)
+	}
+
+	// Live TUI step sync moves the phone card when the TUI advances.
+	step0, step1 := 0, 1
+	req := askReq("sync1", q1, q2)
+	req.Step = &step0
+	cv = newChat("c")
+	c = &cv
+	draw(c, envOf(askTab(req)))
+	if c.card.reqs[0].step != 0 {
+		t.Fatalf("sync initial step %d", c.card.reqs[0].step)
+	}
+	req.Step = &step1
+	req.Answered = map[string][]string{"c": {"Blue"}}
+	draw(c, envOf(askTab(req)))
+	if c.card.reqs[0].step != 1 || !reflect.DeepEqual(c.card.reqs[0].picked[0], []string{"Blue"}) {
+		t.Fatalf("after TUI advance: step %d, picked %v", c.card.reqs[0].step, c.card.reqs[0].picked[0])
+	}
+
+	// terminalQuestion Back (-3) and Next (-4) buttons.
+	nav := &navAPI{}
+	cv = newChat("p")
+	c = &cv
+	tui := remote.Tab{Item: remote.Item{Pane: "p", Agent: "claude", State: "awaiting-input", Question: &agent.Question{
+		ID: "tq1", Index: 1, Total: 3, Prompt: "Pick toppings",
+		Tabs:    []agent.QuestionTab{{Label: "Color", Answered: true}, {Label: "Toppings"}, {Label: "Size"}},
+		Options: []agent.QuestionOption{{Label: "Cheese"}},
+		CanBack: true, CanNext: true,
+	}}, Send: true}
+	navEnv := chatEnv{Tab: tui, Open: true, Online: true, Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+		done(call(context.Background(), nav))
+	}}
+	draw(c, navEnv)
+	c.card.qBack.Click()
+	draw(c, navEnv)
+	c.card.qNext.Click()
+	draw(c, navEnv)
+	if !reflect.DeepEqual(nav.opts, []int{-3, -4}) {
+		t.Fatalf("terminal nav opts %v, want [-3 -4]", nav.opts)
+	}
+}

@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 98 added ChatAnswer.Step and Target (QuestionStepLevel): step-by-step
+// question driving and live TUI synchronization for pane chats.
 // Level 97 added State.Servers, ServerStop, ServerStopResult, ChatSuggest
 // and ChatSuggestResult: a chat's Servers panel and its suggested next
 // prompt (ServersLevel, SuggestLevel).
@@ -262,7 +264,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 97
+const Level = 98
+
+// QuestionStepLevel added ChatAnswer.Step and Target for driving TUI pane
+// chats' question screens one step at a time.
+const QuestionStepLevel = 98
 
 // PastedFileLevel is the first daemon that saves a ChatSend's pasted-text
 // attachment to a file in the tab's paste folder and puts the file's path
@@ -593,7 +599,12 @@ func Since(msg any) int {
 		return ChatForkLevel
 	case ChatProviders, ChatProviderList:
 		return ChatProvidersLevel
-	case ChatNew, ChatSend, ChatInterrupt, ChatApprove, ChatAnswer, ChatSet, ChatQueue, ChatRead, ChatArchive, ChatResult, ChatDeltas:
+	case ChatAnswer:
+		if m.Step != "" {
+			return QuestionStepLevel
+		}
+		return ChatLevel
+	case ChatNew, ChatSend, ChatInterrupt, ChatApprove, ChatSet, ChatQueue, ChatRead, ChatArchive, ChatResult, ChatDeltas:
 		return ChatLevel
 	case SearchAll, SearchAllResult:
 		return 34
@@ -1481,10 +1492,14 @@ type ChatApprove struct {
 	Reason        string
 }
 
-// ChatAnswer answers a pending input request.
+// ChatAnswer answers a pending input request. For a TUI pane chat, Step
+// drives one step of the agent's question screen ("answer", "goto", "submit")
+// at Target (0-based step index); empty Step answers the whole request.
 type ChatAnswer struct {
 	Chat, Request string
 	Answers       map[string][]string // question id to the chosen labels or typed text
+	Step          string              // "", "answer", "goto", "submit" (QuestionStepLevel)
+	Target        int                 // 0-based step index
 }
 
 // ChatSet changes the model, effort or permission mode; "" leaves one as it

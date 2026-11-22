@@ -1,0 +1,15 @@
+? Which color?
+? Which toppings?
+? Which size?
+
+Question
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Question 1/3: Which color?
+
+> 1. Red
+  2. Blue
+  3. Write-in...
+
+  ↑/↓ Navigate · → Next · enter Select · esc Skip
+esc to cancel                                                             auto · Gemini 4 Neon · low
