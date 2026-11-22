@@ -175,6 +175,7 @@ const usage = `usage:
                              focus the pane next to the calling one, for
                              vim at the edge of its windows (see docs/keys.md)
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
+  pitwall theme <cmd>        import, list: import Ghostty or iTerm2 themes (see pitwall theme)
   pitwall doctor             check the install, the daemon, hooks, config and [[hosts]]; changes nothing
   pitwall host status [--json] [name]
                              check each [[hosts]] entry over ssh, never prompting: reachable,
@@ -241,6 +242,8 @@ func main() {
 		os.Exit(runStatusline(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "config":
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
+	case "theme":
+		os.Exit(runTheme(os.Args[2:], os.Stdout, os.Stderr))
 	case "doctor":
 		os.Exit(runDoctor(os.Stdout))
 	case "notify":
@@ -341,8 +344,9 @@ func serveDaemon(d *daemon.Daemon, ln net.Listener) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
-	// Programs in panes get the new colors when Omarchy switches theme.
+	// Programs in panes get the new colors when Omarchy or the system switches theme.
 	go config.WatchOmarchy(ctx.Done(), func() { d.SetPalette(config.Palette()) })
+	go config.WatchSystemAppearance(ctx.Done(), func() { d.SetPalette(config.Palette()) })
 	go func() {
 		err := logind.Watch(ctx, func(shutdown bool) {
 			if shutdown {

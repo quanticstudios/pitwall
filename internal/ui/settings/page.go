@@ -127,6 +127,7 @@ type Page struct {
 	ddFocus  bool
 
 	themes   []config.NamedTheme
+	im       themeImport
 	hooks    []hookFile
 	ver      string
 	copied   string
@@ -161,6 +162,8 @@ func (p *Page) Show(configPath string) {
 	p.focusKeys = p.cat == catKeys
 	p.focusSearch = !p.focusKeys
 	p.themes = config.AllThemes(filepath.Join(filepath.Dir(configPath), "themes"))
+	p.im.open, p.im.err, p.im.note = false, "", ""
+	p.im.ghostty = config.ListGhosttyThemes()
 	home, _ := os.UserHomeDir()
 	p.hooks = hookStatus(home)
 	p.ver = p.Version
@@ -177,6 +180,11 @@ func (p *Page) Show(configPath string) {
 	families(nil) // start the font scan
 }
 
+// ReloadThemes reads built-in and custom themes from disk again.
+func (p *Page) ReloadThemes() {
+	p.themes = config.AllThemes(filepath.Join(filepath.Dir(p.path()), "themes"))
+}
+
 // ReloadHooks reads the agents' hook configs again, after an install.
 func (p *Page) ReloadHooks() {
 	home, _ := os.UserHomeDir()
@@ -185,7 +193,7 @@ func (p *Page) ReloadHooks() {
 
 // Hide closes the page, dropping a recording or open dropdown.
 func (p *Page) Hide() {
-	p.shown, p.rec, p.keyRec, p.conflict, p.dd, p.pr.open = false, slot{}, false, nil, "", false
+	p.shown, p.rec, p.keyRec, p.conflict, p.dd, p.pr.open, p.im.open = false, slot{}, false, nil, "", false, false
 }
 
 // TaskPrompt is the prompt for the New task dialog after AskAgent.
@@ -260,6 +268,8 @@ func (p *Page) Keys(gtx gl.Context) Result {
 			switch {
 			case p.dd != "":
 				p.dd = ""
+			case p.im.open:
+				p.im.open = false
 			case p.conflict != nil:
 				p.conflict = nil
 			case p.search.Text() != "":
@@ -788,11 +798,28 @@ func (p *Page) appearance() []section {
 	for _, t := range p.themes {
 		names = append(names, t.Name)
 	}
+	themeRows := []row{
+		{label: "Theme", desc: "Window and terminal colors. Custom themes are themes/<name>.toml next to config.toml.",
+			extra: "color colour dark light " + strings.Join(names, " "), wide: true, control: p.themeCards},
+		{label: "Import theme", desc: "Import a Ghostty theme, an iTerm2 .itermcolors file, a folder of themes, or an installed Ghostty theme by name.",
+			extra:   "import ghostty iterm iterm2 itermcolors scheme palette custom",
+			control: p.importThemeControl, below: p.importThemeBelowWidget()},
+		{label: "Follow system", desc: "Switch between a light and a dark theme to match your system appearance.",
+			extra:   "follow_system system light dark auto appearance",
+			control: p.followSystemToggle()},
+	}
+	if p.s.FollowSystem {
+		themeRows = append(themeRows,
+			row{label: "Light theme", desc: "Theme used when the system is in light mode.",
+				extra:   "theme_light light system appearance " + strings.Join(names, " "),
+				control: p.themePicker("theme_light", p.s.ThemeLight, "aide-light")},
+			row{label: "Dark theme", desc: "Theme used when the system is in dark mode.",
+				extra:   "theme_dark dark system appearance " + strings.Join(names, " "),
+				control: p.themePicker("theme_dark", p.s.ThemeDark, "aide-dark")},
+		)
+	}
 	return []section{
-		{rows: []row{
-			{label: "Theme", desc: "Window and terminal colors. Custom themes are themes/<name>.toml next to config.toml.",
-				extra: "color colour dark light " + strings.Join(names, " "), wide: true, control: p.themeCards},
-		}},
+		{rows: themeRows},
 		{title: "Text", rows: []row{
 			{label: "Interface font", desc: "Sidebar, dialogs and this page. Geist ships with pitwall.", extra: "ui family typeface",
 				control: p.fontPicker("ui_family", f.UIFamily, config.DefaultUIFamily)},

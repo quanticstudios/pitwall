@@ -107,6 +107,9 @@ func typeSchema(t reflect.Type) map[string]any {
 
 func fieldSchema(f field) map[string]any {
 	s := typeSchema(f.typ)
+	if f.typ == colorType && f.tag.Get("empty") == "ok" {
+		s = map[string]any{"anyOf": []any{map[string]any{"$ref": "#/$defs/color"}, map[string]any{"enum": []string{""}}}}
+	}
 	if f.doc != "" {
 		s["description"] = f.doc
 	}
@@ -115,7 +118,11 @@ func fieldSchema(f field) map[string]any {
 	case "@themes":
 		// Custom theme names are free-form; the enum still drives completion.
 		delete(s, "type")
-		s["anyOf"] = []any{map[string]any{"enum": append(slices.Clone(Themes), OmarchyName)}, map[string]any{"type": "string", "pattern": `^[^/\\]+$`}}
+		opts := append(slices.Clone(Themes), OmarchyName)
+		if f.name == "name" {
+			opts = append(opts, SystemThemeName)
+		}
+		s["anyOf"] = []any{map[string]any{"enum": opts}, map[string]any{"type": "string", "pattern": `^[^/\\]+$`}}
 	default:
 		s["enum"] = strings.Split(e, ",")
 	}

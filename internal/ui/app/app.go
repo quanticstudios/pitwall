@@ -130,9 +130,14 @@ func Run(b Backend) error {
 	go watchConfig(stop, func() []string {
 		u.cfgMu.Lock()
 		defer u.cfgMu.Unlock()
-		return []string{config.Path(), filepath.Join(config.Dir(), "themes", u.watchTheme+".toml")}
+		return []string{
+			config.Path(),
+			filepath.Join(config.Dir(), "themes"),
+			filepath.Join(config.Dir(), "themes", u.watchTheme+".toml"),
+		}
 	}, reload)
-	go config.WatchOmarchy(stop, reload) // follows an Omarchy theme switch
+	go config.WatchOmarchy(stop, reload)          // follows an Omarchy theme switch
+	go config.WatchSystemAppearance(stop, reload) // follows system light/dark switches
 	u.watchTheme = l.s.ThemeName
 	u.report = func(probs []string) { reportProblems(probs, &reported) }
 	u.notifications = newNotifier(b, u.cfg.Notifications, w.Invalidate, desktopSender(), func(a model.Activity) {
@@ -668,6 +673,9 @@ func (u *ui) layout(gtx gl.Context) {
 		u.watchTheme = l.s.ThemeName
 		u.cfgMu.Unlock()
 		u.apply(*l)
+		if u.settings.Shown() {
+			u.settings.ReloadThemes()
+		}
 		if u.report != nil {
 			u.report(l.probs)
 		}

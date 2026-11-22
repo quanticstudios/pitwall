@@ -590,7 +590,14 @@ func (v *View) resolveStyles(st []style, cells []vt.Cell, s0, s1 int) []style {
 			s.fg, s.bg = s.bg, s.fg
 		}
 		if x >= s0 && x < s1 {
-			s.bg = selected(s.bg)
+			if th.TermSelBg.A != 0 {
+				s.bg = th.TermSelBg
+				if th.TermSelFg.A != 0 {
+					s.fg = th.TermSelFg
+				}
+			} else {
+				s.bg = selected(s.bg)
+			}
 		}
 		if c.Attrs&vt.Faint != 0 {
 			s.fg.A /= 2
