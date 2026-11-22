@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.4
 
 - The phone app lays out on the whole window again. v0.3.3 applied Android's window insets on top of a window Android already keeps clear of the bars and the keyboard, so the chat squeezed into a strip under the header with the keyboard up.
 - TestManyImages skips the server's keepalive pings, so it no longer fails when a slow CI run outlasts the 30-second ping interval.
