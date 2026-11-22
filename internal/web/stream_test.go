@@ -201,7 +201,10 @@ type viewer struct {
 func (v *viewer) next(t *testing.T, c *client) map[string]any {
 	t.Helper()
 	c.nc.SetReadDeadline(time.Now().Add(10 * time.Second))
-	_, p := c.recv(t)
+	op, p := c.recv(t)
+	for op >= 0x8 { // why: the server pings every pingInterval, which a slow test outlasts
+		op, p = c.recv(t)
+	}
 	var m map[string]any
 	if err := json.Unmarshal(p, &m); err != nil {
 		t.Fatal(err)

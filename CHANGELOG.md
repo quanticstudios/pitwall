@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- TestManyImages skips the server's keepalive pings, so it no longer fails when a slow CI run outlasts the 30-second ping interval.
 - The chat's / menu lists Claude Code's account-gated commands, such as `/remote-control` (`/rc`), `/teleport`, `/background` and `/diff`, so typing them no longer picks a skill instead.
 - `pitwall split --wait` no longer fails with "cannot identify the new pane from daemon state" when the command exits before the daemon sends a state with its pane in it: the pane exit names it.
 - Ledger chat layout: the text column is now exactly as wide as the composer card and shares its left and right edges, with the time and name gutter hanging to its left; on panes too narrow for that, the time and name sit above each row's text. Your own messages are ledger rows like the agent's (time, You, text) with no bubble, and Copy, Edit and Rewind show on hover at the row's bottom right.
