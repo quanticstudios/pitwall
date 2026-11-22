@@ -282,7 +282,7 @@ func (h *harness) env() Env {
 }
 
 func (h *harness) baseEnv() Env {
-	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Answer: h.answer, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old,
+	return Env{Chat: "c1", Snap: &h.snap, Width: 960, Focus: true, Images: true, Key: h.key, Answer: h.answer, Now: !h.old, Queue: !h.old, Separate: h.separate, Commands: !h.old, Steers: true,
 		Branch: h.branch, Copy: func(s string) { h.copied = append(h.copied, s) }, TextFiles: h.files, Reveal: h.reveal,
 		Mentions: func(q string) []string {
 			var out []string

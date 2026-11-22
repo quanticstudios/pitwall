@@ -3,6 +3,7 @@ package chatin
 import (
 	"encoding/base64"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -308,10 +309,11 @@ func (c *Composer) recallWhole(env Env) {
 
 // followUp is the ChatSend How for text sent at a working agent: the
 // send key does [chat] follow_up's, other does the other one. Steering
-// sends now; the send key queues a slash or ! command, and anything to
-// an agent that can't take a message mid-turn, rather than stop it.
+// sends now; the send key queues a slash or ! command, and either key
+// queues to an agent that can't take a message mid-turn, rather than
+// stop its turn.
 func followUp(env Env, text string, other bool) string {
-	if steer := env.Steer != other; !steer || !other && (!env.Steers || command(text)) {
+	if !steering(env, other) || !env.Steers || !other && command(text) {
 		return "queue"
 	}
 	if env.Now {
@@ -320,12 +322,111 @@ func followUp(env Env, text string, other bool) string {
 	return "steer"
 }
 
+// steering reports whether the key, the send key or other, is the one
+// that steers: Ctrl+Enter by default, the send key with follow_up steer.
+func steering(env Env, other bool) bool { return env.Steer != other }
+
+// joins reports whether a steer of text takes the chat's queue along:
+// the daemon joins it (proto.JoinLevel), and text is no command, which
+// goes alone.
+func joins(env Env, text string, other bool) bool {
+	return env.Join && steering(env, other) && !command(text)
+}
+
+// joinable is the queued messages a steer takes along: all but a
+// command, which keeps its place.
+func joinable(qs []session.QueuedInput) []session.QueuedInput {
+	var out []session.QueuedInput
+	for _, q := range qs {
+		if !command(q.Text) {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// shortcut names the modifier key.ModShortcut is: Cmd on macOS.
+var shortcut = map[bool]string{true: "Cmd", false: "Ctrl"}[runtime.GOOS == "darwin"]
+
 // sendKeys names the send key and the other follow-up's key.
 func sendKeys(env Env) (send, other string) {
 	if env.CtrlEnter {
-		return "Ctrl+Enter", "Ctrl+Shift+Enter"
+		return shortcut + "+Enter", shortcut + "+Shift+Enter"
 	}
-	return "Enter", "Ctrl+Enter"
+	return "Enter", shortcut + "+Enter"
+}
+
+// followKeys names the key that queues and the one that steers.
+func followKeys(env Env) (queue, steer string) {
+	send, other := sendKeys(env)
+	if env.Steer {
+		return other, send
+	}
+	return send, other
+}
+
+// placeholder is the empty box's line: Placeholder, and while the agent
+// works, which key queues and which steers.
+func placeholder(env Env) string {
+	s := env.Snap
+	if !s.Busy() || asking(s) || Pending(s) {
+		return Placeholder(s)
+	}
+	queue, steer := followKeys(env)
+	switch {
+	case !env.Steers:
+		return "Type to queue: this agent reads it when the turn ends"
+	case env.Steer:
+		return "Type to steer the running turn · " + queue + " queues"
+	}
+	return "Type to queue a follow-up · " + steer + " steers it in now"
+}
+
+// queueHint is the strip's line under a running turn when no reason
+// holds the queue: when its messages go, and the key that steers them
+// in. joined is QueueStatus's line on how many go as one, "" for none.
+func queueHint(env Env, joined string) string {
+	if !env.Snap.Busy() {
+		return joined
+	}
+	line, it := "Queued: goes when the turn ends", "it"
+	if joined != "" {
+		line, it = joined+" when the turn ends", "them"
+	}
+	switch {
+	case !env.Steers:
+		return line + "; this agent takes nothing mid-turn"
+	case !env.Join:
+		return line
+	}
+	_, steer := followKeys(env)
+	return line + " · " + steer + " steers " + it + " in now"
+}
+
+// sendTip is the main button's tooltip for b.
+func sendTip(env Env, b Button) string {
+	send, other := sendKeys(env)
+	switch b {
+	case ButtonSendOff, ButtonSend:
+		return "Send (" + send + ")"
+	case ButtonStop:
+		return "Stop (Esc)"
+	case ButtonQueue:
+		switch {
+		case !env.Steers:
+			return "Queue: sends when the turn ends (" + send + "). This agent takes nothing mid-turn"
+		case steering(env, true) && env.Join:
+			return "Queue: sends when the turn ends (" + send + "). Steer it in now, with the queue: " + other
+		case steering(env, true):
+			return "Queue: sends when the turn ends (" + send + "). Steer it in now: " + other
+		}
+		return "Queue: sends when the turn ends (" + send + ")"
+	case ButtonSteer:
+		return "Steer: sends into the running turn (" + send + "). Queue: " + other
+	case ButtonSave:
+		return "Save the queued message (" + send + "). Esc cancels"
+	}
+	return ""
 }
 
 // stashOpen reports whether the stash menu is open.

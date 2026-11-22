@@ -436,8 +436,8 @@ In [the desktop chat](chat.md)'s composer:
 
 | Keys                    | Action                                                         |
 | ----------------------- | -------------------------------------------------------------- |
-| Enter                   | Send; while the agent works, steer it into the running turn, where the agent takes it at its next step, or queue it above the box with `[chat] follow_up = "queue"` |
-| Ctrl+Enter              | While the agent works, the other follow-up: queue the message above the box, or with follow_up queue send it now into the running turn (Cmd+Enter on macOS) |
+| Enter                   | Send; while the agent works, queue it above the box until the turn ends, or steer with `[chat] follow_up = "steer"` |
+| Ctrl+Enter              | Steer: send the message into the running turn now, with every queued message ahead of it, as one message; on an empty box, the queue alone; idle, send with the queue first. With follow_up steer it queues instead (Cmd+Enter on macOS) |
 | Shift+Enter             | New line                                                       |
 | Up / Down               | In an empty box, the chat's earlier prompts, newest first, with their images; Down past the newest gives the box back |
 | Ctrl+S                  | Stash the draft and its images; on an empty box, bring back the stashed draft, or open the stash menu when there are several |
@@ -455,12 +455,18 @@ In [the desktop chat](chat.md)'s composer:
 | Ctrl+0                  | Chat text back to the interface size (Cmd+0 in mac)            |
 | Ctrl+F                  | Find in the whole chat, or with the pointer on the Changes panel in its diff (Cmd+F in mac); Enter and Shift+Enter move, Esc closes |
 
-`[chat] send_key = "ctrl+enter"` swaps the send key: Ctrl+Enter sends,
-Enter and Shift+Enter add a line, and Ctrl+Shift+Enter with a draft does
-the other follow-up (with an empty box it still sends the oldest queued
-message). Steer goes into the turn only where the agent takes a message
-mid-turn, and a slash or `!` command always waits; elsewhere the send key
-queues and Ctrl+Enter stops the turn and sends.
+`[chat] follow_up = "steer"` swaps the two: Enter steers, the queue
+going along, and Ctrl+Enter queues. `[chat] send_key = "ctrl+enter"`
+swaps the send key: Ctrl+Enter sends, Enter and Shift+Enter add a line,
+and Ctrl+Shift+Enter does the other follow-up (on an empty box it steers
+the queue when it is the steer key, else sends the oldest queued message).
+A steer takes along every queued message but a slash or `!` command,
+which keeps its place, and a slash or `!` command typed in the box never
+steers on the send key. Claude Code takes a steer once its running tool
+returns, Codex at once, Antigravity CLI through its Alt+M, in a pane chat
+or a New task chat alike. An agent that takes nothing mid-turn, as a New
+task Antigravity chat over ACP, queues on both keys and says so; nothing
+stops its turn. The box's placeholder names the keys.
 
 Prompt history. Up recalls only from an empty box. While the box shows a
 recalled prompt unedited, Up steps further back from the caret's first

@@ -104,6 +104,24 @@ func renumberPasted(text string, as []session.Attachment, off int) (string, []se
 	return text, out, top
 }
 
+// joinMessages is texts, each with its attachments atts, as one prompt:
+// joinPrompts' text, each one's pasted texts numbered on past the ones
+// before it, and the attachments in order.
+func joinMessages(texts []string, atts [][]session.Attachment) (string, []session.Attachment) {
+	texts, images := slices.Clone(texts), make([]int, len(texts))
+	var out []session.Attachment
+	off := 0
+	for k := range texts {
+		images[k] = imageCount(atts[k])
+		var as []session.Attachment
+		var top int
+		texts[k], as, top = renumberPasted(texts[k], atts[k], off)
+		off += top
+		out = joinAttachments(out, as)
+	}
+	return joinPrompts(texts, images), out
+}
+
 // imageCount is how many of as are images.
 func imageCount(as []session.Attachment) int {
 	n := 0

@@ -1068,11 +1068,25 @@ var imageToken = regexp.MustCompile(`\[Image #[0-9]+\] ?`)
 // to end; one sent "now" goes in at once, and Claude Code takes it into
 // the running turn. One sent "queue" waits there whatever the turn does,
 // so at a usage limit it goes once the limit resets. A send lets a held
-// queue go.
-func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, error) {
+// queue go. One sent with Join takes the queued rows that can join it
+// along, ahead of it (chatJoinable), and puts them back should it fail.
+func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (note string, err error) {
 	// why: Claude Code's dialog for these needs Esc and writes nothing the chat could show.
 	if dialogCommand(m) && pc.dialog(l, strings.TrimSpace(m.Text)) {
 		return "", nil
+	}
+	var joined []chatRow
+	if m.Join && m.Skill == nil && m.How != "queue" {
+		d.mu.Lock()
+		joined = d.chatJoinable(pc.id)
+		d.mu.Unlock()
+		defer func() {
+			if err != nil && len(joined) > 0 {
+				d.mu.Lock()
+				d.chatUnjoin(pc.id, joined)
+				d.mu.Unlock()
+			}
+		}()
 	}
 	d.mu.Lock()
 	tab := pc.id
@@ -1106,7 +1120,7 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 		}
 		paths = append(paths, r.Path)
 	}
-	if remote.Clean(sm.Text) == "" && len(paths) == 0 && len(texts) == 0 {
+	if remote.Clean(sm.Text) == "" && len(paths) == 0 && len(texts) == 0 && len(joined) == 0 {
 		return "", errors.New("the message is empty")
 	}
 	d.mu.Lock()
@@ -1115,6 +1129,10 @@ func (d *Daemon) paneSend(pc *paneChat, l paneLive, m proto.ChatSend) (string, e
 	row := session.QueuedInput{ID: newUUID(), Text: m.Text, CreatedAt: session.Stamp(time.Now()),
 		Attachments: nonNil(m.Attachments), Recipients: []string{}}
 	let := letter{text: sm.Text, images: paths, quoted: texts, plain: true, window: true, owner: l.prov}
+	if len(joined) > 0 {
+		row, let = joinRows(joined, row, let)
+		sm.Text = let.text
+	}
 	// why: "queue" waits even at an idle prompt, so a continue queued at a usage limit goes when it resets.
 	immediate := (!busy(l.act.State) || l.act.Background) && m.How != "queue" || m.How == "now" || m.How == "steer"
 	formUp := l.p != nil && formHolds(l.prov, l.act, l.p.Snapshot()) || waits(l.act.State)

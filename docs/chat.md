@@ -37,17 +37,24 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
-- While the agent works, **Enter** sends the message into the running
-  turn, as typing it in the agent's terminal does: Claude Code takes it once
-  the running tool returns, Codex at once, Antigravity CLI through its Alt+M.
-  A slash command still waits for the turn to end.
-- **Ctrl+Enter** (Cmd+Enter on macOS) queues it above the box instead. When
-  the turn ends, everything queued goes as one prompt, a blank line between
-  messages. A slash command, a `!` command, and a message you marked **Send
-  separately** each go in a turn of their own, in their place. A line above
-  the queue says when the next messages go as one. `[chat] follow_up =
-  "queue"` swaps the two keys. In a New task chat whose agent takes
-  nothing mid-turn, Send now stops the turn and sends the message first, and
+- While the agent works, **Enter** queues the message above the box. It
+  shows there at once, under a line that says it goes when the turn ends.
+  When the turn ends, everything queued goes as one prompt, a blank line
+  between messages. A slash command, a `!` command, and a message you marked
+  **Send separately** each go in a turn of their own, in their place. A line
+  above the queue says when the next messages go as one.
+- **Ctrl+Enter** (Cmd+Enter on macOS) steers instead: the message goes into
+  the running turn now, as typing it in the agent's terminal does, with
+  every queued message ahead of it, in order, as one message, and the queue
+  empties. A queued slash or `!` command keeps its place. On an empty box
+  Ctrl+Enter steers the queue alone; while the agent is idle it sends with
+  the queue first. Claude Code takes a steer once the running tool returns,
+  Codex at once, Antigravity CLI through its Alt+M, in pane chats and New
+  task chats. An agent that takes nothing mid-turn, as a New task
+  Antigravity chat, queues on Ctrl+Enter too and says so; nothing stops its
+  turn. `[chat] follow_up = "steer"` swaps the two keys. The box's
+  placeholder names them. In a New task chat whose agent takes nothing
+  mid-turn, Send now on a queued row stops the turn and sends it first, and
   its tooltip says so.
 - Point at a queued message for **Send now**, **Edit** (back into the box),
   **Move up**, **Move down**, **Send separately** and **Remove**. More than

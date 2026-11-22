@@ -211,7 +211,8 @@ func TestFollowUp(t *testing.T) {
 	}{
 		{false, true, true, "hi", false, "queue"},
 		{false, true, true, "hi", true, "now"},
-		{false, false, true, "hi", true, "now"}, // Ctrl+Enter stops and sends, as before
+		{false, false, true, "hi", true, "queue"},    // to an agent that takes nothing mid-turn Ctrl+Enter queues, never stops the turn
+		{false, true, true, "/compact", true, "now"}, // the steer key sends a command at once
 		{false, true, false, "hi", true, "steer"},
 		{true, true, true, "hi", false, "now"},
 		{true, true, false, "hi", false, "steer"},
