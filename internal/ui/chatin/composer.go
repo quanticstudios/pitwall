@@ -1256,10 +1256,13 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, chips),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if !metered {
-					return layout.Dimensions{}
+				if metered {
+					return c.meter(gtx, th, used, total)
 				}
-				return c.meter(gtx, th, used, total)
+				if win, ok := meterWindow(env.Snap.Usage); ok {
+					return c.meterUnknown(gtx, th, win)
+				}
+				return layout.Dimensions{}
 			}),
 			layout.Rigid(layout.Spacer{Width: theme.SpaceXS}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1404,6 +1407,64 @@ func (c *Composer) meter(gtx layout.Context, th *theme.Theme, used, total int64)
 			line(medium(th.UIFont), th.Sp(theme.Small), th.Muted, "Context"),
 			line(th.UIFont, th.Sp(theme.Body), th.Fg, Tokens(used)+" of "+Tokens(total)+" tokens, "+itoa(pct)+"%"),
 			line(th.UIFont, th.Sp(theme.Small), th.Muted, room),
+			line(th.UIFont, th.Sp(theme.Small), th.Muted, Tokens(total)+" window"),
+		)
+	})
+	return d
+}
+
+// meterUnknown is the context meter when the window is known but the
+// current context usage is unknown, as right after a compaction that did
+// not report post-compaction tokens: an empty ring and a muted dash in the
+// same slot, never a stale percentage.
+func (c *Composer) meterUnknown(gtx layout.Context, th *theme.Theme, total int64) layout.Dimensions {
+	col := th.Muted
+	gtx.Constraints.Min = image.Point{}
+	d := c.meterBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		semantic.LabelOp("Context unknown").Add(gtx.Ops)
+		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
+		m := op.Record(gtx.Ops)
+		rd := row(gtx, gtx.Dp(6), h,
+			func(gtx layout.Context) layout.Dimensions {
+				track := th.BorderStrong
+				if c.meterBtn.Hovered() || c.meterBtn.Pressed() {
+					track = theme.Mix(th.Hover, th.Muted, 0.45)
+				}
+				return ring(gtx, gtx.Dp(14), 0, track, col)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				f, sz := medium(th.UIFont), th.Sp(theme.Small)
+				m := op.Record(gtx.Ops)
+				slot := text(gtx, th, f, sz, col, "100%").Size.X
+				m.Stop()
+				m = op.Record(gtx.Ops)
+				d := text(gtx, th, f, sz, col, "—")
+				call := m.Stop()
+				w := max(slot, d.Size.X)
+				o := op.Offset(image.Pt(w-d.Size.X, 0)).Push(gtx.Ops)
+				call.Add(gtx.Ops)
+				o.Pop()
+				return layout.Dimensions{Size: image.Pt(w, d.Size.Y), Baseline: d.Baseline}
+			})
+		call := m.Stop()
+		size := image.Pt(rd.Size.X+2*pad, h)
+		ghostFill(gtx, th, &c.meterBtn, size)
+		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		return layout.Dimensions{Size: size}
+	})
+	c.hoverCard(gtx, th, &c.meterBtn, d.Size, true, func(gtx layout.Context) layout.Dimensions {
+		line := func(f font.Font, size unit.Sp, col color.NRGBA, s string) layout.FlexChild {
+			return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Bottom: theme.Space2XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return text(gtx, th, f, size, col, s)
+				})
+			})
+		}
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			line(medium(th.UIFont), th.Sp(theme.Small), th.Muted, "Context"),
+			line(th.UIFont, th.Sp(theme.Body), th.Fg, "Updated on next reply"),
 			line(th.UIFont, th.Sp(theme.Small), th.Muted, Tokens(total)+" window"),
 		)
 	})

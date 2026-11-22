@@ -108,6 +108,12 @@ func (d *driver) notify(method string, params json.RawMessage) {
 	case "thread/tokenUsage/updated":
 		d.usage(params)
 
+	case "thread/compacted":
+		var n struct{ ThreadID string }
+		if json.Unmarshal(params, &n) == nil && (n.ThreadID == "" || n.ThreadID == d.currentThread()) {
+			d.resetContext()
+		}
+
 	case "account/rateLimits/updated":
 		d.limit(params)
 
@@ -158,6 +164,26 @@ func (d *driver) currentModel() string {
 	return d.model
 }
 
+func (d *driver) currentThread() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.thread
+}
+
+// resetContext clears ContextTokens after a compaction while keeping the
+// running totals and known window, so the meter shows a neutral state until
+// the next thread/tokenUsage/updated.
+func (d *driver) resetContext() {
+	if d.lastUsage == nil {
+		return
+	}
+	e := *d.lastUsage
+	e.CreatedAt = ""
+	e.ContextTokens = nil
+	d.lastUsage = nil
+	d.post(e)
+}
+
 // item handles an item starting or ending: tool items become tool calls,
 // a finished agent message its text unless deltas already streamed it.
 func (d *driver) item(raw json.RawMessage, completed bool) {
@@ -204,6 +230,14 @@ func (d *driver) item(raw json.RawMessage, completed bool) {
 			c.Output = it.AggregatedOutput
 		}
 		d.postTool(c)
+		return
+	}
+	if it.Type == "contextCompaction" {
+		if !completed {
+			return
+		}
+		d.post(session.Event{Type: session.EventContent, ItemID: it.ID, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"})
+		d.resetContext()
 		return
 	}
 	if it.Type != "agentMessage" {
@@ -288,7 +322,6 @@ func (d *driver) usage(params json.RawMessage) {
 		InputTokens:       total.InputTokens,
 		OutputTokens:      total.OutputTokens,
 		CachedInputTokens: &total.CachedInputTokens,
-		ContextTokens:     &n.TokenUsage.Last.TotalTokens,
 		Report: &session.UsageReport{
 			ID:        n.TurnID,
 			ScopeID:   thread,
@@ -298,8 +331,19 @@ func (d *driver) usage(params json.RawMessage) {
 			Models:    []session.ModelUsage{m},
 		},
 	}
+	if n.TokenUsage.Last.TotalTokens > 0 {
+		ctx := n.TokenUsage.Last.TotalTokens
+		e.ContextTokens = &ctx
+	}
 	if w := n.TokenUsage.ModelContextWindow; w != nil && *w > 0 {
 		e.MaxTokens = w
+	}
+	if e.ContextTokens != nil {
+		saved := e
+		saved.Report = nil
+		d.lastUsage = &saved
+	} else {
+		d.lastUsage = nil
 	}
 	d.post(e)
 }

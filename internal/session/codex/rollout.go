@@ -20,10 +20,13 @@ import (
 // Codex logs an item only once it ends, so a running command shows when
 // it finishes.
 type Rollout struct {
-	turn   string // the running turn's id; "" while idle
-	asked  string // the open request's id, "" for none
-	model  string
-	effort string
+	turn       string // the running turn's id; "" while idle
+	asked      string // the open request's id, "" for none
+	model      string
+	effort     string
+	total      tokenCounts // running totals from the latest token_count
+	window     int64       // model_context_window from the latest token_count
+	hasContext bool        // true while the snapshot holds a known ContextTokens
 }
 
 func NewRollout() *Rollout { return &Rollout{} }
@@ -144,16 +147,28 @@ func (r *Rollout) Line(b []byte) []session.Event {
 	case "event_msg/item_completed":
 		out = r.item(p.Item, p.TurnID, p.StartedMS, p.CompletedMS)
 	case "event_msg/token_count":
-		if p.Info == nil || p.Info.Last.Total == 0 {
+		if p.Info == nil {
 			return nil
 		}
+		r.total = p.Info.Total
+		if p.Info.Window > 0 {
+			r.window = p.Info.Window
+		}
+		if p.Info.Last.Total == 0 {
+			out = r.resetContext()
+			break
+		}
+		r.hasContext = true
 		ctx, cached := p.Info.Last.Total, p.Info.Total.Cached
 		e := session.Event{Type: session.EventUsage, InputTokens: p.Info.Total.Input, OutputTokens: p.Info.Total.Output,
 			CachedInputTokens: &cached, ContextTokens: &ctx}
-		if w := p.Info.Window; w > 0 {
+		if r.window > 0 {
+			w := r.window
 			e.MaxTokens = &w
 		}
 		out = []session.Event{e}
+	case "event_msg/context_compacted", "compacted/":
+		out = r.resetContext()
 	case "event_msg/thread_settings_applied":
 		if s := p.Settings; s != nil {
 			out = r.settings(s.Model, cmp.Or(s.Effort, s.Collab.Settings.Effort))
@@ -306,9 +321,28 @@ func (r *Rollout) item(raw json.RawMessage, turn string, startMS, endMS int64) [
 		in, _ := json.Marshal(map[string]string{"file_path": strings.TrimPrefix(it.Path, "file://")})
 		return tool(session.ToolCall{CallID: it.ID, ToolName: "Read", Input: in})
 	case "ContextCompaction":
-		return []session.Event{{Type: session.EventContent, ItemID: it.ID, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
+		out := []session.Event{{Type: session.EventContent, ItemID: it.ID, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
+		return append(out, r.resetContext()...)
 	}
 	return nil // review mode, subagents, hook prompts: shortcut: not shown yet
+}
+
+// resetContext clears the snapshot's ContextTokens after a compaction while
+// keeping the running totals and known context window, so the meter drops to
+// its neutral state until the next token_count.
+func (r *Rollout) resetContext() []session.Event {
+	if !r.hasContext {
+		return nil
+	}
+	r.hasContext = false
+	cached := r.total.Cached
+	e := session.Event{Type: session.EventUsage, InputTokens: r.total.Input, OutputTokens: r.total.Output,
+		CachedInputTokens: &cached}
+	if r.window > 0 {
+		w := r.window
+		e.MaxTokens = &w
+	}
+	return []session.Event{e}
 }
 
 // text joins a message item's text parts.

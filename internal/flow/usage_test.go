@@ -114,3 +114,38 @@ func TestUsageAdd(t *testing.T) {
 		t.Errorf("usage = %+v, want the fuller context", u)
 	}
 }
+
+// TestCompactContextReset checks that Claude compact_boundary (with and
+// without postTokens) and Codex compaction update or clear flow.Usage.Context
+// so the Flow panel meter never stays at a stale pre-compaction fill.
+func TestCompactContextReset(t *testing.T) {
+	b := newBuilder(model.ProviderClaude)
+	var cl claude
+	cl.line(b, []byte(`{"type":"assistant","timestamp":"2026-11-22T16:39:14Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"alpha"}],"usage":{"input_tokens":1000,"cache_creation_input_tokens":69000,"cache_read_input_tokens":800000,"output_tokens":50}}}`))
+	if b.usage.Context != 870_000 {
+		t.Fatalf("claude pre-compact context = %d, want 870000", b.usage.Context)
+	}
+	cl.line(b, []byte(`{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-22T16:39:18Z","compactMetadata":{"trigger":"manual","preTokens":870000,"postTokens":6213}}`))
+	if b.usage.Context != 6213 {
+		t.Fatalf("claude post-compact context = %d, want 6213", b.usage.Context)
+	}
+	cl.line(b, []byte(`{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-22T16:39:25Z","compactMetadata":{"trigger":"auto","preTokens":6213}}`))
+	if b.usage.Context != 0 {
+		t.Fatalf("claude compact without postTokens: context = %d, want 0", b.usage.Context)
+	}
+	if _, ok := b.usage.Fill(); ok {
+		t.Error("claude Fill() ok after unknown-post compaction, want false")
+	}
+
+	b2 := newBuilder(model.ProviderCodex)
+	var cx codex
+	cx.line(b2, []byte(`{"timestamp":"2026-11-22T16:00:00Z","type":"turn_context","payload":{"model":"gpt-6.1-sol"}}`))
+	cx.line(b2, []byte(`{"timestamp":"2026-11-22T16:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"output_tokens":500},"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"output_tokens":500},"model_context_window":258400}}}`))
+	if b2.usage.Context != 200_000 {
+		t.Fatalf("codex pre-compact context = %d, want 200000", b2.usage.Context)
+	}
+	cx.line(b2, []byte(`{"timestamp":"2026-11-22T16:00:02Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"ContextCompaction","id":"c1"}}}`))
+	if b2.usage.Context != 0 {
+		t.Fatalf("codex post-compact context = %d, want 0", b2.usage.Context)
+	}
+}

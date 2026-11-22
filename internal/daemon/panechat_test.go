@@ -606,3 +606,163 @@ func TestPaneChatRewindReadAfresh(t *testing.T) {
 		t.Errorf("items %q: want the rewound branch's turns gone and the live ones kept", got)
 	}
 }
+
+// TestPaneChatCompactContext checks real Claude Code 2.1.330 compaction
+// boundary shapes: with postTokens the meter drops immediately to the
+// reported count; without postTokens it drops to unknown (ContextTokens nil,
+// MaxTokens preserved) until the next assistant line; sidechain boundaries
+// are ignored; and retail/rewrite resets pc.ctx instead of keeping a stale
+// value.
+func TestPaneChatCompactContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	pre := `{"parentUuid":null,"isSidechain":false,"type":"user","uuid":"u1","timestamp":"2026-11-22T16:39:13.000Z","message":{"role":"user","content":"Reply with: alpha"}}
+{"parentUuid":"u1","isSidechain":false,"message":{"model":"claude-opus-5-5","id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"alpha"}],"stop_reason":"end_turn","usage":{"input_tokens":1000,"cache_creation_input_tokens":69000,"cache_read_input_tokens":800000,"output_tokens":50}},"type":"assistant","uuid":"a1","timestamp":"2026-11-22T16:39:14.624Z","sessionId":"s1","version":"2.1.330"}
+`
+	if err := os.WriteFile(path, []byte(pre), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 870_000 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("before compact: usage %+v, want 870000 of 1M", u)
+	}
+
+	// A sidechain compact_boundary leaves the main thread's context intact.
+	appendLine := func(s string) {
+		t.Helper()
+		fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fh.WriteString(s); err != nil {
+			fh.Close()
+			t.Fatal(err)
+		}
+		fh.Close()
+	}
+	appendLine(`{"parentUuid":null,"isSidechain":true,"type":"system","subtype":"compact_boundary","uuid":"sc1","timestamp":"2026-11-22T16:39:15.000Z","compactMetadata":{"trigger":"auto","preTokens":50000,"postTokens":2000}}` + "\n")
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 870_000 {
+		t.Fatalf("after sidechain compact: usage %+v, want 870000 unchanged", u)
+	}
+
+	// Real Claude Code 2.1.330 compact_boundary with compactMetadata.postTokens.
+	appendLine(`{"parentUuid":null,"logicalParentUuid":"a1","isSidechain":false,"type":"system","subtype":"compact_boundary","content":"Conversation compacted","isMeta":false,"timestamp":"2026-11-22T16:39:18.632Z","uuid":"cb1","level":"info","compactMetadata":{"trigger":"manual","preTokens":870000,"preCompactOrganizationsCoverStart":true,"durationMs":3983,"postTokens":6213,"cumulativeDroppedTokens":863787},"sessionId":"s1","version":"2.1.330"}
+{"parentUuid":"cb1","isSidechain":false,"type":"user","message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context.\n\nSummary:\n1. Replied alpha."},"isVisibleInTranscriptOnly":true,"isCompactSummary":true,"uuid":"cs1","timestamp":"2026-11-22T16:39:18.633Z","sessionId":"s1"}
+`)
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 6213 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("after compact with postTokens: usage %+v, want 6213 of 1M", u)
+	}
+
+	// A compact_boundary without postTokens drops context to unknown (nil)
+	// while keeping the window size until the next assistant reply.
+	appendLine(`{"parentUuid":null,"logicalParentUuid":"cs1","isSidechain":false,"type":"system","subtype":"compact_boundary","content":"Conversation compacted","timestamp":"2026-11-22T16:39:25.000Z","uuid":"cb2","level":"info","compactMetadata":{"trigger":"auto","preTokens":6213},"sessionId":"s1"}` + "\n")
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("after compact without postTokens: usage %+v, want ContextTokens nil and MaxTokens 1M", u)
+	}
+
+	// The next assistant line restores the real usage.
+	appendLine(`{"parentUuid":"cb2","isSidechain":false,"type":"user","uuid":"u2","timestamp":"2026-11-22T16:39:29.000Z","message":{"role":"user","content":"Reply with: beta"}}
+{"parentUuid":"u2","isSidechain":false,"message":{"model":"claude-opus-5-5","id":"msg_2","type":"message","role":"assistant","content":[{"type":"text","text":"beta"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":11841,"cache_read_input_tokens":14442,"output_tokens":35}},"type":"assistant","uuid":"a2","timestamp":"2026-11-22T16:39:30.000Z","sessionId":"s1","version":"2.1.330"}
+`)
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 26285 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("after next reply: usage %+v, want 26285 of 1M", u)
+	}
+
+	// A rewritten/shorter transcript (retail) resets pc.ctx so no stale
+	// count leaks into the fresh snapshot.
+	if err := os.WriteFile(path, []byte(`{"type":"user","uuid":"u3","timestamp":"2026-11-22T16:40:00.000Z","message":{"role":"user","content":"fresh"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.catchUp(paneLive{p: &fakePane{}})
+	if pc.snap.Usage != nil || pc.ctx != 0 {
+		t.Fatalf("after rewrite: usage %+v, ctx %d; want nil and 0", pc.snap.Usage, pc.ctx)
+	}
+}
+
+// TestPaneChatClearAndNewSessionResetsContext checks that /clear (new
+// transcript path), exiting and starting a new agent in the same pane, and
+// switching providers all deliver a fresh snapshot with Usage nil even when
+// the client already holds a non-zero seq from the previous session.
+func TestPaneChatClearAndNewSessionResetsContext(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "s1.jsonl")
+	oldLines := `{"type":"user","uuid":"p1","timestamp":"2026-11-22T16:00:00Z","message":{"role":"user","content":"hi"}}
+{"type":"assistant","uuid":"a1","timestamp":"2026-11-22T16:00:01Z","message":{"id":"m1","model":"claude-opus-5-5","content":[{"type":"text","text":"hello"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":69900,"cache_read_input_tokens":800000,"output_tokens":20}}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-11-22T16:00:02Z"}
+`
+	if err := os.WriteFile(oldPath, []byte(oldLines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Transcript = oldPath
+	d.mu.Unlock()
+
+	snap, seq := paneRead(t, d, "a", session.Snapshot{}, 0)
+	if snap.Usage == nil || snap.Usage.ContextTokens == nil || *snap.Usage.ContextTokens != 870_000 {
+		t.Fatalf("initial usage %+v, want 870000", snap.Usage)
+	}
+
+	// /clear points the pane at a new, empty transcript (or one that already
+	// has events without usage): the next poll after seq must get a fresh
+	// snapshot with Usage nil, never stale deltas or stale 87%.
+	newPath := filepath.Join(dir, "s2.jsonl")
+	if err := os.WriteFile(newPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Transcript = newPath
+	d.mu.Unlock()
+
+	snap, seq = paneRead(t, d, "a", snap, seq)
+	if snap.Usage != nil {
+		t.Fatalf("after /clear: usage %+v, want nil", snap.Usage)
+	}
+
+	// Even when the new session immediately writes more lines than the old
+	// session's seq before the window polls, paneChatSeq ensures the client
+	// receives a fresh snapshot with no stale usage.
+	d.mu.Lock()
+	d.st.Panes[0].Transcript = oldPath
+	d.mu.Unlock()
+	snap, seq = paneRead(t, d, "a", snap, seq)
+	if snap.Usage == nil || snap.Usage.ContextTokens == nil || *snap.Usage.ContextTokens != 870_000 {
+		t.Fatalf("back on oldPath: usage %+v", snap.Usage)
+	}
+	freshPath := filepath.Join(dir, "s3.jsonl")
+	var fresh strings.Builder
+	for i := range 20 {
+		fresh.WriteString(`{"type":"user","uuid":"np` + strconv.Itoa(i) + `","timestamp":"2026-11-22T16:10:00Z","message":{"role":"user","content":"prompt ` + strconv.Itoa(i) + `"}}` + "\n")
+	}
+	if err := os.WriteFile(freshPath, []byte(fresh.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Transcript = freshPath
+	d.mu.Unlock()
+	snap, seq = paneRead(t, d, "a", snap, seq)
+	if snap.Usage != nil {
+		t.Fatalf("after new session with many lines: usage %+v, want nil", snap.Usage)
+	}
+
+	// Switching the pane to Antigravity (or exiting and starting a new agent)
+	// with a CHECKPOINT compaction also leaves no stale usage.
+	agyPath := filepath.Join(dir, "agy.jsonl")
+	if err := os.WriteFile(agyPath, []byte(`{"step_index":0,"type":"USER_INPUT","content":"<USER_REQUEST>\nhi\n</USER_REQUEST>"}
+{"step_index":1,"type":"CHECKPOINT","status":"DONE"}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Provider = model.ProviderAntigravity
+	d.st.Panes[0].Transcript = agyPath
+	d.mu.Unlock()
+	snap, _ = paneRead(t, d, "a", snap, seq)
+	if snap.Provider != model.ProviderAntigravity || snap.Usage != nil {
+		t.Fatalf("after switching to agy: provider %q usage %+v, want antigravity and nil", snap.Provider, snap.Usage)
+	}
+}

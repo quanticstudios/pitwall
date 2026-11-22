@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The desktop chat's context meter drops at once when a conversation compacts or clears instead of holding the pre-compaction percentage until the next reply. On Claude Code's `compact_boundary` (in pane chats, New task chats over stream-json, and the Flow panel), it uses the reported post-compaction token count when present or shows a neutral unknown state (`—`) until the next reply; Codex rollouts and app-server chats clear it on compaction and zeroed `token_count` events; and `/clear` or a new session in the same pane resets the meter immediately.
 - While the agent works, Enter in the desktop chat now sends a message into the running turn, where the agent takes it at its next step, as a message typed in its terminal does; before, it waited in pitwall's queue until the turn ended, which could be many minutes. Ctrl+Enter queues it instead, and `[chat] follow_up = "queue"` brings back the old keys.
 - A Claude Code pane chat no longer shows a status line printed under Claude's spinner, such as "full $51.43 last $0.31 1h 32m", as the agent's reply: the reply read off the screen stops at the spinner row.
 - A Claude Code pane chat shows "Compacting conversation…" while Claude compacts, from its spinner row, for a /compact as well as an automatic one, until the compaction lands.

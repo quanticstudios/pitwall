@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gioui.org/io/key"
@@ -65,13 +66,15 @@ type paneChat struct {
 	tr      paneReader
 	snap    session.Snapshot
 	seq     int64
+	lastSeq atomic.Int64 // mirrors seq for lock-free reads from paneChatOf
 	recent  []session.Delta
 	// recentSize is the bytes of recent's JSON (keepRecent).
 	recentSize int
 	footer     bool          // the TUI's footer gave the mode at least once
 	tui        phoneSettings // the TUI's model and effort as last put in the snapshot
 	conf       *string       // the effort in Claude Code's user settings, read once
-	ctx        int64         // tokens in context at the last assistant message, 0 before one
+	ctx        int64         // tokens in context at the last assistant or compact_boundary line, 0 when unknown
+	ctxReset   bool          // a compaction without postTokens cleared ctx until the next assistant usage
 	model      string        // that message's model
 	moded      bool          // the chat showed a mode: a change after it gets a divider
 	// replied: the running turn has Claude's own output, so a hook saying
@@ -222,10 +225,23 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	for k := range d.paneChats {
 		if d.panes[k] == nil {
 			delete(d.paneChats, k)
+			delete(d.paneChatSeq, k)
+		}
+	}
+	noteSeq := func(id string, old *paneChat) {
+		if old == nil {
+			return
+		}
+		if s := old.lastSeq.Load(); s > d.paneChatSeq[id] {
+			if d.paneChatSeq == nil {
+				d.paneChatSeq = map[string]int64{}
+			}
+			d.paneChatSeq[id] = s
 		}
 	}
 	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
 	if i < 0 || d.chats[id] != nil || !model.PaneChat(d.st.Panes[i]) || d.panes[id] == nil {
+		noteSeq(id, d.paneChats[id])
 		delete(d.paneChats, id)
 		return nil, paneLive{}, false
 	}
@@ -243,6 +259,7 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		l.home = homeOf(p.Env)
 	}
 	if pc == nil || pc.path != l.path || pc.prov != p.Provider { // a new session (claude again, /clear, /resume) starts over
+		noteSeq(id, pc)
 		mode := "default"
 		if p.Provider == model.ProviderAntigravity {
 			mode = "" // why: agy's mode is its footer's; until the chat has read it, the chip shows none rather than a guess
@@ -250,6 +267,11 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		pc = &paneChat{id: id, path: l.path, prov: p.Provider,
 			snap: session.Snapshot{SessionID: id, PaneID: id, WorkspaceID: p.WorkspaceID, Provider: p.Provider,
 				SessionState: session.StateReady, Running: true, PermissionMode: mode, InteractionMode: "build"}}
+		if prev := d.paneChatSeq[id]; prev > 0 {
+			pc.seq = prev + 1
+			pc.lastSeq.Store(pc.seq)
+			pc.snap.Revision = pc.seq
+		}
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			pc.limit = d.claudeLimit(w.Profile)
 		} else {
@@ -501,6 +523,7 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
 		pc.start, pc.off, pc.pages, pc.agents, pc.at, pc.lineAt, pc.tip = start, start, nil, nil, nil, nil, ""
+		pc.ctx, pc.model, pc.ctxReset = 0, "", false
 		pc.tui = phoneSettings{}                             // the new snapshot lacks the TUI's model until settings puts it back
 		defer func() { pc.recent, pc.recentSize = nil, 0 }() // no reader holds what this replays: each gets a snapshot
 	}
@@ -528,7 +551,9 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 	for line := range bytes.SplitSeq(b[:end], []byte("\n")) {
 		pc.cur, next = next, next+int64(len(line))+1
 		if t, m, ok := contextUsage(line); ok {
-			pc.ctx, pc.model = t, m
+			pc.ctx, pc.model, pc.ctxReset = t, m, false
+		} else if post, ok := compactContext(line); ok {
+			pc.ctx, pc.ctxReset = post, post == 0
 		}
 		es := pc.tr.Line(line)
 		pc.branched(line, es)
@@ -541,9 +566,15 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 				pc.replied = pc.replied || es[i].Kind != session.KindToolCall || !slices.ContainsFunc(pc.snap.Content, func(it session.Item) bool { return it.ID == es[i].ItemID })
 			}
 			// A turn's usage report says the context as the meter reads it.
-			if es[i].Type == session.EventUsage && pc.ctx > 0 {
-				ctx, w := pc.ctx, contextWindow(pc.model, tui, pc.ctx)
-				es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
+			if es[i].Type == session.EventUsage {
+				switch {
+				case pc.ctx > 0:
+					ctx, w := pc.ctx, contextWindow(pc.model, tui, pc.ctx)
+					es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
+				case pc.ctxReset:
+					w := contextWindow(pc.model, tui, 0)
+					es[i].ContextTokens, es[i].MaxTokens = nil, &w
+				}
 			}
 		}
 		pc.reduce(es)
@@ -776,13 +807,63 @@ func (pc *paneChat) settings(l paneLive) {
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: b}}, session.Stamp(time.Now()))
 	}
 	if pc.ctx == 0 {
+		if pc.ctxReset {
+			if u := pc.snap.Usage; u != nil && u.ContextTokens != nil {
+				w := contextWindow(pc.model, l.tui.model, 0)
+				if u.MaxTokens != nil && *u.MaxTokens > 0 {
+					w = *u.MaxTokens
+				}
+				pc.reduce([]session.Event{{Type: session.EventUsage, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+					CachedInputTokens: u.CachedInputTokens, MaxTokens: &w}})
+			}
+		}
 		return
 	}
 	w := contextWindow(pc.model, l.tui.model, pc.ctx)
 	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != pc.ctx || u.MaxTokens == nil || *u.MaxTokens != w {
 		ctx := pc.ctx
-		pc.reduce([]session.Event{{Type: session.EventUsage, ContextTokens: &ctx, MaxTokens: &w}})
+		e := session.Event{Type: session.EventUsage, ContextTokens: &ctx, MaxTokens: &w}
+		if u != nil {
+			e.InputTokens, e.OutputTokens, e.CachedInputTokens = u.InputTokens, u.OutputTokens, u.CachedInputTokens
+		}
+		pc.reduce([]session.Event{e})
 	}
+}
+
+// compactContext reports a main-thread Claude compaction boundary line and
+// the post-compaction token count it reports (0 when absent, so the meter
+// drops to unknown until the next reply).
+func compactContext(line []byte) (int64, bool) {
+	if !bytes.Contains(line, []byte(`"compact_boundary"`)) {
+		return 0, false
+	}
+	var l struct {
+		Type            string `json:"type"`
+		Subtype         string `json:"subtype"`
+		IsSidechain     bool   `json:"isSidechain"`
+		CompactMetadata *struct {
+			PostTokens  int64 `json:"postTokens"`
+			PostTokens2 int64 `json:"post_tokens"`
+		} `json:"compactMetadata"`
+		CompactMetadata2 *struct {
+			PostTokens  int64 `json:"postTokens"`
+			PostTokens2 int64 `json:"post_tokens"`
+		} `json:"compact_metadata"`
+	}
+	if json.Unmarshal(line, &l) != nil || l.Type != "system" || l.Subtype != "compact_boundary" || l.IsSidechain {
+		return 0, false
+	}
+	var post int64
+	if m := l.CompactMetadata; m != nil {
+		post = cmp.Or(m.PostTokens, m.PostTokens2)
+	}
+	if m := l.CompactMetadata2; post <= 0 && m != nil {
+		post = cmp.Or(m.PostTokens, m.PostTokens2)
+	}
+	if post < 0 {
+		post = 0
+	}
+	return post, true
 }
 
 // contextUsage is the tokens in context at a main-thread assistant line of
@@ -895,6 +976,7 @@ func (pc *paneChat) commit(ds []session.Delta, stamp string) {
 			continue
 		}
 		pc.snap, pc.seq = n, dl.Seq
+		pc.lastSeq.Store(pc.seq)
 		pc.recent, pc.recentSize = keepRecent(pc.recent, pc.recentSize, dl, 0)
 	}
 	pc.at = pc.at[:min(len(pc.at), len(pc.snap.Content))]

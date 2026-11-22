@@ -71,10 +71,11 @@ type driver struct {
 
 	// What the stream has shown so far; only the reading goroutine of the
 	// running server touches these.
-	tools    map[string]*session.ToolCall
-	phases   map[string]string
-	streamed map[string]bool
-	unknown  map[string]bool
+	tools     map[string]*session.ToolCall
+	phases    map[string]string
+	streamed  map[string]bool
+	unknown   map[string]bool
+	lastUsage *session.Event // last EventUsage with ContextTokens, without Report
 
 	requests map[string]request // under mu: open server requests by the request id pitwall gave them
 }
@@ -151,7 +152,7 @@ func (d *driver) start(ctx context.Context, from session.Origin) error {
 	}
 	d.p = p
 	d.mu.Unlock()
-	d.tools, d.phases, d.streamed, d.unknown = map[string]*session.ToolCall{}, map[string]string{}, map[string]bool{}, map[string]bool{}
+	d.tools, d.phases, d.streamed, d.unknown, d.lastUsage = map[string]*session.ToolCall{}, map[string]string{}, map[string]bool{}, map[string]bool{}, nil
 	d.post(session.Event{Type: session.EventStarted})
 	go d.read(p, stdout)
 

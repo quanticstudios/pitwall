@@ -294,6 +294,10 @@ type Daemon struct {
 	phoneSettings map[string]phoneSettings
 	// paneChats are the pane chats a window read, by pane id (panechat.go).
 	paneChats map[string]*paneChat
+	// paneChatSeq is the highest seq a replaced or dropped pane chat reached,
+	// so a new session in the same pane (/clear, /resume, restart) always
+	// sends a fresh snapshot rather than matching a client's old seq.
+	paneChatSeq map[string]int64
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
