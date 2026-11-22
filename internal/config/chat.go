@@ -23,7 +23,7 @@ const (
 	ToolsZen    = "zen"
 )
 
-// ToolModes are [chat] tool_calls' values, in the order the header cycles them.
+// ToolModes are [chat] tool_calls' values, in the order the header lists them.
 var ToolModes = []string{ToolsAll, ToolsFailed, ToolsNone, ToolsZen}
 
 // Chat column widths in dp.

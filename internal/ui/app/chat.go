@@ -82,11 +82,14 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	defer cl.Pop()
 	defer op.Offset(in.Min).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(in.Size())
+	if u.keysHeld(st) || u.nav.peek != "" || tui != nil {
+		u.chatHead.closeTools()
+	}
 	head := u.layoutChatHead(gtx, st, ws)
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints.Max.Y = max(0, gtx.Constraints.Max.Y-head)
 	gtx.Constraints.Min.Y = min(gtx.Constraints.Min.Y, gtx.Constraints.Max.Y)
-	u.chatBody(gtx, st, ch, ws.Chat, ws, tui == nil, func() { u.toggleChatTerminal(st, ws) })
+	u.chatBody(gtx, st, ch, ws.Chat, ws, tui == nil && !u.chatHead.toolsOpen, func() { u.toggleChatTerminal(st, ws) })
 }
 
 // chatBody draws chat id's transcript with the composer under it, and

@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/io/event"
 	"gioui.org/io/input"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
@@ -218,34 +220,34 @@ func TestQueuedContinue(t *testing.T) {
 	}
 }
 
-// TestCycleTools: the header's Tools button steps all, failed, none,
-// zen and back to all, at once and in config.toml, all by removing the
-// key; the modes match the transcript's.
-func TestCycleTools(t *testing.T) {
+// TestSetTools: setTools applies every mode (all, failed, none, zen) at
+// once and writes config.toml, removing the key for all; the modes match
+// config.ToolModes and panel.Tools*.
+func TestSetTools(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	os.WriteFile(path, []byte("[chat]\nwidth = \"full\"\n"), 0o600)
 	u := &ui{}
 	u.cfg.Path = path
 	for _, want := range []string{config.ToolsFailed, config.ToolsNone, config.ToolsZen, config.ToolsAll} {
-		u.cycleTools()
+		u.setTools(want)
 		b, _ := os.ReadFile(path)
 		s, _ := config.LoadFile(path)
 		if u.cfg.Chat.ToolCalls != want || s.Chat.ToolCalls != want || !strings.Contains(string(b), `width = "full"`) {
-			t.Fatalf("after a click: %q, file %q:\n%s", u.cfg.Chat.ToolCalls, s.Chat.ToolCalls, b)
+			t.Fatalf("after setTools(%q): %q, file %q:\n%s", want, u.cfg.Chat.ToolCalls, s.Chat.ToolCalls, b)
 		}
 	}
 	if b, _ := os.ReadFile(path); strings.Contains(string(b), "tool_calls") {
 		t.Errorf("all left the key:\n%s", b)
 	}
-	if nextTools("") != config.ToolsFailed || nextTools("bogus") != config.ToolsFailed {
-		t.Error("an unset mode is all")
+	if toolsIndex("") != 0 || toolsIndex("bogus") != 0 {
+		t.Error("an unset or unknown mode is all")
 	}
 	for i, m := range []string{panel.ToolsAll, panel.ToolsFailed, panel.ToolsNone, panel.ToolsZen} {
-		if config.ToolModes[i] != m {
-			t.Errorf("mode %d: config %q, panel %q", i, config.ToolModes[i], m)
+		if config.ToolModes[i] != m || toolChoices[i].mode != m {
+			t.Errorf("mode %d: config %q, panel %q, choice %q", i, config.ToolModes[i], m, toolChoices[i].mode)
 		}
 	}
-	if got := toolsTip(config.ToolsZen); got != "Tool calls: zen, your messages and final replies. Click for all" {
+	if got := toolsTip(config.ToolsZen); got != "Tool calls: zen" {
 		t.Errorf("tip %q", got)
 	}
 	if toolsLabel("") != "Tools" || toolsLabel(config.ToolsNone) != "No tools" {
@@ -253,9 +255,11 @@ func TestCycleTools(t *testing.T) {
 	}
 }
 
-// TestToolsButton: the chat header's Tools button, on a New task chat tab
-// and a pane chat, cycles [chat] tool_calls from a real click and writes it.
-func TestToolsButton(t *testing.T) {
+// TestToolsDropdown: the chat header's Tools button, on a New task chat
+// tab and a pane chat, opens a dropdown instead of cycling on click;
+// clicking a choice, pressing Up/Down/Enter/Esc, clicking outside and
+// clicking the button again all behave as expected and persist config.toml.
+func TestToolsDropdown(t *testing.T) {
 	old := findAide
 	findAide = func() []string { return nil }
 	t.Cleanup(func() { findAide = old })
@@ -281,13 +285,13 @@ func TestToolsButton(t *testing.T) {
 		u.cfg.Path, u.cfg.Chat.ToolCalls = path, config.ToolsAll
 		var r input.Router
 		var ops op.Ops
-		frame := func(evs ...pointer.Event) {
-			for _, e := range evs {
-				r.Queue(e)
-			}
+		now := time.Now()
+		frame := func(evs ...event.Event) {
+			r.Queue(evs...)
 			ops.Reset()
+			now = now.Add(200 * time.Millisecond)
 			u.layout(gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
-				Constraints: gl.Exact(image.Pt(1600, 800)), Now: time.Now()})
+				Constraints: gl.Exact(image.Pt(1600, 800)), Now: now})
 			r.Frame(&ops)
 		}
 		st := b.State()
@@ -298,35 +302,147 @@ func TestToolsButton(t *testing.T) {
 		}
 		frame()
 		frame()
-		btn := func() *widget.Clickable {
+		head := func() *chatHead {
 			if tab {
-				return &u.chatHead.tools
+				return &u.chatHead
 			}
-			if h := u.paneHeads["h"]; h != nil {
+			return u.paneHeads["h"]
+		}
+		findClick := func(target func() *widget.Clickable, y0, y1 int) (f32.Point, bool) {
+			for y := y0; y < y1; y += 6 {
+				for x := 300; x < 1600; x += 10 {
+					p := f32.Pt(float32(x), float32(y))
+					frame(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: p})
+					if c := target(); c == nil || !c.Hovered() {
+						continue
+					}
+					frame(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: p})
+					frame(pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: p})
+					frame()
+					return p, true
+				}
+			}
+			return f32.Point{}, false
+		}
+		// 1. Clicking Tools opens the menu without cycling the mode.
+		triggerPos, clicked := findClick(func() *widget.Clickable {
+			if h := head(); h != nil {
 				return &h.tools
 			}
 			return nil
+		}, 4, 120)
+		h := head()
+		if !clicked || h == nil || !h.toolsOpen || u.cfg.Chat.ToolCalls != config.ToolsAll {
+			t.Fatalf("tab %v: click trigger: clicked=%v open=%v mode=%q", tab, clicked, h != nil && h.toolsOpen, u.cfg.Chat.ToolCalls)
 		}
-		clicked := false
-		for y := 4; y < 120 && !clicked; y += 4 {
-			for x := 300; x < 1600 && !clicked; x += 8 {
-				p := f32.Pt(float32(x), float32(y))
-				frame(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: p})
-				if c := btn(); c == nil || !c.Hovered() {
-					continue
-				}
-				frame(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: p})
-				frame(pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: p})
-				frame()
-				clicked = true
-			}
+		// 2. Clicking a menu item (None, index 2) picks it, persists config.toml, updates transcript, and closes.
+		if _, ok := findClick(func() *widget.Clickable { return &h.toolsItems[2] }, 40, 360); !ok {
+			t.Fatalf("tab %v: could not click menu item None", tab)
 		}
 		file, _ := os.ReadFile(path)
-		if !clicked || u.cfg.Chat.ToolCalls != config.ToolsFailed || !strings.Contains(string(file), `tool_calls = "failed"`) {
-			t.Errorf("tab %v: clicked %v, mode %q, file:\n%s", tab, clicked, u.cfg.Chat.ToolCalls, file)
+		if h.toolsOpen || u.cfg.Chat.ToolCalls != config.ToolsNone || !strings.Contains(string(file), `tool_calls = "none"`) {
+			t.Fatalf("tab %v: after picking None: open=%v mode=%q file=%q", tab, h.toolsOpen, u.cfg.Chat.ToolCalls, file)
 		}
-		if tr := u.transcripts[map[bool]string{true: "c1", false: "h"}[tab]]; tr == nil || tr.ToolCalls != config.ToolsFailed {
-			t.Errorf("tab %v: the transcript did not follow the click", tab)
+		chatID := map[bool]string{true: "c1", false: "h"}[tab]
+		if tr := u.transcripts[chatID]; tr == nil || tr.ToolCalls != config.ToolsNone {
+			t.Fatalf("tab %v: transcript did not follow pick", tab)
+		}
+		// 3. Reopen via trigger, navigate with Down/Up/Enter: None(2) -> Down -> Zen(3) -> Down -> All(0) -> Up -> Zen(3) -> Enter.
+		clickTrigger := func() f32.Point {
+			p, ok := findClick(func() *widget.Clickable {
+				if h := head(); h != nil {
+					return &h.tools
+				}
+				return nil
+			}, 4, 120)
+			if !ok {
+				t.Fatalf("tab %v: could not click Tools trigger", tab)
+			}
+			return p
+		}
+		_ = triggerPos
+		clickTrigger()
+		if !h.toolsOpen || h.toolsSel != 2 {
+			t.Fatalf("tab %v: reopen: open=%v sel=%d", tab, h.toolsOpen, h.toolsSel)
+		}
+		// Move pointer off the menu so hover does not override keyboard selection.
+		frame(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: f32.Pt(400, 400)})
+		press := func(name key.Name) {
+			frame(key.Event{Name: name, State: key.Press})
+		}
+		press(key.NameDownArrow) // -> 3 (Zen)
+		if h.toolsSel != 3 {
+			t.Fatalf("tab %v: after Down sel=%d, want 3", tab, h.toolsSel)
+		}
+		press(key.NameDownArrow) // -> 0 (All, wraps)
+		if h.toolsSel != 0 {
+			t.Fatalf("tab %v: after wrap Down sel=%d, want 0", tab, h.toolsSel)
+		}
+		press(key.NameUpArrow) // -> 3 (Zen, wraps back)
+		if h.toolsSel != 3 {
+			t.Fatalf("tab %v: after wrap Up sel=%d, want 3", tab, h.toolsSel)
+		}
+		press(key.NameReturn)
+		frame()
+		if h.toolsOpen || u.cfg.Chat.ToolCalls != config.ToolsZen {
+			t.Fatalf("tab %v: after Enter: open=%v mode=%q, want zen", tab, h.toolsOpen, u.cfg.Chat.ToolCalls)
+		}
+		// 4. Reopen, press Down, then Esc: closes without changing mode.
+		clickTrigger()
+		frame(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: f32.Pt(400, 400)})
+		press(key.NameDownArrow)
+		press(key.NameEscape)
+		frame()
+		if h.toolsOpen || u.cfg.Chat.ToolCalls != config.ToolsZen {
+			t.Fatalf("tab %v: after Esc: open=%v mode=%q, want zen", tab, h.toolsOpen, u.cfg.Chat.ToolCalls)
+		}
+		// 5. Reopen and click trigger again: toggles closed.
+		p := clickTrigger()
+		if !h.toolsOpen {
+			t.Fatalf("tab %v: failed to reopen", tab)
+		}
+		frame(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: p})
+		frame(pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: p})
+		frame()
+		if h.toolsOpen {
+			t.Fatalf("tab %v: second click on trigger did not close", tab)
+		}
+		// 6. Reopen and click outside the menu: closes without changing mode.
+		clickTrigger()
+		if !h.toolsOpen {
+			t.Fatalf("tab %v: failed to reopen for outside click", tab)
+		}
+		outside := f32.Pt(420, 420)
+		frame(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: outside})
+		frame(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: outside})
+		frame(pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: outside})
+		frame()
+		if h.toolsOpen || u.cfg.Chat.ToolCalls != config.ToolsZen {
+			t.Fatalf("tab %v: after outside click: open=%v mode=%q", tab, h.toolsOpen, u.cfg.Chat.ToolCalls)
+		}
+		// 7. After the dropdown closes, the composer regains keyboard focus.
+		frame(key.EditEvent{Text: "hi"})
+		if cmp := u.composers[chatID]; cmp == nil || cmp.Text() != "hi" {
+			t.Fatalf("tab %v: composer did not regain focus after closing dropdown: %q", tab, cmp.Text())
+		}
+		// 8. Esc while the dropdown is open on a running turn closes the menu and does not interrupt.
+		b.mu.Lock()
+		b.snap.Running = true
+		b.mu.Unlock()
+		clickTrigger()
+		if !h.toolsOpen {
+			t.Fatalf("tab %v: failed to open while running", tab)
+		}
+		sentBefore := len(b.Sent())
+		press(key.NameEscape)
+		frame()
+		if h.toolsOpen {
+			t.Fatalf("tab %v: Esc did not close dropdown while running", tab)
+		}
+		for _, m := range b.Sent()[sentBefore:] {
+			if _, ok := m.(proto.ChatInterrupt); ok {
+				t.Fatalf("tab %v: Esc on Tools dropdown interrupted the turn", tab)
+			}
 		}
 	}
 }
