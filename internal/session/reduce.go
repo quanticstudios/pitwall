@@ -116,7 +116,7 @@ func reduceContent(s Snapshot, e Event) ([]Delta, bool) {
 	if e.Tool != nil {
 		it.Tool = toolTimes(*e.Tool, nil, e.CreatedAt)
 	}
-	if last := len(s.Content) - 1; last >= 0 && it.Kind == KindAssistantText && s.Provider != model.ProviderCodex && it.TurnID != nil {
+	if last := len(s.Content) - 1; last >= 0 && it.Kind == KindAssistantText && s.Provider != model.ProviderCodex && s.Provider != model.ProviderAntigravity && it.TurnID != nil {
 		p := &s.Content[last]
 		if p.Kind == KindAssistantText && eq(p.TurnID, it.TurnID) && eq(p.Provider, it.Provider) && eq(p.Model, it.Model) {
 			if it.Text != "" {
