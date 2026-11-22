@@ -15,14 +15,18 @@ import (
 
 // Builtins are the commands Claude Code 2.1.330's own / menu lists before
 // a project's or user's: its built-ins and bundled skills, as its binary
-// describes them, less aliases, hidden ones and ones only some accounts
-// have. A description the binary builds at runtime is written here by
-// hand.
+// describes them, less aliases and hidden ones. Commands only some
+// accounts have are listed too: one missing here can't be picked from the
+// chat, while one an account lacks only gets Claude Code's own note. A
+// description the binary builds at runtime is written here by hand.
 var Builtins = []session.Command{
 	{Name: "add-dir", Description: "Add a working directory"},
 	{Name: "advisor", Description: "Let Claude consult a stronger model at key moments"},
+	{Name: "artifacts", Description: "Browse your published and shared artifacts"},
 	{Name: "auto-mode-setup", Description: "Teach auto mode about your environment"},
 	{Name: "autocompact", Description: "Set how full the context gets before auto-summarizing"},
+	{Name: "autofix-pr", Description: "Monitor and autofix any issues with the current PR"},
+	{Name: "background", Description: "Send this session to the background and free the terminal", Aliases: []string{"bg"}},
 	{Name: "batch", Description: "Plan a large change; background agents each open a PR"},
 	{Name: "branch", Description: "Create a branch of the current conversation at this point"},
 	{Name: "btw", Description: "Ask a side question without interrupting Claude"},
@@ -35,7 +39,9 @@ var Builtins = []session.Command{
 	{Name: "config", Description: "Open settings", Aliases: []string{"settings"}},
 	{Name: "context", Description: "Show current context usage"},
 	{Name: "copy", Description: "Copy the last response to clipboard"},
+	{Name: "daemon", Description: "Manage background services and routines"},
 	{Name: "debug", Description: "Turn on debug logging and investigate problems"},
+	{Name: "diff", Description: "View uncommitted changes and per-turn diffs"},
 	{Name: "doctor", Description: "Health-check your setup and fix issues"},
 	{Name: "effort", Description: "Set the model's effort level"},
 	{Name: "exit", Description: "Exit the CLI", Aliases: []string{"quit"}},
@@ -65,31 +71,42 @@ var Builtins = []session.Command{
 	{Name: "permissions", Description: "Manage allow and deny tool permission rules", Aliases: []string{"allowed-tools"}},
 	{Name: "plan", Description: "Turn on plan mode or view the plan"},
 	{Name: "plugin", Description: "Manage Claude Code plugins", Aliases: []string{"plugins", "marketplace"}},
+	{Name: "powerup", Description: "Learn Claude Code features in short lessons"},
 	{Name: "privacy-settings", Description: "View and update your privacy settings"},
+	{Name: "radio", Description: "Listen to Claude FM lo-fi radio"},
 	{Name: "recap", Description: "Generate a one-line session recap now"},
 	{Name: "release-notes", Description: "View release notes"},
 	{Name: "reload-plugins", Description: "Activate pending plugin changes in the current session"},
 	{Name: "reload-skills", Description: "Pick up skills added or changed on disk during this session"},
+	{Name: "remote-control", Description: "Control this session from your phone or claude.ai/code", Hint: "[name]", Aliases: []string{"rc"}},
+	{Name: "remote-env", Description: "Choose the default environment for cloud agents"},
 	{Name: "rename", Description: "Rename the current conversation", Hint: "[name]", Aliases: []string{"name"}},
+	{Name: "restart", Description: "Restart Claude Code, on a newer version if one is installed", Aliases: []string{"update"}},
 	{Name: "resume", Description: "Resume a previous session"},
 	{Name: "rewind", Description: "Restore earlier code, conversation, or both", Aliases: []string{"checkpoint", "undo"}},
 	{Name: "run", Description: "Launch this project's app to see your change working"},
 	{Name: "run-skill-generator", Description: "Create a skill that knows how to run this project's app"},
-	{Name: "schedule", Description: "Create and manage scheduled remote Claude Code agents"},
+	{Name: "schedule", Description: "Create and manage scheduled remote Claude Code agents", Aliases: []string{"routines"}},
 	{Name: "security-review", Description: "Review the branch's pending changes for security issues"},
 	{Name: "simplify", Description: "Review the changed code for reuse and simplification, then fix it"},
 	{Name: "skill-doctor", Description: "Show which loaded skills are unused and costing context"},
 	{Name: "skills", Description: "List available skills"},
 	{Name: "status", Description: "Show version, account, model, MCP servers, and setup warnings"},
 	{Name: "statusline", Description: "Set up Claude Code's status line"},
+	{Name: "subtask", Description: "Send a subagent off with your full context; its result comes back here"},
 	{Name: "tasks", Description: "View and manage this session's background work", Aliases: []string{"bashes"}},
 	{Name: "team-onboarding", Description: "Help teammates ramp on Claude Code with a guide from your usage"},
+	{Name: "teleport", Description: "Resume a cloud session here", Aliases: []string{"tp"}},
 	{Name: "terminal-setup", Description: "Set up your terminal's keys for newlines"},
 	{Name: "theme", Description: "Change the theme"},
+	{Name: "tui", Description: "Set the terminal UI renderer (classic | fullscreen)"},
+	{Name: "ultraplan", Description: "Draft an editable plan in a cloud session"},
 	{Name: "ultrareview", Description: "Find and verify bugs in your branch using a cloud session"},
 	{Name: "update-config", Description: "Change settings: hooks, permissions, environment variables"},
 	{Name: "usage", Description: "Show session cost, plan usage, and what's contributing to your limits", Aliases: []string{"cost", "stats"}},
 	{Name: "usage-credits", Description: "Configure usage credits or request them from your admin when you hit a limit"},
+	{Name: "voice", Description: "Toggle voice mode"},
+	{Name: "workflows", Description: "Browse running and completed workflows"},
 }
 
 // headless are the built-ins Claude Code 2.1.330 runs under -p, as its
