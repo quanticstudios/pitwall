@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/daemon"
+	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
 // fakeClaude is an agent that reports through pitwall's hook as Claude
@@ -283,4 +285,30 @@ func TestReadClosedWorker(t *testing.T) {
 	run(0, "", "kill", "-f", "worker")
 	run(0, "critique of: task", "read", "@"+worker)
 	run(0, "worker done", "wait", "--children", "--until", "done", "--timeout", "2s")
+}
+
+// A quick split's pane can open and close between the daemon's coalesced
+// states; watchNewPane still names it from its PaneExited, skipping exits
+// of panes that were there before.
+func TestWatchNewPaneFromExit(t *testing.T) {
+	before := cliState()
+	before.Workspaces[0].ActiveTab = "ta"
+	before.Workspaces[0].Tabs[0].Layout = layout.Leaf("pa")
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	watch := &watcher{cliConn: &cliConn{Conn: proto.NewConn(b), socket: b}, exits: map[string]int{}}
+	go func() {
+		d := proto.NewConn(a)
+		d.Send(proto.StateMsg{State: before, Level: proto.Level})
+		d.Send(proto.PaneExited{Pane: "pb", ExitCode: 3})
+		d.Send(proto.PaneExited{Pane: "quick", ExitCode: 9})
+	}()
+	tabIdx, paneIdx, p, err := watchNewPane(watch, before, before.Workspaces[0])
+	if err != nil || tabIdx != 1 || paneIdx != 2 || p.ID != "quick" || !p.Exited || p.ExitCode != 9 {
+		t.Fatalf("watchNewPane = %d %d %+v %v, want #1.2 quick exited 9", tabIdx, paneIdx, p, err)
+	}
+	if code, ok := watch.exitOf(before, "quick"); !ok || code != 9 {
+		t.Fatalf("exitOf(quick) = %d %v, want 9", code, ok)
+	}
 }
