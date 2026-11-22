@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -129,5 +130,12 @@ func TestCommandsFiles(t *testing.T) {
 	}
 	if c := byName["plain"]; c.Description != "Heading as the first line" {
 		t.Errorf("plain %+v", c)
+	}
+}
+
+func TestBuiltinsRemoteControlAlias(t *testing.T) {
+	i := slices.IndexFunc(Builtins, func(c session.Command) bool { return c.Name == "remote-control" })
+	if i < 0 || !slices.Contains(Builtins[i].Aliases, "rc") {
+		t.Fatal("/remote-control with alias rc missing from Builtins")
 	}
 }

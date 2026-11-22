@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The chat's / menu lists Claude Code's account-gated commands, such as `/remote-control` (`/rc`), `/teleport`, `/background` and `/diff`, so typing them no longer picks a skill instead.
+
 ## v0.3.3
 
 - Added script- and agent-friendly CLI automation built on pitwall's JSON-lines control socket (`$PITWALL_SOCKET`, now served on Linux, macOS, and Windows): `pitwall events [--json] [--session S] [--pane P]` streams agent state, title, tab, PR state, queued-message, turn-end and exit events; `pitwall send-key <pane> <key>...` sends mode-encoded keys by name (honoring guarded tabs); `pitwall new --wait` and `pitwall split --wait` (with `--json` and `--timeout`) wait for command exit and exit with its code; `pitwall read <pane> --screen|--scrollback [--lines N] --format text|ansi|html` and `pitwall scrollback --format` export plain text, ANSI colors or self-contained themed HTML; `pitwall api` sends raw JSON-lines commands as an escape hatch; and the Claude Code and Codex `SessionStart` hook emits a short `additionalContext` line with the agent's pane id and tab.

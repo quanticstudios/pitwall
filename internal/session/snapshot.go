@@ -299,9 +299,10 @@ func (c Command) Equal(o Command) bool {
 // composer's chips, and /usage, /context and /status the chat's cards, so
 // they stay out.
 var terminalCommands = []string{
-	"add-dir", "agents", "allowed-tools", "bashes", "bug", "config", "doctor", "export", "feedback", "hooks", "ide",
+	"add-dir", "agents", "allowed-tools", "artifacts", "background", "bashes", "bug", "daemon", "diff", "config", "doctor", "export", "feedback", "hooks", "ide",
 	"install-github-app", "login", "mcp", "memory", "output-style", "permissions", "plugin", "plugins",
-	"privacy-settings", "resume", "rewind", "settings", "tasks", "terminal-setup", "theme",
+	"powerup", "privacy-settings", "remote-control", "remote-env", "resume", "rewind", "settings", "tasks", "teleport",
+	"terminal-setup", "theme", "tui", "workflows",
 }
 
 // TerminalCommand reports whether the slash command name needs the TUI.
