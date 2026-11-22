@@ -41,7 +41,7 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	for i, t := range tabs {
 		if t.Chat {
 			chats[i] = d.chats[t.Pane]
-		} else if t.Provider == model.ProviderClaude || t.Provider == model.ProviderCodex {
+		} else if t.Provider == model.ProviderClaude || t.Provider == model.ProviderCodex || t.Provider == model.ProviderAntigravity {
 			panes[i] = d.panes[t.Pane]
 		}
 		if settings, ok := d.phoneSettings[t.Pane]; ok && !t.Chat {

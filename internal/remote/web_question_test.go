@@ -137,6 +137,7 @@ func TestWebQuestion(t *testing.T) {
 	want := []string{
 		`/api/input {"chat":"c","request":"i1","answers":{"q":["Blue"]}}`,
 		`/api/input {"chat":"c","request":"i2","answers":{"a":["Red"],"b":["Blue","Green"]}}`,
+		`/api/input {"chat":"c","request":"i2b","answers":{"c":["Red"],"t":["Mushrooms"],"s":["Large"]}}`,
 		`/api/send {"pane":"c","text":"a draft from before","image":""}`,
 		`/api/send {"pane":"c","text":"/compact","image":""}`,
 		`/api/send {"pane":"c","text":"both wait","image":""}`,

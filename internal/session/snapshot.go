@@ -246,6 +246,15 @@ type InputRequest struct {
 	Detail    *string    `json:"detail"`
 	ID        string     `json:"id"`
 	Questions []Question `json:"questions"`
+	// Step, Review, Done and Answered are pitwall's live TUI sync fields
+	// (omitted for non-TUI chats): Step is the 0-based active question index
+	// (len(Questions) on Claude Code's Review/Submit screen), Review marks
+	// that the TUI has a final Review/Submit step, Done marks answered steps
+	// and Answered carries answers known from the TUI.
+	Step     *int                `json:"step,omitempty"`
+	Review   bool                `json:"review,omitempty"`
+	Done     []bool              `json:"done,omitempty"`
+	Answered map[string][]string `json:"answered,omitempty"`
 }
 
 // Question is aide's ManagedSessionUserQuestion.

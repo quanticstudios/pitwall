@@ -89,7 +89,7 @@ func allMessages() []any {
 		ChatInterrupt{Chat: "c"},
 		ChatProviders{}, ChatProviderList{Providers: []ChatProvider{{ID: "acp:grok", Name: "grok"}}},
 		ChatApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no"},
-		ChatAnswer{Chat: "c", Request: "r", Answers: map[string][]string{"q": {"yes"}}},
+		ChatAnswer{Chat: "c", Request: "r", Answers: map[string][]string{"q": {"yes"}}, Step: "answer", Target: 1},
 		ChatSet{Chat: "c", Mode: "plan"},
 		ChatQueue{Chat: "c", Queue: []session.QueuedMessage{{ID: "m", Text: "later"}}},
 		ChatRead{Chat: "c", After: 3},

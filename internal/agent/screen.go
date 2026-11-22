@@ -80,7 +80,7 @@ func (p *screenPatterns) readCommonScreen(claudeEmptyPlan bool, g vt.Grid, trace
 
 func (rules *screenPatterns) readScreenOf(p model.Provider, g vt.Grid, trace *ScreenTrace) Screen {
 	if _, ok := rules.Providers[p]; ok {
-		if p == model.ProviderAntigravity && agyMenuHint(g) {
+		if p == model.ProviderAntigravity && (agyMenuHint(g) || ReadQuestion(model.ProviderAntigravity, g) != nil) {
 			return ScreenForm
 		}
 		switch rules.stateOf(p, g, trace) {
@@ -161,6 +161,10 @@ func (rules *screenPatterns) stateOf(p model.Provider, g vt.Grid, trace *ScreenT
 			trace.Rule = "no-screen-rules"
 		}
 		return ""
+	}
+	if p == model.ProviderAntigravity && ReadQuestion(model.ProviderAntigravity, g) != nil {
+		trace.decide("input")
+		return model.StateAwaitingInput
 	}
 	lines := bottomLines(g, screenLines)
 	for _, m := range []struct {

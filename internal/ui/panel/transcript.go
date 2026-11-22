@@ -96,6 +96,9 @@ type Transcript struct {
 	// Limit is the usage limit notice's resume, set by the window each
 	// frame; nil shows the notice without its buttons.
 	Limit *LimitResume
+	// LiveSteps says the daemon accepts step-by-step TUI question actions
+	// (proto.QuestionStepLevel).
+	LiveSteps bool
 
 	list       layout.List
 	listPx     float32 // the px per sp list's offsets were laid out at
@@ -173,10 +176,14 @@ type Answer struct {
 }
 
 // InputAnswer is a question answered on its card: question id to the
-// chosen labels or typed text, as proto.ChatAnswer carries.
+// chosen labels or typed text, as proto.ChatAnswer carries. For a live
+// TUI question on a daemon that supports step-by-step answering, Step
+// and Target carry a single step ("answer", "goto", "submit").
 type InputAnswer struct {
 	Request string
 	Answers map[string][]string
+	Step    string
+	Target  int
 }
 
 // decisions are what the approval buttons answer, in their order.
@@ -211,17 +218,32 @@ type ask struct {
 	// multi is, per multiSelect question, each option checked, nil for a
 	// single-select one; there pick is the option last toggled.
 	multi [][]bool
-	moved []bool // a multiSelect question Enter moved on from
+	moved []bool // a multiSelect question Next/Enter moved on from
 	// touched marks a question the user picked in or typed into; a
 	// preselected recommended option alone leaves it untouched, so the card
 	// never sends itself on a pick the user did not make.
 	touched []bool
-	// active is the question the number keys act on, the one the user last
-	// clicked into; -1 for the first unanswered one.
+	// step is the step currently shown: 0..len(pick)-1 for a question, or
+	// len(pick) for the final Review/Submit step when review is set.
+	step int
+	// active is the question the number keys act on when set explicitly;
+	// -1 lets step govern.
 	active int
-	other  []widget.Editor
-	opts   [][]widget.Clickable // per question, one per option and one for the typed row
-	submit widget.Clickable
+	// tuiStep is the last step reported by a live TUI (in.Step), -1 before
+	// any; hasTUI is whether the request is synced with a live TUI.
+	tuiStep    int
+	hasTUI     bool
+	review     bool // card mirrors a final Review/Submit step
+	done       []bool
+	note       string              // error message from a refused live step
+	lastTUIAns map[string][]string // last TUI-reported answers per question ID
+	other      []widget.Editor
+	opts       [][]widget.Clickable // per question, one per option and one for the typed row
+	chips      []widget.Clickable   // step header chips: one per question, plus Submit when review
+	revRows    []widget.Clickable   // clickable rows on the Review step
+	back       widget.Clickable
+	next       widget.Clickable
+	submit     widget.Clickable
 }
 
 // trow is one row of the list: a prompt or system line, a piece of a
@@ -279,9 +301,10 @@ func (t *Transcript) OpenAide() bool {
 }
 
 // Key answers the newest request by key name: 1, 2 or 3 an approval,
-// a number picks a question's option and Enter sends it. It reports
-// whether the key did something. The window's composer calls it while
-// it is empty; the transcript takes the keys itself when it has focus.
+// a number picks a question's option, Left/Right step between questions,
+// and Enter moves on or sends it. It reports whether the key did
+// something. The window's composer calls it while it is empty; the
+// transcript takes the keys itself when it has focus.
 func (t *Transcript) Key(name string) bool {
 	if t.keyPlan {
 		if dec, ok := planKey(name); ok {
@@ -293,6 +316,31 @@ func (t *Transcript) Key(name string) bool {
 			return true
 		}
 		return false
+	}
+	if t.keyReq == "" {
+		if a := t.asks[t.keyAsk]; a != nil && !t.sent[t.keyAsk] && len(a.opts) > 0 {
+			switch name {
+			case string(key.NameLeftArrow):
+				if a.numSteps() > 1 && a.step > 0 {
+					t.goStep(t.keyAsk, a.step-1)
+					return true
+				}
+				return false
+			case string(key.NameRightArrow):
+				if a.numSteps() > 1 && a.step < a.numSteps()-1 {
+					t.goStep(t.keyAsk, a.step+1)
+					return true
+				}
+				return false
+			}
+			if a.onReview() {
+				if name == string(key.NameReturn) || name == string(key.NameEnter) || name == "1" {
+					t.submitAsk(t.keyAsk)
+					return true
+				}
+				return false
+			}
+		}
 	}
 	opts := 0
 	if a := t.asks[t.keyAsk]; a != nil && len(a.opts) > 0 {
@@ -308,17 +356,7 @@ func (t *Transcript) Key(name string) bool {
 	case act.decision != "":
 		t.decide(t.keyReq, act.decision)
 	case act.submit:
-		a := t.asks[t.keyAsk]
-		// Enter on a multiSelect question moves on to the next open one,
-		// and sends the answers once none is left.
-		if q := t.askQuestion(a); a.multiQ(q) != nil {
-			a.moved[q], a.active = true, -1
-			a.touch(q)
-			if next := a.current(); next != q && a.open(next) {
-				return true
-			}
-		}
-		t.sendAsk(t.keyAsk)
+		t.advanceStep(t.keyAsk)
 	default:
 		a := t.asks[t.keyAsk]
 		q := t.askQuestion(a)
@@ -331,48 +369,170 @@ func (t *Transcript) Key(name string) bool {
 }
 
 // pick chooses option o of question q on card id. A single-select pick
-// that leaves no question open sends the card, as Claude Code's own menu
-// does; Other and multiSelect picks wait for the typed text or Enter.
+// advances to the next question at once, or sends on the last question
+// when no review step is shown; Other and multiSelect picks wait for the
+// typed text or Next/Enter.
 func (t *Transcript) pick(id string, q, o int) {
 	a := t.asks[id]
-	if a == nil || t.sent[id] { // a second click or key after the card went
+	if a == nil || t.sent[id] || q < 0 || q >= len(a.opts) { // a second click or key after the card went
 		return
 	}
+	a.note = ""
 	a.choose(q, o)
-	if a.multiQ(q) == nil && o < len(a.opts[q])-1 && !a.waiting() {
-		t.sendAsk(id)
+	if a.multiQ(q) != nil || o >= len(a.opts[q])-1 {
+		return
+	}
+	qs := t.askQs[id]
+	if a.hasTUI && t.LiveSteps && q < len(qs) && o < len(qs[q].Options) {
+		vals := []string{qs[q].Options[o].Label}
+		t.inputs = append(t.inputs, InputAnswer{Request: id, Step: "answer", Target: q, Answers: map[string][]string{qs[q].ID: vals}})
+		if (len(qs) == 1 || q == len(qs)-1 && !a.waiting()) && !a.review {
+			t.markSent(id, qs, a)
+		} else {
+			a.step = min(q+1, max(0, a.numSteps()-1))
+		}
+		return
+	}
+	if q == len(a.opts)-1 {
+		switch {
+		case a.review:
+			a.step = len(a.opts)
+		case !a.waiting():
+			t.sendAsk(id)
+		default:
+			a.step = a.firstOpen()
+		}
 	}
 }
 
-// Answer takes text typed in the composer as the answer to the open
-// question: it fills that question's typed row and sends the card once no
-// question is left open. It reports whether a question took the text.
+// advanceStep confirms the current step of card id: sends it to a live
+// TUI when LiveSteps is on, moves to the next question or Review step,
+// or sends the whole card on the last question.
+func (t *Transcript) advanceStep(id string) {
+	a := t.asks[id]
+	if a == nil || t.sent[id] || len(a.opts) == 0 {
+		return
+	}
+	if a.onReview() {
+		t.submitAsk(id)
+		return
+	}
+	qs := t.askQs[id]
+	q := a.current()
+	if q < 0 || q >= len(qs) {
+		return
+	}
+	a.note = ""
+	vals, ok := a.answerFor(qs[q], q)
+	if !ok {
+		return
+	}
+	a.touch(q)
+	if a.multiQ(q) != nil {
+		a.moved[q] = true
+	}
+	a.active = -1
+	if a.hasTUI && t.LiveSteps {
+		t.inputs = append(t.inputs, InputAnswer{Request: id, Step: "answer", Target: q, Answers: map[string][]string{qs[q].ID: vals}})
+		if (len(qs) == 1 || q == len(qs)-1 && !a.waiting()) && !a.review {
+			t.markSent(id, qs, a)
+		} else {
+			a.step = min(q+1, max(0, a.numSteps()-1))
+		}
+		return
+	}
+	if q == len(qs)-1 {
+		switch {
+		case a.review:
+			a.step = len(qs)
+		case !a.waiting():
+			t.sendAsk(id)
+		default:
+			a.step = a.firstOpen()
+		}
+		return
+	}
+	a.step = a.nextStep(q)
+}
+
+// goStep moves card id to step target, keeping earlier answers, and
+// drives the live TUI to that step when LiveSteps is on.
+func (t *Transcript) goStep(id string, target int) {
+	a := t.asks[id]
+	if a == nil || t.sent[id] {
+		return
+	}
+	n := a.numSteps()
+	if n == 0 {
+		return
+	}
+	target = min(max(target, 0), n-1)
+	if target == a.step {
+		return
+	}
+	a.step = target
+	a.active = -1
+	a.note = ""
+	if a.hasTUI && t.LiveSteps {
+		t.inputs = append(t.inputs, InputAnswer{Request: id, Step: "goto", Target: target})
+	}
+}
+
+// submitAsk confirms the Review step (or whole card) of card id.
+func (t *Transcript) submitAsk(id string) {
+	a := t.asks[id]
+	if a == nil || t.sent[id] {
+		return
+	}
+	qs := t.askQs[id]
+	if a.hasTUI && t.LiveSteps {
+		ans, _ := a.answers(qs)
+		t.inputs = append(t.inputs, InputAnswer{Request: id, Step: "submit", Target: len(qs), Answers: ans})
+		t.markSent(id, qs, a)
+		return
+	}
+	t.sendAsk(id)
+}
+
+// Answer takes text typed in the composer as the answer to the current
+// question: it fills that question's typed row and advances (or sends
+// the card on the last question). It reports whether a question took
+// the text.
 func (t *Transcript) Answer(text string) bool {
 	a := t.asks[t.keyAsk]
-	if a == nil || t.sent[t.keyAsk] || strings.TrimSpace(text) == "" || len(a.opts) == 0 {
+	if a == nil || t.sent[t.keyAsk] || strings.TrimSpace(text) == "" || len(a.opts) == 0 || a.onReview() {
 		return false
 	}
 	q := a.current()
 	a.other[q].SetText(text)
-	if a.multiQ(q) != nil {
-		a.moved[q] = true
-	} else {
+	if a.multiQ(q) == nil {
 		a.pick[q] = len(a.opts[q]) - 1
 	}
-	a.touch(q)
-	a.active = -1
-	if !a.waiting() {
-		t.sendAsk(t.keyAsk)
-	}
+	t.advanceStep(t.keyAsk)
 	return true
 }
+
+// numSteps is how many steps a shows: one per question, plus the Review
+// step when review is set.
+func (a *ask) numSteps() int {
+	n := len(a.pick)
+	if a.review && n > 0 {
+		n++
+	}
+	return n
+}
+
+// onReview reports whether a is currently on its final Review step.
+func (a *ask) onReview() bool { return a.review && len(a.pick) > 0 && a.step == len(a.pick) }
 
 // touch marks question q as one the user answered themselves.
 func (a *ask) touch(q int) {
 	for len(a.touched) < len(a.pick) {
 		a.touched = append(a.touched, false)
 	}
-	a.touched[q] = true
+	if q >= 0 && q < len(a.touched) {
+		a.touched[q] = true
+	}
 }
 
 // untouched is whether the user has not yet acted on question i.
@@ -389,11 +549,42 @@ func (a *ask) waiting() bool {
 	return false
 }
 
+// firstOpen is the first question that still needs an answer or
+// confirmation, or the last question if all are answered.
+func (a *ask) firstOpen() int {
+	for i := range a.pick {
+		if a.open(i) {
+			return i
+		}
+	}
+	for i := range a.pick {
+		if a.untouched(i) {
+			return i
+		}
+	}
+	return max(0, len(a.pick)-1)
+}
+
+// nextStep is the step to move to after answering question q locally:
+// the next unanswered/untouched question after q, else q+1.
+func (a *ask) nextStep(q int) int {
+	for i := q + 1; i < len(a.pick); i++ {
+		if a.open(i) || a.untouched(i) {
+			return i
+		}
+	}
+	if q+1 < a.numSteps() {
+		return q + 1
+	}
+	return q
+}
+
 // choose picks option o of question q: a multiSelect question toggles
-// it and keeps the keys, the typed row aside; a single-select pick moves
-// the keys on to the next unanswered question.
+// it and keeps the step, the typed row aside; a single-select pick
+// advances to the next step.
 func (a *ask) choose(q, o int) {
 	a.pick[q], a.active = o, q
+	a.step = q
 	a.touch(q)
 	if m := a.multiQ(q); m != nil {
 		if o < len(m) {
@@ -403,45 +594,96 @@ func (a *ask) choose(q, o int) {
 	}
 	if o < len(a.opts[q])-1 {
 		a.active = -1
+		if q+1 < len(a.pick) {
+			a.step = a.nextStep(q)
+		}
 	}
 }
 
 // multiQ is question q's checks, nil unless it is multiSelect.
 func (a *ask) multiQ(q int) []bool {
-	if q < len(a.multi) {
+	if q >= 0 && q < len(a.multi) {
 		return a.multi[q]
 	}
 	return nil
 }
 
-// askQuestion is the question the number keys pick in: the first
-// without an answer, or a multiSelect one Enter has not moved on from;
-// else the last.
+// askQuestion is the question the number keys pick in: the current step.
 func (t *Transcript) askQuestion(a *ask) int { return a.current() }
 
 // open is whether question i still waits on the user: no pick, or
 // multiSelect and not moved on from.
 func (a *ask) open(i int) bool {
+	if i < len(a.done) && a.done[i] {
+		return false
+	}
 	return a.pick[i] < 0 || a.multiQ(i) != nil && !a.moved[i]
 }
 
-// current is the question the number keys act on: the one the user is in,
-// else the first without an answer, else the last.
+// current is the question index the number keys act on: the visible step
+// clamped to the questions slice.
 func (a *ask) current() int {
+	if len(a.pick) == 0 {
+		return 0
+	}
 	if a.active >= 0 && a.active < len(a.pick) {
 		return a.active
 	}
-	for i := range a.pick {
-		if a.open(i) {
-			return i
-		}
-	}
-	for i := range a.pick {
-		if a.untouched(i) {
-			return i // a preselected recommendation the user has not confirmed
-		}
+	if a.step >= 0 && a.step < len(a.pick) {
+		return a.step
 	}
 	return len(a.pick) - 1
+}
+
+// stepDone reports whether question i has a confirmed answer (either
+// locally or confirmed by a live TUI).
+func (a *ask) stepDone(qs []session.Question, i int) bool {
+	if i < len(a.done) && a.done[i] {
+		return true
+	}
+	if i < 0 || i >= len(qs) || a.untouched(i) {
+		return false
+	}
+	if a.multiQ(i) != nil && !a.moved[i] {
+		return false
+	}
+	_, ok := a.answerFor(qs[i], i)
+	return ok
+}
+
+// answerFor returns the chosen answer(s) for question i, or false while
+// it has none.
+func (a *ask) answerFor(q session.Question, i int) ([]string, bool) {
+	if i < 0 || i >= len(a.pick) {
+		return nil, false
+	}
+	other := ""
+	if i < len(a.other) {
+		other = strings.TrimSpace(a.other[i].Text())
+	}
+	if m := a.multiQ(i); m != nil {
+		var picked []string
+		for oi, on := range m {
+			if on && oi < len(q.Options) {
+				picked = append(picked, q.Options[oi].Label)
+			}
+		}
+		if other != "" {
+			picked = append(picked, other)
+		}
+		if len(picked) == 0 {
+			return nil, false
+		}
+		return picked, true
+	}
+	switch p := a.pick[i]; {
+	case p >= 0 && p < len(q.Options):
+		return []string{q.Options[p].Label}, true
+	case p == len(q.Options) && other != "":
+		return []string{other}, true
+	default:
+		return nil, false
+	}
 }
 
 // init makes a new Transcript's maps. It sets fields one by one, so the
@@ -545,6 +787,41 @@ func (t *Transcript) Refused(id string) {
 	t.done = slices.DeleteFunc(t.done, func(r resolved) bool { return r.id == id })
 }
 
+// StepError shows why the daemon refused a live TUI question step and
+// restores the card to the step the TUI actually shows.
+func (t *Transcript) StepError(id, msg string) {
+	if t.sent[id] {
+		t.Refused(id)
+	}
+	if a := t.asks[id]; a != nil {
+		a.note = msg
+		if a.hasTUI && a.tuiStep >= 0 {
+			a.step = min(a.tuiStep, max(0, a.numSteps()-1))
+		}
+	}
+}
+
+// markSent marks question card id as sent and records its Answered line.
+func (t *Transcript) markSent(id string, qs []session.Question, a *ask) {
+	t.sent[id] = true
+	if t.keyAsk == id {
+		t.keyAsk = "" // a second Enter or number is the composer's again
+	}
+	ans, _ := a.answers(qs)
+	var picked []string
+	var rqs []resolvedQ
+	for _, q := range qs { // in the card's order
+		vals := ans[q.ID]
+		if len(vals) == 0 && a.lastTUIAns != nil {
+			vals = a.lastTUIAns[q.ID]
+		}
+		picked = append(picked, vals...)
+		rqs = append(rqs, resolvedQ{header: q.Header, prompt: q.Prompt, options: q.Options, picked: vals})
+	}
+	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, after: t.last, at: t.items, when: t.now,
+		question: true, qs: rqs})
+}
+
 // sendAsk answers question request id with its card's picks, once each
 // question has one.
 func (t *Transcript) sendAsk(id string) {
@@ -552,23 +829,13 @@ func (t *Transcript) sendAsk(id string) {
 	if a == nil || t.sent[id] {
 		return
 	}
-	ans, ok := a.answers(t.askQs[id])
+	qs := t.askQs[id]
+	ans, ok := a.answers(qs)
 	if !ok {
 		return
 	}
-	t.sent[id] = true
-	if t.keyAsk == id {
-		t.keyAsk = "" // a second Enter or number is the composer's again
-	}
 	t.inputs = append(t.inputs, InputAnswer{Request: id, Answers: ans})
-	var picked []string
-	var qs []resolvedQ
-	for _, q := range t.askQs[id] { // in the card's order
-		picked = append(picked, ans[q.ID]...)
-		qs = append(qs, resolvedQ{header: q.Header, prompt: q.Prompt, options: q.Options, picked: ans[q.ID]})
-	}
-	t.done = append(t.done, resolved{id: id, line: "Answered", what: strings.Join(picked, ", "), prose: true, after: t.last, at: t.items, when: t.now,
-		question: true, qs: qs})
+	t.markSent(id, qs, a)
 }
 
 // answers are the card's picks by question id, false while a question
@@ -576,34 +843,11 @@ func (t *Transcript) sendAsk(id string) {
 func (a *ask) answers(qs []session.Question) (map[string][]string, bool) {
 	out := map[string][]string{}
 	for i, q := range qs {
-		if i >= len(a.pick) {
+		vals, ok := a.answerFor(q, i)
+		if !ok {
 			return nil, false
 		}
-		other := strings.TrimSpace(a.other[i].Text())
-		if m := a.multiQ(i); m != nil {
-			var picked []string
-			for oi, on := range m {
-				if on && oi < len(q.Options) {
-					picked = append(picked, q.Options[oi].Label)
-				}
-			}
-			if other != "" {
-				picked = append(picked, other)
-			}
-			if len(picked) == 0 {
-				return nil, false
-			}
-			out[q.ID] = picked
-			continue
-		}
-		switch p := a.pick[i]; {
-		case p >= 0 && p < len(q.Options):
-			out[q.ID] = []string{q.Options[p].Label}
-		case p == len(q.Options) && other != "":
-			out[q.ID] = []string{other}
-		default:
-			return nil, false
-		}
+		out[q.ID] = vals
 	}
 	return out, len(qs) > 0
 }
@@ -916,23 +1160,10 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 		}
 		a := t.asks[in.ID]
 		if a == nil {
-			a = &ask{moved: make([]bool, len(in.Questions)), active: -1}
-			for _, q := range in.Questions {
-				var m []bool
-				pick := recommended(q)
-				if q.Multi {
-					m, pick = make([]bool, len(q.Options)), -1
-				}
-				a.pick = append(a.pick, pick)
-				a.multi = append(a.multi, m)
-				a.opts = append(a.opts, make([]widget.Clickable, len(q.Options)+1))
-			}
-			a.other = make([]widget.Editor, len(in.Questions))
-			for i := range a.other {
-				a.other[i].SingleLine, a.other[i].Submit = true, true
-			}
+			a = &ask{active: -1, tuiStep: -1}
 			t.asks[in.ID] = a
 		}
+		syncAsk(a, in)
 	}
 	for id, bs := range t.answer {
 		for i := range bs {
@@ -950,6 +1181,22 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	}
 	t.reasonEvents(gtx, pending)
 	for id, a := range t.asks {
+		for ci := range a.chips {
+			if a.chips[ci].Clicked(gtx) && pending[id] {
+				t.goStep(id, ci)
+			}
+		}
+		for ri := range a.revRows {
+			if a.revRows[ri].Clicked(gtx) && pending[id] {
+				t.goStep(id, ri)
+			}
+		}
+		if a.back.Clicked(gtx) && pending[id] && a.step > 0 {
+			t.goStep(id, a.step-1)
+		}
+		if a.next.Clicked(gtx) && pending[id] {
+			t.advanceStep(id)
+		}
 		for qi := range a.opts {
 			for oi := range a.opts[qi] {
 				if a.opts[qi][oi].Clicked(gtx) && pending[id] {
@@ -971,12 +1218,16 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 						a.touch(qi)
 					}
 				case widget.SubmitEvent:
-					t.sendAsk(id)
+					t.advanceStep(id)
 				}
 			}
 		}
 		if a.submit.Clicked(gtx) && pending[id] {
-			t.sendAsk(id)
+			if a.onReview() {
+				t.submitAsk(id)
+			} else {
+				t.advanceStep(id)
+			}
 		}
 		if !pending[id] {
 			delete(t.asks, id)
@@ -993,14 +1244,151 @@ func (t *Transcript) settle(gtx layout.Context, s *session.Snapshot) {
 	}
 }
 
-// keys takes the number keys and Enter while nothing else holds the
-// keyboard: the transcript, one of its selections, or no one.
+// syncAsk keeps a's per-question widgets and step state synchronized
+// with snapshot request in (including live TUI step/done/answers).
+func syncAsk(a *ask, in session.InputRequest) {
+	n := len(in.Questions)
+	for len(a.pick) < n {
+		i := len(a.pick)
+		q := in.Questions[i]
+		pick := recommended(q)
+		var m []bool
+		if q.Multi {
+			m, pick = make([]bool, len(q.Options)), -1
+		}
+		a.pick = append(a.pick, pick)
+		a.multi = append(a.multi, m)
+		a.moved = append(a.moved, false)
+		a.touched = append(a.touched, false)
+		a.opts = append(a.opts, make([]widget.Clickable, len(q.Options)+1))
+		var ed widget.Editor
+		ed.SingleLine, ed.Submit = true, true
+		a.other = append(a.other, ed)
+	}
+	if len(a.pick) > n {
+		a.pick, a.multi = a.pick[:n], a.multi[:n]
+		a.moved, a.touched = a.moved[:n], a.touched[:n]
+		a.opts, a.other = a.opts[:n], a.other[:n]
+	}
+	for i, q := range in.Questions {
+		if len(a.opts[i]) != len(q.Options)+1 {
+			a.opts[i] = make([]widget.Clickable, len(q.Options)+1)
+			if a.pick[i] >= len(q.Options) {
+				a.pick[i] = -1
+			}
+			if a.pick[i] < 0 && !q.Multi && a.untouched(i) {
+				a.pick[i] = recommended(q)
+			}
+		}
+		if q.Multi && len(a.multi[i]) != len(q.Options) {
+			a.multi[i] = make([]bool, len(q.Options))
+			a.pick[i] = -1
+		} else if !q.Multi && a.multi[i] != nil {
+			a.multi[i] = nil
+		}
+	}
+	a.hasTUI = in.Step != nil
+	a.review = in.Review
+	steps := a.numSteps()
+	if len(a.chips) != steps {
+		a.chips = make([]widget.Clickable, steps)
+	}
+	if len(a.revRows) != n {
+		a.revRows = make([]widget.Clickable, n)
+	}
+	if len(a.done) != n {
+		a.done = make([]bool, n)
+	}
+	if in.Step != nil {
+		sStep := min(max(*in.Step, 0), max(0, steps-1))
+		stepChanged := sStep != a.tuiStep
+		if stepChanged {
+			a.tuiStep = sStep
+			a.step = sStep
+			a.active = -1
+			a.note = ""
+		}
+		for i := 0; i < n; i++ {
+			if i < len(in.Done) {
+				a.done[i] = in.Done[i]
+				if in.Done[i] {
+					a.touch(i)
+					if a.multiQ(i) != nil && i != a.step {
+						a.moved[i] = true
+					}
+				}
+			}
+		}
+		if a.lastTUIAns == nil {
+			a.lastTUIAns = map[string][]string{}
+		}
+		for i, q := range in.Questions {
+			vals, ok := in.Answered[q.ID]
+			if !ok {
+				continue
+			}
+			if !stepChanged && slices.Equal(a.lastTUIAns[q.ID], vals) {
+				continue
+			}
+			a.lastTUIAns[q.ID] = slices.Clone(vals)
+			a.applyTUIAnswer(i, q, vals)
+		}
+	}
+	if steps > 0 && a.step >= steps {
+		a.step = steps - 1
+	}
+	if a.step < 0 {
+		a.step = 0
+	}
+}
+
+// applyTUIAnswer reflects an answer reported by the live TUI onto
+// question i's local widgets.
+func (a *ask) applyTUIAnswer(i int, q session.Question, vals []string) {
+	if i < 0 || i >= len(a.pick) {
+		return
+	}
+	if m := a.multiQ(i); m != nil {
+		clear(m)
+		var extra []string
+		for _, v := range vals {
+			idx := slices.IndexFunc(q.Options, func(o session.PromptOption) bool { return o.Label == v })
+			if idx >= 0 && idx < len(m) {
+				m[idx] = true
+			} else if strings.TrimSpace(v) != "" {
+				extra = append(extra, v)
+			}
+		}
+		if len(extra) > 0 {
+			a.other[i].SetText(strings.Join(extra, ", "))
+		}
+		return
+	}
+	if len(vals) == 0 {
+		return
+	}
+	v := vals[0]
+	if idx := slices.IndexFunc(q.Options, func(o session.PromptOption) bool { return o.Label == v }); idx >= 0 {
+		a.pick[i] = idx
+		a.touch(i)
+	} else if strings.TrimSpace(v) != "" {
+		a.pick[i] = len(q.Options)
+		a.other[i].SetText(v)
+		a.touch(i)
+	}
+}
+
+// keys takes the number keys, Enter, and step arrows while nothing else
+// holds the keyboard: the transcript, one of its selections, or no one.
 func (t *Transcript) keys(gtx layout.Context) {
 	mine := gtx.Focused(nil) || gtx.Focused(&t.focus)
 	if !mine || t.keyReq == "" && t.keyAsk == "" {
 		return
 	}
 	fs := []gioevent.Filter{key.Filter{Name: key.NameReturn}, key.Filter{Name: key.NameEnter}}
+	if t.keyReq == "" && t.keyAsk != "" {
+		fs = append(fs, key.Filter{Name: key.NameLeftArrow}, key.Filter{Name: key.NameRightArrow})
+	}
 	for _, n := range "123456789" {
 		fs = append(fs, key.Filter{Name: key.Name(string(n))})
 	}

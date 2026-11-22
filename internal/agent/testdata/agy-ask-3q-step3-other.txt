@@ -1,0 +1,21 @@
+? Which color?
+? Which toppings?
+? Which size?
+
+Question
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Question 2/3: Which toppings?
+
+  1. [x] Cheese
+  2. [x] Olives
+  3. [ ] Onion
+> 4. Write-in...
+
+  Your answer:
+  Medium
+
+
+
+  enter Submit · esc Back
+esc to cancel                                                             auto · Gemini 4 Neon · low

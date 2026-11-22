@@ -581,6 +581,7 @@ function renderAsks(t) {
   if (t && (t.question || t.answer || (t.requests && t.requests.length) || ['pending-approval', 'plan-ready', 'awaiting-input'].includes(t.state))) {
     const k = [t.pane, t.at, t.allowBlocked, t.question && t.question.id, (t.requests || []).map((r) => r.id)].join('|');
     const c = cards.get(k) || askCard(t);
+    if (c.syncRequests && t.requests) c.syncRequests(t.requests);
     cards.clear();
     cards.set(k, c);
     want.push(c);
@@ -600,7 +601,18 @@ function askCard(t) {
   const failed = (e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } };
   if (t.question) {
     const q = t.question;
-    c.append(el('div', 'label', 'Question'), el('p', 'detail', q.prompt));
+    c.append(el('div', 'label', 'Question'));
+    if (q.tabs && q.tabs.length) {
+      const bar = el('div', 'step-chips');
+      q.tabs.forEach((tab, i) => {
+        const cls = 'step-chip' + (i === q.index ? ' current' : tab.answered ? ' done' : '');
+        bar.append(el('span', cls, (tab.answered ? '✓ ' : '') + tab.label));
+      });
+      c.append(bar);
+    } else if (q.total > 1) {
+      c.append(el('div', 'step-meta', `Question ${(q.index || 0) + 1} of ${q.total}`));
+    }
+    c.append(el('p', 'detail', q.prompt));
     const buttons = [];
     const answer = (option, text = '') => {
       buttons.forEach((b) => { b.disabled = true; });
@@ -625,9 +637,24 @@ function askCard(t) {
       const submit = el('button', 'btn primary', 'Submit'); submit.onclick = () => answer(-1);
       buttons.push(submit); c.append(submit);
     }
+    if (q.canBack || q.canNext) {
+      const nav = el('div', 'step-nav');
+      if (q.canBack) {
+        const back = el('button', 'btn', 'Back'); back.onclick = () => answer(-3);
+        buttons.push(back); nav.append(back);
+      }
+      if (q.canNext) {
+        const next = el('button', 'btn', 'Next'); next.onclick = () => answer(-4);
+        buttons.push(next); nav.append(next);
+      }
+      c.append(nav);
+    }
   } else if (t.requests && t.requests.length) {
     const boxes = t.requests.map((r) => request(t.pane, r, done, failed));
     c.append(...boxes);
+    c.syncRequests = (reqs) => {
+      reqs.forEach((r, i) => { if (boxes[i] && boxes[i].syncRequest) boxes[i].syncRequest(r); });
+    };
     if (t.requests.every((r) => r.kind === 'input')) c.boxAnswer = boxes[boxes.length - 1].boxAnswer;
   } else {
     c.append(el('div', 'label', t.label || 'Waiting'));
@@ -671,43 +698,23 @@ function request(chatID, r, done, failed) {
   const buttons = [];
   const lock = (on) => buttons.forEach((b) => { b.disabled = on; });
   if (r.kind === 'input') {
-    const parts = [];
-    const picks = (r.questions || []).map((q) => {
-      parts.push(el('p', 'detail', q.prompt || q.header || ''));
-      const pk = { id: q.id, multi: !!q.multiSelect, labels: [] };
-      if (q.options && q.options.length) {
-        const row = el('div', 'opts');
-        q.options.forEach((o) => {
-          const b = el('button', 'btn', o.label);
-          if (o.description) b.title = o.description;
-          b.onclick = () => {
-            if (pk.multi) {
-              pk.labels = pk.labels.includes(o.label) ? pk.labels.filter((l) => l !== o.label) : [...pk.labels, o.label];
-              b.classList.toggle('primary', pk.labels.includes(o.label));
-              b.setAttribute('aria-pressed', String(pk.labels.includes(o.label)));
-              return;
-            }
-            pk.labels = [o.label];
-            pk.text.value = ''; // the card shows what it sends
-            row.querySelectorAll('button').forEach((x) => x.classList.toggle('primary', x === b));
-            if (picks.every(answered)) submit(); // as the desktop card: a pick that leaves nothing open sends
-          };
-          buttons.push(b);
-          row.append(b);
-        });
-        parts.push(row);
-      }
-      pk.text = el('textarea', 'field');
-      pk.text.rows = 1;
-      pk.text.placeholder = q.options && q.options.length ? 'Or type an answer' : 'Answer';
-      pk.text.setAttribute('aria-label', pk.text.placeholder);
-      const typed = el('div', 'inline');
-      typed.append(pk.text);
-      parts.push(typed);
-      return pk;
+    const qs = r.questions || [];
+    const picks = qs.map((q) => {
+      const t = el('textarea', 'field');
+      t.rows = 1;
+      t.placeholder = q.options && q.options.length ? 'Or type an answer' : 'Answer';
+      t.setAttribute('aria-label', t.placeholder);
+      const init = (r.answered && r.answered[q.id]) || [];
+      return { id: q.id, multi: !!q.multiSelect, labels: [...init], text: t };
     });
     const answered = (p) => p.labels.length > 0 || !!p.text.value.trim();
+    const nextStep = (i) => {
+      for (let j = i + 1; j < picks.length; j++) if (!answered(picks[j])) return j;
+      return Math.min(i + 1, Math.max(0, picks.length - 1));
+    };
+    let step = r.step != null ? Math.min(Math.max(r.step, 0), Math.max(0, qs.length - 1)) : 0;
     let sent = false;
+    const area = el('div');
     const submit = () => {
       if (sent) return;
       if (!picks.every(answered)) { failed(new Error('Answer every question.')); return; }
@@ -722,24 +729,114 @@ function request(chatID, r, done, failed) {
       area.replaceChildren(shown); // at once, before the agent takes it
       api('/api/input', { chat: chatID, request: r.id, answers })
         .then(() => done(''))
-        .catch((e) => { sent = false; area.replaceChildren(...parts); lock(false); failed(e); });
+        .catch((e) => { sent = false; renderStep(); lock(false); failed(e); });
     };
-    const send = el('button', 'btn primary', 'Send');
-    buttons.push(send);
-    send.onclick = submit;
-    const row = el('div', 'opts');
-    row.append(send);
-    parts.push(row);
-    const area = el('div');
-    area.append(...parts);
+    const renderStep = () => {
+      if (sent || !qs.length) return;
+      buttons.length = 0;
+      const nodes = [];
+      if (qs.length > 1) {
+        const bar = el('div', 'step-chips');
+        qs.forEach((q, i) => {
+          const isDone = answered(picks[i]);
+          const lbl = q.header || (i === step ? `Question ${i + 1} of ${qs.length}` : `Question ${i + 1}`);
+          const chip = el('button', 'step-chip' + (i === step ? ' current' : isDone ? ' done' : ''), (isDone ? '✓ ' : '') + lbl);
+          chip.type = 'button';
+          chip.onclick = () => { step = i; done(''); renderStep(); };
+          buttons.push(chip);
+          bar.append(chip);
+        });
+        nodes.push(bar);
+      }
+      const q = qs[step];
+      const pk = picks[step];
+      nodes.push(el('p', 'detail', q.prompt || q.header || ''));
+      if (q.options && q.options.length) {
+        const row = el('div', 'opts');
+        let preview = '';
+        q.options.forEach((o) => {
+          const on = pk.labels.includes(o.label);
+          if (o.preview && (!preview || on)) preview = o.preview;
+          const b = el('button', 'btn' + (on ? ' primary' : ''), (pk.multi ? (on ? '✓ ' : '□ ') : '') + o.label);
+          if (o.description) b.title = o.description;
+          if (pk.multi) b.setAttribute('aria-pressed', String(on));
+          b.onclick = () => {
+            if (pk.multi) {
+              pk.labels = pk.labels.includes(o.label) ? pk.labels.filter((l) => l !== o.label) : [...pk.labels, o.label];
+              renderStep();
+              return;
+            }
+            pk.labels = [o.label];
+            pk.text.value = ''; // the card shows what it sends
+            if (step === qs.length - 1 && picks.every(answered)) { submit(); return; }
+            if (step < qs.length - 1) { step = nextStep(step); renderStep(); return; }
+            const openIdx = picks.findIndex((x) => !answered(x));
+            if (openIdx >= 0) step = openIdx;
+            renderStep();
+          };
+          buttons.push(b);
+          row.append(b);
+        });
+        nodes.push(row);
+        if (preview) nodes.push(el('pre', 'command', preview.replace(/\n+$/, '')));
+      }
+      const typed = el('div', 'inline');
+      typed.append(pk.text);
+      nodes.push(typed);
+      const nav = el('div', 'step-nav');
+      if (qs.length > 1 && step > 0) {
+        const back = el('button', 'btn', 'Back');
+        back.onclick = () => { step--; done(''); renderStep(); };
+        buttons.push(back);
+        nav.append(back);
+      }
+      if (qs.length > 1 && step < qs.length - 1) {
+        const next = el('button', 'btn primary', 'Next');
+        next.onclick = () => {
+          if (!answered(pk)) { failed(new Error('Pick or type an answer.')); return; }
+          done('');
+          step = nextStep(step);
+          renderStep();
+        };
+        buttons.push(next);
+        nav.append(next);
+      } else {
+        const send = el('button', 'btn primary', 'Send');
+        send.onclick = submit;
+        buttons.push(send);
+        nav.append(send);
+      }
+      nodes.push(nav);
+      area.replaceChildren(...nodes);
+    };
+    renderStep();
     box.append(area);
-    // boxAnswer takes the box's text as the first open question's answer.
+    // boxAnswer takes the box's text as the current question's answer.
     box.boxAnswer = (body) => {
       if (sent || !picks.length) return false;
-      const p = picks.find((x) => !answered(x)) || picks[picks.length - 1];
-      p.text.value = body.trim();
-      if (picks.every(answered)) submit();
+      const pk = picks[step] || picks.find((x) => !answered(x)) || picks[picks.length - 1];
+      pk.text.value = body.trim();
+      if (picks.every(answered)) { submit(); return true; }
+      step = nextStep(step);
+      renderStep();
       return true;
+    };
+    let tuiStep = r.step != null ? r.step : -1;
+    box.syncRequest = (next) => {
+      if (sent || !next || next.step == null) return;
+      const s = Math.min(Math.max(next.step, 0), Math.max(0, qs.length - 1));
+      let changed = false;
+      if (s !== tuiStep) { tuiStep = s; step = s; changed = true; }
+      if (next.answered) {
+        qs.forEach((q, i) => {
+          const vals = next.answered[q.id];
+          if (vals && vals.length && !answered(picks[i])) {
+            picks[i].labels = [...vals];
+            changed = true;
+          }
+        });
+      }
+      if (changed) renderStep();
     };
     return box;
   }

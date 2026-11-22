@@ -1,4 +1,4 @@
-18.97
+18.98
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -47,7 +47,7 @@ proto.AgentProcess{Foreground int; Provider model.Provider; Comm string}
 proto.Answer{Pane string; At int64; Allow bool}
 proto.ArchiveWorkspace{WorkspaceID string; Archived bool}
 proto.CancelResume{Pane string}
-proto.ChatAnswer{Chat string; Request string; Answers map[string][]string}
+proto.ChatAnswer{Chat string; Request string; Answers map[string][]string; Step string; Target int}
 proto.ChatApprove{Chat string; Request string; Decision string; Reason string}
 proto.ChatArchive{Chat string; Delete bool}
 proto.ChatAside{Chat string; ID string; Question string}

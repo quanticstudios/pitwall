@@ -37,6 +37,7 @@ type cardState struct {
 	questionBtns         []widget.Clickable
 	other                widget.Editor
 	submit, otherSend    widget.Clickable
+	qBack, qNext         widget.Clickable
 	draft                string // the box's text when the terminal question came
 }
 
@@ -44,6 +45,10 @@ type cardState struct {
 // question, answered by its id.
 type reqState struct {
 	allow, session, deny, send widget.Clickable
+	back, next                 widget.Clickable
+	chips                      []widget.Clickable // per question step pill
+	step                       int                // current question shown on multi-question cards
+	tuiStep                    int                // last step synced from remote.Request.Step, -1 none
 	reason                     widget.Editor
 	opts                       [][]widget.Clickable // per question
 	picked                     [][]string           // per question, the options tapped
@@ -75,11 +80,23 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 			k.questionBtns = make([]widget.Clickable, len(t.Question.Options))
 		}
 		for _, r := range t.Requests {
-			rs := &reqState{picked: make([][]string, len(r.Questions)), texts: make([]widget.Editor, len(r.Questions)), opts: make([][]widget.Clickable, len(r.Questions)), draft: c.cmp.ed.Text()}
+			rs := &reqState{
+				tuiStep: -1,
+				chips:   make([]widget.Clickable, len(r.Questions)),
+				picked:  make([][]string, len(r.Questions)),
+				texts:   make([]widget.Editor, len(r.Questions)),
+				opts:    make([][]widget.Clickable, len(r.Questions)),
+				draft:   c.cmp.ed.Text(),
+			}
 			for i, q := range r.Questions {
 				rs.opts[i] = make([]widget.Clickable, len(q.Options))
 			}
 			k.reqs = append(k.reqs, rs)
+		}
+	}
+	for i, r := range t.Requests {
+		if i < len(k.reqs) && r.Kind == "input" {
+			syncReqState(k.reqs[i], r)
 		}
 	}
 	done := func(msg string) func(error) {
@@ -304,31 +321,95 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		return answered()
 	}
 	first := len(w)
-	for i, q := range r.Questions {
-		prompt := q.Prompt
-		if prompt == "" {
-			prompt = q.Header
+	qs := r.Questions
+	if len(qs) == 0 {
+		return w
+	}
+	rs.step = min(max(rs.step, 0), len(qs)-1)
+	if len(qs) > 1 {
+		var chips []layout.Widget
+		for i, q := range qs {
+			if i < len(rs.chips) && rs.chips[i].Clicked(gtx) {
+				rs.step = i
+				k.note, k.bad = "", false
+			}
+			lbl := strings.TrimSpace(q.Header)
+			if lbl == "" {
+				if i == rs.step {
+					lbl = fmt.Sprintf("Question %d of %d", i+1, len(qs))
+				} else {
+					lbl = fmt.Sprintf("Question %d", i+1)
+				}
+			}
+			ans := rs.answeredAt(i)
+			if ans {
+				lbl = "✓ " + lbl
+			}
+			cur := i == rs.step
+			chips = append(chips, func(gtx C) D { return stepPill(gtx, th, &rs.chips[i], lbl, cur, ans) })
 		}
-		w = append(w, gap(10), func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Fg, 0, prompt) })
-		if len(q.Options) > 0 {
-			var btns []layout.Widget
-			for j, o := range q.Options {
-				if rs.opts[i][j].Clicked(gtx) && rs.sent == "" {
-					rs.tap(i, q, o.Label)
-					if !q.Multi && rs.complete() { // as the desktop card: a pick that leaves nothing open sends
+		w = append(w, gap(8), func(gtx C) D { return wrap(gtx, 6, chips) })
+	}
+	i := rs.step
+	q := qs[i]
+	prompt := q.Prompt
+	if prompt == "" {
+		prompt = q.Header
+	}
+	w = append(w, gap(10), func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Fg, 0, prompt) })
+	if len(q.Options) > 0 {
+		var btns []layout.Widget
+		preview := ""
+		for j, o := range q.Options {
+			if rs.opts[i][j].Clicked(gtx) && rs.sent == "" {
+				rs.tap(i, q, o.Label)
+				k.note, k.bad = "", false
+				if !q.Multi {
+					if i == len(qs)-1 && rs.complete() {
 						c.sendInput(env, r, rs, done)
+					} else if i < len(qs)-1 {
+						rs.step = rs.nextStep(i)
+					} else if o := rs.open(); o >= 0 {
+						rs.step = o
 					}
 				}
-				on := slices.Contains(rs.picked[i], o.Label)
-				btns = append(btns, func(gtx C) D { return optionChip(gtx, th, &rs.opts[i][j], on, o.Label) })
 			}
-			w = append(w, gap(8), func(gtx C) D { return wrap(gtx, 8, btns) })
+			on := slices.Contains(rs.picked[i], o.Label)
+			if o.Preview != "" && (preview == "" || on) {
+				preview = o.Preview
+			}
+			lbl := o.Label
+			if q.Multi {
+				if on {
+					lbl = "✓ " + lbl
+				} else {
+					lbl = "□ " + lbl
+				}
+			}
+			btns = append(btns, func(gtx C) D { return optionChip(gtx, th, &rs.opts[i][j], on, lbl) })
 		}
-		hint := "Answer"
-		if len(q.Options) > 0 {
-			hint = "Or type an answer"
+		w = append(w, gap(8), func(gtx C) D { return wrap(gtx, 8, btns) })
+		if preview != "" {
+			p := strings.TrimRight(preview, "\n")
+			w = append(w, gap(8), func(gtx C) D { return pre(gtx, th, p, 0) })
 		}
-		w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &rs.texts[i], hint) })
+	}
+	hint := "Answer"
+	if len(q.Options) > 0 {
+		hint = "Or type an answer"
+	}
+	w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &rs.texts[i], hint) })
+	if rs.back.Clicked(gtx) && rs.step > 0 {
+		rs.step--
+		k.note, k.bad = "", false
+	}
+	if rs.next.Clicked(gtx) {
+		if !rs.answeredAt(rs.step) {
+			k.note, k.bad = "Pick or type an answer.", true
+		} else {
+			k.note, k.bad = "", false
+			rs.step = rs.nextStep(rs.step)
+		}
 	}
 	if rs.send.Clicked(gtx) {
 		c.sendInput(env, r, rs, done)
@@ -337,8 +418,110 @@ func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request
 		w = w[:first]
 		return answered()
 	}
-	w = append(w, gap(12), func(gtx C) D { return cardButton(gtx, th, &rs.send, true, !k.busy, "Send") })
+	last := rs.step == len(qs)-1
+	switch {
+	case len(qs) > 1 && rs.step > 0 && last:
+		w = append(w, gap(12), func(gtx C) D { return twoButtons(gtx, th, &rs.back, "Back", &rs.send, "Send", !k.busy) })
+	case len(qs) > 1 && rs.step > 0:
+		w = append(w, gap(12), func(gtx C) D { return twoButtons(gtx, th, &rs.back, "Back", &rs.next, "Next", !k.busy) })
+	case len(qs) > 1:
+		w = append(w, gap(12), func(gtx C) D { return cardButton(gtx, th, &rs.next, true, !k.busy, "Next") })
+	default:
+		w = append(w, gap(12), func(gtx C) D { return cardButton(gtx, th, &rs.send, true, !k.busy, "Send") })
+	}
 	return w
+}
+
+// syncReqState resizes rs to match r.Questions and follows a live TUI's
+// step/answers when r.Step is reported.
+func syncReqState(rs *reqState, r remote.Request) {
+	n := len(r.Questions)
+	for len(rs.picked) < n {
+		i := len(rs.picked)
+		rs.picked = append(rs.picked, nil)
+		rs.texts = append(rs.texts, widget.Editor{})
+		rs.opts = append(rs.opts, make([]widget.Clickable, len(r.Questions[i].Options)))
+		rs.chips = append(rs.chips, widget.Clickable{})
+	}
+	if len(rs.picked) > n {
+		rs.picked, rs.texts, rs.opts, rs.chips = rs.picked[:n], rs.texts[:n], rs.opts[:n], rs.chips[:n]
+	}
+	for i, q := range r.Questions {
+		if len(rs.opts[i]) != len(q.Options) {
+			rs.opts[i] = make([]widget.Clickable, len(q.Options))
+		}
+	}
+	if r.Step != nil && n > 0 {
+		sStep := min(max(*r.Step, 0), n-1)
+		if sStep != rs.tuiStep {
+			rs.tuiStep = sStep
+			rs.step = sStep
+		}
+		for i, q := range r.Questions {
+			if vals := r.Answered[q.ID]; len(vals) > 0 && len(rs.picked[i]) == 0 && strings.TrimSpace(rs.texts[i].Text()) == "" {
+				rs.picked[i] = slices.Clone(vals)
+			}
+		}
+	}
+	if n > 0 && rs.step >= n {
+		rs.step = n - 1
+	}
+}
+
+func (rs *reqState) answeredAt(i int) bool {
+	if i < 0 || i >= len(rs.picked) {
+		return false
+	}
+	return len(rs.picked[i]) > 0 || strings.TrimSpace(rs.texts[i].Text()) != ""
+}
+
+func (rs *reqState) nextStep(i int) int {
+	for j := i + 1; j < len(rs.picked); j++ {
+		if !rs.answeredAt(j) {
+			return j
+		}
+	}
+	if i+1 < len(rs.picked) {
+		return i + 1
+	}
+	return i
+}
+
+// stepPill is a clickable step header pill on a multi-question card.
+func stepPill(gtx C, th *theme.Theme, c *widget.Clickable, s string, current, done bool) D {
+	return c.Layout(gtx, func(gtx C) D { return stepPillFace(gtx, th, s, current, done, c.Pressed()) })
+}
+
+func stepPillStatic(gtx C, th *theme.Theme, s string, current, done bool) D {
+	return stepPillFace(gtx, th, s, current, done, false)
+}
+
+func stepPillFace(gtx C, th *theme.Theme, s string, current, done, pressed bool) D {
+	m := op.Record(gtx.Ops)
+	d := layout.Inset{Left: 12, Right: 12, Top: 6, Bottom: 6}.Layout(gtx, func(gtx C) D {
+		fg, f := th.Muted, th.UIFont
+		if current {
+			fg, f = th.Fg, weight(th.UIFont, font.SemiBold)
+		} else if done {
+			fg = th.Fg
+		}
+		return label(gtx, th, f, 13.5, fg, 1, s)
+	})
+	call := m.Stop()
+	fill, ring := th.Bg, th.BorderSubtle
+	if current {
+		fill, ring = th.SelectedBg, theme.Mix(th.SelectedBg, th.Primary, 0.55)
+	} else if done {
+		fill = th.SurfaceSecondary
+	}
+	if pressed {
+		fill = theme.Mix(fill, th.Fg, 0.14)
+	}
+	r := d.Size.Y / 2
+	paint.FillShape(gtx.Ops, ring, clip.UniformRRect(image.Rectangle{Max: d.Size}, r).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: d.Size}.Inset(1), max(0, r-1)).Op(gtx.Ops))
+	call.Add(gtx.Ops)
+	return d
 }
 
 // tap picks option label of question i: a multiSelect question toggles
@@ -456,7 +639,10 @@ func (c *chatView) answerFromBox(env chatEnv, text string, image bool) bool {
 	if rs.sent != "" || text == rs.draft || len(r.Questions) == 0 {
 		return false
 	}
-	i := rs.open()
+	i := rs.step
+	if i < 0 || i >= len(r.Questions) {
+		i = rs.open()
+	}
 	if i < 0 {
 		i = len(r.Questions) - 1
 	}
@@ -470,6 +656,8 @@ func (c *chatView) answerFromBox(env chatEnv, text string, image bool) bool {
 				}
 			}
 		})
+	} else {
+		rs.step = rs.nextStep(i)
 	}
 	return true
 }

@@ -14,7 +14,8 @@ import (
 )
 
 // phoneQuestion checks the exact page before sending navigation or text.
-// option -1 submits a multi-select page; -2 answers Other.
+// option -1 submits a multi-select page; -2 answers Other; -3 goes Back (←);
+// -4 goes Next (→).
 func (d *Daemon) phoneQuestion(pane, id string, option int, text string) error {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
@@ -32,13 +33,44 @@ func (d *Daemon) phoneQuestion(pane, id string, option int, text string) error {
 	if q.Draft {
 		return errors.New("there are notes in the terminal; send or clear them first")
 	}
+	send := func(data []byte) error { return d.handle(context.Background(), proto.Input{Pane: pane, Data: data}) }
+	d.noteUserKey(pane, nil)
+	if option == -3 || option == -4 {
+		if option == -3 && !q.CanBack {
+			return errors.New("this question has no previous step")
+		}
+		if option == -4 && !q.CanNext {
+			return errors.New("this question has no next step")
+		}
+		if q.Notes {
+			if err := send(press(key.NameTab, p.Modes())); err != nil {
+				return err
+			}
+			time.Sleep(replyDelay.get())
+		}
+		k := key.NameLeftArrow
+		if option == -4 {
+			k = key.NameRightArrow
+		}
+		return send(press(k, p.Modes()))
+	}
 	target := option
 	switch option {
 	case -1:
 		if !q.Submit {
 			return errors.New("this question has no Submit")
 		}
-		target = len(q.Options) + 1
+		if prov == model.ProviderAntigravity {
+			if q.Cursor == q.OtherIndex && len(q.Options) > 0 {
+				target = 0
+			} else {
+				target = q.Cursor
+			}
+		} else if q.SubmitIndex >= 0 {
+			target = q.SubmitIndex
+		} else {
+			target = len(q.Options) + 1
+		}
 	case -2:
 		if !q.Other || remote.Clean(text) == "" {
 			return errors.New("type an answer for Other")
@@ -49,8 +81,6 @@ func (d *Daemon) phoneQuestion(pane, id string, option int, text string) error {
 			return errors.New("invalid option")
 		}
 	}
-	send := func(data []byte) error { return d.handle(context.Background(), proto.Input{Pane: pane, Data: data}) }
-	d.noteUserKey(pane, nil)
 	if q.Notes {
 		if err := send(press(key.NameTab, p.Modes())); err != nil {
 			return err
@@ -72,8 +102,13 @@ func (d *Daemon) phoneQuestion(pane, id string, option int, text string) error {
 		}
 	}
 	if option == -2 {
-		if prov == model.ProviderCodex {
+		switch prov {
+		case model.ProviderCodex:
 			if err := send(press(key.NameTab, p.Modes())); err != nil {
+				return err
+			}
+		case model.ProviderAntigravity:
+			if err := send(press(key.NameReturn, p.Modes())); err != nil {
 				return err
 			}
 		}

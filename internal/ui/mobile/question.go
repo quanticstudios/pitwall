@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"gioui.org/layout"
 
@@ -26,7 +27,23 @@ func (c *chatView) terminalQuestion(gtx C, th *theme.Theme, env chatEnv, done fu
 			return a.Question(ctx, env.Tab.Pane, q.ID, option, text)
 		}, done(""))
 	}
-	w := []layout.Widget{cardHead(th, agentName(env.Tab.Agent)+" asks"), gap(8), func(gtx C) D { return label(gtx, th, th.UIFont, 16, th.Fg, 0, q.Prompt) }}
+	w := []layout.Widget{cardHead(th, agentName(env.Tab.Agent)+" asks")}
+	if len(q.Tabs) > 0 {
+		var chips []layout.Widget
+		for i, tab := range q.Tabs {
+			lbl := tab.Label
+			if tab.Answered {
+				lbl = "✓ " + lbl
+			}
+			cur := i == q.Index
+			chips = append(chips, func(gtx C) D { return stepPillStatic(gtx, th, lbl, cur, tab.Answered) })
+		}
+		w = append(w, gap(8), func(gtx C) D { return wrap(gtx, 6, chips) })
+	} else if q.Total > 1 {
+		stepText := fmt.Sprintf("Question %d of %d", q.Index+1, q.Total)
+		w = append(w, gap(4), func(gtx C) D { return label(gtx, th, th.UIFont, 13.5, th.Muted, 1, stepText) })
+	}
+	w = append(w, gap(8), func(gtx C) D { return label(gtx, th, th.UIFont, 16, th.Fg, 0, q.Prompt) })
 	for i, o := range q.Options {
 		if k.questionBtns[i].Clicked(gtx) {
 			answer(i, "")
@@ -53,6 +70,22 @@ func (c *chatView) terminalQuestion(gtx C, th *theme.Theme, env chatEnv, done fu
 			answer(-1, "")
 		}
 		w = append(w, gap(8), func(gtx C) D { return cardButton(gtx, th, &k.submit, true, !k.busy && env.Online, "Submit") })
+	}
+	if q.CanBack || q.CanNext {
+		if k.qBack.Clicked(gtx) && q.CanBack {
+			answer(-3, "")
+		}
+		if k.qNext.Clicked(gtx) && q.CanNext {
+			answer(-4, "")
+		}
+		switch {
+		case q.CanBack && q.CanNext:
+			w = append(w, gap(8), func(gtx C) D { return twoButtons(gtx, th, &k.qBack, "Back", &k.qNext, "Next", !k.busy && env.Online) })
+		case q.CanBack:
+			w = append(w, gap(8), func(gtx C) D { return cardButton(gtx, th, &k.qBack, false, !k.busy && env.Online, "Back") })
+		case q.CanNext:
+			w = append(w, gap(8), func(gtx C) D { return cardButton(gtx, th, &k.qNext, false, !k.busy && env.Online, "Next") })
+		}
 	}
 	return w
 }

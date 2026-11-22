@@ -44,14 +44,18 @@ type Item struct {
 
 // Request is one of a chat's pending approvals or input requests.
 type Request struct {
-	ID        string             `json:"id"`
-	Kind      string             `json:"kind"`   // approval, plan, input
-	Detail    string             `json:"detail"` // the approval's detail, the plan's text, the input's detail
-	Tool      string             `json:"tool,omitempty"`
-	Command   string             `json:"command,omitempty"`
-	Path      string             `json:"path,omitempty"`
-	Questions []session.Question `json:"questions,omitempty"`
-	NoSession bool               `json:"noSession,omitempty"` // the prompt offers no Allow for this session
+	ID        string              `json:"id"`
+	Kind      string              `json:"kind"`   // approval, plan, input
+	Detail    string              `json:"detail"` // the approval's detail, the plan's text, the input's detail
+	Tool      string              `json:"tool,omitempty"`
+	Command   string              `json:"command,omitempty"`
+	Path      string              `json:"path,omitempty"`
+	Questions []session.Question  `json:"questions,omitempty"`
+	NoSession bool                `json:"noSession,omitempty"` // the prompt offers no Allow for this session
+	Step      *int                `json:"step,omitempty"`
+	Review    bool                `json:"review,omitempty"`
+	Done      []bool              `json:"done,omitempty"`
+	Answered  map[string][]string `json:"answered,omitempty"`
 }
 
 // Requests are s's pending approvals, then its input requests, with
@@ -79,7 +83,21 @@ func Requests(s session.Snapshot, redact func(string) string) []Request {
 		for i := range qs {
 			qs[i].Prompt = redact(qs[i].Prompt)
 		}
-		out = append(out, Request{ID: in.ID, Kind: "input", Detail: deref(in.Detail), Questions: qs})
+		var ans map[string][]string
+		if len(in.Answered) > 0 {
+			ans = make(map[string][]string, len(in.Answered))
+			for k, vs := range in.Answered {
+				cp := make([]string, len(vs))
+				for i, v := range vs {
+					cp[i] = redact(v)
+				}
+				ans[k] = cp
+			}
+		}
+		out = append(out, Request{
+			ID: in.ID, Kind: "input", Detail: deref(in.Detail), Questions: qs,
+			Step: in.Step, Review: in.Review, Done: slices.Clone(in.Done), Answered: ans,
+		})
 	}
 	return out
 }
