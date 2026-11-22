@@ -32,7 +32,7 @@ type driver struct {
 	pending map[string]chan rpcMessage
 	queue   []session.Event
 	outbox  [][]byte // lines queued under d.mu and flushed off d.mu
-	sending bool     // Send is writing session/prompt; emitLoop waits so EventTurnStarted stays first
+	sending int      // Send/Approve/Answer writes in flight; emitLoop waits so synthetic events stay ahead of CLI replies
 	dead    bool     // the process is gone; nothing is posted after its session.exited
 	closing bool     // Close was called
 }
@@ -57,7 +57,7 @@ func (d *driver) emitLoop() {
 	defer close(d.done)
 	for {
 		d.mu.Lock()
-		if d.sending {
+		if d.sending > 0 {
 			d.mu.Unlock()
 			<-d.wake
 			continue

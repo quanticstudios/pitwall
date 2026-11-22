@@ -271,14 +271,14 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	d.s.cancelled = false
 	d.s.tools = map[string]*session.ToolCall{}
 	d.s.kinds = map[string]string{}
-	d.sending = true
+	d.sending++
 	pos := len(d.queue)
 	d.mu.Unlock()
 
 	err = d.writeBytes(data)
 
 	d.mu.Lock()
-	d.sending = false
+	d.sending--
 	if err != nil {
 		if d.s.turn == m.ID {
 			d.s.turn, d.s.prompt = "", ""
@@ -373,20 +373,28 @@ func (d *driver) Approve(ctx context.Context, id string, decision session.Decisi
 			break
 		}
 	}
-	d.mu.Unlock()
 	if !found {
+		d.mu.Unlock()
 		return fmt.Errorf("ACP permission option %s: %w", kind, session.ErrUnsupported)
 	}
+	d.sending++
+	pos := len(d.queue)
+	d.mu.Unlock()
 	if err := d.writeBytes(data); err != nil {
 		d.mu.Lock()
+		d.sending--
 		if !d.dead && !d.closing {
 			d.s.permissions[id] = p
 		}
+		d.notifyWake()
 		d.mu.Unlock()
 		return err
 	}
 	d.mu.Lock()
-	d.post(session.Event{Type: session.EventRequestResolved, RequestID: id})
+	d.sending--
+	ev := session.Event{Type: session.EventRequestResolved, RequestID: id, CreatedAt: session.Stamp(time.Now())}
+	d.queue = slices.Insert(d.queue, min(pos, len(d.queue)), ev)
+	d.notifyWake()
 	d.mu.Unlock()
 	return nil
 }
@@ -417,17 +425,24 @@ func (d *driver) Answer(ctx context.Context, id string, answers map[string][]str
 		return err
 	}
 	delete(d.s.inputs, id)
+	d.sending++
+	pos := len(d.queue)
 	d.mu.Unlock()
 	if err := d.writeBytes(data); err != nil {
 		d.mu.Lock()
+		d.sending--
 		if !d.dead && !d.closing {
 			d.s.inputs[id] = in
 		}
+		d.notifyWake()
 		d.mu.Unlock()
 		return err
 	}
 	d.mu.Lock()
-	d.post(session.Event{Type: session.EventInputResolved, RequestID: id})
+	d.sending--
+	ev := session.Event{Type: session.EventInputResolved, RequestID: id, CreatedAt: session.Stamp(time.Now())}
+	d.queue = slices.Insert(d.queue, min(pos, len(d.queue)), ev)
+	d.notifyWake()
 	d.mu.Unlock()
 	return nil
 }

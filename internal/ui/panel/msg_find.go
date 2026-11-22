@@ -156,7 +156,7 @@ func (b *FindBar) Layout(gtx layout.Context, th *theme.Theme, size image.Point, 
 		x -= bs
 		r := image.Rect(x, y, x+bs, y+bs)
 		at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
-			return d.toolButtonOn(gtx, bt.c, bt.ic, th.Muted, false, theme.Mix(d.th.SurfaceElevated, d.th.Fg, 0.08))
+			return d.toolButtonOn(gtx, bt.c, bt.ic, th.Muted, false, d.th.HoverElevated)
 		})
 		if bt.c.Hovered() {
 			defer d.tooltip(gtx, bt.tip, r.Add(rect.Min), size)

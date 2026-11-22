@@ -197,7 +197,7 @@ func (u *ui) drawWelcome(gtx gl.Context, st *model.State) {
 		u.endWelcome()
 		return
 	}
-	if !u.keysHeld(st) {
+	if !u.keysHeldAboveWelcome(st) {
 		gtx.Execute(key.FocusCmd{Tag: focusTag})
 	}
 	u.card(gtx, &w.tag, w.shownAt, u.welcomeBody)

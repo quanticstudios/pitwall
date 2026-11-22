@@ -353,7 +353,7 @@ func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Com
 		case on:
 			fill = th.SelectedBg
 		case b.Hovered():
-			fill = th.Hover
+			fill = th.HoverElevated
 		}
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		pad, gap := gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceM)

@@ -259,7 +259,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 		}
 		hoverFill := d.th.Hover
 		if elevated {
-			hoverFill = theme.Mix(d.th.SurfaceElevated, d.th.Fg, 0.08)
+			hoverFill = d.th.HoverElevated
 		}
 		for i, b := range tools {
 			r := image.Rect(x0+i*(bs+gap), y0, x0+i*(bs+gap)+bs, bh)
@@ -286,7 +286,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 // toolButton is a ghost button of icon path ic, hit square, with visible
 // hover on SurfaceElevated, Pressed while held or held open.
 func (d *cdraw) toolButton(gtx layout.Context, c *widget.Clickable, ic string, col color.NRGBA, held bool) layout.Dimensions {
-	return d.toolButtonOn(gtx, c, ic, col, held, theme.Mix(d.th.SurfaceElevated, d.th.Fg, 0.08))
+	return d.toolButtonOn(gtx, c, ic, col, held, d.th.HoverElevated)
 }
 
 func (d *cdraw) toolButtonOn(gtx layout.Context, c *widget.Clickable, ic string, col color.NRGBA, held bool, hoverFill color.NRGBA) layout.Dimensions {
