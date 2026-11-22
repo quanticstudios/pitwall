@@ -31,7 +31,7 @@ func TestChatRows(t *testing.T) {
 			labels = append(labels, sec.title+"/"+r.label)
 		}
 	}
-	for _, want := range []string{"Text/Chat text size", "Text/Chat code size", "Chat/Chat width", "Chat/Tool calls in chat"} {
+	for _, want := range []string{"Text/Chat text size", "Text/Chat code size", "Chat/Chat layout", "Chat/Chat width", "Chat/Tool calls in chat"} {
 		if !slices.Contains(labels, want) {
 			t.Errorf("no %s in %q", want, labels)
 		}

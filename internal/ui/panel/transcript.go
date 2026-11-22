@@ -86,6 +86,9 @@ type Transcript struct {
 	// ToolCalls is which tool calls show, [chat] tool_calls: ToolsAll
 	// (also ""), ToolsFailed, ToolsNone or ToolsZen.
 	ToolCalls string
+	// ChatLayout is the transcript's layout, [chat] layout: LayoutColumn
+	// (also "") or LayoutLedger.
+	ChatLayout string
 	// CodeScale is code's size over the chat's text size, [font]
 	// chat_code_size over chat_size: code blocks, diffs, commands and tool
 	// output. 0 is 1.
@@ -94,14 +97,15 @@ type Transcript struct {
 	// frame; nil shows the notice without its buttons.
 	Limit *LimitResume
 
-	list   layout.List
-	listPx float32 // the px per sp list's offsets were laid out at
-	blocks []block
-	rows   []trow
-	laid   int // transcript items laid out in the last frame
-	live   bool
-	epoch  time.Time
-	now    time.Time
+	list       layout.List
+	listPx     float32 // the px per sp list's offsets were laid out at
+	prevLayout string  // the last frame's resolved ChatLayout, for keeping scroll on switch
+	blocks     []block
+	rows       []trow
+	laid       int // transcript items laid out in the last frame
+	live       bool
+	epoch      time.Time
+	now        time.Time
 
 	open   map[string]bool // folds the user opened or closed, by id
 	fold   []int           // the items of the fold buildRows lays out
@@ -223,16 +227,20 @@ type ask struct {
 // trow is one row of the list: a prompt or system line, a piece of a
 // turn, an answered request's line, or what follows the items.
 type trow struct {
-	b       block
-	seg     rowSeg
-	i       int       // segItem, segProse: the item
-	top     bool      // segItem: a call on its own, not in a fold
-	open    bool      // segHead: the fold is open; segTurn: the turn's work shows
-	running bool      // segHead, segReply, segTurn: the turn runs
-	res     *resolved // open: its details show
-	tail    layout.Widget
-	gap     unit.Dp // space above it
-	rank    int     // its place in reading order, see rowRank
+	b        block
+	seg      rowSeg
+	i        int       // segItem, segProse: the item
+	top      bool      // segItem: a call on its own, not in a fold
+	open     bool      // segHead: the fold is open; segTurn: the turn's work shows
+	running  bool      // segHead, segReply, segTurn: the turn runs
+	res      *resolved // open: its details show
+	tail     layout.Widget
+	gap      unit.Dp   // space above it
+	rank     int       // its place in reading order, see rowRank
+	gutter   bool      // Ledger: draw the time + agent gutter beside this row
+	gutterAt time.Time // Ledger: the timestamp in the gutter
+	divider  bool      // Ledger: draw a top hairline before this turn
+	inTurn   bool      // Ledger: align row inside the agent's 768 dp text column
 }
 
 // rowSeg is which piece of its block a row draws.
@@ -626,9 +634,6 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	}
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-	// The transcript's area holds all it draws, so a press or a drag on any
-	// of it reaches the selection, on text under a row's button too.
-	gioevent.Op(gtx.Ops, &t.span)
 	prev := t.drawn
 	t.now, t.live, t.laid, t.drawn, t.drawnWas, t.size = gtx.Now, false, 0, t.drawnWas[:0], prev, size
 	t.frame++
@@ -642,46 +647,79 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	}
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: size}.Op())
 
+	d := &cdraw{t: t, th: th, s: s, sec: gtx.Now.Sub(t.epoch).Seconds()}
+	t.blocks = blocks(s.Content, t.blocks, t.cuts(s)...)
+	var col, x0, planH int
+	if t.isLedger() {
+		d.ledger = true
+		d.geom = ledgerMetrics(gtx, s.Provider, size.X)
+		d.col, d.proseW = d.geom.textW, d.geom.textW
+		col, x0 = d.geom.ledgerW, d.geom.x0
+		planH = d.planStrip(gtx, size)
+	} else {
+		side := gtx.Dp(theme.SpaceXL)
+		col = max(0, size.X-2*side)
+		if t.Width > 0 {
+			col = min(col, gtx.Dp(t.Width))
+		}
+		d.col, d.proseW = col, proseCap(col, d.avgChar(gtx))
+		x0 = (size.X - col) / 2
+	}
+
+	listSize := image.Pt(size.X, max(0, size.Y-planH))
+	t.size = listSize
+	listOff := op.Offset(image.Pt(0, planH)).Push(gtx.Ops)
+	listClip := clip.Rect{Max: listSize}.Push(gtx.Ops)
+	lgtx := gtx
+	lgtx.Constraints = layout.Exact(listSize)
+
+	// The transcript's area holds all it draws, so a press or a drag on any
+	// of it reaches the selection, on text under a row's button too.
+	gioevent.Op(lgtx.Ops, &t.span)
+
 	// A press on the transcript takes the keys from the composer, and a
 	// press outside a selection clears it.
 	for {
-		ev, ok := gtx.Event(pointer.Filter{Target: &t.focus, Kinds: pointer.Press}, key.FocusFilter{Target: &t.focus})
+		ev, ok := lgtx.Event(pointer.Filter{Target: &t.focus, Kinds: pointer.Press}, key.FocusFilter{Target: &t.focus})
 		if !ok {
 			break
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
-			gtx.Execute(key.FocusCmd{Tag: &t.focus})
+			lgtx.Execute(key.FocusCmd{Tag: &t.focus})
 			t.menu, t.msg.confirm = false, ""
 		}
 	}
-	bg := clip.Rect{Max: size}.Push(gtx.Ops)
-	gioevent.Op(gtx.Ops, &t.focus)
+	bg := clip.Rect{Max: listSize}.Push(lgtx.Ops)
+	gioevent.Op(lgtx.Ops, &t.focus)
 	bg.Pop()
-	t.keys(gtx)
+	t.keys(lgtx)
 	if t.typeIn != nil {
-		gtx.Execute(key.FocusCmd{Tag: t.typeIn})
+		lgtx.Execute(key.FocusCmd{Tag: t.typeIn})
 		t.typeIn = nil
 	}
 
-	d := &cdraw{t: t, th: th, s: s, sec: gtx.Now.Sub(t.epoch).Seconds()}
-	side := gtx.Dp(theme.SpaceXL)
-	col := max(0, size.X-2*side)
-	if t.Width > 0 {
-		col = min(col, gtx.Dp(t.Width))
-	}
-	d.col, d.proseW = col, proseCap(col, d.avgChar(gtx))
-	x0 := (size.X - col) / 2
-	t.blocks = blocks(s.Content, t.blocks, t.cuts(s)...)
 	added := t.prepended(s)
-	t.buildRows(gtx, d)
+	if d.ledger {
+		t.buildLedgerRows(lgtx, d)
+	} else {
+		t.buildRows(lgtx, d)
+	}
 	if added > 0 {
 		t.keepPlace(s)
 		for k := range t.span.ord { // the order follows the items, now added older ones
 			t.span.ord[k] += added * rankItem * rankRow
 		}
 	}
+	curLayout := LayoutColumn
+	if t.isLedger() {
+		curLayout = LayoutLedger
+	}
+	if t.prevLayout != "" && t.prevLayout != curLayout {
+		t.keepLayoutScroll(s)
+	}
+	t.prevLayout = curLayout
 
-	t.keepScroll(gtx.Metric.PxPerSp)
+	t.keepScroll(lgtx.Metric.PxPerSp)
 	// A new prompt, sent here, queued or typed elsewhere, takes the
 	// reader to the end wherever they scrolled.
 	if id := lastPrompt(s); id != t.prompt {
@@ -690,50 +728,78 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	}
 	// It follows the newest row once it overflows, from the end the first
 	// time it does; a short one stays at the top.
-	follow := t.list.Position.Length > size.Y
+	follow := t.list.Position.Length > listSize.Y
 	if follow && !t.list.ScrollToEnd {
 		t.list.Position.BeforeEnd = false
 	}
 	t.list.ScrollToEnd = follow
 	if !follow {
 		defer func() {
-			if t.list.Position.Length > size.Y { // it overflows now: the next frame goes to its end
+			if t.list.Position.Length > listSize.Y { // it overflows now: the next frame goes to its end
 				gtx.Execute(op.InvalidateCmd{})
 			}
 		}()
 	}
-	t.findJump(gtx, s, size.Y)
-	t.revealJump(gtx, s, prev, size.Y)
-	t.autoScroll(gtx, prev, size.Y)
+	t.findJump(lgtx, s, listSize.Y)
+	t.revealJump(lgtx, s, prev, listSize.Y)
+	t.autoScroll(lgtx, prev, listSize.Y)
 	if t.span.drag { // the button held: the newest line does not pull the view away
 		t.list.Position.BeforeEnd = true
 	}
-	t.list.Layout(gtx, len(t.rows)+2, t.msg.record(func(gtx layout.Context, i int) layout.Dimensions {
+	t.list.Layout(lgtx, len(t.rows)+2, t.msg.record(func(gtx layout.Context, i int) layout.Dimensions {
 		switch i--; {
 		case i < 0:
-			d := layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
-			if t.older {
-				d = t.loadingOlder(gtx, th, size.X)
+			topPad := gtx.Dp(theme.SpaceXL)
+			if d.ledger {
+				topPad = gtx.Dp(theme.SpaceM)
 			}
-			t.topH = d.Size.Y
-			return d
+			dm := layout.Dimensions{Size: image.Pt(listSize.X, topPad)}
+			if t.older {
+				dm = t.loadingOlder(gtx, th, listSize.X)
+			}
+			t.topH = dm.Size.Y
+			return dm
 		case i >= len(t.rows):
-			return layout.Dimensions{Size: image.Pt(size.X, gtx.Dp(theme.SpaceXL))}
+			botPad := gtx.Dp(theme.SpaceXL)
+			if d.ledger {
+				botPad = gtx.Dp(theme.Space2XL)
+			}
+			return layout.Dimensions{Size: image.Pt(listSize.X, botPad)}
 		}
 		r := &t.rows[i]
 		t.span.rank, t.span.seq = r.rank*rankRow, 0
 		t.wantWhole(s, r)
 		gap := gtx.Dp(r.gap)
-		t.msg.dy = gap
-		gtx.Constraints = layout.Constraints{Max: image.Pt(col, gtx.Constraints.Max.Y)}
+		topY := gap
+		if d.ledger && r.divider {
+			paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(x0, gap), Max: image.Pt(x0+d.geom.ledgerW, gap+max(1, gtx.Dp(1)))}.Op())
+			topY += gtx.Dp(theme.SpaceS + theme.Space2XS)
+		}
+		t.msg.dy = topY
+		rowX, rowW := x0, col
 		dx := 0
-		if r.tail == nil && r.res == nil && (r.seg == segHead || r.seg == segItem) {
+		if d.ledger {
+			if r.gutter {
+				at(gtx, image.Pt(x0, topY), func(gtx layout.Context) layout.Dimensions {
+					d.ledgerGutter(gtx, r.gutterAt, d.ledgerRowFirstLineH(gtx, r))
+					return layout.Dimensions{}
+				})
+			}
+			if r.inTurn {
+				rowX, rowW = x0+d.geom.gutterW, d.geom.textW
+				if r.tail == nil && r.res == nil && r.seg == segItem {
+					dx = gtx.Dp(rowPad - theme.Space2XS)
+					rowW += dx
+				}
+			}
+		} else if r.tail == nil && r.res == nil && (r.seg == segHead || r.seg == segItem) {
 			// A line of work starts at the prose's edge, as T3 Code's rows
 			// do: its chevron where the text starts, its hover past it.
 			dx = gtx.Dp(rowPad - theme.Space2XS)
-			gtx.Constraints.Max.X += dx
+			rowW += dx
 		}
-		off := op.Offset(image.Pt(x0-dx, gap)).Push(gtx.Ops)
+		gtx.Constraints = layout.Constraints{Max: image.Pt(rowW, gtx.Constraints.Max.Y)}
+		off := op.Offset(image.Pt(rowX-dx, topY)).Push(gtx.Ops)
 		var dims layout.Dimensions
 		switch {
 		case r.tail != nil:
@@ -768,31 +834,41 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			dims = d.reply(gtx, r.b.reply, r.running, start, end)
 		default:
 			t.laid += r.b.hi - r.b.lo
-			dims = d.block(gtx, r.b)
+			if d.ledger && r.b.kind == blockPrompt {
+				dims = d.ledgerPrompt(gtx, &s.Content[r.b.lo])
+			} else {
+				dims = d.block(gtx, r.b)
+			}
 		}
 		off.Pop()
 		if dims.Size.Y == 0 {
-			return layout.Dimensions{Size: image.Pt(size.X, 0)}
+			return layout.Dimensions{Size: image.Pt(listSize.X, 0)}
 		}
-		return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gap)}
+		return layout.Dimensions{Size: image.Pt(listSize.X, dims.Size.Y+topY)}
 	}))
+	if d.ledger {
+		d.bottomFade(lgtx, listSize)
+	}
 	t.msg.spans(t.list.Position)
 	t.span.rank, t.span.seq = math.MaxInt/2, 0 // what floats over the rows reads after them
-	t.atTop(s, size.Y)
+	t.atTop(s, listSize.Y)
 	t.forget(s)
-	t.newOutput(gtx, d, s, size)
-	t.drawMinimap(gtx, d, s, col, size)
-	t.drawAside(gtx, d, size)
-	t.drawFind(gtx, d, size)
-	t.drawConfirm(gtx, d, x0, size)
-	t.drawTip(gtx, d, x0, size)
+	t.newOutput(lgtx, d, s, listSize)
+	t.drawMinimap(lgtx, d, s, col, listSize)
+	t.drawAside(lgtx, d, listSize)
+	t.drawFind(lgtx, d, listSize)
+	t.drawConfirm(lgtx, d, x0, listSize)
+	t.drawTip(lgtx, d, x0, listSize)
+	t.selectEvents(lgtx, prev) // once all the text took its presses
+	t.drawCite(lgtx, d, s, prev, listSize)
+	d.selMenu(lgtx, listSize)
+	listClip.Pop()
+	listOff.Pop()
+
 	t.zoomLayer(gtx, d, size)
 	if aide {
 		d.moreMenu(gtx, size)
 	}
-	t.selectEvents(gtx, prev) // once all the text took its presses
-	t.drawCite(gtx, d, s, prev, size)
-	d.selMenu(gtx, size)
 	if t.live {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 	}

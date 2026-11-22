@@ -808,6 +808,14 @@ func (p *Page) appearance() []section {
 				control: p.stepper("font", "line_height", f.LineHeight, 0.8, 3, 0.05, 1)},
 		}},
 		{title: "Chat", rows: []row{
+			{label: "Chat layout", desc: "Column folds each turn's tool calls into one work log. Ledger adds a time and agent gutter beside a 768 dp text column, lists each tool call as its own row, puts the plan in a strip under the header, and docks a floating composer card.",
+				extra: "layout column ledger view chat_layout", control: p.labeled("chat.layout", []string{config.ChatColumn, config.ChatLedger}, []string{"Column", "Ledger"}, cmp.Or(p.s.Chat.Layout, config.ChatColumn), func(o string) {
+					if o == config.ChatColumn {
+						p.save("chat", "layout", nil)
+					} else {
+						p.saveValue("chat", "layout", config.Quote(o))
+					}
+				})},
 			{label: "Chat width", desc: "How wide the desktop chat's messages and composer grow. Comfortable is 736 dp, standard 960 dp, full the whole tab. Reply text stops near 96 characters either way.",
 				extra: "width column reading comfortable standard full", control: p.labeled("chat.width", []string{"comfortable", "standard", "full"}, []string{"Comfortable", "Standard", "Full"}, chatWidthName(p.s.Chat.Width), func(o string) {
 					if o == "standard" {

@@ -41,10 +41,25 @@ func TestChat(t *testing.T) {
 			t.Errorf("%q: %+v, problems %q", tc.body, s.Chat, msgs(probs))
 		}
 	}
-	if d := Default(); !strings.Contains(d, `follow_up = "steer"`) || !strings.Contains(d, `send_key = "enter"`) {
-		t.Error("follow_up or send_key is missing from the default file")
+	for _, tc := range []struct {
+		body    string
+		want    string
+		problem string
+	}{
+		{"", ChatColumn, ""},
+		{`layout = "column"`, ChatColumn, ""},
+		{`layout = "ledger"`, ChatLedger, ""},
+		{`layout = "turns"`, ChatColumn, `config.toml:2: chat.layout: "turns" is not column or ledger; using column`},
+	} {
+		s, probs := LoadFile(write(t, t.TempDir(), "config.toml", "[chat]\n"+tc.body+"\n"))
+		if s.Chat.Layout != tc.want || msgs(probs) != tc.problem {
+			t.Errorf("%q: layout=%q, problems %q", tc.body, s.Chat.Layout, msgs(probs))
+		}
 	}
-	if !strings.Contains(Default(), "[chat]") || !strings.Contains(string(Schema()), `"comfortable"`) || !strings.Contains(string(Schema()), `"terminal"`) {
+	if d := Default(); !strings.Contains(d, `follow_up = "steer"`) || !strings.Contains(d, `send_key = "enter"`) || !strings.Contains(d, `layout = "column"`) {
+		t.Error("follow_up, send_key or layout is missing from the default file")
+	}
+	if !strings.Contains(Default(), "[chat]") || !strings.Contains(string(Schema()), `"comfortable"`) || !strings.Contains(string(Schema()), `"terminal"`) || !strings.Contains(string(Schema()), `"ledger"`) {
 		t.Error("[chat] is missing from the default file or the schema")
 	}
 }

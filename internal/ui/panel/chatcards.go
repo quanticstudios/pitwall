@@ -189,6 +189,9 @@ func endLine(s *session.Snapshot) (msg string, stopped bool) {
 
 // working is the header of a turn that has nothing to show yet.
 func (d *cdraw) working(gtx layout.Context, start time.Time) layout.Dimensions {
+	if d.ledger {
+		return d.ledgerWorking(gtx, start)
+	}
 	th := d.th
 	d.t.live = true
 	hh := gtx.Dp(rowH) + 2
@@ -240,6 +243,9 @@ func (d *cdraw) card(gtx layout.Context, ic, title string, body layout.Widget) l
 // when the request says, and Allow 1, Allow for session 2, Deny 3, which
 // opens a field for the reason.
 func (d *cdraw) approvalCard(gtx layout.Context, a session.Approval) layout.Dimensions {
+	if d.ledger {
+		return d.ledgerApprovalCard(gtx, a)
+	}
 	th := d.th
 	bs := d.t.answer[a.ID]
 	if bs == nil {

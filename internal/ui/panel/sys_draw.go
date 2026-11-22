@@ -450,6 +450,9 @@ func (d *cdraw) todoRow(gtx layout.Context, t session.Task) layout.Dimensions {
 // done. A click opens it to the whole list. It is as wide as the
 // transcript's column; zero size when there is nothing to show.
 func (t *Transcript) TodoStrip(gtx layout.Context, th *theme.Theme, s *session.Snapshot) layout.Dimensions {
+	if t.isLedger() {
+		return layout.Dimensions{}
+	}
 	tasks := liveTodo(s)
 	if tasks == nil {
 		return layout.Dimensions{}

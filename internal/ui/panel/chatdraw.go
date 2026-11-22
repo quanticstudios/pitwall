@@ -31,6 +31,8 @@ type cdraw struct {
 	s           *session.Snapshot
 	sec         float64                         // seconds since the transcript opened, for spinners
 	col, proseW int                             // the column's width, and reply prose's
+	ledger      bool                            // drawing Ledger layout
+	geom        ledgerGeom                      // Ledger column widths
 	syn         *[syntax.Header + 1]color.NRGBA // code's token colors, for synFor
 	synFor      *theme.Theme
 }

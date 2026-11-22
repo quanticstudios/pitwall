@@ -280,6 +280,7 @@ Answer agy's questions in the TUI (Alt+T).
 claude = "chat"     # or "terminal": show Claude Code panes as the TUI, Alt+T away from the chat
 codex = "chat"      # or "terminal": the same for Codex panes
 antigravity = "chat" # or "terminal": New task starts agy's TUI, and agy panes show as the TUI
+layout = "column"   # or "ledger": time/agent gutter, unrolled tool rows, plan strip and floating composer
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's and composer's column
 tool_calls = "all"  # or "failed", "none", "zen": which tool calls show
 suggest_next = false # after a turn, offer a predicted next prompt; uses the agent's plan
@@ -287,6 +288,13 @@ suggest_next = false # after a turn, offer a predicted next prompt; uses the age
 [font]
 chat_code_size = 0  # code in the chat; 0 follows chat_size
 ```
+
+`layout = "ledger"` (Settings, **Chat layout**) switches the desktop chat live
+without losing your scroll position or features: agent turns get a left gutter
+with the time and agent name beside a 768 dp text column with each tool call as
+its own row, your messages sit on the right as bubbles, the plan and changed
+files sit in a strip under the header, approvals draw as compact cards, and the
+composer floats at the bottom with a quiet status and key-hint line.
 
 `standard` is 960 dp, enough for a 120-column diff. Reply prose stops near 96
 characters at any width. [Configuration](config.md) has the rest.
