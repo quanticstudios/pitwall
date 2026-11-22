@@ -103,7 +103,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 	if ok {
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
-		t.ToolCalls, t.CodeScale = u.cfg.Chat.ToolCalls, u.codeScale()
+		t.ToolCalls, t.ChatLayout, t.CodeScale = u.cfg.Chat.ToolCalls, u.cfg.Chat.Layout, u.codeScale()
 		paneLimit(st, id, &s, gtx.Now)
 		t.Limit = u.limitResume(st, id, ws, &s)
 		t.CopyOnSelect = u.cfg.CopyOnSelect
@@ -229,7 +229,11 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 	if width == 0 {                    // full: the whole tab, less its sides
 		width = 1 << 16
 	}
-	env := chatin.Env{Chat: id, Snap: s, Width: width,
+	ledger := u.cfg.Chat.Layout == config.ChatLedger
+	if ledger {
+		width = panel.LedgerWidth(s.Provider)
+	}
+	env := chatin.Env{Chat: id, Snap: s, Width: width, Ledger: ledger,
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
 		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,

@@ -73,6 +73,7 @@ settle_on_merge = true                  # settle a tab once its pull request mer
 claude = "chat"                         # or "terminal": how Claude Code panes show; Alt+T flips between chat and TUI
 codex = "chat"                          # or "terminal": the same for Codex panes
 antigravity = "chat"                    # or "terminal": New task starts agy's TUI; agy panes show as the TUI
+layout = "column"                       # or "ledger": column folds tool logs; ledger adds a time/agent gutter, plan strip and floating composer
 width = "standard"                      # or "comfortable" (736 dp), "full": a chat's column, transcript and composer
 follow_up = "steer"                     # or "queue": what the send key does while the agent works; Ctrl+Enter does the other
 send_key = "enter"                      # or "ctrl+enter": Ctrl+Enter sends and Enter adds a line
@@ -191,6 +192,14 @@ awake off to release the lock.
 default, draws it as [the desktop chat](chat.md), and `terminal` shows the
 TUI. Alt+T flips either way. `[chat] codex` does the same for a pane
 running Codex, once Codex's hooks name its session.
+
+`[chat] layout` picks how the desktop chat draws: `column` (the default) puts
+replies in a reading column with folded work logs, and `ledger` centers a time
+and agent gutter beside a 768 dp text column, lists each tool call as its own
+row, puts your messages as right-aligned bubbles, shows the plan and changed
+files in a strip under the header, draws compact approval cards, and docks a
+floating composer card with a status line. Settings, Chat layout, switches it
+live while keeping your scroll position.
 
 `[chat] width` sets how wide a chat's transcript and composer grow:
 `comfortable` is 736 dp, `standard` (the default) is 960 dp, enough for a

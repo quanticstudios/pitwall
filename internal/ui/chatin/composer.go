@@ -55,6 +55,7 @@ type Composer struct {
 	dismissed string
 
 	sendBtn, stopBtn  widget.Clickable // the main button, and the quiet Stop beside Queue
+	attachBtn         widget.Clickable // Ledger's round + attach button
 	modeBtn, modelBtn widget.Clickable
 	effortBtn         widget.Clickable
 	meterBtn          widget.Clickable // the context meter, for its hover card
@@ -171,6 +172,8 @@ type Env struct {
 	// Suggest is a predicted next prompt: the empty box shows it muted in
 	// place of the placeholder, Tab fills it in and Escape dismisses it.
 	Suggest string
+	// Ledger draws the floating composer card and quiet status line under it.
+	Ledger bool
 }
 
 type imageRead struct {
@@ -831,6 +834,7 @@ func (c *Composer) others(gtx layout.Context, env Env) {
 		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
 	c.queueEvents(gtx, env)
+	c.attachEvents(gtx, env)
 	if c.modeBtn.Clicked(gtx) {
 		c.toggle(gtx.Now, &c.modeBtn)
 	}
@@ -901,22 +905,56 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	}
 	c.events(gtx, env)
 	full := gtx.Constraints.Max.X
-	w := max(0, min(full-2*gtx.Dp(theme.SpaceXL), gtx.Dp(env.Width)))
+	sidePad := gtx.Dp(theme.SpaceXL)
+	if env.Ledger {
+		sidePad = gtx.Dp(ledgerSidePad)
+		if full < gtx.Dp(400) {
+			sidePad = min(sidePad, max(gtx.Dp(theme.SpaceM), (full-gtx.Dp(260))/2))
+		}
+	}
+	w := max(0, min(full-2*sidePad, gtx.Dp(env.Width)))
 	cg := gtx
 	cg.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
 	m := op.Record(gtx.Ops)
 	queued := c.queued(cg, th, env)
 	qcall := m.Stop()
 	m = op.Record(gtx.Ops)
-	card := c.card(cg, th, env)
+	var card layout.Dimensions
+	if env.Ledger {
+		card = c.ledgerCard(cg, th, env)
+	} else {
+		card = c.card(cg, th, env)
+	}
 	call := m.Stop()
+	var statusCall op.CallOp
+	var statusDims layout.Dimensions
+	if env.Ledger {
+		m = op.Record(gtx.Ops)
+		statusDims = c.ledgerStatusLine(cg, th, env)
+		statusCall = m.Stop()
+	}
 	top := gtx.Dp(theme.SpaceM)
+	if env.Ledger {
+		top = gtx.Dp(theme.SpaceXS)
+	}
 	if queued.Size.Y > 0 {
 		top += queued.Size.Y + gtx.Dp(theme.SpaceS)
 	}
-	h := top + card.Size.Y + gtx.Dp(theme.SpaceL)
+	bot := gtx.Dp(theme.SpaceL)
+	if env.Ledger {
+		bot = gtx.Dp(theme.SpaceM + theme.Space2XS) // 14 dp, mock .dock bottom padding
+	}
+	statusGap := 0
+	if statusDims.Size.Y > 0 {
+		statusGap = gtx.Dp(theme.SpaceS)
+	}
+	h := top + card.Size.Y + statusGap + statusDims.Size.Y + bot
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: image.Pt(full, h)}.Op())
-	qoff := op.Offset(image.Pt((full-w)/2, gtx.Dp(theme.SpaceM))).Push(gtx.Ops)
+	qtop := gtx.Dp(theme.SpaceM)
+	if env.Ledger {
+		qtop = gtx.Dp(theme.SpaceXS)
+	}
+	qoff := op.Offset(image.Pt((full-w)/2, qtop)).Push(gtx.Ops)
 	qcall.Add(gtx.Ops)
 	qoff.Pop()
 	off := op.Offset(image.Pt((full-w)/2, top)).Push(gtx.Ops)
@@ -931,6 +969,11 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 		c.slashPop(gtx, th)
 	}
 	off.Pop()
+	if statusDims.Size.Y > 0 {
+		soff := op.Offset(image.Pt((full-w)/2, top+card.Size.Y+statusGap)).Push(gtx.Ops)
+		statusCall.Add(gtx.Ops)
+		soff.Pop()
+	}
 	return layout.Dimensions{Size: image.Pt(full, h)}
 }
 
@@ -1588,6 +1631,8 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 	curMode := c.mode.show(ModeOf(env.Snap), now)
 	pw := gtx.Dp(288)
 	switch c.which {
+	case &c.attachBtn:
+		pw = gtx.Dp(220)
 	case &c.effortBtn:
 		pw = gtx.Dp(160)
 	case &c.modeBtn:
@@ -1601,6 +1646,9 @@ func (c *Composer) popover(gtx layout.Context, th *theme.Theme, env Env, t float
 	d := layout.UniformInset(theme.SpaceXS).Layout(pg, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		var kids []layout.FlexChild
+		if c.which == &c.attachBtn {
+			return c.attachMenu(gtx, th, env)
+		}
 		if c.which == &c.modeBtn {
 			for _, m := range ModeItemsOf(env.Snap.Provider, c.bypass) {
 				col, icon, _ := modeLook(th, m)
