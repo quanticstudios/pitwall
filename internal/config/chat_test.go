@@ -29,12 +29,13 @@ func TestChat(t *testing.T) {
 		steer, ctrlEnter bool
 		problem          string
 	}{
-		{"", true, false, ""}, // steer by default, as a message typed in the agent's terminal goes
-		{`follow_up = "steer"`, true, false, ""},
-		{`send_key = "ctrl+enter"`, true, true, ""},
-		{"follow_up = \"queue\"\nsend_key = \"enter\"", false, false, ""},
-		{`follow_up = "now"`, true, false, `config.toml:2: chat.follow_up: "now" is not queue or steer; using steer`},
-		{`send_key = "shift+enter"`, true, false, `config.toml:2: chat.send_key: "shift+enter" is not enter or ctrl+enter; using enter`},
+		{"", false, false, ""}, // queue by default: Ctrl+Enter steers
+		{`follow_up = "queue"`, false, false, ""},
+		{`follow_up = "steer"`, true, false, ""}, // an explicit steer keeps Enter steering
+		{`send_key = "ctrl+enter"`, false, true, ""},
+		{"follow_up = \"steer\"\nsend_key = \"ctrl+enter\"", true, true, ""},
+		{`follow_up = "now"`, false, false, `config.toml:2: chat.follow_up: "now" is not queue or steer; using queue`},
+		{`send_key = "shift+enter"`, false, false, `config.toml:2: chat.send_key: "shift+enter" is not enter or ctrl+enter; using enter`},
 	} {
 		s, probs := LoadFile(write(t, t.TempDir(), "config.toml", "[chat]\n"+tc.body+"\n"))
 		if s.Chat.Steer != tc.steer || s.Chat.CtrlEnter != tc.ctrlEnter || msgs(probs) != tc.problem {
@@ -56,7 +57,7 @@ func TestChat(t *testing.T) {
 			t.Errorf("%q: layout=%q, problems %q", tc.body, s.Chat.Layout, msgs(probs))
 		}
 	}
-	if d := Default(); !strings.Contains(d, `follow_up = "steer"`) || !strings.Contains(d, `send_key = "enter"`) || !strings.Contains(d, `layout = "column"`) {
+	if d := Default(); !strings.Contains(d, `follow_up = "queue"`) || !strings.Contains(d, `send_key = "enter"`) || !strings.Contains(d, `layout = "column"`) {
 		t.Error("follow_up, send_key or layout is missing from the default file")
 	}
 	if !strings.Contains(Default(), "[chat]") || !strings.Contains(string(Schema()), `"comfortable"`) || !strings.Contains(string(Schema()), `"terminal"`) || !strings.Contains(string(Schema()), `"ledger"`) {

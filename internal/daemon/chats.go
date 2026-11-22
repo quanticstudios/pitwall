@@ -217,7 +217,11 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 			if len(m.Images) > 0 {
 				return "", "", chatError{"unsupported", "image paths are not supported yet: send attachments"}
 			}
-			return d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Text, Attachments: m.Attachments, Skill: m.Skill}, m.How)
+			sm := session.Message{ID: newUUID(), Text: m.Text, Attachments: m.Attachments, Skill: m.Skill}
+			if m.Join && m.Skill == nil && m.How != "queue" {
+				return d.chatJoin(ctx, c, sm, m.How)
+			}
+			return d.chatSend(ctx, c, sm, m.How)
 		}
 	case proto.ChatInterrupt:
 		id = m.Chat
@@ -1588,6 +1592,55 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	return d.chatTurn(ctx, c, m)
 }
 
+// chatJoin sends m as chatSend does, with every queued message that can
+// join a prompt (joinable) ahead of it, in order, as one message; they
+// leave the queue, and come back as they were should the send fail. A
+// slash or ! command, a skill's message and one being sent stay queued.
+// Idle, the joined message starts a turn at once.
+func (d *Daemon) chatJoin(ctx context.Context, c *chat, m session.Message, how string) (string, string, error) {
+	var rows, keep []session.QueuedMessage
+	for _, q := range c.cfg.Queue {
+		if q.Sending || q.Skill != nil || command(q.Text) {
+			keep = append(keep, q)
+		} else {
+			rows = append(rows, q)
+		}
+	}
+	if len(rows) == 0 {
+		return d.chatSend(ctx, c, m, how)
+	}
+	if strings.TrimSpace(m.Text) != "" || len(m.Attachments) > 0 {
+		rows = append(rows, queued(m))
+	}
+	j := joinQueued(rows)
+	j.ID = m.ID
+	queue := c.cfg.Queue
+	c.cfg.Queue = keep
+	if s := c.snap; !s.Busy() && len(s.PendingUserInputs) == 0 && len(s.PendingApprovals) == 0 {
+		how = "" // why: chatSend queues any How at idle, where a failed or held queue would keep it waiting
+	}
+	turn, note, err := d.chatSend(ctx, c, j, how)
+	if err != nil {
+		c.cfg.Queue = queue
+	}
+	return turn, note, err
+}
+
+// joinQueued is rows as one message, as the queue joins them when a turn
+// ends: the first's id and skill, the texts and attachments joined
+// (joinMessages).
+func joinQueued(rows []session.QueuedMessage) session.Message {
+	m := session.Message{ID: rows[0].ID, Text: rows[0].Text, Attachments: rows[0].Attachments, Skill: rows[0].Skill}
+	if len(rows) > 1 {
+		texts, atts := make([]string, len(rows)), make([][]session.Attachment, len(rows))
+		for k, r := range rows {
+			texts[k], atts[k] = r.Text, r.Attachments
+		}
+		m.Text, m.Attachments = joinMessages(texts, atts)
+	}
+	return m
+}
+
 // chatTurn starts a turn with m. The prompt joins the transcript after the
 // driver took it, still before the events the driver emitted meanwhile,
 // which wait for this command to end.
@@ -1697,23 +1750,7 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 // them: then they go, else they stay with why. Owned by the loop.
 func (d *Daemon) chatSendRows(ctx context.Context, c *chat, i, n int) {
 	rows := slices.Clone(c.cfg.Queue[i : i+n])
-	texts, images := make([]string, n), make([]int, n)
-	for k, r := range rows {
-		texts[k], images[k] = r.Text, imageCount(r.Attachments)
-	}
-	m := session.Message{ID: rows[0].ID, Text: rows[0].Text, Attachments: rows[0].Attachments, Skill: rows[0].Skill}
-	if len(rows) > 1 {
-		atts, off := make([][]session.Attachment, n), 0
-		for k, r := range rows {
-			var top int
-			texts[k], atts[k], top = renumberPasted(r.Text, r.Attachments, off)
-			off += top
-		}
-		m.Text, m.Attachments = joinPrompts(texts, images), nil
-		for _, a := range atts {
-			m.Attachments = joinAttachments(m.Attachments, a)
-		}
-	}
+	m := joinQueued(rows)
 	for k := range rows {
 		c.cfg.Queue[i+k].Sending = true
 	}

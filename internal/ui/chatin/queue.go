@@ -32,6 +32,56 @@ type queueState struct {
 	until time.Time       // when order stops standing in for the chat's
 	open  bool            // the folded strip was opened
 	hov   map[string]*gesture.Hover
+	// pending is what this window just queued, shown until the chat lists
+	// it, so a message never looks swallowed meanwhile.
+	pending []pendingRow
+	// joined is the rows the last steer took along, back in view should
+	// the chat refuse it.
+	joined []string
+}
+
+// pendingRow is a queued message the chat has yet to list, until when
+// the strip shows it anyway.
+type pendingRow struct {
+	q     session.QueuedInput
+	until time.Time
+}
+
+// localID starts a pending row's id: the chat knows no such row, so it
+// has no actions.
+const localID = "local:"
+
+// queuedNow shows message m in the strip at once, as queued.
+func (c *Composer) queuedNow(m proto.ChatSend, now time.Time) {
+	q := session.QueuedInput{ID: localID + itoa(len(c.q.pending)), Text: m.Text, Attachments: m.Attachments}
+	c.q.pending = append(c.q.pending, pendingRow{q, now.Add(holdFor)})
+}
+
+// takeQueue takes the queue's messages a steer joins out of view at
+// once, the pending ones too, and keeps their ids for a refusal.
+func (c *Composer) takeQueue(env Env, now time.Time) {
+	if c.q.gone == nil {
+		c.q.gone = map[string]bool{}
+	}
+	c.q.joined = nil
+	for _, q := range joinable(c.shownQueue(env.Snap, now)) {
+		c.q.gone[q.ID] = true
+		c.q.joined = append(c.q.joined, q.ID)
+	}
+	c.q.pending = slices.DeleteFunc(c.q.pending, func(p pendingRow) bool { return !command(p.q.Text) })
+}
+
+// stripQueue is shownQueue and after it the pending rows the chat has
+// yet to list.
+func (c *Composer) stripQueue(s *session.Snapshot, now time.Time) []session.QueuedInput {
+	qs := c.shownQueue(s, now)
+	c.q.pending = slices.DeleteFunc(c.q.pending, func(p pendingRow) bool {
+		return now.After(p.until) || slices.ContainsFunc(s.QueuedInputs, func(q session.QueuedInput) bool { return q.Text == p.q.Text })
+	})
+	for _, p := range c.q.pending {
+		qs = append(qs, p.q)
+	}
+	return qs
 }
 
 // Reorder is qs in order's order when order lists exactly qs's ids, else
@@ -158,13 +208,17 @@ func (c *Composer) move(env Env, shown []session.QueuedInput, i, dir int, now ti
 // Resume or Send when they wait for the user. Up to queueFold show as
 // rows; more start folded to a count that opens on a click.
 func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
-	qs := c.shownQueue(env.Snap, gtx.Now)
+	qs := c.stripQueue(env.Snap, gtx.Now)
 	if len(qs) == 0 {
 		return layout.Dimensions{}
 	}
 	folds := len(qs) > queueFold
 	var kids []layout.FlexChild
-	if s := QueueStatus(env.Snap, qs, env.Separate); s != "" || env.Snap.QueuePaused {
+	s := QueueStatus(env.Snap, qs, env.Separate)
+	if env.Snap.QueueReason == "" && !env.Snap.QueuePaused {
+		s = queueHint(env, s)
+	}
+	if s != "" || env.Snap.QueuePaused {
 		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return c.queueStatus(gtx, th, env, s)
 		}))
@@ -288,7 +342,7 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	}
 	// The row Alt+Up is editing stays lit, its buttons giving way to its keys.
 	editing := q.ID == c.qedit.id
-	if editing {
+	if editing || strings.HasPrefix(q.ID, localID) {
 		acts = nil
 	}
 	over := hv.Update(gtx.Source)

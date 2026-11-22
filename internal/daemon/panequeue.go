@@ -104,6 +104,68 @@ func (d *Daemon) chatSync(pane string) {
 	d.changed()
 }
 
+// chatJoinable takes the rows of pane's queue that can join a prompt
+// out of it, in order: all but a slash or ! command's, a skill's included,
+// which wait in their places. Callers hold d.mu.
+func (d *Daemon) chatJoinable(pane string) []chatRow {
+	q := d.mail.chat[pane]
+	if q == nil {
+		return nil
+	}
+	var rows, keep []chatRow
+	for _, r := range q.rows {
+		if command(r.l.text) {
+			keep = append(keep, r)
+		} else {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	q.rows = keep
+	d.chatSync(pane)
+	return rows
+}
+
+// chatUnjoin puts rows chatJoinable took back at the head of pane's
+// queue. Callers hold d.mu.
+func (d *Daemon) chatUnjoin(pane string, rows []chatRow) {
+	q := d.mail.chat[pane]
+	if q == nil {
+		q = &chatQueue{}
+		d.mail.chat[pane] = q
+	}
+	q.rows = slices.Insert(q.rows, 0, rows...)
+	d.chatSync(pane)
+}
+
+// joinRows is rows, then the message in typed by l, as one: the row the
+// queue shows for it should it wait, with in's id, and the letter that
+// types them all, as chatTake joins them.
+func joinRows(rows []chatRow, in session.QueuedInput, l letter) (session.QueuedInput, letter) {
+	n := len(rows)
+	texts, atts := make([]string, 0, n+1), make([][]session.Attachment, 0, n+1)
+	lets := make([]string, 0, n+1)
+	var images []int
+	var imgs, quoted []string
+	for _, r := range rows {
+		texts, atts = append(texts, r.in.Text), append(atts, r.in.Attachments)
+		lets, images = append(lets, r.l.text), append(images, len(r.l.images))
+		imgs, quoted = append(imgs, r.l.images...), append(quoted, r.l.quoted...)
+	}
+	if strings.TrimSpace(in.Text) != "" || len(in.Attachments) > 0 || len(l.images) > 0 || len(l.quoted) > 0 {
+		texts, atts = append(texts, in.Text), append(atts, in.Attachments)
+		lets, images = append(lets, l.text), append(images, len(l.images))
+		imgs, quoted = append(imgs, l.images...), append(quoted, l.quoted...)
+	}
+	var as []session.Attachment
+	in.Text, as = joinMessages(texts, atts)
+	in.Attachments = nonNil(as)
+	l.text, l.images, l.quoted = joinPrompts(lets, images), imgs, quoted
+	return in, l
+}
+
 // chatTake takes letter i of pane's queue q, a chat row's, out of q
 // together with the plain rows right after it, which go in the same
 // prompt (joins), and returns the letter that types them all and how

@@ -248,6 +248,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 	env.TextFiles = u.link().Level >= proto.PastedFileLevel
 	env.History, env.Full = func() []chatin.Sent { return panel.Prompts(s) }, t.Full
 	env.Steer, env.CtrlEnter = u.cfg.Chat.Steer, u.cfg.Chat.CtrlEnter
+	env.Join = u.link().Level >= proto.JoinLevel
 	env.QueueEditMods = queueEditMods(u.nav.bind())
 	return env
 }

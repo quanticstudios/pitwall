@@ -1,4 +1,4 @@
-18.98
+18.99
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -69,7 +69,7 @@ proto.ChatResult{Chat string; Turn string; Code string; Message string}
 proto.ChatRewind{Chat string; Turn string; KeepFiles bool; Stash bool}
 proto.ChatRewindCheck{Chat string; Turn string}
 proto.ChatRewindFiles{Chat string; Turn string; Files []proto.RewindFile; Unsaved []proto.RewindFile; Refused string}
-proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; How string}
+proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; How string; Join bool}
 proto.ChatSet{Chat string; Model string; Effort string; Mode string; Provider model.Provider}
 proto.ChatSuggest{Chat string; Turn string}
 proto.ChatSuggestResult{Chat string; Turn string; Text string; Code string; Err string}

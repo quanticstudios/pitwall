@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 99 added ChatSend.Join (JoinLevel): the chat's queued messages go
+// with the sent one, ahead of it, as one message.
 // Level 98 added ChatAnswer.Step and Target (QuestionStepLevel): step-by-step
 // question driving and live TUI synchronization for pane chats.
 // Level 97 added State.Servers, ServerStop, ServerStopResult, ChatSuggest
@@ -264,7 +266,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 98
+const Level = 99
+
+// JoinLevel added ChatSend.Join. Below it a window steers the draft alone
+// and leaves the queue for the turn's end.
+const JoinLevel = 99
 
 // QuestionStepLevel added ChatAnswer.Step and Target for driving TUI pane
 // chats' question screens one step at a time.
@@ -1462,7 +1468,10 @@ type ChatNew struct {
 // ChatSend starts a turn with Text, or queues it behind the running one.
 // How "steer" adds it to the running turn where the provider can, "now"
 // does too and otherwise stops the turn and sends it first, and "queue"
-// always queues.
+// always queues. Join, with any How but "queue", takes every queued
+// message that can join a prompt (not a slash or ! command, not a skill's)
+// out of the queue and sends them, in order, ahead of Text, as one
+// message; Text may then be empty.
 type ChatSend struct {
 	Chat        string
 	Text        string
@@ -1470,6 +1479,7 @@ type ChatSend struct {
 	Attachments []session.Attachment
 	Skill       *session.Skill // the provider skill the turn runs: the chat's provider, or the one a held switch moves it to
 	How         string
+	Join        bool
 }
 
 // ChatInterrupt stops the running turn and holds the queue until the next

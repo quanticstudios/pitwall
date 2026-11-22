@@ -183,7 +183,7 @@ func (c *Composer) ledgerField(gtx layout.Context, th *theme.Theme, env Env) lay
 			if sug := c.suggestion(env); sug != "" {
 				c.suggestHint(lg, th, size, sug)
 			} else {
-				text(lg, th, th.UIFont, size, th.Muted, Placeholder(env.Snap))
+				text(lg, th, th.UIFont, size, th.Muted, placeholder(env))
 			}
 		}
 		d := c.ed.Layout(gtx, th.Shaper, th.UIFont, size, colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.Surface, th.Primary, 0.35)))
@@ -330,12 +330,7 @@ func (c *Composer) ledgerBar(gtx layout.Context, th *theme.Theme, env Env) layou
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				b := c.button(env)
 				d := c.ledgerSend(gtx, th, b)
-				send, other := sendKeys(env)
-				tip := map[Button]string{ButtonSendOff: "Send (" + send + ")", ButtonSend: "Send (" + send + ")", ButtonStop: "Stop (Esc)",
-					ButtonQueue: "Queue: sends when the agent finishes (" + send + "). Send now: " + other,
-					ButtonSteer: "Steer: sends into the running turn (" + send + "). Queue: " + other,
-					ButtonSave:  "Save the queued message (" + send + "). Esc cancels"}[b]
-				c.tip(gtx, th, &c.sendBtn, d.Size, tip, true)
+				c.tip(gtx, th, &c.sendBtn, d.Size, sendTip(env, b), true)
 				return d
 			}),
 		)

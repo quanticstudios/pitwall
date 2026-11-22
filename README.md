@@ -64,7 +64,7 @@ the session.
 - **The composer** has chips for the model, the effort and the permission
   mode, Bypass in red, and a meter of how full the context is. A pasted
   image shows as a thumbnail and an `[Image #1]` token in your text. While
-  Claude works, Enter sends a message into the running turn and Ctrl+Enter queues it. `/` lists
+  Claude works, Enter queues a message above the box and Ctrl+Enter steers it into the running turn, the queue with it. `/` lists
   the slash commands.
 - **The transcript** follows Claude as it writes. Each turn's tool calls fold
   into one work log, such as "Worked for 1m 23s · 8 tools".

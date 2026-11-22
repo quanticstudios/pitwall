@@ -167,8 +167,12 @@ type Env struct {
 	History func() []Sent
 	Full    func(item string)
 	// Steer is [chat] follow_up = "steer": the send key steers a working
-	// agent and Ctrl+Enter queues. CtrlEnter is send_key = "ctrl+enter".
+	// agent and Ctrl+Enter queues; without it the send key queues and
+	// Ctrl+Enter steers. CtrlEnter is send_key = "ctrl+enter".
 	Steer, CtrlEnter bool
+	// Join is whether the daemon takes ChatSend.Join (proto.JoinLevel): a
+	// steer then takes the chat's queue along, ahead of the draft.
+	Join bool
 	// QueueEditMods are the modifiers that with Up edit the newest queued
 	// message: Alt, or Alt+Shift where the window keeps Alt+Up; 0 is Alt.
 	QueueEditMods key.Modifiers
@@ -300,7 +304,13 @@ func (c *Composer) Result(r Result, now time.Time) {
 			c.draft = l.draft
 			c.SetText(l.text)
 		}
-		c.last = nil
+		if r.Message != "" { // refused: the queue stays as the chat lists it
+			for _, id := range c.q.joined {
+				delete(c.q.gone, id)
+			}
+			c.q.pending = nil
+		}
+		c.last, c.q.joined = nil, nil
 	case proto.ChatQueue:
 		if r.Message != "" {
 			delete(c.q.gone, m.ID)
@@ -464,11 +474,14 @@ func (c *Composer) setMenu(now time.Time, open bool) {
 }
 
 // submit sends the draft; to a working agent it queues or steers as
-// followUp says, other for the other follow-up's key.
+// followUp says, other for the other follow-up's key. A steer takes the
+// queue along ahead of the draft (joins), and so does the steer key while
+// idle; on an empty box the steer key sends the queue alone.
 func (c *Composer) submit(env Env, at time.Time, other bool) {
 	text := c.Text()
 	imgs := c.draft.Ordered(text)
 	if strings.TrimSpace(text) == "" && len(imgs) == 0 {
+		c.steerQueue(env, at, other)
 		return
 	}
 	if c.waiting() {
@@ -492,8 +505,20 @@ func (c *Composer) submit(env Env, at time.Time, other bool) {
 		return
 	}
 	m := proto.ChatSend{Chat: env.Chat, Text: out, Attachments: atts}
-	if env.Snap.Busy() || Pending(env.Snap) {
+	working := env.Snap.Busy() || Pending(env.Snap)
+	if working {
 		m.How = followUp(env, text, other)
+	}
+	note := ""
+	switch {
+	case m.How == "queue" && steering(env, other) && !env.Steers:
+		note = "This agent takes nothing mid-turn: queued, it goes when the turn ends"
+		c.queuedNow(m, at)
+	case m.How == "queue":
+		c.queuedNow(m, at)
+	case joins(env, text, other):
+		m.Join = true
+		c.takeQueue(env, at)
 	}
 	c.out = append(c.out, m)
 	if name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " "); strings.HasPrefix(text, "/") {
@@ -504,10 +529,35 @@ func (c *Composer) submit(env Env, at time.Time, other bool) {
 	kept := c.draft
 	kept.Images = imgs
 	c.last = &sent{text: text, draft: kept, at: at}
-	c.note, c.noteOK, c.hist = "", false, recall{}
+	c.note, c.noteOK, c.hist = note, note != "", recall{}
 	c.ed.SetText("")
 	c.draft.Clear()
 	c.editing, c.confirm = "", 0
+}
+
+// steerQueue runs the steer key on an empty box: what is queued goes now
+// as one message, into the running turn, or as a turn while idle. To an
+// agent that takes nothing mid-turn it stays queued, with a note.
+func (c *Composer) steerQueue(env Env, now time.Time, other bool) {
+	if !steering(env, other) || !env.Join {
+		return
+	}
+	if len(joinable(c.stripQueue(env.Snap, now))) == 0 {
+		if other || env.CtrlEnter { // a plain Enter on an empty box says nothing
+			c.note, c.noteOK = "Nothing queued to steer", false
+		}
+		return
+	}
+	m := proto.ChatSend{Chat: env.Chat, Join: true}
+	if env.Snap.Busy() || Pending(env.Snap) {
+		if m.How = followUp(env, "", other); m.How == "queue" {
+			c.note, c.noteOK = "This agent takes nothing mid-turn: the queue goes when the turn ends", true
+			return
+		}
+	}
+	c.takeQueue(env, now)
+	c.out = append(c.out, m)
+	c.note, c.noteOK = "", false
 }
 
 // cycleMode moves the mode on from what the chat shows.
@@ -720,8 +770,8 @@ func (c *Composer) keyEvents(gtx layout.Context, env Env) {
 			c.cycleMode(env, gtx.Now)
 		case key.NameReturn, key.NameEnter:
 			switch {
-			case e.Modifiers&key.ModShift != 0: // with send_key ctrl+enter and a draft, the other follow-up
-				if env.CtrlEnter && c.hasDraft() && c.qedit.id == "" {
+			case e.Modifiers&key.ModShift != 0: // with send_key ctrl+enter, the other follow-up: with a draft, or on an empty box when it steers the queue
+				if env.CtrlEnter && c.qedit.id == "" && (c.hasDraft() || steering(env, true) && env.Join) {
 					c.submit(env, gtx.Now, true)
 				} else {
 					c.steerOldest(env, gtx.Now)
@@ -1148,7 +1198,7 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 			if sug := c.suggestion(env); sug != "" {
 				c.suggestHint(lg, th, size, sug)
 			} else {
-				text(lg, th, th.UIFont, size, th.Muted, Placeholder(env.Snap))
+				text(lg, th, th.UIFont, size, th.Muted, placeholder(env))
 			}
 		}
 		d := c.ed.Layout(gtx, th.Shaper, th.UIFont, size, colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.Surface, th.Primary, 0.35)))
@@ -1335,12 +1385,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				b := c.button(env)
 				d := c.send(gtx, th, b)
-				send, other := sendKeys(env)
-				tip := map[Button]string{ButtonSendOff: "Send (" + send + ")", ButtonSend: "Send (" + send + ")", ButtonStop: "Stop (Esc)",
-					ButtonQueue: "Queue: sends when the agent finishes (" + send + "). Send now: " + other,
-					ButtonSteer: "Steer: sends into the running turn (" + send + "). Queue: " + other,
-					ButtonSave:  "Save the queued message (" + send + "). Esc cancels"}[b]
-				c.tip(gtx, th, &c.sendBtn, d.Size, tip, true)
+				c.tip(gtx, th, &c.sendBtn, d.Size, sendTip(env, b), true)
 				return d
 			}),
 		)
