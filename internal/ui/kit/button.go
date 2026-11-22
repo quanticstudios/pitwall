@@ -7,7 +7,6 @@ import (
 	"image/color"
 
 	"gioui.org/font"
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -168,17 +167,13 @@ func button(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s 
 		o := op.Offset(size.Sub(td.Size).Div(2).Add(image.Pt(0, l.dy))).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
-		if l.live {
-			defer clip.Rect(rect).Push(gtx.Ops).Pop()
-			pointer.CursorPointer.Add(gtx.Ops)
-		}
 		return layout.Dimensions{Size: size}
 	}
 	if !l.live {
 		defer paint.PushOpacity(gtx.Ops, 0.5).Pop()
 		return draw(gtx)
 	}
-	return c.Layout(gtx, draw)
+	return Clickable(gtx, c, draw)
 }
 
 // Row draws buttons right-aligned in the width, gap apart, the first one

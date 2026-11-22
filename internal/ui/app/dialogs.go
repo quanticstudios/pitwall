@@ -510,7 +510,7 @@ func (u *ui) buttonRow(gtx gl.Context, bs ...dialogButton) gl.Dimensions {
 // checkbox draws a 16px box and a label with a muted second line.
 func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note string) gl.Dimensions {
 	th := u.th
-	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 		box := gtx.Dp(16)
 		rect := image.Rect(0, gtx.Dp(2), box, gtx.Dp(2)+box)
 		r := gtx.Dp(4)
@@ -538,8 +538,6 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 		d2 := para(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
 		o.Pop()
 		size := image.Pt(gtx.Constraints.Max.X, d1.Size.Y+gtx.Dp(2)+d2.Size.Y)
-		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 }

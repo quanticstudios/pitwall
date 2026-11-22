@@ -10,7 +10,6 @@ import (
 	"gioui.org/gesture"
 	"gioui.org/io/clipboard"
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -19,6 +18,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -403,9 +403,8 @@ func (c *Composer) partCard(gtx layout.Context, th *theme.Theme, p Part) layout.
 	if p.Kind == PartQuote {
 		bg := gtx
 		bg.Constraints = layout.Exact(size)
-		u.body.Layout(bg, func(gtx layout.Context) layout.Dimensions {
+		kit.Clickable(bg, &u.body, func(gtx layout.Context) layout.Dimensions {
 			semantic.LabelOp("Go to " + p.Name() + "'s source").Add(gtx.Ops)
-			pointer.CursorPointer.Add(gtx.Ops)
 			return layout.Dimensions{Size: size}
 		})
 	}
@@ -488,7 +487,7 @@ func cardButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, p imag
 	o := op.Offset(p).Push(gtx.Ops)
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(gtx.Dp(28), gtx.Dp(28)))
-	b.Layout(g, func(gtx layout.Context) layout.Dimensions {
+	kit.Clickable(g, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
 		s, is := gtx.Dp(28), gtx.Dp(12)
 		ghostFill(gtx, th, b, image.Pt(s, s))
@@ -522,7 +521,7 @@ func (c *Composer) ask(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 // out.
 func dangerButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, label string) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
 		h, pad := gtx.Dp(28), gtx.Dp(10)
 		col := th.Readable(th.Red, th.Surface)

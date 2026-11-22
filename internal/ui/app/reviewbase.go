@@ -406,7 +406,7 @@ func (u *ui) drawBases(gtx gl.Context, st *model.State) {
 		i := shown[n]
 		it := items[i]
 		gtx.Constraints = gl.Exact(row)
-		return p.btns[i].Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		return kit.Clickable(gtx, &p.btns[i], func(gtx gl.Context) gl.Dimensions {
 			rr := clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(5))
 			switch {
 			case n == p.sel:
@@ -414,7 +414,6 @@ func (u *ui) drawBases(gtx gl.Context, st *model.State) {
 			case p.btns[i].Hovered():
 				paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
 			}
-			pointer.CursorPointer.Add(gtx.Ops)
 			is := gtx.Dp(14)
 			if it.ref == cur {
 				drawIconAt(gtx, image.Pt(gtx.Dp(8), (rowH-is)/2), func(gtx gl.Context) { sidebar.Icon(gtx, "check", is, th.Fg) })

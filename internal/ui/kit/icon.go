@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -36,10 +35,6 @@ func IconButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind
 		o := op.Offset(image.Pt((side-is)/2, (side-is)/2+l.dy)).Push(gtx.Ops)
 		icon(gtx, l.fg, is)
 		o.Pop()
-		if l.live {
-			defer clip.Rect(rect).Push(gtx.Ops).Pop()
-			pointer.CursorPointer.Add(gtx.Ops)
-		}
 		return layout.Dimensions{Size: size}
 	}
 	gtx.Constraints.Min = image.Point{}
@@ -47,5 +42,5 @@ func IconButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind
 		defer paint.PushOpacity(gtx.Ops, 0.5).Pop()
 		return draw(gtx)
 	}
-	return c.Layout(gtx, draw)
+	return Clickable(gtx, c, draw)
 }

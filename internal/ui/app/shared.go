@@ -94,12 +94,11 @@ func (u *ui) remoteTag(gtx gl.Context, st *model.State, p *paneUI, id, host stri
 	o = op.Offset(image.Pt(at.X+padX+is+gap, at.Y+(h-ts.Y)/2)).Push(gtx.Ops)
 	txt.Add(gtx.Ops)
 	o.Pop()
-	o = op.Offset(r.Min).Push(gtx.Ops)
-	tg := gtx
-	tg.Constraints = gl.Exact(r.Size())
-	p.tag.Layout(tg, func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{Size: r.Size()} })
-	o.Pop()
-	if p.tag.Hovered() {
+	hovered := p.tag.Update(gtx.Source)
+	cl := clip.Rect(r).Push(gtx.Ops)
+	p.tag.Add(gtx.Ops)
+	cl.Pop()
+	if hovered {
 		u.tagTip(gtx, st, id, host, image.Pt(r.Max.X, r.Max.Y+gtx.Dp(6)), down)
 	}
 }

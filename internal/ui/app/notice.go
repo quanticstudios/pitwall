@@ -17,6 +17,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -157,12 +158,11 @@ func (u *ui) drawStateNotice(gtx gl.Context, text string) {
 	o = op.Offset(image.Pt(box.X-pad.X-is, pad.Y)).Push(gtx.Ops)
 	bgtx := gtx
 	bgtx.Constraints = gl.Exact(image.Pt(is, is))
-	u.dismiss.Layout(bgtx, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(bgtx, &u.dismiss, func(gtx gl.Context) gl.Dimensions {
 		c := th.Muted
 		if u.dismiss.Hovered() {
 			c = th.Fg
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		return sidebar.Icon(gtx, "x", is, c)
 	})
 	o.Pop()

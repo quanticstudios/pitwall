@@ -197,7 +197,7 @@ func (u *ui) ssTabs(gtx gl.Context, v skillshare.View) {
 	tab := func(id, label string, on bool, act func()) gl.FlexChild {
 		s.acts[id] = act
 		return gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return s.click(id).Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+			return kit.Clickable(gtx, s.click(id), func(gtx gl.Context) gl.Dimensions {
 				col, f := th.Muted, medium(th.UIFont)
 				if on {
 					col, f = th.Fg, semibold(th.UIFont)
@@ -253,7 +253,7 @@ func (u *ui) ssSegmented(gtx gl.Context, id string, opts [][2]string, picked str
 		off := op.Offset(image.Pt(x, gtx.Dp(2))).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = gl.Exact(image.Pt(bw, h-gtx.Dp(4)))
-		s.click(key).Layout(g, func(gtx gl.Context) gl.Dimensions {
+		kit.Clickable(g, s.click(key), func(gtx gl.Context) gl.Dimensions {
 			r := image.Rectangle{Max: gtx.Constraints.Max}
 			if on {
 				paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(r, gtx.Dp(5)).Op(gtx.Ops))
@@ -381,7 +381,7 @@ func (u *ui) ssRow(v skillshare.View, it skillshare.Item, showScope bool, button
 		gtx.Constraints = gl.Exact(image.Pt(w, h))
 		c := s.click(id)
 		// The buttons go over the row's clickable, so their clicks stay theirs.
-		d := c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		d := kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 			if c.Hovered() {
 				paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(-gtx.Dp(8), 0, w+gtx.Dp(4), h), gtx.Dp(8)).Op(gtx.Ops))
 			}
@@ -612,7 +612,7 @@ func (u *ui) ssCounts(v skillshare.View, scope string) ssW {
 			g := gtx
 			g.Constraints = gl.Exact(image.Pt(cw, h))
 			c := s.click("count:" + string(k))
-			c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+			kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 				if c.Hovered() {
 					paint.FillShape(gtx.Ops, th.Hover, clip.Rect{Min: image.Pt(1, 1), Max: image.Pt(cw-1, h-1)}.Op())
 				}
@@ -1128,7 +1128,7 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 			rows = append(rows, func(gtx gl.Context) gl.Dimensions {
 				h := gtx.Dp(40)
 				gtx.Constraints = gl.Exact(image.Pt(gtx.Constraints.Max.X, h))
-				return s.click(id).Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+				return kit.Clickable(gtx, s.click(id), func(gtx gl.Context) gl.Dimensions {
 					b := gtx.Dp(16)
 					box := image.Rect(0, (h-b)/2, b, (h+b)/2)
 					if on {

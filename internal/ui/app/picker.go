@@ -218,16 +218,16 @@ func (u *ui) layoutPicker(gtx gl.Context, st *model.State) {
 		o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = gl.Exact(row)
-		p.btns[i].Layout(g, func(gtx gl.Context) gl.Dimensions {
+		if it.off {
+			g = g.Disabled()
+		}
+		kit.Clickable(g, &p.btns[i], func(gtx gl.Context) gl.Dimensions {
 			rr := clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(5))
 			switch {
 			case i == p.sel:
 				paint.FillShape(gtx.Ops, th.SelectedBg, rr.Op(gtx.Ops))
 			case p.btns[i].Hovered() && !it.off:
 				paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
-			}
-			if !it.off {
-				pointer.CursorPointer.Add(gtx.Ops)
 			}
 			nameC, icon := th.Fg, "monitor"
 			if it.host != "" {

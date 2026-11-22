@@ -539,7 +539,7 @@ func statusColor(th *theme.Theme, state string) color.NRGBA {
 // checkbox, and its label, 28dp tall.
 func (u *ui) formOption(gtx gl.Context, c *widget.Clickable, on, round bool, text string) gl.Dimensions {
 	th := u.th
-	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 		h, box := gtx.Dp(28), gtx.Dp(16)
 		top := (h - box) / 2
 		rect := image.Rect(0, top, box, top+box)
@@ -582,8 +582,6 @@ func (u *ui) formOption(gtx gl.Context, c *widget.Clickable, on, round bool, tex
 		call.Add(gtx.Ops)
 		o.Pop()
 		size := image.Pt(min(gtx.Constraints.Max.X, x+ts.X), h)
-		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 }

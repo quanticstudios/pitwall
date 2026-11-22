@@ -271,7 +271,8 @@ type paneUI struct {
 	hooksInstall, hooksHide widget.Clickable
 	hooksBox                bool
 	border                  anim.Color       // the frame's color, easing between focused and not
-	tag, retry              widget.Clickable // a remote pane's host tag and its offline line's Retry now
+	tag                     gesture.Hover    // a remote pane's host tag
+	retry                   widget.Clickable // its offline line's Retry now
 	offBox                  bool             // its address is the offline line's pointer tag
 	// Last, so a zero-size View never shares an address with focusClick.
 	view term.View

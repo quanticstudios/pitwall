@@ -360,7 +360,7 @@ func pillButton(c *widget.Clickable, th *theme.Theme, base color.NRGBA, h int, t
 	}
 	if touchSlop > 0 {
 		return func(gtx layout.Context) layout.Dimensions {
-			return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 				d := draw(gtx)
 				defer clip.Rect{Min: image.Pt(0, -touchSlop), Max: d.Size.Add(image.Pt(0, touchSlop))}.Push(gtx.Ops).Pop()
 				return d

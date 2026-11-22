@@ -16,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -214,7 +215,7 @@ func (c *Composer) queueHead(gtx layout.Context, th *theme.Theme, env Env, qs []
 		return layout.Dimensions{Size: image.Pt(w, h)}
 	}
 	b := c.click("qfold")
-	b.Layout(lg, func(gtx layout.Context) layout.Dimensions {
+	kit.Clickable(lg, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(itoa(len(qs)) + " queued messages").Add(gtx.Ops)
 		pad := gtx.Dp(theme.SpaceS)
 		m := op.Record(gtx.Ops)

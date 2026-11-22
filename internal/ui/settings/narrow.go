@@ -111,7 +111,7 @@ func (p *Page) catTrigger(gtx gl.Context, q string, sz image.Point) {
 		name = "Search"
 	}
 	gtx.Constraints = gl.Exact(sz)
-	c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 		r := gtx.Dp(theme.RadiusControl)
 		rect := image.Rectangle{Max: sz}
 		if gtx.Focused(c) {
@@ -135,8 +135,6 @@ func (p *Page) catTrigger(gtx gl.Context, q string, sz image.Point) {
 		o = op.Offset(image.Pt(sz.X-gtx.Dp(10)-is, (sz.Y-is)/2)).Push(gtx.Ops)
 		icon(gtx, th.Muted, is, chevronGlyph)
 		o.Pop()
-		defer clip.Rect(rect).Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: sz}
 	})
 }
@@ -208,7 +206,7 @@ func (p *Page) catRow(gtx gl.Context, i int, q string, counts []int) gl.Dimensio
 		p.focusKeys, p.keyRec = i == catKeys, false
 		p.search.SetText("")
 	}
-	return b.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx gl.Context) gl.Dimensions {
 		h, w := gtx.Dp(30), gtx.Constraints.Max.X
 		rect, r := image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl)
 		sel := q == "" && p.cat == i
@@ -245,8 +243,6 @@ func (p *Page) catRow(gtx gl.Context, i int, q string, counts []int) gl.Dimensio
 			call.Add(gtx.Ops)
 			oo.Pop()
 		}
-		defer clip.Rect(rect).Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: rect.Max}
 	})
 }

@@ -264,8 +264,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 
 	g := gtx
 	g.Constraints = gl.Exact(size)
-	r.row.Layout(g, func(gtx gl.Context) gl.Dimensions {
-		pointer.CursorPointer.Add(gtx.Ops)
+	kit.Clickable(g, &r.row, func(gtx gl.Context) gl.Dimensions {
 		return gl.Dimensions{Size: size}
 	})
 
@@ -396,13 +395,12 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 			o := op.Offset(image.Pt(bx+j*(bs+gtx.Dp(4)), (size.Y-bs)/2)).Push(gtx.Ops)
 			bg := gtx
 			bg.Constraints = gl.Exact(image.Pt(bs, bs))
-			b.c.Layout(bg, func(gtx gl.Context) gl.Dimensions {
+			kit.Clickable(bg, b.c, func(gtx gl.Context) gl.Dimensions {
 				col := th.Muted
 				if b.c.Hovered() {
 					col = b.hot
 					paint.FillShape(gtx.Ops, theme.Mix(base, th.Fg, 0.08), clip.UniformRRect(image.Rect(0, 0, bs, bs), gtx.Dp(6)).Op(gtx.Ops))
 				}
-				pointer.CursorPointer.Add(gtx.Ops)
 				o := op.Offset(image.Pt((bs-gtx.Dp(14))/2, (bs-gtx.Dp(14))/2)).Push(gtx.Ops)
 				sidebar.Icon(gtx, b.icon, gtx.Dp(14), col)
 				o.Pop()
@@ -460,13 +458,12 @@ func (u *ui) newButton(gtx gl.Context) {
 	w := gtx.Dp(12) + gtx.Dp(14) + gtx.Dp(8) + lsz.X + gtx.Dp(10) + ks.X + gtx.Dp(10)
 	g := gtx
 	g.Constraints = gl.Exact(image.Pt(w, h))
-	d.newBtn.Layout(g, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(g, &d.newBtn, func(gtx gl.Context) gl.Dimensions {
 		col := th.Muted
 		if d.newBtn.Hovered() {
 			col = th.Fg
 			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		x := gtx.Dp(12)
 		o := op.Offset(image.Pt(x, (h-gtx.Dp(14))/2)).Push(gtx.Ops)
 		sidebar.Icon(gtx, "plus", gtx.Dp(14), col)

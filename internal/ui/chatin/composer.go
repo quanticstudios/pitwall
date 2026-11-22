@@ -1068,7 +1068,7 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 	at := op.Offset(image.Pt(side-gtx.Dp(3)-xs-in, gtx.Dp(3)-in)).Push(gtx.Ops)
 	xg := gtx
 	xg.Constraints = layout.Exact(image.Pt(hit, hit))
-	b.Layout(xg, func(gtx layout.Context) layout.Dimensions {
+	kit.Clickable(xg, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Remove image #" + itoa(im.N)).Add(gtx.Ops)
 		fill := withAlpha(th.Bg, 0xd9)
 		switch {
@@ -1352,7 +1352,7 @@ func modeLook(th *theme.Theme, m string) (color.NRGBA, string, string) {
 // pick is a 28dp ghost control: an icon, a label, a chevron.
 func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, label string, col color.NRGBA, chevron bool) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
 		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
 		m := op.Record(gtx.Ops)
@@ -1402,7 +1402,7 @@ func (c *Composer) meter(gtx layout.Context, th *theme.Theme, used, total int64)
 	}
 	pct := Percent(used, total)
 	gtx.Constraints.Min = image.Point{}
-	d := c.meterBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	d := kit.Clickable(gtx, &c.meterBtn, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Context " + itoa(pct) + "% used").Add(gtx.Ops)
 		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
 		m := op.Record(gtx.Ops)
@@ -1536,7 +1536,8 @@ func ring(gtx layout.Context, size int, frac float32, track, col color.NRGBA) la
 // empty; the square Stop; or Queue.
 func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return c.sendBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	live := b != ButtonSendOff
+	body := func(gtx layout.Context) layout.Dimensions {
 		s := gtx.Dp(28)
 		rect := image.Rectangle{Max: image.Pt(s, s)}
 		fill, fg := th.SurfaceElevated, th.Muted
@@ -1558,8 +1559,9 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Di
 			semantic.LabelOp("Send").Add(gtx.Ops)
 		default:
 			semantic.LabelOp("Send").Add(gtx.Ops)
+			semantic.EnabledOp(false).Add(gtx.Ops)
 		}
-		switch live := b != ButtonSendOff; {
+		switch {
 		case c.sendBtn.Pressed() && live:
 			fill = theme.Mix(fill, th.Bg, 0.2)
 		case c.sendBtn.Hovered() && live:
@@ -1580,7 +1582,11 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Di
 		}
 		o.Pop()
 		return layout.Dimensions{Size: rect.Max}
-	})
+	}
+	if !live {
+		return c.sendBtn.Layout(gtx, body)
+	}
+	return kit.Clickable(gtx, &c.sendBtn, body)
 }
 
 // stopSquare is Stop's 10dp square, centered in a size box.
@@ -1593,7 +1599,7 @@ func stopSquare(gtx layout.Context, size int, col color.NRGBA) {
 // ghostStop is the quiet 28dp Stop beside Queue.
 func (c *Composer) ghostStop(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return c.stopBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, &c.stopBtn, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Stop").Add(gtx.Ops)
 		s := gtx.Dp(28)
 		fill, fg := theme.Transparent, th.Muted

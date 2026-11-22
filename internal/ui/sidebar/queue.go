@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 
+	"gioui.org/gesture"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -31,7 +32,10 @@ type queueBlock struct {
 }
 
 // taskRow is a queued task's row: its hover area and its two buttons.
-type taskRow struct{ hover, start, drop widget.Clickable }
+type taskRow struct {
+	hover       gesture.Hover
+	start, drop widget.Clickable
+}
 
 // queueHeights are a block's label line and each task's row.
 func queueHeights(gtx layout.Context) (head, row int) { return gtx.Dp(22), gtx.Dp(26) }
@@ -88,13 +92,13 @@ func (s *Sidebar) drawQueue(gtx layout.Context, th *theme.Theme, b queueBlock) {
 		o := op.Offset(image.Pt(0, head+i*rowH)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = layout.Exact(image.Pt(w, rowH))
-		hovered := r.hover.Hovered() || r.start.Hovered() || r.drop.Hovered()
-		r.hover.Layout(g, func(gtx layout.Context) layout.Dimensions {
-			if hovered {
-				paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, rowH), gtx.Dp(6)).Op(gtx.Ops))
-			}
-			return layout.Dimensions{Size: image.Pt(w, rowH)}
-		})
+		hovered := r.hover.Update(gtx.Source) || r.start.Hovered() || r.drop.Hovered()
+		if hovered {
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, rowH), gtx.Dp(6)).Op(gtx.Ops))
+		}
+		cl := clip.Rect{Max: image.Pt(w, rowH)}.Push(gtx.Ops)
+		r.hover.Add(gtx.Ops)
+		cl.Pop()
 		btn := gtx.Dp(20)
 		g.Constraints = layout.Exact(image.Pt(w-2*pad, rowH))
 		oo := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
@@ -141,11 +145,6 @@ func (s *Sidebar) queueEvents(gtx layout.Context, st *model.State) {
 		}
 		for r.drop.Clicked(gtx) {
 			s.events = append(s.events, DropTask{ID: id})
-		}
-		for {
-			if _, ok := r.hover.Update(gtx); !ok {
-				break
-			}
 		}
 	}
 }

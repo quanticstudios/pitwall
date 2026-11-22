@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -324,8 +323,6 @@ func (d *cdraw) linkChip(gtx layout.Context, ck *widget.Clickable, txt string, p
 		r := image.Rect(0, 0, w, h)
 		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(r, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		at(gtx, image.Pt(px, (h-ld.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
-		defer clip.Rect(r).Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: image.Pt(w, h)}
 	})
 }
@@ -453,8 +450,6 @@ func (d *cdraw) prChip(gtx layout.Context, ck *widget.Clickable, pr model.PR) la
 			}
 			return layout.Dimensions{}
 		})
-		defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return dims
 	})
 }

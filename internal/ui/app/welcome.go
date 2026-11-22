@@ -319,8 +319,7 @@ func (u *ui) drawNoAgents(gtx gl.Context) {
 		} else {
 			g := gtx
 			g.Constraints = gl.Exact(p.size)
-			p.c.Layout(g, func(gtx gl.Context) gl.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
+			kit.Clickable(g, p.c, func(gtx gl.Context) gl.Dimensions {
 				p.call.Add(gtx.Ops)
 				return gl.Dimensions{Size: p.size}
 			})

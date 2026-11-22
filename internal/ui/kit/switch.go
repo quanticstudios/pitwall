@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 
-	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -17,7 +16,7 @@ import (
 
 // Switch draws an on/off control with the theme's track and knob.
 func Switch(gtx layout.Context, th *theme.Theme, c *widget.Clickable, on bool) layout.Dimensions {
-	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return Clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		sz := image.Pt(gtx.Dp(32), gtx.Dp(18))
 		hit := image.Pt(sz.X, max(sz.Y, gtx.Constraints.Min.Y))
 		semantic.Switch.Add(gtx.Ops)
@@ -43,8 +42,6 @@ func Switch(gtx layout.Context, th *theme.Theme, c *widget.Clickable, on bool) l
 		if gtx.Focused(c) {
 			FocusRing(gtx, th, image.Rectangle{Max: sz}, sz.Y/2)
 		}
-		defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: hit}
 	})
 }
