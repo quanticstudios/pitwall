@@ -395,6 +395,14 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 			log.Printf("pane chat %s: transcript: %q", pc.id, err)
 			rerr = err
 		}
+		// Pick up subagents discovered in this readOn right away so a chat
+		// opened after they ran shows their calls on the first read.
+		for call := range pc.tr.Subagents() {
+			if pc.agents[call] == nil {
+				pc.subagents()
+				break
+			}
+		}
 	}
 	a := l.act
 	isClaude := pc.prov == model.ProviderClaude
@@ -756,9 +764,17 @@ func (pc *paneChat) subagents() {
 	for c := range calls {
 		missing = missing || pc.agents[c] == nil
 	}
-	// shortcut: a subagent with no file of its own (an older Claude Code
-	// kept its lines in the session's) rescans the folder at most every 2s.
-	if missing && time.Since(pc.scanned) > 2*time.Second {
+	// Antigravity names each subagent's conversation id directly in the parent
+	// transcript; Claude Code names it in subagents/agent-<id>.meta.json.
+	if p, ok := pc.tr.(interface {
+		SubagentPaths(string) map[string]string
+	}); ok && missing {
+		for call, path := range p.SubagentPaths(pc.path) {
+			if path != "" && pc.agents[call] == nil {
+				pc.agents[call] = &agentFile{path: path}
+			}
+		}
+	} else if missing && time.Since(pc.scanned) > 2*time.Second {
 		pc.scanned = time.Now()
 		metas, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(pc.path, ".jsonl"), "subagents", "agent-*.meta.json"))
 		for _, m := range metas {

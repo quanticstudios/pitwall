@@ -1,0 +1,22 @@
+{
+  "id": "d34177a6-bdd7-43f1-b7e2-8b1fcdb15757",
+  "recipient": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "sender": "11111111-2222-3333-4444-555555555555",
+  "priority": "MESSAGE_PRIORITY_HIGH",
+  "timestamp": "2026-11-22T16:51:35.826063704Z",
+  "renderDetails": {
+    "messageTitle": "Message from Parent Agent"
+  },
+  "content": "Read `/home/user/project/note.txt` and report its exact contents back to me.",
+  "sourceMetadata": {
+    "tool": {
+      "conversationId": "11111111-2222-3333-4444-555555555555",
+      "stepIndex": 2,
+      "toolCall": {
+        "id": "call_6575690465904354496",
+        "name": "invoke_subagent",
+        "argumentsJson": "{\"Prompt\":\"Read `/home/user/project/note.txt` and report its exact contents back to me.\",\"Role\":\"Note File Reader\",\"TypeName\":\"research\"}"
+      }
+    }
+  }
+}

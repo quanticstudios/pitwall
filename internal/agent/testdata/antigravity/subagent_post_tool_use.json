@@ -1,0 +1,21 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "conversationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "cwd": "/home/user/project",
+  "error": "",
+  "hookEventName": "PostToolUse",
+  "lastUserInput": "",
+  "modelName": "gemini-4-neon-high",
+  "stepIdx": 2,
+  "toolCall": {
+    "args": {
+      "Path": "/home/user/project/note.txt"
+    },
+    "id": "call_16567486039228421041",
+    "name": "read_file"
+  },
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/home/user/project"
+  ]
+}

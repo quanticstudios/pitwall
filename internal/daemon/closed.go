@@ -172,6 +172,7 @@ func (d *Daemon) reopenTab(ctx context.Context, m proto.ReopenTab) error {
 	p := c.Pane
 	p.ID, p.WorkspaceID, p.Cwd = newID(), w.ID, dir
 	p.Exited, p.ExitCode, p.ExitUnknown = false, 0, false
+	agyRepair(&p)
 	if !store.Resumes(p) {
 		// why: a command that is not an agent's resume, such as gh pr merge,
 		// must not run again; the tab comes back as a shell in its folder.

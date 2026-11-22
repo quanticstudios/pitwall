@@ -288,8 +288,11 @@ func addContent(s Snapshot, e Event, turnID *string) []Item {
 		it.Tool = toolTimes(*e.Tool, nil, e.CreatedAt)
 	}
 	// shortcut: the snapshot does not keep a joined item's own id, so a later
-	// delta for it joins again only while it is still the last item.
-	if last := len(content) - 1; last >= 0 && it.Kind == KindAssistantText && s.Provider != model.ProviderCodex && it.TurnID != nil {
+	// delta for it joins again only while it is still the last item. Codex and
+	// Antigravity emit whole messages under separate ids (e.g. a waiting reply
+	// before a subagent reports back and the final reply after), so those stay
+	// separate items.
+	if last := len(content) - 1; last >= 0 && it.Kind == KindAssistantText && s.Provider != model.ProviderCodex && s.Provider != model.ProviderAntigravity && it.TurnID != nil {
 		p := &content[last]
 		if p.Kind == KindAssistantText && eq(p.TurnID, it.TurnID) && eq(p.Provider, it.Provider) && eq(p.Model, it.Model) {
 			p.Text += it.Text

@@ -90,7 +90,8 @@ func TestReduceCoalescesAssistantText(t *testing.T) {
 		items    int
 	}{
 		{model.ProviderClaude, 1},
-		{model.ProviderCodex, 2}, // Codex messages stay apart
+		{model.ProviderCodex, 2},       // Codex messages stay apart
+		{model.ProviderAntigravity, 2}, // Antigravity messages stay apart
 	} {
 		s := running(base(tc.provider), "t1")
 		s, _ = step(t, s, Event{Type: EventContent, CreatedAt: "1", Kind: KindAssistantText, ItemID: "a", Text: "One."})

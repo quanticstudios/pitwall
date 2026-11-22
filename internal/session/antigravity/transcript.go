@@ -5,7 +5,9 @@ package antigravity
 import (
 	"cmp"
 	"encoding/json"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,22 +21,35 @@ import (
 // chat events. Each line is one step, written once it is done: the user's
 // input, a model response with its text and tool calls, then one GENERIC
 // step per call with what the call returned, in the order of the calls.
-// A response with no tool call ends the turn. A call shows once its result
-// is in, as agy writes nothing while it runs.
+// A response with no tool call ends the turn once no subagent still runs.
+// A call shows once its result is in, as agy writes nothing while it runs.
 type Transcript struct {
-	turn    string     // the running turn's id; "" while idle
-	asked   string     // the open request's id, "" for none
-	model   string     // the model of the last response, without its effort
-	effort  string     // that response's effort
-	pending []*pending // the calls whose results have not come, oldest first
-	tasks   string     // the task list's text as agy last wrote it
+	turn    string               // the running turn's id; "" while idle
+	asked   string               // the open request's id, "" for none
+	model   string               // the model of the last response, without its effort
+	effort  string               // that response's effort
+	pending []*pending           // the calls whose results have not come, oldest first
+	tasks   string               // the task list's text as agy last wrote it
+	agents  map[string]*subagent // spawned subagents by parent Agent call id
+	byConv  map[string]*subagent // the same subagents by their conversationId
 }
 
 // pending is a call a response made, waiting for its GENERIC step. A call
 // that wrote the task list shows as the list, so its result shows nothing.
 type pending struct {
-	call session.ToolCall
-	list bool
+	call     session.ToolCall
+	list     bool
+	subagent bool
+}
+
+// subagent is an invoke_subagent call whose child conversationId was reported
+// in its GENERIC result. Its own transcript fills SubagentTools/SubagentCalls,
+// and the parent's SYSTEM_MESSAGE from sender=<convID> completes it.
+type subagent struct {
+	convID  string
+	call    session.ToolCall
+	running bool
+	pending []session.ToolCall
 }
 
 func NewTranscript() *Transcript { return &Transcript{} }
@@ -100,12 +115,14 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		}
 		for i, c := range s.ToolCalls {
 			plan := t.taskList(c.Name, c.Args)
-			t.pending = append(t.pending, &pending{call: toolCall(id+"#"+strconv.Itoa(i), c.Name, c.Args), list: plan != nil})
+			tc := toolCall(id+"#"+strconv.Itoa(i), c.Name, c.Args)
+			tc.StartedAt = stamp(s.CreatedAt)
+			t.pending = append(t.pending, &pending{call: tc, list: plan != nil, subagent: c.Name == "invoke_subagent"})
 			if plan != nil {
 				out = append(out, *plan)
 			}
 		}
-		if len(s.ToolCalls) == 0 && s.Status == "DONE" {
+		if len(s.ToolCalls) == 0 && s.Status == "DONE" && !t.hasRunningSubagent() {
 			out = append(out, t.End(session.TurnCompleted)...)
 		}
 	case "GENERIC":
@@ -118,8 +135,22 @@ func (t *Transcript) Line(b []byte) []session.Event {
 			return nil
 		}
 		c := p.call
-		c.Status = "completed"
 		text := strings.TrimSpace(stamps.ReplaceAllString(s.Content, ""))
+		if p.subagent && s.Status != "ERROR" && s.Error == "" {
+			if convID := parseSubagentLaunch(text); convID != "" {
+				c.Status = "running"
+				ag := &subagent{convID: convID, call: c, running: true}
+				if t.agents == nil {
+					t.agents = map[string]*subagent{}
+					t.byConv = map[string]*subagent{}
+				}
+				t.agents[c.CallID] = ag
+				t.byConv[convID] = ag
+				out = append(out, t.agentEvent(ag, stamp(s.CreatedAt)))
+				break
+			}
+		}
+		c.Status = "completed"
 		if m := exited.FindStringSubmatch(text); m != nil {
 			code, _ := strconv.Atoi(m[1])
 			c.ExitCode, text = &code, strings.TrimSpace(text[len(m[0]):])
@@ -132,6 +163,32 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		}
 		c.Output = strings.ReplaceAll(text, "\r\n", "\n")
 		out = append(out, session.Event{Type: session.EventContent, ItemID: c.CallID, Kind: session.KindToolCall, Model: t.model, Tool: &c})
+	case "SYSTEM_MESSAGE":
+		if sender, body, ok := parseSystemMessage(s.Content); ok {
+			at := stamp(s.CreatedAt)
+			if ag := t.byConv[sender]; ag != nil {
+				ag.running = false
+				ag.call.Status = "completed"
+				ag.call.EndedAt = at
+				if body != "" {
+					if ag.call.Output != "" {
+						ag.call.Output += "\n\n" + body
+					} else {
+						ag.call.Output = body
+					}
+				}
+				out = append(out, t.agentEvent(ag, at))
+			} else if sender == "system" && strings.Contains(body, "All your subagents and background tasks have been stopped") {
+				for _, ag := range t.agents {
+					if ag.running {
+						ag.running = false
+						ag.call.Status = "failed"
+						ag.call.EndedAt = at
+						out = append(out, t.agentEvent(ag, at))
+					}
+				}
+			}
+		}
 	case "CHECKPOINT":
 		out = append(out, session.Event{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"})
 	}
@@ -169,6 +226,13 @@ func toolCall(id, name string, args map[string]json.RawMessage) session.ToolCall
 	case "write_file":
 		c.ToolName = "Write"
 		in = map[string]string{"file_path": arg("Path"), "content": arg("Content")}
+	case "invoke_subagent":
+		c.ToolName = "Agent"
+		in = map[string]string{
+			"description":   arg("Role"),
+			"subagent_type": arg("TypeName"),
+			"prompt":        arg("Prompt"),
+		}
 	}
 	c.Input, _ = json.Marshal(in)
 	if string(c.Input) == "null" {
@@ -252,6 +316,18 @@ func (t *Transcript) End(state string) []session.Event {
 		out = append(out, session.Event{Type: session.EventContent, ItemID: c.CallID, Kind: session.KindToolCall, Model: t.model, Tool: &c})
 	}
 	t.pending = nil
+	for _, ag := range t.agents {
+		if !ag.running {
+			continue
+		}
+		ag.running = false
+		if state == session.TurnInterrupted {
+			ag.call.Status = "failed"
+		} else {
+			ag.call.Status = "completed"
+		}
+		out = append(out, t.agentEvent(ag, ""))
+	}
 	out = append(out, session.Event{Type: session.EventTurnCompleted, TurnID: t.turn, State: state, Point: t.turn})
 	t.turn = ""
 	return out
@@ -285,11 +361,150 @@ func (t *Transcript) Resolve() []session.Event {
 	return []session.Event{{Type: session.EventRequestResolved, RequestID: id}}
 }
 
-// Subagents is nil: agy's subagents keep transcripts of their own.
-func (t *Transcript) Subagents() map[string]bool { return nil }
+// hasRunningSubagent reports whether any spawned subagent is still running.
+func (t *Transcript) hasRunningSubagent() bool {
+	for _, ag := range t.agents {
+		if ag.running {
+			return true
+		}
+	}
+	return false
+}
 
-// Subagent shows nothing (Subagents).
-func (t *Transcript) Subagent(string, []byte) []session.Event { return nil }
+// agentEvent returns a KindToolCall event for ag with cloned slices so
+// subsequent mutations to ag.call do not race with emitted snapshots.
+func (t *Transcript) agentEvent(ag *subagent, at string) session.Event {
+	c := ag.call
+	c.SubagentTools = slices.Clone(c.SubagentTools)
+	c.SubagentCalls = slices.Clone(c.SubagentCalls)
+	return session.Event{Type: session.EventContent, ItemID: c.CallID, Kind: session.KindToolCall, Model: t.model, CreatedAt: at, Tool: &c}
+}
+
+// Subagents are the session's invoke_subagent calls by tool call id, and
+// whether each still runs.
+func (t *Transcript) Subagents() map[string]bool {
+	if len(t.agents) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(t.agents))
+	for id, ag := range t.agents {
+		out[id] = ag.running
+	}
+	return out
+}
+
+// SubagentPaths maps each spawned subagent's call id to its own
+// transcript_full.jsonl path beside mainPath under agy's brain directory.
+func (t *Transcript) SubagentPaths(mainPath string) map[string]string {
+	if len(t.agents) == 0 || mainPath == "" {
+		return nil
+	}
+	logs := filepath.Dir(filepath.Clean(mainPath))
+	sys := filepath.Dir(logs)
+	conv := filepath.Dir(sys)
+	brain := filepath.Dir(conv)
+	if filepath.Base(logs) != "logs" || filepath.Base(sys) != ".system_generated" || filepath.Base(brain) != "brain" {
+		return nil
+	}
+	out := make(map[string]string, len(t.agents))
+	for id, ag := range t.agents {
+		if ag.convID == "" || ag.convID == "." || ag.convID == ".." || strings.ContainsAny(ag.convID, `/\`) {
+			continue
+		}
+		out[id] = filepath.Join(brain, ag.convID, ".system_generated", "logs", "transcript_full.jsonl")
+	}
+	return out
+}
+
+// Subagent folds one line of the subagent's own transcript into the parent
+// Agent card for call.
+func (t *Transcript) Subagent(call string, b []byte) []session.Event {
+	ag := t.agents[call]
+	if ag == nil {
+		return nil
+	}
+	var s step
+	if json.Unmarshal(b, &s) != nil {
+		return nil
+	}
+	at := stamp(s.CreatedAt)
+	id := "step-" + strconv.Itoa(s.Index)
+	switch s.Type {
+	case "PLANNER_RESPONSE":
+		if len(s.ToolCalls) == 0 {
+			return nil
+		}
+		for i, c := range s.ToolCalls {
+			tc := toolCall(id+"#"+strconv.Itoa(i), c.Name, c.Args)
+			tc.Status = "running"
+			tc.StartedAt = at
+			ag.pending = append(ag.pending, tc)
+			ag.call.SubagentTools = append(ag.call.SubagentTools, tc.ToolName)
+			ag.call.SubagentCalls = append(ag.call.SubagentCalls, tc)
+		}
+		ag.call.SubagentCalls = session.KeepSubagentCalls(ag.call.SubagentCalls)
+		return []session.Event{t.agentEvent(ag, at)}
+	case "GENERIC":
+		if len(ag.pending) == 0 {
+			return nil
+		}
+		tc := ag.pending[0]
+		ag.pending = ag.pending[1:]
+		status := "completed"
+		text := strings.TrimSpace(stamps.ReplaceAllString(s.Content, ""))
+		if m := exited.FindStringSubmatch(text); m != nil {
+			if code, _ := strconv.Atoi(m[1]); code != 0 {
+				status = "failed"
+			}
+		}
+		if s.Status == "ERROR" || s.Error != "" {
+			status = "failed"
+		}
+		for i := range ag.call.SubagentCalls {
+			if ag.call.SubagentCalls[i].CallID == tc.CallID {
+				ag.call.SubagentCalls[i].Status = status
+				ag.call.SubagentCalls[i].EndedAt = at
+				return []session.Event{t.agentEvent(ag, at)}
+			}
+		}
+	}
+	return nil
+}
+
+// parseSubagentLaunch extracts the child conversationId from an
+// invoke_subagent GENERIC result ("Created the following subagent:\n{...}").
+func parseSubagentLaunch(text string) string {
+	_, rest, ok := strings.Cut(text, "Created the following subagent:")
+	if !ok {
+		return ""
+	}
+	start := strings.IndexByte(rest, '{')
+	if start < 0 {
+		return ""
+	}
+	var res struct {
+		ConversationID string `json:"conversationId"`
+	}
+	if json.NewDecoder(strings.NewReader(rest[start:])).Decode(&res) != nil {
+		return ""
+	}
+	if res.ConversationID == "" || res.ConversationID == "." || res.ConversationID == ".." || strings.ContainsAny(res.ConversationID, `/\`) {
+		return ""
+	}
+	return res.ConversationID
+}
+
+var sysMsgRe = regexp.MustCompile(`(?s)<SYSTEM_MESSAGE>\s*\[Message\]\s+[^\n]*?\bsender=(\S+)[^\n]*?\bcontent=(.*?)\s*</SYSTEM_MESSAGE>`)
+
+// parseSystemMessage extracts the sender conversation id and body from an
+// agy SYSTEM_MESSAGE step's content.
+func parseSystemMessage(content string) (sender, body string, ok bool) {
+	m := sysMsgRe.FindStringSubmatch(content)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], strings.TrimSpace(m[2]), true
+}
 
 // MarkOf is transcript line b's mark for a reader paging through it: a
 // turn starts at the user's input.

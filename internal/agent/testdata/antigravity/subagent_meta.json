@@ -1,0 +1,12 @@
+{
+  "conversationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "subagentDescriptor": {
+    "typeName": "research",
+    "role": "Note File Reader"
+  },
+  "state": "SUBAGENT_STATE_ALIVE",
+  "spawnStepIndex": 2,
+  "workspaceUris": [
+    "file:///home/user/project"
+  ]
+}

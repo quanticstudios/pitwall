@@ -1,0 +1,14 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "conversationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "cwd": "/home/user/project",
+  "hookEventName": "PreInvocation",
+  "initialNumSteps": 0,
+  "invocationNum": 0,
+  "lastUserInput": "",
+  "modelName": "gemini-4-neon-high",
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/home/user/project"
+  ]
+}

@@ -532,6 +532,7 @@ func NewWith(o Options) (*Daemon, error) {
 		if b := agent.Identify(model.ReportedName(p.Provider), ""); b != "" {
 			p.Provider, p.ResumeCmd = b, nil // saved when a report named a built-in agent
 		}
+		agyRepair(p)
 		// why: argv cannot tell, since `claude --resume s` restores to the same argv.
 		resumes := store.Resumes(*p)
 		if model.ReportedName(p.Provider) != "" && !resumes {
@@ -2011,6 +2012,21 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			d.live.piRuntime[p.ID] = rt
 		}
 	}
+	subagent := agent.SubagentHook(m.Payload)
+	sid := d.o.SessionID(m.Provider, m.Payload)
+	if m.Provider == model.ProviderAntigravity && !subagent && p.Provider == model.ProviderAntigravity && p.SessionID != "" && sid != "" && sid != p.SessionID {
+		// Defense in depth: an agy subagent hook that reached the daemon with
+		// its own conversation id never replaces the pane's main session, and
+		// while a turn is running only a new user prompt can switch sessions.
+		if agyForeignSubagent(homeOf(p.Env), agent.Transcript(m.Payload), sid) {
+			d.mu.Unlock()
+			return nil
+		}
+		if ai := slices.IndexFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID }); ai >= 0 && busy(d.st.Activities[ai].State) && !agent.PromptSubmitted(m.Payload) {
+			d.mu.Unlock()
+			return nil
+		}
+	}
 	d.sawHook(p.ID)
 	ai := slices.IndexFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
 	if ai >= 0 && d.st.Activities[ai].Provider == model.ProviderTerminal {
@@ -2039,6 +2055,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
 	if derived && m.Provider == model.ProviderAntigravity && d.agyTrusting(p.ID) {
 		// why: agy runs a prompt given with -i in a scratch folder while it asks to trust its own; the question is what needs the user.
+		derived = false
+	}
+	// An agy subagent's PostToolUse counts as pane activity (restarting
+	// quiet silence below) but never alters the main turn's state or detail.
+	agySubagent := m.Provider == model.ProviderAntigravity && subagent
+	if agySubagent {
 		derived = false
 	}
 	activity, mapped := d.o.Derive(nil, m.Provider, m.Payload, now)
@@ -2139,67 +2161,70 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if p.AgentMode != prevMode {
 		changed = true
 	}
-	sid := d.o.SessionID(m.Provider, m.Payload)
 	forkSource := sid != "" && sid == store.ForkSource(*p)
-	if sid != "" && sid != p.SessionID && !forkSource {
+	if !subagent && sid != "" && sid != p.SessionID && !forkSource {
 		delete(d.phoneSettings, p.ID)
 		p.SessionID, p.Prompt, p.Transcript, changed = sid, "", "", true // a new session reports its own file
 		if !keepMode {
 			p.AgentMode = "" // and its own mode
 		}
 	}
-	if t := agent.Transcript(m.Payload); t != "" && t != p.Transcript && !forkSource {
-		p.Transcript, changed = t, true
-	}
-	if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode && !keepMode {
-		p.AgentMode, changed = mode, true
-	}
-	if agent.PermissionMode(m.Payload) != "" {
-		delete(d.live.fresh, p.ID)
-	}
-	if p.Prompt == "" {
-		// Secrets go before the cut, so no part of a key names the tab.
-		if s := promptTitle(logs.Redact(agent.Prompt(m.Provider, m.Payload))); s != "" {
-			p.Prompt, changed = s, true
+	if !subagent {
+		if t := agent.Transcript(m.Payload); t != "" && t != p.Transcript && !forkSource {
+			p.Transcript, changed = t, true
+		}
+		if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode && !keepMode {
+			p.AgentMode, changed = mode, true
+		}
+		if agent.PermissionMode(m.Payload) != "" {
+			delete(d.live.fresh, p.ID)
+		}
+		if p.Prompt == "" {
+			// Secrets go before the cut, so no part of a key names the tab.
+			if s := promptTitle(logs.Redact(agent.Prompt(m.Provider, m.Payload))); s != "" {
+				p.Prompt, changed = s, true
+			}
 		}
 	}
 	d.hookTurn(p, m.Payload, now) // a call may start the turn, as Cursor's first does
-	if f, ok := agent.ToolFailure(m.Provider, m.Payload); ok {
-		kind := errlog.Tool
-		if f.Shell {
-			kind = errlog.Command
+	if !agySubagent {
+		if f, ok := agent.ToolFailure(m.Provider, m.Payload); ok {
+			kind := errlog.Tool
+			if f.Shell {
+				kind = errlog.Command
+			}
+			// Trimmed once here: the signature is the one the Agent errors page
+			// groups the stored line under, and Redact never sees megabytes.
+			e := errlog.Trim(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
+				Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, d.where(p).Cwd),
+				Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
+			d.logError(p.WorkspaceID, e)
+			if f.Interrupted {
+				d.dropRepeat(p.ID) // the user stepped in
+			} else {
+				d.noteFailure(p.ID, errlog.Signature(e))
+			}
+		} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {
+			d.dropRepeat(p.ID)
 		}
-		// Trimmed once here: the signature is the one the Agent errors page
-		// groups the stored line under, and Redact never sees megabytes.
-		e := errlog.Trim(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
-			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, d.where(p).Cwd),
-			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
-		d.logError(p.WorkspaceID, e)
-		if f.Interrupted {
-			d.dropRepeat(p.ID) // the user stepped in
-		} else {
-			d.noteFailure(p.ID, errlog.Signature(e))
+		if c, ok := agent.ToolCall(m.Payload); ok {
+			d.turns.Tool(p.ID, c, now)
 		}
-	} else if c, ok := agent.ToolCall(m.Payload); ok && c.End {
-		d.dropRepeat(p.ID)
-	}
-	if c, ok := agent.ToolCall(m.Payload); ok {
-		d.turns.Tool(p.ID, c, now)
 	}
 	var turnDir, turnWS string // a tab to checkpoint once d.mu is free
-	if d.o.Checkpoint != nil && agent.Prompt(m.Provider, m.Payload) != "" {
+	if !subagent && d.o.Checkpoint != nil && agent.Prompt(m.Provider, m.Payload) != "" {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
 	}
 	var endWS string // a tab whose turn end to take once d.mu is free
-	if d.o.EndTurn != nil && agent.Stopped(m.Payload) {
+	if !subagent && d.o.EndTurn != nil && agent.Stopped(m.Payload) {
 		endWS = p.WorkspaceID
 	}
-	if agent.PromptSubmitted(m.Payload) && !d.mail.daemonPrompt[p.ID] {
+	if !subagent && agent.PromptSubmitted(m.Payload) && !d.mail.daemonPrompt[p.ID] {
 		p.LastPromptAt, changed = now, true
 	}
-	if agent.Prompt(m.Provider, m.Payload) != "" {
+	if !subagent && agent.Prompt(m.Provider, m.Payload) != "" {
 		d.notePrompt(p.ID, now)
 	}
 	if len(d.mail.queue[p.ID]) > 0 {
