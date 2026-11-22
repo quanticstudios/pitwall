@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -242,8 +243,11 @@ func TestControlSendKeyAndFormats(t *testing.T) {
 	if r["ok"] != true {
 		t.Fatalf("sendKey failed: %v", r)
 	}
-	if len(rc.sentKeys) != 1 || rc.sentKeys[0].pane != "p1" || strings.Join(rc.sentKeys[0].keys, ",") != "up,enter,ctrl+c" {
-		t.Fatalf("sentKeys = %+v", rc.sentKeys)
+	rc.evMu.Lock() // the server's goroutine appends under it
+	sent := slices.Clone(rc.sentKeys)
+	rc.evMu.Unlock()
+	if len(sent) != 1 || sent[0].pane != "p1" || strings.Join(sent[0].keys, ",") != "up,enter,ctrl+c" {
+		t.Fatalf("sentKeys = %+v", sent)
 	}
 
 	// Empty keys -> invalid.
