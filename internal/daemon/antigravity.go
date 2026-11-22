@@ -21,13 +21,16 @@ import (
 )
 
 // agyApp is the app name Antigravity CLI gives its OSC 7501 reports.
-const agyApp = "antigravity"
+const (
+	agyApp     = "antigravity"
+	agyPlanMsg = "Approve plan"
+)
 
 // agyProgram makes an Antigravity CLI report pane id's activity where its
 // hooks cannot: agy has no hook for a permission prompt or a question, nor
 // for the answer to one. Its own OSC 7501 report says each:
 //
-//	blocked, kind permission    pending-approval, Detail = its message
+//	blocked, kind permission    pending-approval (or plan-ready for Approve plan, awaiting-input for folder trust), Detail = its message
 //	blocked, kind question      awaiting-input, Detail = the question
 //
 // and, only while one of those waits, what came after it: working once
@@ -40,7 +43,7 @@ func (d *Daemon) agyProgram(id string, r progstatus.Report) {
 		return
 	}
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
-	if pi < 0 || d.st.Panes[pi].Provider != model.ProviderAntigravity {
+	if pi < 0 || d.st.Panes[pi].Provider != model.ProviderAntigravity && d.st.Panes[pi].Provider != "" {
 		return
 	}
 	var prev model.AgentState
@@ -52,6 +55,8 @@ func (d *Daemon) agyProgram(id string, r progstatus.Report) {
 	switch {
 	case r.State == progstatus.Blocked && r.Kind == progstatus.Permission && r.Msg == agyTrustMsg:
 		state = model.StateAwaitingInput // Trust or Don't trust (agent.Offers)
+	case r.State == progstatus.Blocked && r.Kind == progstatus.Permission && (r.Msg == agyPlanMsg || strings.HasPrefix(r.Msg, agyPlanMsg)):
+		state = model.StatePlanReady
 	case r.State == progstatus.Blocked && r.Kind == progstatus.Permission:
 		state = model.StatePendingApproval
 	case r.State == progstatus.Blocked && r.Kind == progstatus.Question:
@@ -65,12 +70,14 @@ func (d *Daemon) agyProgram(id string, r progstatus.Report) {
 	case r.State == progstatus.Error:
 		state = model.StateError
 	case r.State == progstatus.Idle:
+		delete(d.live.screenWait, id)
 		d.dropActivity(id)
 		d.recordExplanation(id, model.ProviderAntigravity, "", "program-status", agent.ScreenTrace{})
 		return
 	default:
 		return
 	}
+	delete(d.live.screenWait, id)
 	d.setActivity(context.Background(), id, model.ProviderAntigravity, state, msg)
 	d.recordExplanation(id, model.ProviderAntigravity, state, "program-status", agent.ScreenTrace{})
 }

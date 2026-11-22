@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -561,13 +562,135 @@ const (
 	DontTrust = "Don't trust"
 )
 
-// agyOffers are the answers agy's form on g takes: Trust and Don't trust
-// on its folder-trust question, while the cursor is on Yes.
-func agyOffers(a model.Activity, g vt.Grid) []Offer {
-	if a.State != model.StateAwaitingInput || !AgyTrustAsked(g) || !strings.Contains(ScreenText(g, screenLines), "> Yes, I trust this folder") {
-		return nil
+// AgyPromptDetail reads the human-facing detail (command, question, trust or
+// plan prompt) of an Antigravity CLI prompt currently shown on g for state.
+// Command approvals use agy's own "Approve Bash: <command>" phrasing so
+// desktop chat cards and sidebar rows match OSC 7501 reports identically.
+func AgyPromptDetail(state model.AgentState, g vt.Grid) string {
+	switch state {
+	case model.StateAwaitingInput:
+		if AgyTrustAsked(g) {
+			return "Trust this folder?"
+		}
+		if q := ReadQuestion(model.ProviderAntigravity, g); q != nil {
+			return Summary(q.Prompt)
+		}
+		return ""
+	case model.StatePlanReady:
+		return "Approve plan"
+	case model.StatePendingApproval:
+		return agyApprovalDetail(g)
+	default:
+		return ""
 	}
-	return []Offer{{Label: Trust, Key: "⏎"}, {Label: DontTrust, Key: "⎋"}}
+}
+
+// agyApprovalDetail extracts the command or action from an agy permission
+// prompt on g, formatted like agy's OSC 7501 message ("Approve Bash: <cmd>").
+func agyApprovalDetail(g vt.Grid) string {
+	rows := screenRows(g)
+	reqRow := -1
+	reqToRow := -1
+	askRow := -1
+	for y, l := range rows {
+		low := strings.ToLower(strings.TrimSpace(l))
+		switch {
+		case strings.Contains(low, "requesting permission for:"):
+			reqRow = y
+		case strings.Contains(low, "requesting permission to "):
+			reqToRow = y
+		case low == "run this command?" || low == "allow access to this file?" || low == "allow access to this url?" || low == "allow calling this tool?":
+			askRow = y
+		}
+	}
+	if reqRow >= 0 {
+		header := agySectionHeader(rows, reqRow)
+		var parts []string
+		isCmd := strings.EqualFold(header, "command")
+		for y := reqRow + 1; y < len(rows); y++ {
+			t := strings.TrimSpace(rows[y])
+			if t == "" {
+				continue
+			}
+			low := strings.ToLower(t)
+			if low == "run this command?" {
+				isCmd = true
+				break
+			}
+			if strings.HasSuffix(t, "?") || optionLine.MatchString(rows[y]) ||
+				strings.HasPrefix(low, "↑/↓ navigate") || strings.HasPrefix(low, "keyboard: ↑/↓ navigate") {
+				break
+			}
+			parts = append(parts, t)
+		}
+		if target := strings.Join(parts, " "); target != "" {
+			if isCmd {
+				return Summary("Approve Bash: " + target)
+			}
+			if header != "" {
+				return Summary("Approve " + header + ": " + target)
+			}
+			return Summary(target)
+		}
+	}
+	if reqToRow >= 0 {
+		return Summary(strings.TrimSpace(rows[reqToRow]))
+	}
+	if askRow >= 0 {
+		return Summary(strings.TrimSpace(rows[askRow]))
+	}
+	return ""
+}
+
+// agySectionHeader returns the section title drawn just above the horizontal
+// rule preceding row (such as "Command"), or "".
+func agySectionHeader(rows []string, row int) string {
+	for y := row - 1; y >= 0 && y >= row-4; y-- {
+		t := strings.TrimSpace(rows[y])
+		if t == "" {
+			continue
+		}
+		if ruleOf(t, "─") {
+			for k := y - 1; k >= 0 && k >= y-2; k-- {
+				if h := strings.TrimSpace(rows[k]); h != "" {
+					if len(h) <= 32 && !strings.Contains(h, "  ") {
+						return h
+					}
+					return ""
+				}
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// agyOffers are the answers agy's form on g takes: Allow always on a command
+// approval, Approve plan on an artifact/plan review, Trust and Don't trust on
+// its folder-trust question, and the single-select options on a question.
+func agyOffers(a model.Activity, g vt.Grid) []Offer {
+	switch a.State {
+	case model.StatePendingApproval:
+		if StateOf(model.ProviderAntigravity, g) == model.StatePendingApproval && AgyAlwaysOffered(g) {
+			return []Offer{{Label: AllowAlways, Key: "2"}}
+		}
+	case model.StatePlanReady:
+		if StateOf(model.ProviderAntigravity, g) == model.StatePlanReady {
+			return []Offer{{Label: ApprovePlan, Key: "y"}}
+		}
+	case model.StateAwaitingInput:
+		if AgyTrustAsked(g) && strings.Contains(ScreenText(g, screenLines), "> Yes, I trust this folder") {
+			return []Offer{{Label: Trust, Key: "⏎"}, {Label: DontTrust, Key: "⎋"}}
+		}
+		if q := ReadQuestion(model.ProviderAntigravity, g); q != nil && !q.Multi && len(q.Options) > 0 {
+			out := make([]Offer, len(q.Options))
+			for i, o := range q.Options {
+				out[i] = Offer{Label: o.Label, Key: strconv.Itoa(i + 1)}
+			}
+			return out
+		}
+	}
+	return nil
 }
 
 // samePath reports whether a and b name one folder: both resolved through

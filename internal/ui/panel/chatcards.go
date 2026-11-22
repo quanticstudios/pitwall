@@ -56,7 +56,7 @@ func requestWhat(a session.Approval, dir string) string {
 func approvalWhy(a session.Approval) string {
 	why := strings.TrimSpace(deref(a.Detail))
 	if why == requestWhat(a, "") || strings.HasSuffix(why, " needs approval") ||
-		a.Request != nil && a.Request.ToolName != "" && strings.HasPrefix(why, a.Request.ToolName+": ") {
+		a.Request != nil && a.Request.ToolName != "" && (strings.HasPrefix(why, a.Request.ToolName+": ") || strings.HasPrefix(why, "Approve "+a.Request.ToolName+": ")) {
 		return ""
 	}
 	return why

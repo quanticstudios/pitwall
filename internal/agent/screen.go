@@ -151,6 +151,21 @@ func StateOf(p model.Provider, g vt.Grid) model.AgentState {
 	return activePatterns.Load().stateOf(p, g, nil)
 }
 
+// ScreenDetail extracts a concise detail for a waiting state read off agent
+// p's screen g (such as an Antigravity command/question/trust/plan prompt or a
+// Claude/Codex question prompt), or "" when none can be read safely.
+func ScreenDetail(p model.Provider, state model.AgentState, g vt.Grid) string {
+	if p == model.ProviderAntigravity {
+		return AgyPromptDetail(state, g)
+	}
+	if state == model.StateAwaitingInput {
+		if q := ReadQuestion(p, g); q != nil {
+			return Summary(q.Prompt)
+		}
+	}
+	return ""
+}
+
 func (rules *screenPatterns) stateOf(p model.Provider, g vt.Grid, trace *ScreenTrace) model.AgentState {
 	s, ok := rules.Providers[p]
 	if !ok {

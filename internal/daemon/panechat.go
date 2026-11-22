@@ -407,15 +407,32 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 	}
 	a := l.act
 	isClaude := pc.prov == model.ProviderClaude
+	reqID := strconv.FormatInt(a.UpdatedAt.UnixNano(), 10)
 	var liveQ *agent.Question
 	if l.p != nil && (isClaude || pc.prov == model.ProviderCodex || pc.prov == model.ProviderAntigravity) {
 		liveQ = agent.ReadQuestion(pc.prov, l.p.Snapshot())
 	}
 	switch {
+	case pc.prov == model.ProviderAntigravity && waits(a.State):
+		g := l.p.Snapshot()
+		switch a.State {
+		case model.StatePendingApproval:
+			pc.reduce(pc.tr.Ask(reqID, a.Detail))
+		case model.StatePlanReady:
+			pc.reduce(pc.tr.Ask(reqID, cmp.Or(a.Detail, agyPlanMsg)))
+		case model.StateAwaitingInput:
+			switch {
+			case liveQ != nil: // syncQuestion below opens the card from the question's pages, all its questions
+			case agent.AgyTrustAsked(g):
+				pc.reduce(pc.tr.Ask(reqID, cmp.Or(a.Detail, agyTrustMsg)))
+			default:
+				pc.reduce(pc.tr.Resolve())
+			}
+		}
 	case !isClaude && a.State == model.StatePendingApproval:
-		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
+		pc.reduce(pc.tr.Ask(reqID, a.Detail))
 	case isClaude && waits(a.State) && (a.State != model.StateAwaitingInput || liveQ != nil):
-		pc.reduce(pc.tr.Ask(strconv.FormatInt(a.UpdatedAt.UnixNano(), 10), a.Detail))
+		pc.reduce(pc.tr.Ask(reqID, a.Detail))
 	default:
 		pc.reduce(pc.tr.Resolve())
 	}
@@ -476,12 +493,13 @@ func (pc *paneChat) catchUp(l paneLive) (rerr error) {
 // the card's line under the command. Callers hold pc.mu.
 func (pc *paneChat) offers(l paneLive) {
 	a := l.act
-	if a.State != model.StatePendingApproval {
+	agyTrust := pc.prov == model.ProviderAntigravity && a.State == model.StateAwaitingInput
+	if a.State != model.StatePendingApproval && !agyTrust {
 		return
 	}
 	no := !slices.Contains(a.Buttons, agent.AllowAlways)
 	if pc.prov == model.ProviderAntigravity && l.p != nil {
-		no = !agent.AgyAlwaysOffered(l.p.Snapshot())
+		no = agyTrust || !agent.AgyAlwaysOffered(l.p.Snapshot())
 	}
 	reason := ""
 	if pc.prov == model.ProviderClaude && l.p != nil {
@@ -1214,6 +1232,10 @@ func (d *Daemon) paneApprove(id string, l paneLive, m proto.ChatApprove) error {
 			return errors.New("the pane's prompt offers no Allow for this conversation; answer it in its tab")
 		}
 		return d.paneKey(id, p, press("2", p.Modes()))
+	case agy && l.act.State == model.StateAwaitingInput && m.Decision == "allow":
+		return d.pressOffer(id, at, agent.Trust)
+	case agy && l.act.State == model.StateAwaitingInput && m.Decision == "deny":
+		return d.pressOffer(id, at, agent.DontTrust)
 	case m.Decision == "deny" && strings.TrimSpace(m.Reason) != "":
 		return d.pressFeedback(id, at, m.Reason)
 	case m.Decision == "deny":

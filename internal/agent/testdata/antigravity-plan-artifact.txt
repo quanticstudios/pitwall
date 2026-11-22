@@ -1,0 +1,13 @@
+  Please review the plan and let me know if you approve proceeding with these
+  changes (or if you'd like any adjustments to the README.md content).
+                                                1 artifact · /artifact to review
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+Action required (1 left)
+› □ new implementation_plan.md   open  approve reject
+
+Keyboard: ↑/↓ Navigate  y/n Approve/reject  shift+a Approve all  p Preview
+  ctrl+g open in editor  esc Done
+
+                                                     plan · Gemini 4 Neon · high

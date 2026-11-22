@@ -56,12 +56,20 @@
       ]
     },
     "antigravity": {
+      "plan": [
+        "y/n approve/reject"
+      ],
       "input": [
         "esc skip",
         "do you trust the contents of this project?"
       ],
       "approval": [
-        "requesting permission for:"
+        "requesting permission for:",
+        "requesting permission to ",
+        "run this command?",
+        "allow access to this file?",
+        "allow access to this url?",
+        "allow calling this tool?"
       ],
       "busy": [
         "esc to cancel"

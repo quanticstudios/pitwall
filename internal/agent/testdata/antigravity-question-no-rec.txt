@@ -1,0 +1,20 @@
+────────────────────────────────────────────────────────────
+> Use your ask_question tool to ask me which framework I prefer, with options
+  Go and Rust.
+
+▸ Thought for 3s, 236 tokens
+  Initial hypothesis: Determine user framework preference. Tool `ask_questio...
+
+? Which framework do you prefer?
+
+Question
+────────────────────────────────────────────────────────────────────────────────
+
+Question 1/1: Which framework do you prefer?
+
+> 1. Go
+  2. Rust
+  3. Write-in...
+
+  ↑/↓ Navigate · enter Select · esc Skip
+esc to cancel                                accept-edits · Gemini 4 Neon · high

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "command_permission",
+    "osc7501": "state=blocked:kind=permission:app=antigravity:msg=QXBwcm92ZSBCYXNoOiBlY2hvIGhlbGxvLXJlcHJv",
+    "want_state": "pending-approval",
+    "want_detail": "Approve Bash: echo hello-repro"
+  },
+  {
+    "name": "working_after_approve",
+    "osc7501": "state=working:app=antigravity",
+    "want_state": "working",
+    "want_detail": ""
+  },
+  {
+    "name": "ask_question",
+    "osc7501": "state=blocked:kind=question:app=antigravity:msg=V2hpY2ggY29sb3IgZG8geW91IGxpa2U/",
+    "want_state": "awaiting-input",
+    "want_detail": "Which color do you like?"
+  },
+  {
+    "name": "plan_approval",
+    "osc7501": "state=blocked:kind=permission:app=antigravity:msg=QXBwcm92ZSBwbGFu",
+    "want_state": "plan-ready",
+    "want_detail": "Approve plan"
+  },
+  {
+    "name": "folder_trust",
+    "osc7501": "state=blocked:kind=permission:app=antigravity:msg=VHJ1c3QgdGhpcyBmb2xkZXI/",
+    "want_state": "awaiting-input",
+    "want_detail": "Trust this folder?"
+  },
+  {
+    "name": "idle_after_cancel",
+    "osc7501": "state=idle:app=antigravity",
+    "want_state": "",
+    "want_detail": ""
+  }
+]
