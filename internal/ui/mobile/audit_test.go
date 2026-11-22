@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
@@ -19,9 +18,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 )
 
-// TestMobileLayoutInsets verifies layoutFrame shifts and shrinks the app's
-// layout inside app.Insets (Android 15 edge-to-edge safe areas).
-func TestMobileLayoutInsets(t *testing.T) {
+// TestMobileLayoutNoInsets: the app fills the whole window, since
+// Android already keeps the window clear of the bars and the keyboard; a tap
+// on Back at the window's top left leaves Settings.
+func TestMobileLayoutNoInsets(t *testing.T) {
 	th := Theme()
 	a := &App{th: th, dir: t.TempDir()}
 	a.machines = true
@@ -31,7 +31,6 @@ func TestMobileLayoutInsets(t *testing.T) {
 
 	var r input.Router
 	var ops op.Ops
-	insets := app.Insets{Top: 60, Bottom: 40, Left: 20, Right: 20}
 	frame := func() {
 		ops.Reset()
 		gtx := layout.Context{
@@ -41,29 +40,17 @@ func TestMobileLayoutInsets(t *testing.T) {
 			Constraints: layout.Exact(image.Pt(400, 800)),
 			Now:         time.Unix(1e9, 0),
 		}
-		a.layoutFrame(gtx, insets)
+		a.layoutFrame(gtx)
 		r.Frame(&ops)
 	}
 	frame()
-
-	// Tapping inside the top status-bar inset (y=20) must NOT hit the Back button.
 	r.Queue(
-		pointer.Event{Kind: pointer.Press, Source: pointer.Touch, PointerID: 1, Position: f32.Pt(40, 20)},
-		pointer.Event{Kind: pointer.Release, Source: pointer.Touch, PointerID: 1, Position: f32.Pt(40, 20)},
-	)
-	frame()
-	if !a.machines {
-		t.Fatal("tap inside top inset triggered Back button")
-	}
-
-	// Tapping shifted down by Insets.Top and right by Insets.Left hits the Back button.
-	r.Queue(
-		pointer.Event{Kind: pointer.Press, Source: pointer.Touch, PointerID: 2, Position: f32.Pt(20+24, 60+24)},
-		pointer.Event{Kind: pointer.Release, Source: pointer.Touch, PointerID: 2, Position: f32.Pt(20+24, 60+24)},
+		pointer.Event{Kind: pointer.Press, Source: pointer.Touch, PointerID: 1, Position: f32.Pt(24, 24)},
+		pointer.Event{Kind: pointer.Release, Source: pointer.Touch, PointerID: 1, Position: f32.Pt(24, 24)},
 	)
 	frame()
 	if a.machines {
-		t.Fatal("tap inside safe-area Back button did not leave Settings")
+		t.Fatal("tap on Back at the window's top left did not leave Settings")
 	}
 }
 
