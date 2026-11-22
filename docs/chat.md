@@ -37,14 +37,16 @@ holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
-- While the agent works, **Enter** queues the message above the box. When
+- While the agent works, **Enter** sends the message into the running
+  turn, as typing it in the agent's terminal does: Claude Code takes it once
+  the running tool returns, Codex at once, Antigravity CLI through its Alt+M.
+  A slash command still waits for the turn to end.
+- **Ctrl+Enter** (Cmd+Enter on macOS) queues it above the box instead. When
   the turn ends, everything queued goes as one prompt, a blank line between
   messages. A slash command, a `!` command, and a message you marked **Send
   separately** each go in a turn of their own, in their place. A line above
-  the queue says when the next messages go as one.
-- **Ctrl+Enter** (Cmd+Enter on macOS) sends it now instead, into the running
-  turn: Claude Code takes it once the running tool returns, Codex at once,
-  Antigravity CLI through its Alt+M. In a New task chat whose agent takes
+  the queue says when the next messages go as one. `[chat] follow_up =
+  "queue"` swaps the two keys. In a New task chat whose agent takes
   nothing mid-turn, Send now stops the turn and sends the message first, and
   its tooltip says so.
 - Point at a queued message for **Send now**, **Edit** (back into the box),

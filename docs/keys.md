@@ -436,8 +436,8 @@ In [the desktop chat](chat.md)'s composer:
 
 | Keys                    | Action                                                         |
 | ----------------------- | -------------------------------------------------------------- |
-| Enter                   | Send; while the agent works, queue the message above the box, or steer it into the turn with `[chat] follow_up = "steer"` |
-| Ctrl+Enter              | While the agent works, the other follow-up: send now into the running turn, or queue with follow_up steer (Cmd+Enter on macOS) |
+| Enter                   | Send; while the agent works, steer it into the running turn, where the agent takes it at its next step, or queue it above the box with `[chat] follow_up = "queue"` |
+| Ctrl+Enter              | While the agent works, the other follow-up: queue the message above the box, or with follow_up queue send it now into the running turn (Cmd+Enter on macOS) |
 | Shift+Enter             | New line                                                       |
 | Up / Down               | In an empty box, the chat's earlier prompts, newest first, with their images; Down past the newest gives the box back |
 | Ctrl+S                  | Stash the draft and its images; on an empty box, bring back the stashed draft, or open the stash menu when there are several |

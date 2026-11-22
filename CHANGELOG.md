@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- While the agent works, Enter in the desktop chat now sends a message into the running turn, where the agent takes it at its next step, as a message typed in its terminal does; before, it waited in pitwall's queue until the turn ended, which could be many minutes. Ctrl+Enter queues it instead, and `[chat] follow_up = "queue"` brings back the old keys.
 - A Claude Code pane chat no longer shows a status line printed under Claude's spinner, such as "full $51.43 last $0.31 1h 32m", as the agent's reply: the reply read off the screen stops at the spinner row.
 - A Claude Code pane chat shows "Compacting conversation…" while Claude compacts, from its spinner row, for a /compact as well as an automatic one, until the compaction lands.
 - A pane chat ends a turn the session's end cut off, such as one running when the machine shut down: when Claude Code resumes the session, the turn shows as interrupted and its call as failed, instead of spinning with a growing "Working for" time.
