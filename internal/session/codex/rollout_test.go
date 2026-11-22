@@ -161,3 +161,67 @@ func TestRolloutMarks(t *testing.T) {
 		}
 	}
 }
+
+// TestRolloutCompactResetsContext checks that Codex compaction events
+// (ContextCompaction item, context_compacted, compacted, and zeroed
+// last_token_usage) clear ContextTokens while keeping the window size and
+// totals, rate-limit-only token_count (info: null) leaves context intact,
+// and the next token_count restores the real count.
+func TestRolloutCompactResetsContext(t *testing.T) {
+	feed := func(s session.Snapshot, r *Rollout, line string) session.Snapshot {
+		for _, e := range r.Line([]byte(line)) {
+			s = applyEvent(t, s, e)
+		}
+		return s
+	}
+	seq = 0
+	r := NewRollout()
+	s := session.Snapshot{SessionID: "p", Provider: "codex", SessionState: session.StateReady}
+
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":410000,"cached_input_tokens":300000,"output_tokens":3000,"total_tokens":413000},"last_token_usage":{"input_tokens":410000,"cached_input_tokens":300000,"output_tokens":3000,"total_tokens":413000},"model_context_window":475000}}}`)
+	if u := s.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 413000 || u.MaxTokens == nil || *u.MaxTokens != 475000 {
+		t.Fatalf("before compact: %+v", u)
+	}
+
+	// Rate-limit-only token_count (info: null) must not clear context.
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:02Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"primary":{"used_percent":10}}}}`)
+	if u := s.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 413000 {
+		t.Fatalf("after info:null token_count: %+v", u)
+	}
+
+	// ContextCompaction item emits the divider and clears ContextTokens while
+	// keeping totals and MaxTokens.
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:03Z","type":"event_msg","payload":{"type":"item_completed","turn_id":"t1","item":{"type":"ContextCompaction","id":"cmp-1"}}}`)
+	if u := s.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 475000 || u.InputTokens != 410000 {
+		t.Fatalf("after ContextCompaction: %+v", u)
+	}
+	if n := len(s.Content); n == 0 || s.Content[n-1].Phase != session.PhaseCompact {
+		t.Fatalf("content %+v: want compaction divider", s.Content)
+	}
+
+	// Next token_count restores the post-compaction usage.
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:05Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":435000,"cached_input_tokens":300000,"output_tokens":3500,"total_tokens":438500},"last_token_usage":{"input_tokens":25000,"cached_input_tokens":0,"output_tokens":500,"total_tokens":25500},"model_context_window":475000}}}`)
+	if u := s.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 25500 || u.MaxTokens == nil || *u.MaxTokens != 475000 {
+		t.Fatalf("after post-compact token_count: %+v", u)
+	}
+
+	// event_msg/context_compacted clears context too.
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:06Z","type":"event_msg","payload":{"type":"context_compacted"}}`)
+	if u := s.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 475000 {
+		t.Fatalf("after context_compacted: %+v", u)
+	}
+
+	// A zeroed last_token_usage in token_count also clears context.
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:07Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":460000,"cached_input_tokens":300000,"output_tokens":4000,"total_tokens":464000},"last_token_usage":{"input_tokens":25000,"cached_input_tokens":0,"output_tokens":500,"total_tokens":25500},"model_context_window":475000}}}`)
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:08Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":460000,"cached_input_tokens":300000,"output_tokens":4000,"total_tokens":464000},"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"total_tokens":0},"model_context_window":475000}}}`)
+	if u := s.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 475000 {
+		t.Fatalf("after zeroed last_token_usage: %+v", u)
+	}
+
+	// Top-level compacted rollout record clears context too.
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:09Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":485000,"cached_input_tokens":300000,"output_tokens":4500,"total_tokens":489500},"last_token_usage":{"input_tokens":25000,"cached_input_tokens":0,"output_tokens":500,"total_tokens":25500},"model_context_window":475000}}}`)
+	s = feed(s, r, `{"timestamp":"2026-11-22T16:00:10Z","type":"compacted","payload":{"message":"compacted"}}`)
+	if u := s.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 475000 {
+		t.Fatalf("after compacted record: %+v", u)
+	}
+}

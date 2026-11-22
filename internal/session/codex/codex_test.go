@@ -402,3 +402,82 @@ func TestSkillInput(t *testing.T) {
 		t.Errorf("steer a skill: %v", err)
 	}
 }
+
+// TestNotifyCompactionResetsContext checks that Codex app-server's
+// contextCompaction item and thread/compacted notification clear
+// ContextTokens while preserving totals and MaxTokens, and that a later
+// thread/tokenUsage/updated restores the count.
+func TestNotifyCompactionResetsContext(t *testing.T) {
+	now = func() time.Time { return time.Date(2026, 11, 22, 16, 0, 0, 0, time.UTC) }
+	d := &driver{
+		events:   make(chan session.Event, 32),
+		thread:   "thr_1",
+		model:    "gpt-6.2-sol",
+		tools:    map[string]*session.ToolCall{},
+		phases:   map[string]string{},
+		streamed: map[string]bool{},
+		unknown:  map[string]bool{},
+	}
+	drain := func() []session.Event {
+		var es []session.Event
+		for {
+			select {
+			case e := <-d.events:
+				es = append(es, e)
+			default:
+				return es
+			}
+		}
+	}
+
+	d.notify("thread/tokenUsage/updated", json.RawMessage(`{"threadId":"thr_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":220000,"cachedInputTokens":150000,"outputTokens":4000,"totalTokens":224000},"last":{"inputTokens":220000,"cachedInputTokens":150000,"outputTokens":4000,"totalTokens":224000},"modelContextWindow":258400}}`))
+	s := fold(t, drain())
+	if u := s.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 224000 || u.MaxTokens == nil || *u.MaxTokens != 258400 {
+		t.Fatalf("before compact: %+v", u)
+	}
+
+	d.notify("item/completed", json.RawMessage(`{"item":{"type":"contextCompaction","id":"cmp_1"}}`))
+	es := drain()
+	for _, e := range es {
+		s = foldOn(t, s, e)
+	}
+	if u := s.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 258400 || u.InputTokens != 220000 {
+		t.Fatalf("after contextCompaction: %+v", u)
+	}
+	if len(s.Content) != 1 || s.Content[0].Phase != session.PhaseCompact {
+		t.Fatalf("content %+v: want compaction divider", s.Content)
+	}
+
+	// Next tokenUsage/updated restores ContextTokens; deprecated
+	// thread/compacted clears it too (ignoring other threads).
+	d.notify("thread/tokenUsage/updated", json.RawMessage(`{"threadId":"thr_1","turnId":"turn_2","tokenUsage":{"total":{"inputTokens":240000,"cachedInputTokens":150000,"outputTokens":4500,"totalTokens":244500},"last":{"inputTokens":20000,"cachedInputTokens":0,"outputTokens":500,"totalTokens":20500},"modelContextWindow":258400}}`))
+	d.notify("thread/compacted", json.RawMessage(`{"threadId":"thr_other","turnId":"turn_9"}`))
+	for _, e := range drain() {
+		s = foldOn(t, s, e)
+	}
+	if u := s.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 20500 {
+		t.Fatalf("after turn_2 + other thread compacted: %+v", u)
+	}
+	d.notify("thread/compacted", json.RawMessage(`{"threadId":"thr_1","turnId":"turn_2"}`))
+	for _, e := range drain() {
+		s = foldOn(t, s, e)
+	}
+	if u := s.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 258400 {
+		t.Fatalf("after thread/compacted: %+v", u)
+	}
+}
+
+func foldOn(t *testing.T, s session.Snapshot, e session.Event) session.Snapshot {
+	t.Helper()
+	seq := s.Revision
+	for _, d := range session.Reduce(s, e) {
+		seq++
+		d.Version, d.SessionID, d.Seq, d.Revision = session.DeltaVersion, s.SessionID, seq, seq
+		n, err := session.Apply(&s, seq-1, d)
+		if err != nil {
+			t.Fatalf("%s: %v", e.Type, err)
+		}
+		s = n
+	}
+	return s
+}

@@ -332,3 +332,60 @@ func TestInitializeCommands(t *testing.T) {
 		t.Fatalf("after a reload: %+v", snap.Commands)
 	}
 }
+
+// TestStreamCompactAndClearContext uses real Claude Code 2.1.330 stream-json
+// shapes for /compact and /clear: compact_boundary updates ContextTokens
+// immediately (to post_tokens when present, or nil when absent), /compact's
+// result preserves that reading, and /clear's conversation_reset + new init
+// clears both ContextTokens and MaxTokens.
+func TestStreamCompactAndClearContext(t *testing.T) {
+	s := newStream("s1")
+	s.turn = "t1"
+	snap, _ := reduce(t, s, base(),
+		`{"type":"system","subtype":"init","session_id":"s1","model":"claude-haiku-5-5","claude_code_version":"2.1.330"}`,
+		`{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"alpha"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":6648,"cache_read_input_tokens":11844,"output_tokens":5}},"parent_tool_use_id":null,"session_id":"s1","uuid":"a1"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"alpha","session_id":"s1","uuid":"r1","total_cost_usd":0.00145,"modelUsage":{"claude-haiku-5-5":{"inputTokens":2,"outputTokens":5,"cacheReadInputTokens":11844,"cacheCreationInputTokens":6648,"costUSD":0.00145,"contextWindow":1000000}}}`)
+	if u := snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 18499 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("before compact: usage %+v, want 18499 of 1M", u)
+	}
+
+	// Real Claude Code 2.1.330 /compact compact_boundary with compact_metadata.post_tokens.
+	s.turn = "t-compact"
+	snap, _ = reduce(t, s, snap,
+		`{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"cb1","compact_metadata":{"trigger":"manual","pre_tokens":18499,"post_tokens":6213,"cumulative_dropped_tokens":12286,"duration_ms":3983},"logical_parent_uuid":"a1"}`)
+	if u := snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 6213 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("right after compact_boundary: usage %+v, want 6213 of 1M", u)
+	}
+	// /compact's result carries 0 turn usage and modelUsage with contextWindow.
+	snap, _ = reduce(t, s, snap,
+		`{"type":"result","subtype":"success","is_error":false,"duration_api_ms":0,"num_turns":0,"session_id":"s1","uuid":"r-compact","total_cost_usd":0.0026,"modelUsage":{"claude-haiku-5-5":{"inputTokens":2000,"outputTokens":786,"cacheReadInputTokens":26757,"cacheCreationInputTokens":10231,"costUSD":0.0026,"contextWindow":1000000}}}`)
+	if u := snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 6213 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("after /compact result: usage %+v, want 6213 of 1M", u)
+	}
+
+	// A compact_boundary without post_tokens clears ContextTokens to nil
+	// (unknown) while keeping MaxTokens until the next assistant message.
+	snap, _ = reduce(t, s, snap,
+		`{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"cb2","compact_metadata":{"trigger":"auto","pre_tokens":6213}}`)
+	if u := snap.Usage; u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("after compact without post_tokens: usage %+v, want ContextTokens nil and MaxTokens 1M", u)
+	}
+
+	// Next assistant line updates context again.
+	s.turn = "t2"
+	snap, _ = reduce(t, s, snap,
+		`{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_2","type":"message","role":"assistant","content":[{"type":"text","text":"beta"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":11841,"cache_read_input_tokens":14442,"output_tokens":35}},"parent_tool_use_id":null,"session_id":"s1","uuid":"a2"}`)
+	if u := snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != 26320 || u.MaxTokens == nil || *u.MaxTokens != 1_000_000 {
+		t.Fatalf("after next assistant: usage %+v, want 26320 of 1M", u)
+	}
+
+	// Real Claude Code 2.1.330 /clear sequence: conversation_reset, new init,
+	// empty result.
+	snap, _ = reduce(t, s, snap,
+		`{"type":"conversation_reset","new_conversation_id":"c2","uuid":"c2","trigger":"clear","user_message_uuid":"u-clear","timestamp":"2026-11-22T16:40:05.005Z","session_id":"s1"}`,
+		`{"type":"system","subtype":"init","session_id":"s2","model":"claude-haiku-5-5","claude_code_version":"2.1.330"}`,
+		`{"type":"result","subtype":"success","is_error":false,"duration_api_ms":0,"num_turns":0,"session_id":"s2","uuid":"r-clear","total_cost_usd":0,"modelUsage":{}}`)
+	if u := snap.Usage; u != nil && (u.ContextTokens != nil || u.MaxTokens != nil) {
+		t.Fatalf("after /clear: usage %+v, want ContextTokens and MaxTokens nil", u)
+	}
+}

@@ -128,6 +128,18 @@ func TestMeter(t *testing.T) {
 	if _, _, ok := Meter(nil); ok {
 		t.Error("a meter without usage")
 	}
+	if _, _, ok := Meter(&session.Usage{MaxTokens: n(1_000_000)}); ok {
+		t.Error("a meter without ContextTokens")
+	}
+	if w, ok := meterWindow(&session.Usage{MaxTokens: n(1_000_000)}); !ok || w != 1_000_000 {
+		t.Errorf("meterWindow after unknown-post compact = %d %v, want 1M true", w, ok)
+	}
+	if _, ok := meterWindow(&session.Usage{ContextTokens: n(6213), MaxTokens: n(1_000_000)}); ok {
+		t.Error("meterWindow with known ContextTokens should be false")
+	}
+	if _, ok := meterWindow(nil); ok {
+		t.Error("meterWindow(nil) should be false")
+	}
 	if u, m, ok := Meter(&session.Usage{ContextTokens: n(62_000), MaxTokens: n(200_000)}); !ok || u != 62_000 || m != 200_000 {
 		t.Errorf("meter %d %d %v", u, m, ok)
 	}

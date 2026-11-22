@@ -139,6 +139,10 @@ type line struct {
 	// system/away_summary, informational: the text; informational's level
 	Content json.RawMessage `json:"content"`
 	Level   string          `json:"level"`
+	// system/compact_boundary: pre/post token counts, snake_case in
+	// stream-json and camelCase in transcripts.
+	CompactMetadata  *compactMeta `json:"compact_metadata"`
+	CompactMetadata2 *compactMeta `json:"compactMetadata"`
 
 	// stream_event
 	Event        *streamEvent `json:"event"`
@@ -171,6 +175,27 @@ type line struct {
 
 type taskUsage struct {
 	ToolUses int `json:"tool_uses"`
+}
+
+type compactMeta struct {
+	PreTokens   int64 `json:"pre_tokens"`
+	PostTokens  int64 `json:"post_tokens"`
+	PreTokens2  int64 `json:"preTokens"`
+	PostTokens2 int64 `json:"postTokens"`
+}
+
+func (l line) postTokens() int64 {
+	var post int64
+	if m := l.CompactMetadata; m != nil {
+		post = cmp.Or(m.PostTokens, m.PostTokens2)
+	}
+	if m := l.CompactMetadata2; post <= 0 && m != nil {
+		post = cmp.Or(m.PostTokens, m.PostTokens2)
+	}
+	if post < 0 {
+		return 0
+	}
+	return post
 }
 
 type streamEvent struct {
@@ -271,9 +296,22 @@ func (s *stream) line(b []byte) []session.Event {
 		// answers, so a refused set_model goes unreported; match them by
 		// request_id if a caller needs ProviderError.
 		return s.initialized(l.Response)
+	case "conversation_reset":
+		return s.resetContext()
 	}
 	s.skip(l.Type)
 	return nil
+}
+
+// resetContext clears the tracked context usage on /clear or a new session
+// id, so the composer meter never carries over the previous session's reading.
+func (s *stream) resetContext() []session.Event {
+	s.contextTokens = nil
+	if s.usage == nil {
+		return nil
+	}
+	s.usage = nil
+	return []session.Event{{Type: session.EventUsage, CachedInputTokens: new(int64)}}
 }
 
 // skip logs a line type the driver does not read, once per process.
@@ -290,6 +328,9 @@ func (s *stream) system(l line) []session.Event {
 		var out []session.Event
 		s.info = statusInfo{version: l.Version, session: l.SessionID, cwd: l.Cwd, mode: l.PermissionMode}
 		if l.SessionID != "" && (l.SessionID != s.resume || s.version == "") {
+			if s.resume != "" && l.SessionID != s.resume {
+				out = append(out, s.resetContext()...)
+			}
 			if s.version == "" {
 				log.Printf("claude: Claude Code %s", l.Version)
 			}
@@ -335,7 +376,19 @@ func (s *stream) system(l line) []session.Event {
 		return s.background(s.tasks[l.TaskID], l.Patch.Status)
 	case "compact_boundary":
 		s.compact = cmp.Or(l.UUID, "compact:"+l.SessionID)
-		return []session.Event{{Type: session.EventContent, ItemID: s.compact, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
+		out := []session.Event{{Type: session.EventContent, ItemID: s.compact, Kind: session.KindSystem, Phase: session.PhaseCompact, Text: "Conversation compacted"}}
+		if post := l.postTokens(); post > 0 {
+			s.contextTokens = &post
+		} else {
+			s.contextTokens = nil
+		}
+		if s.usage != nil {
+			e := *s.usage
+			e.ContextTokens = s.contextTokens
+			s.usage = &e
+			out = append(out, e)
+		}
+		return out
 	case "hook_response":
 		if l.Outcome == "success" || l.Outcome == "" && (l.ExitCode == nil || *l.ExitCode == 0) {
 			return nil
@@ -793,6 +846,9 @@ func (s *stream) result(l line) []session.Event {
 			CachedInputTokens: &m.CacheReadInputTokens, CacheCreationInputTokens: &m.CacheCreationInputTokens, EstimatedCostUSD: m.CostUSD})
 	}
 	if w := l.ModelUsage[s.contextModel].ContextWindow; w > 0 {
+		u.MaxTokens = &w
+	} else if s.usage != nil && s.usage.MaxTokens != nil {
+		w := *s.usage.MaxTokens
 		u.MaxTokens = &w
 	}
 	live := u

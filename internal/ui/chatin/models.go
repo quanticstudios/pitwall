@@ -190,6 +190,16 @@ func Meter(u *session.Usage) (used, total int64, ok bool) {
 	return *u.ContextTokens, *u.MaxTokens, true
 }
 
+// meterWindow is the context window when the window is known but the
+// current context token count is unknown (as right after a compaction
+// that did not report post-compaction tokens).
+func meterWindow(u *session.Usage) (int64, bool) {
+	if u == nil || u.ContextTokens != nil || u.MaxTokens == nil || *u.MaxTokens <= 0 {
+		return 0, false
+	}
+	return *u.MaxTokens, true
+}
+
 // MeterLevel is how the context meter looks: calm, a warning, or danger.
 type MeterLevel uint8
 

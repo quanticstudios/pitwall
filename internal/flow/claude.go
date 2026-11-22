@@ -60,7 +60,11 @@ type claudeEntry struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
 	} `json:"attachment"`
-	ToolUseResult json.RawMessage `json:"toolUseResult"`
+	ToolUseResult   json.RawMessage `json:"toolUseResult"`
+	CompactMetadata *struct {
+		PostTokens  int64 `json:"postTokens"`
+		PostTokens2 int64 `json:"post_tokens"`
+	} `json:"compactMetadata"`
 }
 
 type claudeUsage struct {
@@ -118,8 +122,15 @@ func (c *claude) line(b *builder, line []byte) {
 			b.end(ts, false)
 		}
 	case "system":
-		if e.Subtype == "turn_duration" {
+		switch e.Subtype {
+		case "turn_duration":
 			b.end(ts, false)
+		case "compact_boundary":
+			var post int64
+			if m := e.CompactMetadata; m != nil {
+				post = max(m.PostTokens, m.PostTokens2)
+			}
+			b.usage.Context = max(0, post)
 		}
 	}
 }

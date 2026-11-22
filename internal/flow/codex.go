@@ -111,6 +111,8 @@ func (c *codex) line(b *builder, line []byte) {
 		b.end(ts, true)
 	case "event_msg/item_completed":
 		c.item(b, ts, p)
+	case "event_msg/context_compacted", "compacted/":
+		b.usage.Context = 0
 	case "response_item/message":
 		text := codexText(p.Content)
 		switch p.Role {
@@ -211,6 +213,10 @@ func (c *codex) function(b *builder, ts time.Time, p codexPayload, args json.Raw
 // whose id is a call's.
 func (c *codex) item(b *builder, ts time.Time, p codexPayload) {
 	it := p.Item
+	if it.Type == "ContextCompaction" {
+		b.usage.Context = 0
+		return
+	}
 	if it.Type == "SubAgentActivity" {
 		s := b.subBy(path.Base(it.AgentPath))
 		if s == nil {
