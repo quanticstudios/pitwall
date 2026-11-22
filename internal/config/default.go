@@ -28,6 +28,8 @@ func defaults() Config {
 	c.Updates.ScreenPatterns = &on
 	off := false
 	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
+	c.Appear.FollowSystem = &off
+	c.Appear.ThemeLight, c.Appear.ThemeDark = "aide-light", "aide-dark"
 	c.Appear.ReduceMotion, c.Appear.RemoteControl = &off, &on
 	c.Appear.ConfirmClose = &on
 	c.Appear.HostSections = "divider"

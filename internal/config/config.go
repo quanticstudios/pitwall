@@ -219,10 +219,12 @@ type Colors struct {
 
 // Terminal is the terminal palette.
 type Terminal struct {
-	Foreground Color   `toml:"foreground" doc:"Default text"`
-	Background Color   `toml:"background" doc:"Default background"`
-	Cursor     Color   `toml:"cursor" doc:"Cursor"`
-	ANSI       []Color `toml:"ansi" doc:"The 16 ANSI colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright ones"`
+	Foreground          Color   `toml:"foreground" doc:"Default text"`
+	Background          Color   `toml:"background" doc:"Default background"`
+	Cursor              Color   `toml:"cursor" doc:"Cursor"`
+	SelectionBackground Color   `toml:"selection_background" empty:"ok" doc:"Selected text background; empty blends 16% toward white or black"`
+	SelectionForeground Color   `toml:"selection_foreground" empty:"ok" doc:"Selected text foreground; empty keeps each cell's color"`
+	ANSI                []Color `toml:"ansi" doc:"The 16 ANSI colors: black, red, green, yellow, blue, magenta, cyan, white, then the bright ones"`
 }
 
 // Font is [font].
@@ -239,6 +241,9 @@ type Font struct {
 
 // Appearance is [appearance].
 type Appearance struct {
+	FollowSystem  *bool  `toml:"follow_system" doc:"Switch between theme_light and theme_dark to match the system light or dark appearance"`
+	ThemeLight    string `toml:"theme_light" enum:"@themes" doc:"Theme used when follow_system is on and the system is in light mode (default aide-light)"`
+	ThemeDark     string `toml:"theme_dark" enum:"@themes" doc:"Theme used when follow_system is on and the system is in dark mode (default aide-dark)"`
 	ConfirmClose  *bool  `toml:"confirm_close" doc:"Ask before closing a tab or pane with an agent mid-turn. Pinned tabs always ask to unpin first. On by default"`
 	ReduceMotion  *bool  `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
 	RemoteControl *bool  `toml:"remote_control" doc:"Mark a tab in the sidebar, under its agent's icon, while its agent can be driven from another device: Claude Code with /remote-control on"`
@@ -302,6 +307,12 @@ type Settings struct {
 	// OmarchyTheme is the name of the Omarchy theme the omarchy theme
 	// read, such as "Tokyo Night"; "" for any other theme.
 	OmarchyTheme string
+	// FollowSystem switches between ThemeLight and ThemeDark as the system
+	// appearance changes.
+	FollowSystem bool
+	ThemeLight   string
+	ThemeDark    string
+	SystemScheme ColorScheme
 	Font         Font // every field but MonoFallback set
 	PaneGap      float64
 	PaneMargin   float64
@@ -488,11 +499,52 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.Popups, issues = resolvePopups(c.Popups, s.Keys)
 	probs = append(probs, locate("config.toml", data, issues)...)
 
-	s.ThemeName = c.Theme.Name
-	if s.ThemeName == "" {
-		s.ThemeName = "aide-dark"
-		if OmarchyInstalled() {
-			s.ThemeName = OmarchyName // no choice made: match the desktop
+	themesDir := filepath.Join(filepath.Dir(path), "themes")
+	themeExists := func(name string) bool {
+		if _, ok := builtins[name]; ok || name == OmarchyName {
+			return true
+		}
+		if name == "" || strings.ContainsAny(name, `/\`) {
+			return false
+		}
+		_, err := os.Stat(filepath.Join(themesDir, name+".toml"))
+		return err == nil
+	}
+	s.ThemeLight, s.ThemeDark = "aide-light", "aide-dark"
+	for _, slot := range []struct {
+		dst      *string
+		raw, key string
+	}{
+		{&s.ThemeLight, c.Appear.ThemeLight, "appearance.theme_light"},
+		{&s.ThemeDark, c.Appear.ThemeDark, "appearance.theme_dark"},
+	} {
+		if slot.raw == "" {
+			continue
+		}
+		if slot.raw == SystemThemeName || !themeExists(slot.raw) {
+			f := filepath.Join(themesDir, slot.raw+".toml")
+			probs = append(probs, locate("config.toml", data, []issue{{slot.key,
+				fmt.Sprintf("no theme %q: not built in (%s) and no %s%s", slot.raw, strings.Join(Themes, ", "), f, suggest(slot.raw, append(slices.Clone(Themes), customThemes(themesDir)...)))}})...)
+			continue
+		}
+		*slot.dst = slot.raw
+	}
+	s.FollowSystem = (c.Appear.FollowSystem != nil && *c.Appear.FollowSystem) || c.Theme.Name == SystemThemeName
+	themeKey := "theme.name"
+	if s.FollowSystem {
+		s.SystemScheme = SystemColorScheme()
+		if s.SystemScheme == SchemeLight {
+			s.ThemeName, themeKey = s.ThemeLight, "appearance.theme_light"
+		} else {
+			s.ThemeName, themeKey = s.ThemeDark, "appearance.theme_dark"
+		}
+	} else {
+		s.ThemeName = c.Theme.Name
+		if s.ThemeName == "" {
+			s.ThemeName = "aide-dark"
+			if OmarchyInstalled() {
+				s.ThemeName = OmarchyName // no choice made: match the desktop
+			}
 		}
 	}
 	base, ok := builtins[s.ThemeName]
@@ -501,8 +553,8 @@ func LoadFile(path string) (Settings, []Problem) {
 		switch {
 		case err == nil:
 			base, ok, s.OmarchyTheme = t, true, name
-		case c.Theme.Name == OmarchyName:
-			probs = append(probs, locate("config.toml", data, []issue{{"theme.name", "omarchy: " + err.Error() + "; using aide-dark"}})...)
+		case c.Theme.Name == OmarchyName || s.FollowSystem:
+			probs = append(probs, locate("config.toml", data, []issue{{themeKey, "omarchy: " + err.Error() + "; using aide-dark"}})...)
 			fallthrough
 		default:
 			s.ThemeName, base, ok = "aide-dark", builtins["aide-dark"], true
@@ -510,13 +562,12 @@ func LoadFile(path string) (Settings, []Problem) {
 	}
 	if !ok {
 		base = builtins["aide-dark"]
-		dir := filepath.Join(filepath.Dir(path), "themes")
-		f := filepath.Join(dir, s.ThemeName+".toml")
+		f := filepath.Join(themesDir, s.ThemeName+".toml")
 		td, err := os.ReadFile(f)
 		switch {
 		case errors.Is(err, os.ErrNotExist) || strings.ContainsAny(s.ThemeName, `/\`):
-			probs = append(probs, locate("config.toml", data, []issue{{"theme.name",
-				fmt.Sprintf("no theme %q: not built in (%s) and no %s%s", s.ThemeName, strings.Join(Themes, ", "), f, suggest(s.ThemeName, append(slices.Clone(Themes), customThemes(dir)...)))}})...)
+			probs = append(probs, locate("config.toml", data, []issue{{themeKey,
+				fmt.Sprintf("no theme %q: not built in (%s) and no %s%s", s.ThemeName, strings.Join(Themes, ", "), f, suggest(s.ThemeName, append(slices.Clone(Themes), customThemes(themesDir)...)))}})...)
 			s.ThemeName = "aide-dark"
 		case err != nil:
 			probs = append(probs, Problem{File: "themes/" + s.ThemeName + ".toml", Msg: err.Error()})
@@ -793,7 +844,13 @@ func overlay(base, o Theme, path string) (Theme, []issue) {
 		dst *Color
 		src Color
 		n   string
-	}{{&base.Terminal.Foreground, o.Terminal.Foreground, "foreground"}, {&base.Terminal.Background, o.Terminal.Background, "background"}, {&base.Terminal.Cursor, o.Terminal.Cursor, "cursor"}} {
+	}{
+		{&base.Terminal.Foreground, o.Terminal.Foreground, "foreground"},
+		{&base.Terminal.Background, o.Terminal.Background, "background"},
+		{&base.Terminal.Cursor, o.Terminal.Cursor, "cursor"},
+		{&base.Terminal.SelectionBackground, o.Terminal.SelectionBackground, "selection_background"},
+		{&base.Terminal.SelectionForeground, o.Terminal.SelectionForeground, "selection_foreground"},
+	} {
 		if ok("terminal."+f.n, f.src) {
 			*f.dst = f.src
 		}

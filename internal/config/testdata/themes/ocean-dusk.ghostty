@@ -1,0 +1,26 @@
+# Synthetic Ghostty theme fixture (Ocean Dusk)
+# Tests comments, inline comments, 8-digit hex, bare hex and selection colors.
+
+background = #1b222c # main canvas
+foreground = #d9e2ec
+cursor-color = #7cc4fa
+cursor-text = #1b222c
+selection-background = #3e4c59cc
+selection-foreground = #f0f4f8
+
+palette = 0=#1f2933
+palette = 1=#e12d39
+palette = 2=#27ab83
+palette = 3=#f0b429
+palette = 4=#4098d7
+palette = 5=#9f7aea
+palette = 6=#2cb1bc
+palette = 7=#cbd2d9
+palette = 8=#616e7c
+palette = 9=ef4e4e
+palette = 10=#3ebd93ff
+palette = 11=#f7c948
+palette = 12=#62b0e8
+palette = 13=#b794f4
+palette = 14=#54d1db
+palette = 15=#f5f7fa

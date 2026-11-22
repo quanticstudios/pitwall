@@ -87,7 +87,123 @@ var builtins = map[string]Theme{
 }
 
 // Themes are the built-in theme names, the default first.
-var Themes = []string{"aide-dark", "aide-light", "tokyo-night", "catppuccin-mocha", "dracula"}
+var Themes = []string{
+	"aide-dark", "aide-light",
+	"tokyo-night", "catppuccin-mocha", "catppuccin-latte",
+	"dracula", "nord", "gruvbox-dark", "rose-pine-dawn",
+}
+
+func init() {
+	for name, spec := range bundledGhosttyThemes {
+		scheme, err := ParseGhosttyTheme([]byte(spec))
+		if err != nil {
+			panic("config: bundled theme " + name + ": " + err.Error())
+		}
+		builtins[name] = MapTerminalScheme(scheme)
+	}
+}
+
+// bundledGhosttyThemes are additional well-known MIT-licensed themes derived
+// through pitwall's Ghostty importer so their terminal colors stay faithful
+// and their UI tokens satisfy pitwall's contrast rules.
+var bundledGhosttyThemes = map[string]string{
+	// Catppuccin Latte (catppuccin/palette, MIT).
+	"catppuccin-latte": `
+palette = 0=#bcc0cc
+palette = 1=#d20f39
+palette = 2=#40a02b
+palette = 3=#df8e1d
+palette = 4=#1e66f5
+palette = 5=#ea76cb
+palette = 6=#179299
+palette = 7=#5c5f77
+palette = 8=#acb0be
+palette = 9=#e7103f
+palette = 10=#46b02f
+palette = 11=#e49931
+palette = 12=#3878f6
+palette = 13=#ef95d7
+palette = 14=#19a1a8
+palette = 15=#6c6f85
+background = #eff1f5
+foreground = #4c4f69
+cursor-color = #dc8a78
+selection-background = #dc8a78
+selection-foreground = #eff1f5
+`,
+	// Nord (nordtheme/nord, MIT).
+	"nord": `
+palette = 0=#3b4252
+palette = 1=#bf616a
+palette = 2=#a3be8c
+palette = 3=#ebcb8b
+palette = 4=#81a1c1
+palette = 5=#b48ead
+palette = 6=#88c0d0
+palette = 7=#e5e9f0
+palette = 8=#596377
+palette = 9=#bf616a
+palette = 10=#a3be8c
+palette = 11=#ebcb8b
+palette = 12=#81a1c1
+palette = 13=#b48ead
+palette = 14=#8fbcbb
+palette = 15=#eceff4
+background = #2e3440
+foreground = #d8dee9
+cursor-color = #eceff4
+selection-background = #eceff4
+selection-foreground = #4c566a
+`,
+	// Gruvbox Dark (morhetz/gruvbox, MIT).
+	"gruvbox-dark": `
+palette = 0=#282828
+palette = 1=#cc241d
+palette = 2=#98971a
+palette = 3=#d79921
+palette = 4=#458588
+palette = 5=#b16286
+palette = 6=#689d6a
+palette = 7=#a89984
+palette = 8=#928374
+palette = 9=#fb4934
+palette = 10=#b8bb26
+palette = 11=#fabd2f
+palette = 12=#83a598
+palette = 13=#d3869b
+palette = 14=#8ec07c
+palette = 15=#ebdbb2
+background = #282828
+foreground = #ebdbb2
+cursor-color = #ebdbb2
+selection-background = #665c54
+selection-foreground = #ebdbb2
+`,
+	// Rosé Pine Dawn (rose-pine/rose-pine-theme, MIT).
+	"rose-pine-dawn": `
+palette = 0=#f2e9e1
+palette = 1=#b4637a
+palette = 2=#286983
+palette = 3=#ea9d34
+palette = 4=#56949f
+palette = 5=#907aa9
+palette = 6=#d7827e
+palette = 7=#575279
+palette = 8=#9893a5
+palette = 9=#b4637a
+palette = 10=#286983
+palette = 11=#ea9d34
+palette = 12=#56949f
+palette = 13=#907aa9
+palette = 14=#d7827e
+palette = 15=#575279
+background = #faf4ed
+foreground = #575279
+cursor-color = #575279
+selection-background = #dfdad9
+selection-foreground = #575279
+`,
+}
 
 // Builtin is a built-in theme with every color set, and whether it exists.
 func Builtin(name string) (Theme, bool) {
@@ -116,7 +232,7 @@ func AllThemes(dir string) []NamedTheme {
 		out = append(out, NamedTheme{Name: OmarchyName, Theme: t})
 	}
 	for _, n := range customThemes(dir) {
-		if _, ok := builtins[n]; ok || n == OmarchyName {
+		if _, ok := builtins[n]; ok || n == OmarchyName || n == SystemThemeName {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, n+".toml"))

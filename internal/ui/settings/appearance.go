@@ -39,7 +39,10 @@ func (p *Page) themeCards(gtx gl.Context) gl.Dimensions {
 	for i, t := range p.themes {
 		c := p.btn("theme:" + t.Name)
 		for c.Clicked(gtx) {
-			if t.Name != p.s.ThemeName {
+			if p.s.FollowSystem {
+				p.save("appearance", "follow_system", nil)
+			}
+			if t.Name != p.s.ThemeName || p.s.FollowSystem {
 				p.saveValue("theme", "name", config.Quote(t.Name))
 			}
 		}
@@ -154,6 +157,218 @@ func thumbnail(gtx gl.Context, t config.Theme, sz image.Point) {
 	d := px(8)
 	c := image.Pt(card.Max.X-px(5)-d, card.Min.Y+(card.Dy()-d)/2)
 	rrect(gtx, hex(k.Primary), image.Rectangle{Min: c, Max: c.Add(image.Pt(d, d))}, d/2)
+}
+
+// followSystemToggle switches [appearance] follow_system. Turning it off keeps
+// the currently active theme pinned in [theme] name when name was "system".
+func (p *Page) followSystemToggle() gl.Widget {
+	return p.switchOf("appearance.follow_system", p.s.FollowSystem, func() {
+		if p.s.FollowSystem {
+			p.save("appearance", "follow_system", nil)
+			if p.s.ThemeName != "" {
+				p.saveValue("theme", "name", config.Quote(p.s.ThemeName))
+			}
+		} else {
+			p.saveValue("appearance", "follow_system", "true")
+		}
+	})
+}
+
+// themePicker is a dropdown of all available themes for [appearance] theme_light
+// and theme_dark.
+func (p *Page) themePicker(k, cur, def string) gl.Widget {
+	ddKey := "theme:" + k
+	return func(gtx gl.Context) gl.Dimensions {
+		th := p.th
+		id := "dd:" + ddKey
+		c := p.btn(id)
+		for c.Clicked(gtx) {
+			if p.dd == ddKey {
+				p.dd = ""
+			} else {
+				p.dd, p.ddList.Position, p.conflict, p.rec = ddKey, gl.Position{}, nil, slot{}
+			}
+		}
+		for p.btn(id + "reset").Clicked(gtx) {
+			p.save("appearance", k, nil)
+		}
+		curTheme := p.findNamedTheme(cur)
+		return hstack(gtx, 4,
+			p.resetSlot(id+"reset", cur != def),
+			func(gtx gl.Context) gl.Dimensions {
+				w, h := gtx.Dp(240), gtx.Dp(32)
+				d := c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+					border := th.Border
+					if c.Hovered() || p.dd == ddKey {
+						border = theme.Mix(th.Border, th.Fg, 0.25)
+					}
+					if gtx.Focused(c) {
+						kit.FocusRing(gtx, th, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl))
+					}
+					rrect(gtx, border, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl))
+					rrect(gtx, th.SurfaceElevated, image.Rect(1, 1, w-1, h-1), gtx.Dp(theme.RadiusControl)-1)
+					x := gtx.Dp(10)
+					if curTheme != nil {
+						sw := gtx.Dp(16)
+						o := op.Offset(image.Pt(x, (h-sw)/2)).Push(gtx.Ops)
+						themeSwatch(gtx, curTheme.Theme, sw, th.Border)
+						o.Pop()
+						x += sw + gtx.Dp(8)
+					}
+					g := gtx
+					g.Constraints.Max.X = max(0, w-x-gtx.Dp(30))
+					m := op.Record(gtx.Ops)
+					td := p.text(g, th.UIFont, th.Sp(theme.Body), th.Fg, cur)
+					call := m.Stop()
+					o := op.Offset(image.Pt(x, (h-td.Size.Y)/2)).Push(gtx.Ops)
+					call.Add(gtx.Ops)
+					o.Pop()
+					is := gtx.Dp(14)
+					o = op.Offset(image.Pt(w-gtx.Dp(10)-is, (h-is)/2)).Push(gtx.Ops)
+					icon(gtx, th.Muted, is, chevronGlyph)
+					o.Pop()
+					defer clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops).Pop()
+					pointer.CursorPointer.Add(gtx.Ops)
+					return gl.Dimensions{Size: image.Pt(w, h)}
+				})
+				if p.dd == ddKey {
+					p.themePopover(gtx, k, cur, def, w, h)
+				}
+				return d
+			},
+		)
+	}
+}
+
+func (p *Page) findNamedTheme(name string) *config.NamedTheme {
+	for i := range p.themes {
+		if p.themes[i].Name == name {
+			return &p.themes[i]
+		}
+	}
+	return nil
+}
+
+// themeSwatch draws a small rounded color chip: background, terminal canvas,
+// and primary accent dot.
+func themeSwatch(gtx gl.Context, t config.Theme, sz int, border color.NRGBA) {
+	r := gtx.Dp(4)
+	rrect(gtx, border, image.Rect(0, 0, sz, sz), r)
+	in := image.Rect(1, 1, sz-1, sz-1)
+	rrect(gtx, hex(t.Colors.Bg), in, max(0, r-1))
+	pane := image.Rect(sz/3, 2, sz-2, sz-2)
+	rrect(gtx, hex(t.Terminal.Background), pane, max(0, r-2))
+	dot := max(4, sz/3)
+	c := image.Pt(sz-2-dot-1, sz-2-dot-1)
+	rrect(gtx, hex(t.Colors.Primary), image.Rectangle{Min: c, Max: c.Add(image.Pt(dot, dot))}, dot/2)
+}
+
+func (p *Page) themePopover(gtx gl.Context, k, cur, def string, w, top int) {
+	th := p.th
+	ddKey := "theme:" + k
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: &p.ddTag, Kinds: pointer.Press})
+		if !ok {
+			break
+		}
+		if _, ok := ev.(pointer.Event); ok {
+			p.dd = ""
+		}
+	}
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &p.ddPanel, Kinds: pointer.Press}); !ok {
+			break
+		}
+	}
+	pick := func(name string) {
+		if name == def {
+			p.save("appearance", k, nil)
+		} else {
+			p.saveValue("appearance", k, config.Quote(name))
+		}
+		p.dd = ""
+	}
+	for _, t := range p.themes {
+		for p.btn("themeopt:" + k + ":" + t.Name).Clicked(gtx) {
+			pick(t.Name)
+		}
+	}
+	if p.dd != ddKey {
+		return
+	}
+
+	m := op.Record(gtx.Ops)
+	bg := clip.Rect{Min: image.Pt(-1<<14, -1<<14), Max: image.Pt(1<<14, 1<<14)}.Push(gtx.Ops)
+	event.Op(gtx.Ops, &p.ddTag)
+	bg.Pop()
+	itemH, pad := gtx.Dp(30), gtx.Dp(6)
+	listH := min(gtx.Dp(300), max(1, len(p.themes))*itemH)
+	panel := image.Rect(0, 0, max(w, gtx.Dp(240)), 2*pad+listH)
+	o := op.Offset(image.Pt(0, top+gtx.Dp(4))).Push(gtx.Ops)
+	kit.Surface(gtx, panel, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
+	pa := clip.Rect(panel).Push(gtx.Ops)
+	event.Op(gtx.Ops, &p.ddPanel)
+	pa.Pop()
+
+	lo := op.Offset(image.Pt(pad, pad)).Push(gtx.Ops)
+	lg := gtx
+	lg.Constraints = gl.Exact(image.Pt(panel.Dx()-2*pad, listH))
+	cl := clip.Rect{Max: lg.Constraints.Max}.Push(gtx.Ops)
+	p.ddList.Axis = gl.Vertical
+	p.ddList.Layout(lg, len(p.themes), func(gtx gl.Context, i int) gl.Dimensions {
+		t := p.themes[i]
+		c := p.btn("themeopt:" + k + ":" + t.Name)
+		return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+			sz := image.Pt(gtx.Constraints.Max.X, itemH)
+			if t.Name == cur {
+				rrect(gtx, th.SelectedBg, image.Rectangle{Max: sz}, gtx.Dp(4))
+			} else if c.Hovered() {
+				rrect(gtx, theme.Mix(th.SurfaceElevated, th.Fg, 0.06), image.Rectangle{Max: sz}, gtx.Dp(4))
+			}
+			sw := gtx.Dp(16)
+			x := gtx.Dp(8)
+			oo := op.Offset(image.Pt(x, (itemH-sw)/2)).Push(gtx.Ops)
+			themeSwatch(gtx, t.Theme, sw, th.Border)
+			oo.Pop()
+			x += sw + gtx.Dp(8)
+			right := gtx.Dp(8)
+			if t.Name == cur {
+				is := gtx.Dp(14)
+				oo := op.Offset(image.Pt(sz.X-right-is, (itemH-is)/2)).Push(gtx.Ops)
+				icon(gtx, th.Primary, is, checkGlyph)
+				oo.Pop()
+				right += is + gtx.Dp(6)
+			}
+			if t.Custom {
+				mm := op.Record(gtx.Ops)
+				td := p.text(gtx, th.UIFont, th.Sp(theme.Small), th.Muted, "custom")
+				call := mm.Stop()
+				oo := op.Offset(image.Pt(sz.X-right-td.Size.X, (itemH-td.Size.Y)/2)).Push(gtx.Ops)
+				call.Add(gtx.Ops)
+				oo.Pop()
+				right += td.Size.X + gtx.Dp(6)
+			}
+			g := gtx
+			g.Constraints.Max.X = max(0, sz.X-x-right)
+			f := th.UIFont
+			if t.Name == cur {
+				f = weight(f, font.Medium)
+			}
+			mm := op.Record(gtx.Ops)
+			d := p.text(g, f, th.Sp(theme.Body), th.Fg, t.Name)
+			call := mm.Stop()
+			oo = op.Offset(image.Pt(x, (itemH-d.Size.Y)/2)).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			oo.Pop()
+			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
+			pointer.CursorPointer.Add(gtx.Ops)
+			return gl.Dimensions{Size: sz}
+		})
+	})
+	cl.Pop()
+	lo.Pop()
+	o.Pop()
+	op.Defer(gtx.Ops, m.Stop())
 }
 
 // fontPicker is a dropdown of installed families with a filter field.

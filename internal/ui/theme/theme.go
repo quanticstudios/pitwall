@@ -34,10 +34,10 @@ type Theme struct {
 	Red, Yellow, Green, Blue, Purple                        color.NRGBA
 	Tokens
 
-	// Terminal colors: ANSI 0-15, and the default foreground, background
-	// and cursor.
-	ANSI                    [16]color.NRGBA
-	TermFg, TermBg, TermCur color.NRGBA
+	// Terminal colors: ANSI 0-15, and the default foreground, background,
+	// cursor, and optional selection colors (zero alpha derives from cell bg).
+	ANSI                                          [16]color.NRGBA
+	TermFg, TermBg, TermCur, TermSelBg, TermSelFg color.NRGBA
 
 	// Shaper is loaded with both faces.
 	UIFont, MonoFont   font.Font
@@ -101,6 +101,12 @@ func New(c config.Theme, f config.Font) (*Theme, error) {
 		}
 		return Hex(string(s))
 	}
+	optCol := func(s config.Color) color.NRGBA {
+		if s == "" {
+			return color.NRGBA{}
+		}
+		return Hex(string(s))
+	}
 	k := c.Colors
 	t := &Theme{
 		Bg: col(k.Bg), Sidebar: col(k.Sidebar), Surface: col(k.Surface),
@@ -113,6 +119,7 @@ func New(c config.Theme, f config.Font) (*Theme, error) {
 		Red: col(k.Red), Yellow: col(k.Yellow), Green: col(k.Green), Blue: col(k.Blue), Purple: col(k.Purple),
 
 		TermFg: col(c.Terminal.Foreground), TermBg: col(c.Terminal.Background), TermCur: col(c.Terminal.Cursor),
+		TermSelBg: optCol(c.Terminal.SelectionBackground), TermSelFg: optCol(c.Terminal.SelectionForeground),
 
 		TextSize:   unit.Sp(or(f.UISize, config.DefaultUISize)),
 		MonoSize:   unit.Sp(or(f.MonoSize, config.DefaultMonoSize)),
