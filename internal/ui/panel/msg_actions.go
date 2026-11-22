@@ -252,8 +252,10 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 		w := len(tools)*bs + (len(tools)-1)*gap
 		x0 := max(0, x-gtx.Dp(theme.SpaceXS)-w)
 		y0 := bh - bs
-		elevated := x0+w > x
-		if elevated { // no room beside a wide bubble: a raised strip over its corner
+		// No room beside a wide bubble, or Ledger's row with no bubble: a
+		// raised strip over the text's bottom right corner.
+		elevated := x0+w > x || d.ledger
+		if elevated {
 			r := image.Rect(x0-gap, y0-gap, x0+w+gap, bh+gap)
 			kit.Surface(gtx, r, gtx.Dp(theme.RadiusPopover), kit.Floating, d.th.BorderStrong, d.th.SurfaceElevated)
 		}

@@ -184,17 +184,38 @@ func findNewPane(before, after model.State, w model.Workspace) (tabIdx, paneIdx 
 }
 
 // watchNewPane reads watch's states until one has a pane in tab w that
-// before had not, for a pane that may have closed again since.
+// before had not, for a pane that may have closed again since. The
+// daemon sends only its latest state, so a pane that came and went
+// between two shows only in its PaneExited: that pane, new since before,
+// is the one opened after the last of w's panes.
 func watchNewPane(watch *watcher, before model.State, w model.Workspace) (int, int, model.Pane, error) {
 	watch.socket.SetReadDeadline(time.Now().Add(newPaneLook))
 	defer watch.socket.SetReadDeadline(time.Time{})
 	for {
-		s, err := watch.next()
+		msg, err := watch.Recv()
 		if err != nil {
 			return 0, 0, model.Pane{}, errors.New("cannot identify the new pane from daemon state")
 		}
-		if tabIdx, paneIdx, p, err := findNewPane(before, s, w); err == nil {
-			return tabIdx, paneIdx, p, nil
+		switch m := msg.(type) {
+		case proto.Error:
+			return 0, 0, model.Pane{}, errors.New(m.Message)
+		case proto.StateMsg:
+			watch.level = m.Level
+			if tabIdx, paneIdx, p, err := findNewPane(before, m.State, w); err == nil {
+				return tabIdx, paneIdx, p, nil
+			}
+		case proto.PaneExited:
+			watch.exits[m.Pane] = m.ExitCode
+			// shortcut: a pane another client opened and closed meanwhile would pass for ours; the PaneExited carries no tab to tell.
+			if slices.ContainsFunc(before.Panes, func(p model.Pane) bool { return p.ID == m.Pane }) {
+				continue
+			}
+			tabs := numbered(before, w.SessionID)
+			i := slices.IndexFunc(tabs, func(t model.Workspace) bool { return t.ID == w.ID })
+			if i < 0 {
+				continue
+			}
+			return i + 1, len(tabPanes(before, tabs[i])) + 1, model.Pane{ID: m.Pane, Exited: true, ExitCode: m.ExitCode}, nil
 		}
 	}
 }

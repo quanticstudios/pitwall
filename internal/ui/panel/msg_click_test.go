@@ -18,15 +18,21 @@ import (
 
 // The prompt's hover buttons take real pointer events: hovering the row
 // shows them, and a click on Copy copies and one on Edit asks for the
-// composer.
+// composer. Ledger's prompt rows keep them, at the row's bottom right.
 func TestPromptToolsClick(t *testing.T) {
+	for _, l := range []string{LayoutColumn, LayoutLedger} {
+		t.Run(l, func(t *testing.T) { promptToolsClick(t, l) })
+	}
+}
+
+func promptToolsClick(t *testing.T, chatLayout string) {
 	th := theme.Dark()
 	turn := "t1"
 	s := &session.Snapshot{Content: []session.Item{
 		{ID: "p", Kind: session.KindUserPrompt, Text: "fix the bug", TurnID: &turn},
 		{ID: "a", Kind: session.KindAssistantText, Text: "done", TurnID: &turn},
 	}}
-	var tr Transcript
+	tr := Transcript{ChatLayout: chatLayout}
 	var copied string
 	tr.Copy = func(_ layout.Context, text string) { copied = text }
 	var r input.Router
@@ -51,7 +57,7 @@ func TestPromptToolsClick(t *testing.T) {
 	// Find the Copy button along the row's bottom.
 	at := image.Point{-1, -1}
 	for x := 0; x < 1000 && at.X < 0; x += 4 {
-		for _, y := range []int{30, 40, 50} {
+		for _, y := range []int{20, 30, 40, 50} {
 			frame(move(x, y))
 			if c := tr.clicks["msg:copy:p"]; c != nil && c.Hovered() {
 				at = image.Pt(x, y)
