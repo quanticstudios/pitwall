@@ -27,11 +27,13 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/control"
 	"github.com/quanticstudios/pitwall/internal/guard"
+	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/progstatus"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // Control is what the control commands read; the daemon implements it.
@@ -65,8 +67,8 @@ type Control interface {
 	CheckStart(ctx context.Context, m proto.HostCheck) []proto.HostProblem
 }
 
-var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "readPane", "scrollback", "waitPane",
-	"newTab", "splitPane", "sendPane", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus",
+var controlCommands = []string{"listTabs", "subscribeTabs", "unsubscribeTabs", "subscribeEvents", "unsubscribeEvents", "readPane", "scrollback", "waitPane",
+	"newTab", "splitPane", "sendPane", "sendKey", "promptPane", "killTab", "renameTab", "detachTab", "focusTab", "tabNew", "tabClose", "setStatus",
 	"worktreeNew", "queueAdd", "queueDrop", "queueList", "hostCheck", "adopt"}
 
 // The control limits. Vars for tests.
@@ -77,10 +79,11 @@ var (
 
 // ctl is one connection's control state; Server.mu guards it.
 type ctl struct {
-	ctx      context.Context // done when the connection stops reading
-	cancel   context.CancelFunc
-	waits    int                // pending waitPane
-	stopTabs context.CancelFunc // ends the tabs subscription, nil without one
+	ctx        context.Context // done when the connection stops reading
+	cancel     context.CancelFunc
+	waits      int                // pending waitPane
+	stopTabs   context.CancelFunc // ends the tabs subscription, nil without one
+	stopEvents context.CancelFunc // ends the events subscription, nil without one
 }
 
 // ctlOf is c's control state, made on first use.
@@ -175,21 +178,62 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 		}
 		s.mu.Unlock()
 		c.reply(result(id, "", ""))
+	case "subscribeEvents":
+		var r struct {
+			envelope
+			Session string `json:"session"`
+			Pane    string `json:"pane"`
+		}
+		if bad(decode(msg, &r)) {
+			break
+		}
+		s.subscribeEvents(c, id, r.Session, r.Pane)
+	case "unsubscribeEvents":
+		var r envelope
+		if bad(decode(msg, &r)) {
+			break
+		}
+		x := s.ctlOf(c)
+		s.mu.Lock()
+		if x.stopEvents != nil {
+			x.stopEvents()
+			x.stopEvents = nil
+		}
+		s.mu.Unlock()
+		c.reply(result(id, "", ""))
 	case "readPane":
 		var r struct {
 			envelope
 			Pane    string `json:"pane"`
 			Session string `json:"session"`
 			Screen  bool   `json:"screen"`
+			Format  string `json:"format"`
 		}
 		if bad(decode(msg, &r)) {
+			break
+		}
+		if !vt.ValidFormat(r.Format) {
+			c.reply(result(id, "invalid", fmt.Sprintf("format must be text, ansi or html, not %q", r.Format)))
+			break
+		}
+		if r.Format != "" && r.Format != vt.FormatText && !r.Screen {
+			c.reply(result(id, "invalid", "format ansi or html requires screen: true"))
 			break
 		}
 		p, err := resolvePane(s.Control.State(), r.Session, r.Pane)
 		if err == nil {
 			var text string
-			if text, err = s.Control.Read(p.ID, r.Screen); err != nil {
-				err = ctlErr{"not-found", err.Error()}
+			if r.Format == "" || r.Format == vt.FormatText {
+				text, err = s.Control.Read(p.ID, r.Screen)
+			} else if f, ok := s.Control.(ControlFormatter); ok {
+				text, err = f.ReadFormat(p.ID, r.Screen, r.Format)
+			} else {
+				err = ctlErr{"unsupported", "this server does not support formatted screen reads"}
+			}
+			if err != nil {
+				if _, isCtl := err.(ctlErr); !isCtl {
+					err = ctlErr{"not-found", err.Error()}
+				}
 			}
 			c.reply(answer(id, map[string]any{"text": text}, err))
 			break
@@ -201,6 +245,7 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 			Pane    string `json:"pane"`
 			Session string `json:"session"`
 			Lines   int    `json:"lines"`
+			Format  string `json:"format"`
 		}
 		if bad(decode(msg, &r)) {
 			break
@@ -209,11 +254,24 @@ func (s *Server) control(c *conn, typ, id string, msg []byte) bool {
 			c.reply(result(id, "invalid", fmt.Sprintf("lines is 0 for all, or at most %d", maxScrollbackLines)))
 			break
 		}
+		if !vt.ValidFormat(r.Format) {
+			c.reply(result(id, "invalid", fmt.Sprintf("format must be text, ansi or html, not %q", r.Format)))
+			break
+		}
 		p, err := resolvePane(s.Control.State(), r.Session, r.Pane)
 		if err == nil {
 			var text string
-			if text, err = s.Control.Scrollback(p.ID, r.Lines); err != nil {
-				err = ctlErr{"not-found", err.Error()}
+			if r.Format == "" || r.Format == vt.FormatText {
+				text, err = s.Control.Scrollback(p.ID, r.Lines)
+			} else if f, ok := s.Control.(ControlFormatter); ok {
+				text, err = f.ScrollbackFormat(p.ID, r.Lines, r.Format)
+			} else {
+				err = ctlErr{"unsupported", "this server does not support formatted scrollback"}
+			}
+			if err != nil {
+				if _, isCtl := err.(ctlErr); !isCtl {
+					err = ctlErr{"not-found", err.Error()}
+				}
 			}
 			c.reply(answer(id, map[string]any{"text": text}, err))
 			break
@@ -671,6 +729,7 @@ func (s *Server) drive(c *conn, typ, id string, msg []byte) {
 		Down       bool     `json:"down"`
 		Text       string   `json:"text"`
 		FromPane   string   `json:"fromPane"`
+		Keys       []string `json:"keys"`
 		Wait       bool     `json:"wait"`
 		TimeoutMs  int64    `json:"timeoutMs"`
 		Title      string   `json:"title"`
@@ -755,6 +814,33 @@ func (s *Server) drive(c *conn, typ, id string, msg []byte) {
 		default:
 			err = s.Control.Do(ctx, proto.Send{Pane: p.ID, From: r.FromPane, Text: r.Text})
 		}
+	case "sendKey":
+		if len(r.Keys) == 0 {
+			err = ctlErr{"invalid", "keys must not be empty"}
+			break
+		}
+		for _, k := range r.Keys {
+			if _, _, kerr := input.ParseKey(k); kerr != nil {
+				err = ctlErr{"invalid", kerr.Error()}
+				break
+			}
+		}
+		if err != nil {
+			break
+		}
+		var p model.Pane
+		if p, err = resolvePane(st, r.Session, r.Pane); err != nil {
+			break
+		}
+		if control.Guarded(st, p.WorkspaceID) {
+			err = ctlErr{"refused", "the tab is guarded: sendKey cannot send keys to a guarded tab"}
+			break
+		}
+		if k, ok := s.Control.(ControlKeys); ok {
+			err = k.SendKeys(ctx, p.ID, r.Keys)
+		} else {
+			err = ctlErr{"unsupported", "this server does not support sendKey"}
+		}
 	case "promptPane":
 		if strings.TrimSpace(r.Text) == "" || badTimeout(r.TimeoutMs) {
 			err = ctlErr{"invalid", "text must not be empty, and timeoutMs must fit in a non-negative duration"}
@@ -830,6 +916,7 @@ var driveFields = map[string][]string{
 	"newTab":      {"dir", "cmd", "name", "detached", "preset", "model", "guard", "parentPane", "session", "startId"},
 	"splitPane":   {"tab", "session", "down", "cmd"},
 	"sendPane":    {"pane", "session", "text", "fromPane"},
+	"sendKey":     {"pane", "session", "keys"},
 	"promptPane":  {"pane", "session", "text", "wait", "timeoutMs"},
 	"killTab":     {"tab", "session"},
 	"renameTab":   {"tab", "session", "title"},

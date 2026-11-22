@@ -3,20 +3,44 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
+
+const scrollbackUsage = `usage: pitwall scrollback [-s session] <pane> [--lines N] [--format text|ansi|html]
+
+Print a pane's scrollback and visible screen as plain text, ANSI, or
+self-contained HTML.
+
+Flags:
+  -s session     session name or id
+  --lines N      last N lines (0 = all)
+  --format fmt   output format: text (default), ansi, or html
+  -h, --help     show this help`
 
 func scrollbackCommand(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("scrollback", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
 	lines := flags.Int("lines", 0, "")
+	format := flags.String("format", "", "")
 	args, err := parseFlags(flags, args)
+	if errors.Is(err, flag.ErrHelp) {
+		_, err := fmt.Fprintln(out, scrollbackUsage)
+		return err
+	}
 	if err != nil || len(args) != 1 || *lines < 0 {
-		return errors.New("usage: pitwall scrollback [-s session] <pane> [--lines N]")
+		return errors.New(scrollbackUsage)
+	}
+	if *format != "" && !vt.ValidFormat(*format) {
+		return fmt.Errorf("invalid --format %q: use text, ansi or html", *format)
+	}
+	if *format == "ansi" || *format == "html" {
+		return readFormattedJSON(args[0], *sessionName, true, *lines, *format, out)
 	}
 	conn, err := dialCLI()
 	if err != nil {

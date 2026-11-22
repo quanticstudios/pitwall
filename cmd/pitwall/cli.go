@@ -164,6 +164,18 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	switch {
 	case len(args) > 0 && args[0] == "agent":
 		err = agentCommand(args[1:], out)
+	case len(args) > 0 && args[0] == "events":
+		return eventsCommand(args[1:], out, errOut)
+	case len(args) > 0 && args[0] == "send-key":
+		return sendKeyCommand(args[1:], out, errOut)
+	case len(args) > 0 && args[0] == "api":
+		var stdin io.Reader
+		if in != nil {
+			stdin = in
+		}
+		return apiCommand(args[1:], stdin, out, errOut)
+	case len(args) > 0 && args[0] == "new":
+		return newCommand(args[1:], out, errOut)
 	case len(args) > 0 && args[0] == "wait":
 		return waitCommand(args[1:], out, errOut)
 	case len(args) > 0 && args[0] == "chat":
@@ -177,7 +189,7 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	case len(args) > 0 && args[0] == "popup":
 		return popupCommand(args[1:], errOut)
 	case len(args) > 0 && args[0] == "split":
-		err = splitCommand(args[1:], out)
+		return splitCommand(args[1:], out, errOut)
 	case len(args) > 0 && args[0] == "review":
 		err = reviewCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "status":
@@ -531,6 +543,277 @@ func newTabID() string {
 	return hex.EncodeToString(b)
 }
 
+const newUsage = `usage: pitwall new [-s session] [-n name] [-d] [--host name [--id id]] [--issue n] [--preset name] [--model model] [--guard] [--wait] [--json] [--timeout 10m] [dir] [-- cmd args...]
+
+Open a new tab running cmd (or a shell if omitted). Prints its tab number (#N).
+
+Flags:
+  -s session       session name or id
+  -n name          tab name
+  -d               detach the new tab
+  --host name      open the tab on [[hosts]] machine name
+  --id id          retry id for a --host start whose connection dropped
+  --issue n        append GitHub issue n's prompt to cmd
+  --preset name    run [[agents.preset]] name
+  --model model    select an agent model
+  --guard          enable the destructive-command guard for this tab
+  --wait           print the pane address first, wait for cmd to exit, and exit with its code
+  --json           print one JSON result object (tab, tab_id, pane, pane_id, and exit details with --wait)
+  --timeout 10m    maximum time to wait (requires --wait)
+  -h, --help       show this help`
+
+func newCommand(args []string, out, errOut io.Writer) int {
+	code, err := runNew(args, out, errOut)
+	if err != nil {
+		if v, refused := proto.RefusedVersion(proto.Error{Message: err.Error()}); refused {
+			err = versionRefusal(v)
+		}
+		fmt.Fprintln(errOut, "pitwall:", err)
+		var c codeError
+		if errors.As(err, &c) {
+			return c.code
+		}
+		if code == 0 {
+			return 1
+		}
+		return code
+	}
+	return code
+}
+
+func runNew(args []string, out, errOut io.Writer) (int, error) {
+	var cmd []string
+	dashes := false
+	if i := slices.Index(args, "--"); i >= 0 {
+		args, cmd, dashes = args[:i], args[i+1:], true
+	}
+	flags := flag.NewFlagSet("new", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var sessionName, name, modelName, preset, hostName, tabID string
+	var detached, guarded, wait, asJSON bool
+	var issue int
+	var timeout time.Duration
+	flags.StringVar(&sessionName, "s", "", "")
+	flags.StringVar(&name, "n", "", "")
+	flags.StringVar(&modelName, "model", "", "")
+	flags.BoolVar(&detached, "d", false, "")
+	flags.IntVar(&issue, "issue", 0, "")
+	flags.StringVar(&preset, "preset", "", "")
+	flags.BoolVar(&guarded, "guard", false, "")
+	flags.StringVar(&hostName, "host", "", "")
+	flags.StringVar(&tabID, "id", "", "")
+	flags.BoolVar(&wait, "wait", false, "")
+	flags.BoolVar(&asJSON, "json", false, "")
+	flags.DurationVar(&timeout, "timeout", 0, "")
+	args, err := parseFlags(flags, args)
+	if errors.Is(err, flag.ErrHelp) {
+		fmt.Fprintln(out, newUsage)
+		return 0, nil
+	}
+	if err != nil {
+		return 1, err
+	}
+	if len(args) > 1 || (dashes && len(cmd) == 0 && preset == "") {
+		return 1, errors.New(newUsage)
+	}
+	if timeout > 0 && !wait {
+		return 1, errors.New("--timeout requires --wait")
+	}
+	var vars []string
+	if cmd, vars, err = launch(preset, guarded, cmd, hostName == ""); err != nil {
+		return 1, err
+	}
+	if cmd, err = withModel(cmd, modelName); err != nil {
+		return 1, err
+	}
+	if issue != 0 && cmd == nil {
+		return 1, errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
+	}
+	if tabID != "" && hostName == "" {
+		return 1, errors.New("--id names a tab on another host and goes with --host")
+	}
+	if issue != 0 && hostName != "" {
+		return 1, errors.New("--issue reads the issue from this machine's checkout and cannot be used with --host; pass the prompt after the agent instead")
+	}
+	conn, err := dialCLI()
+	if err != nil {
+		return 1, err
+	}
+	defer conn.Close()
+	m, err := syncMsg(conn)
+	if err != nil {
+		return 1, err
+	}
+	state := m.State
+	if err := varsLevel(vars, m.Level); err != nil {
+		return 1, err
+	}
+	session, sessErr := currentSession(state, sessionName)
+	if sessErr != nil && sessionName != "" {
+		return 1, sessErr
+	}
+
+	if hostName != "" {
+		if err := sharesHere(m, sessErr); err != nil {
+			return 1, err
+		}
+		dir := ""
+		if len(args) == 1 {
+			dir = args[0] // a folder on the host
+		}
+		parent := parentHere(state, session.ID)
+		num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars, ID: tabID, ParentTab: parent}, detached)
+		if err != nil {
+			return 1, err
+		}
+		if parent != "" && !shownInWindows(hostName) {
+			fmt.Fprintf(errOut, "pitwall: %s is not shown in windows; set window = true under its [[hosts]] entry to see its workers in the sidebar\n", hostName)
+		}
+		if !wait && !asJSON {
+			_, err = fmt.Fprintf(out, "#%s\n", num)
+			return 0, err
+		}
+		// Resolve the remote tab and its main pane for --json / --wait.
+		hc, done, err := dialHost(hostName, "cli")
+		if err != nil {
+			return 1, err
+		}
+		hs, err := syncCLI(hc)
+		done()
+		if err != nil {
+			return 1, err
+		}
+		localAddr := strings.TrimPrefix(num, hostName+":")
+		remSessID := ""
+		if r := session.Remote(hostName); r != nil {
+			remSessID = r.Session
+		} else if s, err := currentSession(hs, session.Name); err == nil {
+			remSessID = s.ID
+		}
+		w, err := resolveTab(hs, remSessID, localAddr)
+		if err != nil {
+			return 1, err
+		}
+		paneID := mainPaneID(hs, w)
+		res := runResult{
+			Tab:    "#" + num,
+			TabID:  w.ID,
+			Pane:   "#" + num + ".1",
+			PaneID: paneID,
+		}
+		if !wait {
+			return 0, json.NewEncoder(out).Encode(res)
+		}
+		if paneID == "" {
+			return 1, errors.New("cannot identify the new pane on " + hostName)
+		}
+		if !asJSON {
+			if _, err := fmt.Fprintln(out, res.Pane); err != nil {
+				return 1, err
+			}
+		}
+		o, code, err := waitPaneExit(nil, hs, paneID, hostName, timeout, errOut)
+		if err != nil {
+			return code, err
+		}
+		if asJSON {
+			if err := encodeRunResult(out, res, o); err != nil {
+				return 1, err
+			}
+		}
+		return code, nil
+	}
+
+	dir := "."
+	if len(args) == 1 {
+		dir = args[0]
+	}
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return 1, err
+	}
+	if cmd, err = withIssue(cmd, dir, issue); err != nil {
+		return 1, err
+	}
+
+	// Dial watch before creating the tab so an instant exit's PaneExited is never missed.
+	var watch *watcher
+	if wait {
+		watch, err = dialWatch()
+		if err != nil {
+			return 1, err
+		}
+		defer watch.Close()
+		if _, err := watch.next(); err != nil {
+			return 1, err
+		}
+	}
+
+	after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd, Env: vars, ParentPane: os.Getenv("PITWALL_PANE")})
+	if err != nil {
+		return 1, err
+	}
+	var added []model.Workspace
+	for _, w := range after.Workspaces {
+		if !slices.ContainsFunc(state.Workspaces, func(old model.Workspace) bool { return old.ID == w.ID }) && (name == "" || w.Name == name) {
+			added = append(added, w)
+		}
+	}
+	if len(added) != 1 {
+		return 1, errors.New("cannot identify the new tab from daemon state")
+	}
+	if detached {
+		if after, err = syncCLI(conn, proto.DetachSession{WorkspaceID: added[0].ID, Detached: true}); err != nil {
+			return 1, err
+		}
+	}
+	n := slices.IndexFunc(numbered(after, added[0].SessionID), func(w model.Workspace) bool { return w.ID == added[0].ID })
+	if !wait && !asJSON {
+		_, err = fmt.Fprintf(out, "#%d\n", n+1)
+		return 0, err
+	}
+	paneID := mainPaneID(after, added[0])
+	res := runResult{
+		Tab:    fmt.Sprintf("#%d", n+1),
+		TabID:  added[0].ID,
+		Pane:   fmt.Sprintf("#%d.1", n+1),
+		PaneID: paneID,
+	}
+	if !wait {
+		return 0, json.NewEncoder(out).Encode(res)
+	}
+	if paneID == "" {
+		return 1, errors.New("cannot identify the new pane from daemon state")
+	}
+	if !asJSON {
+		if _, err := fmt.Fprintln(out, res.Pane); err != nil {
+			return 1, err
+		}
+	}
+	o, code, err := waitPaneExit(watch, after, paneID, "", timeout, errOut)
+	if err != nil {
+		return code, err
+	}
+	if asJSON {
+		if err := encodeRunResult(out, res, o); err != nil {
+			return 1, err
+		}
+	}
+	return code, nil
+}
+
+func mainPaneID(state model.State, w model.Workspace) string {
+	if panes := tabPanes(state, w); len(panes) > 0 {
+		return panes[0].ID
+	}
+	for _, p := range state.Panes {
+		if p.WorkspaceID == w.ID {
+			return p.ID
+		}
+	}
+	return ""
+}
+
 func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(usage)
@@ -549,16 +832,10 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return sessionsCommand(args[1:], in, out, errOut)
 	}
 	args = args[1:]
-	var cmd []string
-	dashes := false
-	if i := slices.Index(args, "--"); i >= 0 && command == "new" {
-		args, cmd, dashes = args[:i], args[i+1:], true
-	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var asJSON, detached, force, children, tree, guarded, orphans, all bool
-	var name, sessionName, preset, modelName, hostName, tabID string
-	var issue int
+	var asJSON, force, children, tree, orphans, all bool
+	var sessionName string
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
 	case "ls":
@@ -568,15 +845,6 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.BoolVar(&orphans, "orphans", false, "")
 	case "adopt":
 		flags.BoolVar(&all, "all", false, "")
-	case "new":
-		flags.StringVar(&name, "n", "", "")
-		flags.StringVar(&modelName, "model", "", "")
-		flags.BoolVar(&detached, "d", false, "")
-		flags.IntVar(&issue, "issue", 0, "")
-		flags.StringVar(&preset, "preset", "", "")
-		flags.BoolVar(&guarded, "guard", false, "")
-		flags.StringVar(&hostName, "host", "", "")
-		flags.StringVar(&tabID, "id", "", "")
 	case "kill":
 		flags.BoolVar(&force, "f", false, "")
 	case "attach", "detach", "rename":
@@ -589,29 +857,10 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	if (command == "ls" && (len(args) != 0 || orphans && (children || tree))) ||
 		(command == "adopt" && (len(args) == 0) == !all) ||
-		((command == "new" || command == "attach" || command == "detach") && len(args) > 1) ||
+		((command == "attach" || command == "detach") && len(args) > 1) ||
 		(command == "kill" && len(args) != 1) ||
 		(command == "rename" && (len(args) < 1 || len(args) > 2)) {
 		return errors.New(usage)
-	}
-	if dashes && len(cmd) == 0 && preset == "" {
-		return errors.New(usage)
-	}
-	var vars []string
-	if cmd, vars, err = launch(preset, guarded, cmd, hostName == ""); err != nil {
-		return err
-	}
-	if cmd, err = withModel(cmd, modelName); err != nil {
-		return err
-	}
-	if issue != 0 && cmd == nil {
-		return errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
-	}
-	if tabID != "" && hostName == "" {
-		return errors.New("--id names a tab on another host and goes with --host")
-	}
-	if issue != 0 && hostName != "" {
-		return errors.New("--issue reads the issue from this machine's checkout and cannot be used with --host; pass the prompt after the agent instead")
 	}
 	conn, err := dialCLI()
 	if errors.Is(err, errNotRunning) && command == "ls" {
@@ -630,12 +879,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return err
 	}
 	state := m.State
-	if err := varsLevel(vars, m.Level); err != nil {
-		return err
-	}
 	session, err := currentSession(state, sessionName)
-	if err != nil && (sessionName != "" || command != "ls" && command != "new") {
-		return err // with no session, ls lists nothing and new makes one
+	if err != nil && (sessionName != "" || command != "ls") {
+		return err // with no session, ls lists nothing
 	}
 	switch command {
 	case "ls":
@@ -664,58 +910,6 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		r := newRemotes(conn, state, session)
 		defer r.close()
 		return adopt(out, r, args, all)
-	case "new":
-		if hostName != "" {
-			if err := sharesHere(m, err); err != nil {
-				return err
-			}
-			dir := ""
-			if len(args) == 1 {
-				dir = args[0] // a folder on the host
-			}
-			parent := parentHere(state, session.ID)
-			num, err := newOnHost(conn, state.Daemon, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars, ID: tabID, ParentTab: parent}, detached)
-			if err != nil {
-				return err
-			}
-			if parent != "" && !shownInWindows(hostName) {
-				fmt.Fprintf(errOut, "pitwall: %s is not shown in windows; set window = true under its [[hosts]] entry to see its workers in the sidebar\n", hostName)
-			}
-			_, err = fmt.Fprintf(out, "#%s\n", num)
-			return err
-		}
-		dir := "."
-		if len(args) == 1 {
-			dir = args[0]
-		}
-		dir, err := filepath.Abs(dir)
-		if err != nil {
-			return err
-		}
-		if cmd, err = withIssue(cmd, dir, issue); err != nil {
-			return err
-		}
-		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd, Env: vars, ParentPane: os.Getenv("PITWALL_PANE")})
-		if err != nil {
-			return err
-		}
-		var added []model.Workspace
-		for _, w := range after.Workspaces {
-			if !slices.ContainsFunc(state.Workspaces, func(old model.Workspace) bool { return old.ID == w.ID }) && (name == "" || w.Name == name) {
-				added = append(added, w)
-			}
-		}
-		if len(added) != 1 {
-			return errors.New("cannot identify the new tab from daemon state")
-		}
-		if detached {
-			if after, err = syncCLI(conn, proto.DetachSession{WorkspaceID: added[0].ID, Detached: true}); err != nil {
-				return err
-			}
-		}
-		n := slices.IndexFunc(numbered(after, added[0].SessionID), func(w model.Workspace) bool { return w.ID == added[0].ID })
-		_, err = fmt.Fprintf(out, "#%d\n", n+1)
-		return err
 	}
 	old := ""
 	if len(args) != 0 && (command != "rename" || len(args) == 2) {

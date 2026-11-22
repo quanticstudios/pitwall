@@ -67,12 +67,14 @@ const usage = `usage:
                              tab is gone)
   pitwall adopt @<id>... | --all
                              make this pane's tab the parent of those orphans
-  pitwall new [-n name] [-d] [--host name [--id id]] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
+  pitwall new [-n name] [-d] [--host name [--id id]] [--issue n] [--preset name] [--model model] [--guard] [--wait] [--json] [--timeout 10m] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
-                             shell; prints its #. --issue adds GitHub issue n
-                             as cmd's last argument, its prompt. --preset runs a
-                             [[agents.preset]] with cmd's args after its own;
-                             --model selects a model, default leaves it unset;
+                             shell; prints its #. --wait prints its pane address
+                             first, waits for cmd to exit and exits with cmd's
+                             exit code (--json prints one result object). --issue
+                             adds GitHub issue n as cmd's last argument, its prompt.
+                             --preset runs a [[agents.preset]] with cmd's args after
+                             its own; --model selects a model, default leaves it unset;
                              --guard denies the agent pushes and merges (see
                              docs/usage.md). A cmd's pane stays after it
                              exits, showing its output, until closed. After a
@@ -99,10 +101,11 @@ const usage = `usage:
                              BLOCKED: <why>, and nudges a worker once without one.
                              It exits 1 when another machine with a worker
                              stays out of reach 5 minutes or loses a worker
-  pitwall split [--down] [tab] [-- cmd args...]
+  pitwall split [--down] [--wait] [--json] [--timeout 10m] [tab] [-- cmd args...]
                              open a pane running cmd, else a shell, right of
                              the tab's last pane (--down: below it); prints
-                             its address, as #3.2
+                             its address, as #3.2 (--wait waits for cmd to exit
+                             and exits with its code; --json prints one result)
   pitwall popup [--width 80%] [--height 70%] [--title T] [--dir D] [--wait] [tab] [-- cmd args...]
                              run cmd, else a shell, in a floating pane over
                              the tab's splits, in the tab's folder or D; it
@@ -119,11 +122,24 @@ const usage = `usage:
                              agent and return; pitwall types it, under a
                              header naming this pane, at the agent's next
                              prompt
-  pitwall scrollback <pane> [--lines N]
-                             print scrollback and screen as plain text
-  pitwall read <pane> [--screen]
+  pitwall send-key <pane> <key>...
+                             send single keys by name (enter, esc, tab, up,
+                             down, ctrl+c, shift+tab, a digit or letter),
+                             encoded for the pane's terminal modes; refused
+                             on guarded tabs
+  pitwall events [--json] [--session S] [--pane P]
+                             stream daemon changes (agent state, title, tabs,
+                             PR state, queued message sent, turn end, exit),
+                             one line or JSON object per event
+  pitwall api [json...]      escape hatch: send raw JSON-lines commands
+                             (args or stdin) to $PITWALL_SOCKET and print replies
+  pitwall scrollback <pane> [--lines N] [--format text|ansi|html]
+                             print scrollback and screen as plain text, ANSI
+                             or self-contained HTML
+  pitwall read <pane> [--screen | --scrollback [--lines N]] [--format text|ansi|html]
                              print the last reply of the pane's agent
-                             (--screen: the text on its screen)
+                             (--screen: its screen; --scrollback: scrollback
+                             and screen; --format: text, ansi or html)
   pitwall review [tab] [--agent claude|codex]
                              a second opinion: open the other agent, read
                              only, beside the tab's agent to review the
@@ -264,7 +280,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "adopt", "new", "fork", "wait", "split", "popup", "prompt", "send", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
+	case "ls", "adopt", "new", "fork", "wait", "split", "popup", "prompt", "send", "send-key", "events", "api", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -466,7 +482,72 @@ func runHook(args []string) int {
 		}
 	}
 	sendHook(path, pane, provider, payload)
+	if agent.IsSessionStart(provider, payload) {
+		writeSessionStartContext(path, pane, os.Stdout)
+	}
 	return 0
+}
+
+// writeSessionStartContext emits the Claude Code / Codex SessionStart
+// hookSpecificOutput.additionalContext line naming this pane, its tab and
+// session so an agent knows where it runs without inspecting env vars.
+func writeSessionStartContext(path, pane string, out io.Writer) {
+	tabAddr, tabName, sessName := lookupHookPane(path, pane)
+	if b := agent.SessionStartOutput(pane, tabAddr, tabName, sessName); len(b) > 0 {
+		_, _ = out.Write(append(b, '\n'))
+	}
+}
+
+// lookupHookPane best-effort resolves pane's tab address, tab title and
+// session name from the daemon within a short budget so a hook never stalls.
+func lookupHookPane(path, pane string) (tabAddr, tabName, sessName string) {
+	if path == "" || pane == "" {
+		return "", "", ""
+	}
+	nc, err := net.DialTimeout("unix", path, 200*time.Millisecond)
+	if err != nil {
+		return "", "", ""
+	}
+	defer nc.Close()
+	_ = nc.SetDeadline(time.Now().Add(300 * time.Millisecond))
+	conn := proto.NewConn(nc)
+	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "cli"}); err != nil {
+		return "", "", ""
+	}
+	if err := conn.Send(proto.Sync{}); err != nil {
+		return "", "", ""
+	}
+	for {
+		msg, err := conn.Recv()
+		if err != nil {
+			return "", "", ""
+		}
+		m, ok := msg.(proto.StateMsg)
+		if !ok {
+			continue
+		}
+		for _, p := range m.State.Panes {
+			if p.ID != pane {
+				continue
+			}
+			w := m.State.Workspace(p.WorkspaceID)
+			if w == nil {
+				return "", "", ""
+			}
+			if s := m.State.Session(w.SessionID); s != nil {
+				sessName = s.Name
+			}
+			tabs := m.State.Numbered(w.SessionID)
+			for i, t := range tabs {
+				if t.ID == w.ID {
+					tabAddr = fmt.Sprintf("#%d", i+1)
+					break
+				}
+			}
+			return tabAddr, tabTitle(*w), sessName
+		}
+		return "", "", ""
+	}
 }
 
 // sendHook forwards one hook event. It waits at most hookWait, for the

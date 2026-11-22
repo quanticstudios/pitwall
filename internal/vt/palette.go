@@ -37,6 +37,10 @@ func SetPalette(p Palette) {
 	palette = p
 }
 
+// CurrentPalette returns the terminal palette currently configured for new
+// emulators and theme-colored exports.
+func CurrentPalette() Palette { return currentPalette() }
+
 func currentPalette() Palette {
 	paletteMu.Lock()
 	defer paletteMu.Unlock()

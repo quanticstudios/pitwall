@@ -533,8 +533,10 @@ so the process stays open while you read the file.
 The `edit_scrollback` action is unbound by default. Bind it under `[keys]`
 or run **Open scrollback in editor** from the command palette. With a remote
 host, the file and editor are on that host.
-`pitwall scrollback <pane> [--lines N]` prints the same text to stdout
-without opening an editor.
+`pitwall scrollback <pane> [--lines N] [--format text|ansi|html]` prints the same
+text to stdout (or ANSI colors, or a self-contained HTML snippet with the theme's
+palette) without opening an editor; `pitwall read <pane> --screen|--scrollback [--lines N] --format text|ansi|html`
+reads the visible screen or scrollback in the same formats.
 Full-screen programs that use the alternate screen export only their current
 screen. Editor panes close on a daemon restart or reboot.
 CLI exports above 63 MiB return an error; use `--lines N` for fewer lines.
@@ -2690,3 +2692,40 @@ To have agents do this on their own, add to your `CLAUDE.md` or `AGENTS.md`:
 At the start of a task inside a pitwall pane, run
 `pitwall tab rename "<short description of the task>"`.
 ```
+
+### Scripting and automation
+
+Scripts and orchestrator agents can drive pitwall directly from the CLI without
+screen-scraping. All of these commands talk to the daemon's local JSON-lines
+control protocol on `$PITWALL_SOCKET` (on Linux, macOS, and Windows wherever the
+daemon socket exists):
+
+- **`pitwall events [--json] [--session S] [--pane P]`**: streams live changes —
+  agent states (`working`, `pending-approval`, `awaiting-input`, `plan-ready`,
+  `done`, `error`, with `detail`), title changes, tabs opened or closed, worker
+  PR state, queued messages sent, turn ends, and pane exits. Prints one readable
+  line per event by default, or one JSON object per line with `--json` (stable
+  fields documented in [docs/web-protocol.md](web-protocol.md) and
+  [docs/agent-skill.md](agent-skill.md)). Exits 0 on Ctrl+C and non-zero if the
+  daemon connection drops.
+- **`pitwall send-key [-s session] <pane> [--] <key>...`**: sends single keys by
+  name (`enter`, `esc`, `tab`, `shift+tab`, `up`, `down`, `ctrl+c`, digits,
+  letters, modifier chords) encoded with `internal/input` for the pane's active
+  terminal modes. Refused on guarded tabs, matching `send` and `prompt`.
+- **`pitwall new --wait` and `pitwall split --wait`**: print the new pane address
+  first (`#N.1` or `#T.N`), wait for the pane's command to exit (reusing
+  `pitwall wait --until exit`), and exit with the command's exit code. Add
+  `--json` for a single JSON result object (`tab`, `tab_id`, `pane`, `pane_id`,
+  `outcome`, `exit_code`, `signal`, `unknown`), and `--timeout` to cap the wait.
+- **`pitwall read <pane> --screen|--scrollback [--lines N] --format text|ansi|html`**:
+  captures a pane's visible screen or scrollback as plain text, ANSI SGR escapes,
+  or a self-contained HTML `<pre>` snippet styled with the active terminal theme
+  palette. `pitwall scrollback` takes the same `--format` flag.
+- **`pitwall api [json...]`**: escape hatch for sending raw JSON-lines commands
+  (arguments or stdin) directly to `$PITWALL_SOCKET` and printing replies on
+  stdout. Performs the `hello` handshake and assigns `id` automatically unless
+  supplied.
+- **SessionStart hook context**: the `SessionStart` hook installed by
+  `pitwall hooks install` for Claude Code and Codex emits a short
+  `additionalContext` line naming the agent's pitwall pane id, tab, and session,
+  and noting that `pitwall` commands work from its shell.

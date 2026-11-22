@@ -44,7 +44,8 @@ func cutHost(args []string) ([]string, string, error) {
 		// --host. Leave their values for the command's own flag parser.
 		if (a == "-s" || a == "--s") && args[0] != "session" ||
 			(a == "-until" || a == "--until") && args[0] == "wait" ||
-			(a == "-timeout" || a == "--timeout") && (args[0] == "wait" || args[0] == "prompt") {
+			(a == "-timeout" || a == "--timeout") && (args[0] == "wait" || args[0] == "prompt") ||
+			(a == "-format" || a == "--format" || a == "-lines" || a == "--lines") && args[0] == "read" {
 			out = append(out, a)
 			if i+1 < len(args) && args[i+1] != "--" {
 				i++
