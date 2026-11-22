@@ -9,6 +9,9 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/antigravity"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
+	"github.com/quanticstudios/pitwall/internal/session/codex"
 )
 
 var testCommands = []session.Command{
@@ -285,5 +288,56 @@ func TestSlashMatchesShortQuery(t *testing.T) {
 	cmds := []session.Command{{Name: "frontend"}, {Name: "effort", Description: "from fr"}, {Name: "fork"}}
 	if got := names(SlashMatches(cmds, "fr", nil)); !slices.Equal(got, []string{"frontend"}) {
 		t.Fatalf("/fr lists %q", got)
+	}
+}
+
+// A native command whose alias is the query comes first for each agent,
+// ahead of skills the query starts or sits inside, however often those
+// were used: Claude Code's /rc, Codex's /quit and /btw, agy's /settings
+// and /cs.
+func TestSlashMatchesAliasFirst(t *testing.T) {
+	skills := []session.Command{{Name: "archify", Source: "user"}, {Name: "omarchy", Source: "user"},
+		{Name: "rc-notes", Source: "user"}, {Name: "quit-smoking", Source: "user"}, {Name: "btw-log", Source: "user"},
+		{Name: "settings-sync", Source: "user"}, {Name: "docs", Source: "user"}}
+	used := map[string]int{"archify": 9, "rc-notes": 9, "quit-smoking": 9, "btw-log": 9, "settings-sync": 9, "docs": 9}
+	for _, c := range []struct {
+		agent string
+		cmds  []session.Command
+		q     string
+		want  string
+	}{
+		{"claude", claude.Commands("", ""), "rc", "remote-control"},
+		{"claude", claude.Commands("", ""), "bg", "background"},
+		{"codex", codex.Builtins, "quit", "exit"},
+		{"codex", codex.Builtins, "btw", "side"},
+		{"codex", codex.Builtins, "rc", "rc"},
+		{"agy", antigravity.Builtins, "settings", "config"},
+		{"agy", antigravity.Builtins, "cs", "codesearch"},
+	} {
+		got := SlashMatches(append(slices.Clone(skills), c.cmds...), c.q, used)
+		if len(got) == 0 || got[0].Name != c.want {
+			t.Errorf("%s /%s lists %q first, want %s", c.agent, c.q, names(got), c.want)
+		}
+	}
+}
+
+// Enter on /rc picks /remote-control, not the skills /rc fuzzy-matches,
+// and the next Enter sends it; a typed alias with its argument counts
+// for the command it names.
+func TestSlashEnterAlias(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Commands = append([]session.Command{{Name: "archify", Source: "user"}, {Name: "omarchy", Source: "user"}}, claude.Commands("", "")...)
+	slashUsed["archify"] = 5
+	h.typ("/rc")
+	if m := h.press(key.NameReturn, 0); len(m) != 0 || h.c.Text() != "/remote-control " {
+		t.Fatalf("Enter on /rc: sent %+v, text %q", m, h.c.Text())
+	}
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).Text != "/remote-control " {
+		t.Fatalf("Enter after the pick sent %+v", m)
+	}
+	h.c.SetText("/rc phone")
+	h.press(key.NameReturn, 0)
+	if slashUsed["remote-control"] != 2 || slashUsed["rc"] != 0 {
+		t.Fatalf("used %v", slashUsed)
 	}
 }

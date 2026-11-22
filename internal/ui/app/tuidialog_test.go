@@ -15,6 +15,9 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/antigravity"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
+	"github.com/quanticstudios/pitwall/internal/session/codex"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -53,6 +56,26 @@ func TestTUICommand(t *testing.T) {
 	} {
 		if got := tuiCommand(text, codex); got != want {
 			t.Errorf("tuiCommand(%q, codex's) = %q, want %q", text, got, want)
+		}
+	}
+}
+
+// An alias opens the terminal as its command does, typed as the user
+// typed it: Claude Code's /rc, agy's /settings, Codex's /quit stays out.
+func TestTUICommandAlias(t *testing.T) {
+	for _, c := range []struct {
+		cmds       []session.Command
+		text, want string
+	}{
+		{claude.Commands("", ""), "/rc phone", "/rc phone"},
+		{claude.Commands("", ""), "/remote-control", "/remote-control"},
+		{antigravity.Builtins, "/settings", "/settings"},
+		{antigravity.Builtins, "/cs auth", "/cs auth"},
+		{antigravity.Builtins, "/new", ""},
+		{codex.Builtins, "/quit", ""},
+	} {
+		if got := tuiCommand(c.text, c.cmds); got != c.want {
+			t.Errorf("tuiCommand(%q) = %q, want %q", c.text, got, c.want)
 		}
 	}
 }

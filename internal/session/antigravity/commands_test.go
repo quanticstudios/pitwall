@@ -140,3 +140,40 @@ func TestCommandsPlugins(t *testing.T) {
 		t.Fatal("turning a plugin off left the stamp")
 	}
 }
+
+// agy 1.5.14's menu takes the aliases it shows in parentheses, lists
+// /remote-control for an account that has it, and added /projects,
+// /record and /thinking; it no longer takes /plugins. Names stay unique
+// across names and aliases, so a typed alias finds one command.
+func TestBuiltins(t *testing.T) {
+	find := func(name string) (session.Command, bool) {
+		i := slices.IndexFunc(Builtins, func(c session.Command) bool { return c.Is(name) })
+		if i < 0 {
+			return session.Command{}, false
+		}
+		return Builtins[i], true
+	}
+	for alias, name := range map[string]string{"new": "clear", "cs": "codesearch", "search": "codesearch", "settings": "config",
+		"quit": "exit", "branch": "fork", "switch": "resume", "conversation": "resume", "undo": "rewind", "quota": "usage"} {
+		if c, ok := find(alias); !ok || c.Name != name {
+			t.Errorf("/%s finds %+v, want /%s", alias, c, name)
+		}
+	}
+	for name, term := range map[string]bool{"remote-control": false, "projects": true, "record": true, "thinking": false} {
+		if c, ok := find(name); !ok || c.Terminal != term {
+			t.Errorf("/%s %+v, want Terminal %v", name, c, term)
+		}
+	}
+	if _, ok := find("plugins"); ok {
+		t.Error("/plugins listed, which agy 1.5.14 calls an unknown command")
+	}
+	seen := map[string]bool{}
+	for _, c := range Builtins {
+		for _, n := range append([]string{c.Name}, c.Aliases...) {
+			if seen[n] {
+				t.Errorf("/%s listed twice", n)
+			}
+			seen[n] = true
+		}
+	}
+}

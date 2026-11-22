@@ -293,6 +293,9 @@ func (c Command) Equal(o Command) bool {
 		c.Terminal == o.Terminal && slices.Equal(c.Aliases, o.Aliases)
 }
 
+// Is reports whether name is c's name or one of its aliases.
+func (c Command) Is(name string) bool { return c.Name == name || slices.Contains(c.Aliases, name) }
+
 // terminalCommands are Claude Code's slash commands that open a screen of
 // their own in its TUI. A chat has no TUI to show them in, so the chat
 // window opens the terminal for them. /model and /effort are the
