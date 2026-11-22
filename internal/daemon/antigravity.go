@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -146,6 +147,45 @@ func (d *Daemon) agyResumed(p model.Pane) {
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == p.ID }); i >= 0 {
 		d.st.Panes[i].Transcript = t
 	}
+}
+
+// agyRepair points an Antigravity pane whose saved SessionID is a subagent's
+// back at its root main conversation when agy's on-disk parent records prove
+// the link, updating or clearing Transcript to match.
+func agyRepair(p *model.Pane) bool {
+	if p.Provider != model.ProviderAntigravity || p.SessionID == "" {
+		return false
+	}
+	home := homeOf(p.Env)
+	main := agent.AgyMainConversation(home, p.SessionID)
+	if main == "" || main == p.SessionID {
+		return false
+	}
+	log.Printf("pane %s: saved Antigravity session %s is a subagent; restoring main conversation %s", p.ID, p.SessionID, main)
+	p.SessionID = main
+	if t := agent.AntigravityTranscript(home, main); t != "" {
+		if _, err := os.Stat(t); err == nil {
+			p.Transcript = t
+			return true
+		}
+	}
+	p.Transcript = ""
+	return true
+}
+
+// agyForeignSubagent reports whether sid is a subagent conversation on disk,
+// checking both the brain directory of transcript (when present) and home.
+func agyForeignSubagent(home, transcript, sid string) bool {
+	if sid == "" {
+		return false
+	}
+	if b := agent.AgyBrainOfTranscript(transcript); b != "" && agent.AgyParent(b, sid) != "" {
+		return true
+	}
+	if b := agent.AgyBrainDir(home); b != "" && agent.AgyParent(b, sid) != "" {
+		return true
+	}
+	return false
 }
 
 // codexResumed names the transcript of a Codex pane resumed with `codex

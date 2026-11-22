@@ -64,12 +64,13 @@ func AntigravityHooks(bin string) []byte {
 
 // agyPayload is the part of an agy hook payload pitwall reads.
 type agyPayload struct {
-	Event          string `json:"hookEventName"`
-	ConversationID string `json:"conversationId"`
-	TranscriptPath string `json:"transcriptPath"`
-	Cwd            string `json:"cwd"`
-	LastUserInput  string `json:"lastUserInput"`
-	InvocationNum  *int   `json:"invocationNum"`
+	Event          string  `json:"hookEventName"`
+	ConversationID string  `json:"conversationId"`
+	ArtifactDir    string  `json:"artifactDirectoryPath"`
+	TranscriptPath string  `json:"transcriptPath"`
+	Cwd            string  `json:"cwd"`
+	LastUserInput  *string `json:"lastUserInput"`
+	InvocationNum  *int    `json:"invocationNum"`
 	ToolCall       *struct {
 		ID   string                     `json:"id"`
 		Name string                     `json:"name"`
@@ -77,6 +78,7 @@ type agyPayload struct {
 	} `json:"toolCall"`
 	Error             string `json:"error"`
 	TerminationReason string `json:"terminationReason"`
+	FullyIdle         *bool  `json:"fullyIdle"`
 }
 
 // FromAntigravity rewrites an agy hook payload as the Claude Code hook
@@ -93,13 +95,38 @@ type agyPayload struct {
 //	  ERROR, MAX_TOKEN_BUDGET_EXCEEDED StopFailure, Detail = the error
 //	  USER_CANCELED                 Interrupt (the activity goes)
 //	  others                        Stop, with the reply the transcript's
-//	                                last line holds as last_assistant_message
+//	                                last line holds as last_assistant_message;
+//	                                fullyIdle=false marks background subagent
+//	                                work active so the pane stays working
+//
+// Subagent hooks (proved by agy's on-disk parent records or by an explicit
+// empty lastUserInput) never carry session_id or transcript_path: SessionStart,
+// PreInvocation and Stop return nil, and PostToolUse carries agent_id so the
+// daemon counts it as activity without changing session, transcript or state.
 //
 // conversationId becomes session_id and transcriptPath transcript_path.
 func FromAntigravity(payload []byte) []byte {
 	var a agyPayload
 	if json.Unmarshal(payload, &a) != nil || a.Event == "" {
 		return nil
+	}
+	if agyIsSubagent(a) {
+		if a.Event != "PostToolUse" || a.ToolCall == nil {
+			return nil
+		}
+		out := map[string]any{
+			"hook_event_name": "PostToolUse",
+			"agent_id":        firstNonEmpty(a.ConversationID, "subagent"),
+			"tool_name":       a.ToolCall.Name,
+			"tool_use_id":     a.ToolCall.ID,
+			"tool_input":      agyToolInput(a.ToolCall.Args),
+		}
+		if a.Error != "" {
+			out["hook_event_name"], out["error"] = "PostToolUseFailure", a.Error
+			out["is_interrupt"] = strings.Contains(a.Error, "context canceled")
+		}
+		b, _ := json.Marshal(out)
+		return b
 	}
 	out := map[string]any{"session_id": a.ConversationID, "cwd": a.Cwd}
 	if t := agyTranscript(a.TranscriptPath); t != "" {
@@ -112,7 +139,11 @@ func FromAntigravity(payload []byte) []byte {
 		if a.InvocationNum == nil || *a.InvocationNum != 0 {
 			return nil
 		}
-		out["hook_event_name"], out["prompt"] = "UserPromptSubmit", a.LastUserInput
+		prompt := ""
+		if a.LastUserInput != nil {
+			prompt = *a.LastUserInput
+		}
+		out["hook_event_name"], out["prompt"] = "UserPromptSubmit", prompt
 	case "PostToolUse":
 		if a.ToolCall == nil {
 			return nil
@@ -124,17 +155,7 @@ func FromAntigravity(payload []byte) []byte {
 			out["is_interrupt"] = strings.Contains(a.Error, "context canceled")
 		}
 		out["tool_name"], out["tool_use_id"] = a.ToolCall.Name, a.ToolCall.ID
-		input := map[string]string{}
-		if c := agyArg(a.ToolCall.Args, "CommandLine"); c != "" {
-			input["command"] = c
-		}
-		for _, k := range []string{"TargetFile", "AbsolutePath", "Path", "File"} {
-			if f := agyArg(a.ToolCall.Args, k); f != "" {
-				input["file_path"] = f
-				break
-			}
-		}
-		out["tool_input"] = input
+		out["tool_input"] = agyToolInput(a.ToolCall.Args)
 	case "Stop":
 		switch a.TerminationReason {
 		case "ERROR", "MAX_TOKEN_BUDGET_EXCEEDED":
@@ -144,12 +165,196 @@ func FromAntigravity(payload []byte) []byte {
 		default:
 			out["hook_event_name"] = "Stop"
 			out["last_assistant_message"] = agyLastReply(agyTranscript(a.TranscriptPath))
+			if a.FullyIdle != nil && !*a.FullyIdle {
+				out["background_tasks"] = []map[string]string{{"type": "subagent", "status": "running"}}
+			}
 		}
 	default:
 		return nil
 	}
 	b, _ := json.Marshal(out)
 	return b
+}
+
+// agyToolInput extracts command and file_path from an agy tool call's args.
+func agyToolInput(args map[string]json.RawMessage) map[string]string {
+	input := map[string]string{}
+	if c := agyArg(args, "CommandLine"); c != "" {
+		input["command"] = c
+	}
+	for _, k := range []string{"TargetFile", "AbsolutePath", "Path", "File"} {
+		if f := agyArg(args, k); f != "" {
+			input["file_path"] = f
+			break
+		}
+	}
+	return input
+}
+
+// agyIsSubagent reports whether an agy hook payload came from a subagent
+// conversation. agy's hook JSON carries no parent or agent field, so two
+// signals prove it: on disk, agy writes the parent link under
+// brain/<subId>/.system_generated/messages/ (and
+// brain/<parent>/.system_generated/subagents/<subId>.json) before firing
+// SessionStart; in the payload itself, subagents receive a SYSTEM_MESSAGE
+// rather than USER_INPUT so lastUserInput is explicitly "".
+func agyIsSubagent(a agyPayload) bool {
+	if a.ConversationID != "" {
+		if brain := agyBrainFromPaths(a.ArtifactDir, a.TranscriptPath); brain != "" && AgyParent(brain, a.ConversationID) != "" {
+			return true
+		}
+	}
+	return a.LastUserInput != nil && *a.LastUserInput == ""
+}
+
+// AgyBrainDir is where agy stores its per-conversation directories under home.
+func AgyBrainDir(home string) string {
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli", "brain")
+}
+
+// AgyBrainOfTranscript returns the brain directory containing an agy
+// transcript path (.../brain/<conv>/.system_generated/logs/transcript[_full].jsonl),
+// or "" if path does not have that layout.
+func AgyBrainOfTranscript(path string) string {
+	return agyBrainFromPaths("", path)
+}
+
+// agyBrainFromPaths returns agy's brain directory from a hook's
+// artifactDirectoryPath or transcriptPath, or "".
+func agyBrainFromPaths(artifactDir, transcriptPath string) string {
+	if filepath.IsAbs(artifactDir) {
+		p := filepath.Dir(filepath.Clean(artifactDir))
+		if filepath.Base(p) == "brain" {
+			return p
+		}
+	}
+	if t := agyTranscript(transcriptPath); t != "" {
+		logs := filepath.Dir(t)
+		sys := filepath.Dir(logs)
+		conv := filepath.Dir(sys)
+		brain := filepath.Dir(conv)
+		if filepath.Base(logs) == "logs" && filepath.Base(sys) == ".system_generated" && filepath.Base(brain) == "brain" {
+			return brain
+		}
+	}
+	return ""
+}
+
+// agyValidConvID reports whether id is a safe single path element.
+func agyValidConvID(id string) bool {
+	return id != "" && id != "." && id != ".." && !strings.ContainsAny(id, `/\`)
+}
+
+// agyHasSubagentFile reports whether parent's brain folder records conv as a
+// subagent in .system_generated/subagents/<conv>.json.
+func agyHasSubagentFile(brainDir, parent, conv string) bool {
+	if !agyValidConvID(parent) || !agyValidConvID(conv) || parent == conv {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(brainDir, parent, ".system_generated", "subagents", conv+".json"))
+	return err == nil && !info.IsDir()
+}
+
+// AgyParent returns the immediate parent conversation id of conv under
+// brainDir, or "" when conv is a top-level conversation or no on-disk parent
+// evidence exists. It checks conv's .system_generated/messages/*.json for a
+// parent spawn message (invoke_subagent, "Message from Parent Agent", or a
+// matching parent subagents/<conv>.json), with a fallback to step 0's
+// SYSTEM_MESSAGE sender verified against parent's subagents/<conv>.json.
+func AgyParent(brainDir, conv string) string {
+	if brainDir == "" || !agyValidConvID(conv) {
+		return ""
+	}
+	msgDir := filepath.Join(brainDir, conv, ".system_generated", "messages")
+	if entries, err := os.ReadDir(msgDir); err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".json") || name == "read.json" {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(msgDir, name))
+			if err != nil {
+				continue
+			}
+			var msg struct {
+				Recipient     string `json:"recipient"`
+				Sender        string `json:"sender"`
+				RenderDetails struct {
+					MessageTitle string `json:"messageTitle"`
+				} `json:"renderDetails"`
+				SourceMetadata struct {
+					Tool struct {
+						ConversationID string `json:"conversationId"`
+						ToolCall       struct {
+							Name string `json:"name"`
+						} `json:"toolCall"`
+					} `json:"tool"`
+				} `json:"sourceMetadata"`
+			}
+			if json.Unmarshal(b, &msg) != nil || msg.Recipient != conv {
+				continue
+			}
+			parent := firstNonEmpty(msg.SourceMetadata.Tool.ConversationID, msg.Sender)
+			if !agyValidConvID(parent) || parent == conv {
+				continue
+			}
+			if msg.SourceMetadata.Tool.ToolCall.Name == "invoke_subagent" ||
+				msg.RenderDetails.MessageTitle == "Message from Parent Agent" ||
+				agyHasSubagentFile(brainDir, parent, conv) {
+				return parent
+			}
+		}
+	}
+	for _, name := range []string{"transcript_full.jsonl", "transcript.jsonl"} {
+		f, err := os.Open(filepath.Join(brainDir, conv, ".system_generated", "logs", name))
+		if err != nil {
+			continue
+		}
+		data, _ := io.ReadAll(io.LimitReader(f, 64<<10))
+		f.Close()
+		line, _, _ := bytes.Cut(data, []byte("\n"))
+		var step0 struct {
+			StepIndex int    `json:"step_index"`
+			Type      string `json:"type"`
+			Content   string `json:"content"`
+		}
+		if json.Unmarshal(line, &step0) != nil || step0.StepIndex != 0 || step0.Type != "SYSTEM_MESSAGE" {
+			continue
+		}
+		if _, rest, ok := strings.Cut(step0.Content, " sender="); ok {
+			parent, _, _ := strings.Cut(rest, " ")
+			if agyHasSubagentFile(brainDir, parent, conv) {
+				return parent
+			}
+		}
+	}
+	return ""
+}
+
+// AgyMainConversation walks agy's parent links from conv under home to the
+// root main conversation id, or returns "" when conv has no parent.
+func AgyMainConversation(home, conv string) string {
+	brain := AgyBrainDir(home)
+	if brain == "" || !agyValidConvID(conv) {
+		return ""
+	}
+	cur := conv
+	seen := map[string]bool{conv: true}
+	for range 16 {
+		p := AgyParent(brain, cur)
+		if p == "" || seen[p] {
+			break
+		}
+		seen[p] = true
+		cur = p
+	}
+	if cur == conv {
+		return ""
+	}
+	return cur
 }
 
 // agyArg is a tool call's string argument k, "" when it is missing or not

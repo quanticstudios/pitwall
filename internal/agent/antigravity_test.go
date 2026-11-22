@@ -321,3 +321,165 @@ func TestSamePath(t *testing.T) {
 		t.Error("case or forward slashes on Windows")
 	}
 }
+
+func TestFromAntigravitySubagents(t *testing.T) {
+	const (
+		mainID = "11111111-2222-3333-4444-555555555555"
+		subID  = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	)
+	now := time.Unix(1_800_000_000, 0)
+
+	// Subagent SessionStart, PreInvocation and Stop return nil so they never
+	// touch the pane's SessionID, Transcript, Prompt or turn state.
+	for _, name := range []string{"subagent_session_start.json", "subagent_pre_invocation.json", "subagent_stop.json"} {
+		if got := FromAntigravity(agyFixture(t, name)); got != nil {
+			t.Errorf("%s: got %s, want nil", name, got)
+		}
+	}
+
+	// Subagent PostToolUse carries agent_id and omits session_id/transcript_path
+	// so the daemon counts it as activity without switching session or state.
+	subPost := FromAntigravity(agyFixture(t, "subagent_post_tool_use.json"))
+	if subPost == nil {
+		t.Fatal("subagent PostToolUse returned nil")
+	}
+	if !SubagentHook(subPost) {
+		t.Errorf("subagent PostToolUse not marked as SubagentHook: %s", subPost)
+	}
+	if SessionID(model.ProviderAntigravity, subPost) != "" || Transcript(subPost) != "" {
+		t.Errorf("subagent PostToolUse leaked session/transcript: %s", subPost)
+	}
+	if c, ok := ToolCall(subPost); !ok || !c.End || c.Tool != "read_file" || c.ID != "call_16567486039228421041" {
+		t.Errorf("subagent PostToolUse call %+v, %v", c, ok)
+	}
+
+	// Failed subagent PostToolUse preserves error and still omits session/transcript.
+	var raw map[string]any
+	json.Unmarshal(agyFixture(t, "subagent_post_tool_use.json"), &raw)
+	raw["error"] = "permission denied"
+	b, _ := json.Marshal(raw)
+	subFail := FromAntigravity(b)
+	if !SubagentHook(subFail) || SessionID(model.ProviderAntigravity, subFail) != "" {
+		t.Errorf("subagent PostToolUse failure: %s", subFail)
+	}
+	if f, ok := ToolFailure(model.ProviderAntigravity, subFail); !ok || f.Output != "permission denied" {
+		t.Errorf("subagent failure %+v, %v", f, ok)
+	}
+
+	// On-disk parent evidence classifies a subagent even if lastUserInput is set.
+	home := t.TempDir()
+	brain := AgyBrainDir(home)
+	msgDir := filepath.Join(brain, subID, ".system_generated", "messages")
+	if err := os.MkdirAll(msgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(msgDir, "m1.json"), agyFixture(t, "subagent_message.json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw = nil
+	json.Unmarshal(agyFixture(t, "subagent_stop.json"), &raw)
+	raw["lastUserInput"] = "unexpected non-empty"
+	raw["artifactDirectoryPath"] = filepath.Join(brain, subID)
+	raw["transcriptPath"] = AntigravityTranscript(home, subID)
+	b, _ = json.Marshal(raw)
+	if got := FromAntigravity(b); got != nil {
+		t.Errorf("on-disk subagent Stop with lastUserInput: got %s, want nil", got)
+	}
+
+	// Main Stop with fullyIdle=false keeps the pane working in background mode
+	// instead of ending the turn while subagents run.
+	tr := AntigravityTranscript(home, mainID)
+	if err := os.MkdirAll(filepath.Dir(tr), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(tr, []byte(`{"step_index":0,"type":"USER_INPUT","content":"<USER_REQUEST>\nrun audit\n</USER_REQUEST>"}
+{"step_index":3,"type":"PLANNER_RESPONSE","status":"DONE","content":"Waiting for the subagent to reply."}
+`), 0o600)
+	raw = nil
+	json.Unmarshal(agyFixture(t, "main_stop_waiting.json"), &raw)
+	raw["artifactDirectoryPath"] = filepath.Join(brain, mainID)
+	raw["transcriptPath"] = tr
+	b, _ = json.Marshal(raw)
+	waiting := FromAntigravity(b)
+	if !BackgroundRunning(waiting) {
+		t.Fatalf("main Stop fullyIdle=false did not set BackgroundRunning: %s", waiting)
+	}
+	working := &model.Activity{Provider: model.ProviderAntigravity, State: model.StateWorking, SessionID: mainID}
+	if a, ok := Derive(working, model.ProviderAntigravity, waiting, now); !ok || a.State != model.StateWorking || a.Detail != "Waiting for the subagent to reply." {
+		t.Errorf("main Stop fullyIdle=false: %+v, %v", a, ok)
+	}
+
+	// Main PreInvocation waking on a subagent message keeps the main session.
+	wake := FromAntigravity(agyFixture(t, "main_pre_invocation_wake.json"))
+	if SessionID(model.ProviderAntigravity, wake) != mainID || Prompt(model.ProviderAntigravity, wake) == "" {
+		t.Errorf("main wake PreInvocation: %s", wake)
+	}
+}
+
+func TestAgyParentAndMainConversation(t *testing.T) {
+	const (
+		mainID = "11111111-2222-3333-4444-555555555555"
+		sub1   = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+		sub2   = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+		sub3   = "cccccccc-dddd-eeee-ffff-000000000000"
+	)
+	home := t.TempDir()
+	brain := AgyBrainDir(home)
+
+	writeFile := func(rel string, data []byte) {
+		t.Helper()
+		p := filepath.Join(brain, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Depth 1: mainID -> sub1 via messages/*.json (invoke_subagent) and parent subagents/*.json.
+	writeFile(filepath.Join(sub1, ".system_generated", "messages", "d341.json"), agyFixture(t, "subagent_message.json"))
+	writeFile(filepath.Join(mainID, ".system_generated", "subagents", sub1+".json"), agyFixture(t, "subagent_meta.json"))
+	// Main conversation received a send_message reply from sub1: must NOT make sub1 main's parent.
+	writeFile(filepath.Join(mainID, ".system_generated", "messages", "reply.json"), []byte(`{
+		"recipient":"`+mainID+`","sender":"`+sub1+`",
+		"renderDetails":{"messageTitle":"Message from Note File Reader (research)"},
+		"sourceMetadata":{"tool":{"conversationId":"`+sub1+`","toolCall":{"name":"send_message"}}}
+	}`))
+	// Depth 2: sub1 -> sub2.
+	writeFile(filepath.Join(sub2, ".system_generated", "messages", "m2.json"), []byte(`{
+		"recipient":"`+sub2+`","sender":"`+sub1+`",
+		"renderDetails":{"messageTitle":"Message from Parent Agent"},
+		"sourceMetadata":{"tool":{"conversationId":"`+sub1+`","toolCall":{"name":"invoke_subagent"}}}
+	}`))
+	// Fallback without messages/: step 0 SYSTEM_MESSAGE + parent's subagents/<id>.json.
+	writeFile(filepath.Join(sub3, ".system_generated", "logs", "transcript_full.jsonl"), []byte(
+		`{"step_index":0,"source":"SYSTEM","type":"SYSTEM_MESSAGE","content":"<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-22T16:51:35Z sender=`+mainID+` priority=MESSAGE_PRIORITY_HIGH content=hi\n</SYSTEM_MESSAGE>"}`+"\n",
+	))
+	writeFile(filepath.Join(mainID, ".system_generated", "subagents", sub3+".json"), []byte(`{"conversationId":"`+sub3+`"}`))
+
+	if got := AgyParent(brain, mainID); got != "" {
+		t.Errorf("main conversation parent = %q, want empty", got)
+	}
+	if got := AgyParent(brain, sub1); got != mainID {
+		t.Errorf("sub1 parent = %q, want %q", got, mainID)
+	}
+	if got := AgyParent(brain, sub2); got != sub1 {
+		t.Errorf("sub2 parent = %q, want %q", got, sub1)
+	}
+	if got := AgyParent(brain, sub3); got != mainID {
+		t.Errorf("sub3 fallback parent = %q, want %q", got, mainID)
+	}
+	if got := AgyMainConversation(home, mainID); got != "" {
+		t.Errorf("main root = %q, want empty", got)
+	}
+	if got := AgyMainConversation(home, sub1); got != mainID {
+		t.Errorf("sub1 root = %q, want %q", got, mainID)
+	}
+	if got := AgyMainConversation(home, sub2); got != mainID {
+		t.Errorf("sub2 nested root = %q, want %q", got, mainID)
+	}
+	if got := AgyMainConversation(home, sub3); got != mainID {
+		t.Errorf("sub3 fallback root = %q, want %q", got, mainID)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/timelog"
 )
@@ -36,8 +37,8 @@ func (d *Daemon) hookTurn(p *model.Pane, payload []byte, now time.Time) {
 		TranscriptPath json.RawMessage `json:"transcript_path"`
 		ConversationID string          `json:"conversation_id"`
 	}
-	// A Claude or Codex /side fork is outside the pane's main turn.
-	if json.Unmarshal(payload, &hook) == nil && hook.Cwd != "" && (string(hook.TranscriptPath) != "null" || hook.ConversationID != "") {
+	// A Claude or Codex /side fork or subagent hook is outside the pane's main folder.
+	if !agent.SubagentHook(payload) && json.Unmarshal(payload, &hook) == nil && hook.Cwd != "" && (string(hook.TranscriptPath) != "null" || hook.ConversationID != "") {
 		if d.turnCwd == nil {
 			d.turnCwd = map[string]string{}
 		}

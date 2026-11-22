@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -180,5 +181,110 @@ func TestTranscriptTaskList(t *testing.T) {
 	last := cards[len(cards)-1]
 	if !sawProgress || slices.ContainsFunc(last, func(t session.Task) bool { return t.Status != "completed" }) || tools == 0 {
 		t.Errorf("progress %v, last card %+v, %d other tool rows", sawProgress, last, tools)
+	}
+}
+
+// TestTranscriptSubagents replays real parallel invoke_subagent transcripts:
+// each call becomes an Agent card tied to its child conversation id, the turn
+// stays running across intermediate waiting replies until every subagent
+// reports back, and subagent transcript lines fill SubagentCalls.
+func TestTranscriptSubagents(t *testing.T) {
+	mainData, err := os.ReadFile("testdata/subagent_main.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child1Data, err := os.ReadFile("testdata/subagent_child1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child2Data, err := os.ReadFile("testdata/subagent_child2.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainLines := bytes.Split(bytes.TrimSpace(mainData), []byte("\n"))
+	tr := NewTranscript()
+
+	// Feed up through step 4 (two subagents launched + waiting reply).
+	for _, l := range mainLines[:5] {
+		tr.Line(l)
+	}
+	if !tr.Running() {
+		t.Fatal("turn ended on waiting PLANNER_RESPONSE while subagents still run")
+	}
+	subs := tr.Subagents()
+	if len(subs) != 2 || !subs["step-1#0"] || !subs["step-1#1"] {
+		t.Fatalf("Subagents while running = %v, want both running", subs)
+	}
+	mainPath := filepath.FromSlash("/home/user/.gemini/antigravity-cli/brain/11111111-2222-3333-4444-555555555555/.system_generated/logs/transcript_full.jsonl")
+	paths := tr.SubagentPaths(mainPath)
+	want1 := filepath.FromSlash("/home/user/.gemini/antigravity-cli/brain/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/.system_generated/logs/transcript_full.jsonl")
+	want2 := filepath.FromSlash("/home/user/.gemini/antigravity-cli/brain/bbbbbbbb-cccc-dddd-eeee-ffffffffffff/.system_generated/logs/transcript_full.jsonl")
+	if paths["step-1#0"] != want1 || paths["step-1#1"] != want2 {
+		t.Fatalf("SubagentPaths = %v", paths)
+	}
+
+	// Feed child transcripts into their cards.
+	var last1, last2 *session.ToolCall
+	for _, l := range bytes.Split(bytes.TrimSpace(child1Data), []byte("\n")) {
+		for _, e := range tr.Subagent("step-1#0", l) {
+			last1 = e.Tool
+		}
+	}
+	for _, l := range bytes.Split(bytes.TrimSpace(child2Data), []byte("\n")) {
+		for _, e := range tr.Subagent("step-1#1", l) {
+			last2 = e.Tool
+		}
+	}
+	if last1 == nil || !slices.Equal(last1.SubagentTools, []string{"Read", "send_message"}) || len(last1.SubagentCalls) != 2 || last1.SubagentCalls[0].Status != "completed" {
+		t.Fatalf("child1 card = %+v", last1)
+	}
+	if last2 == nil || !slices.Equal(last2.SubagentTools, []string{"Read", "send_message"}) {
+		t.Fatalf("child2 card = %+v", last2)
+	}
+
+	// Child 1 replies (step 5) and main notes waiting for child 2 (step 6): turn stays running.
+	var c1Done *session.ToolCall
+	for _, e := range tr.Line(mainLines[5]) {
+		if e.Tool != nil {
+			c1Done = e.Tool
+		}
+	}
+	if c1Done == nil || c1Done.Status != "completed" || !strings.Contains(c1Done.Output, "hello world") {
+		t.Fatalf("child1 completion event = %+v", c1Done)
+	}
+	tr.Line(mainLines[6])
+	if !tr.Running() {
+		t.Fatal("turn ended after first subagent while second still runs")
+	}
+	if subs := tr.Subagents(); subs["step-1#0"] || !subs["step-1#1"] {
+		t.Fatalf("Subagents mid-turn = %v", subs)
+	}
+
+	// Child 2 replies (step 7) and main finishes with BOTH_DONE (step 8).
+	tr.Line(mainLines[7])
+	es := tr.Line(mainLines[8])
+	if tr.Running() {
+		t.Fatal("turn still running after final reply with no running subagents")
+	}
+	if !slices.ContainsFunc(es, func(e session.Event) bool {
+		return e.Type == session.EventTurnCompleted && e.State == session.TurnCompleted
+	}) {
+		t.Fatalf("final events missing TurnCompleted: %+v", es)
+	}
+
+	// Interrupting a turn with a running subagent marks its card failed.
+	tr2 := NewTranscript()
+	for _, l := range mainLines[:4] {
+		tr2.Line(l)
+	}
+	endEs := tr2.End(session.TurnInterrupted)
+	failed := 0
+	for _, e := range endEs {
+		if e.Tool != nil && e.Tool.ToolName == "Agent" && e.Tool.Status == "failed" {
+			failed++
+		}
+	}
+	if failed != 2 {
+		t.Fatalf("End(TurnInterrupted) failed %d subagents, want 2", failed)
 	}
 }

@@ -1,0 +1,23 @@
+{
+  "artifactDirectoryPath": "/home/user/.gemini/antigravity-cli/brain/11111111-2222-3333-4444-555555555555",
+  "conversationId": "11111111-2222-3333-4444-555555555555",
+  "cwd": "/home/user/project",
+  "error": "",
+  "hookEventName": "PostToolUse",
+  "lastUserInput": "Use invoke_subagent with TypeName 'research' to read note.txt in the current directory and report its contents back to you. Wait for its reply, then reply with the word DONE and the contents.",
+  "modelName": "gemini-4-neon-high",
+  "stepIdx": 2,
+  "toolCall": {
+    "args": {
+      "Prompt": "Read `/home/user/project/note.txt` and report its exact contents back to me.",
+      "Role": "Note File Reader",
+      "TypeName": "research"
+    },
+    "id": "call_6575690465904354496",
+    "name": "invoke_subagent"
+  },
+  "transcriptPath": "/home/user/.gemini/antigravity-cli/brain/11111111-2222-3333-4444-555555555555/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/home/user/project"
+  ]
+}
