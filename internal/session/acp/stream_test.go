@@ -19,6 +19,7 @@ func TestUnsupportedRequests(t *testing.T) {
 	// response, and numeric or string request ids retain their JSON type.
 	for _, id := range []any{9, "request"} {
 		d.line(rpc(id, "fs/read_text_file", map[string]string{"path": "/tmp/file"}))
+		_ = d.flushWrites()
 		var got rpcMessage
 		if json.Unmarshal(w.Bytes(), &got) != nil || got.Error == nil || got.Error.Code != -32601 || !bytes.Equal(got.ID, raw(id)) {
 			t.Fatalf("reply: %s", w.Bytes())
@@ -26,7 +27,9 @@ func TestUnsupportedRequests(t *testing.T) {
 		w.Reset()
 	}
 	for _, line := range []json.RawMessage{[]byte(`garbage`), notification("unknown", nil), notification("session/update", map[string]any{"sessionId": "wrong", "update": map[string]string{"sessionUpdate": "agent_message_chunk"}})} {
-		if events := d.line(line); len(events) != 0 || w.Len() != 0 {
+		events := d.line(line)
+		_ = d.flushWrites()
+		if len(events) != 0 || w.Len() != 0 {
 			t.Fatalf("unexpected events or reply: %s %+v", w.Bytes(), events)
 		}
 	}

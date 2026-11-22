@@ -334,11 +334,12 @@ type Daemon struct {
 	// queueMu serializes writes of Options.Queues: queueSaved is the last
 	// one written, of generation queueWrote; queueGen, guarded by mu,
 	// numbers each look at the queues, so an older one never lands last.
-	queueMu    sync.Mutex
-	queueSaved []byte
-	queueWrote uint64
-	queueGen   uint64
-	turnMu     sync.Mutex // one checkpoint at a time, so each gets its own number
+	queueMu     sync.Mutex
+	queueSaved  []byte
+	queueWrote  uint64
+	queueGen    uint64
+	turnLocksMu sync.Mutex
+	turnLocks   map[string]*turnLockEntry // per-workspace turn checkpoint/end/drop lock
 
 	history map[string]cachedHistory // guarded by mu; routine saves reuse these blobs
 
@@ -671,11 +672,11 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	d.radar.mu.Lock()
 	d.radar.ctx = ctx
 	d.radar.mu.Unlock()
-	go d.statsLoop(ctx)
 	var wg sync.WaitGroup
+	wg.Go(func() { d.statsLoop(ctx) })
 	wg.Go(func() { d.prLoop(ctx) })
-	go d.settleLoop(ctx)
-	go d.noteOrphans(ctx)
+	wg.Go(func() { d.settleLoop(ctx) })
+	wg.Go(func() { d.noteOrphans(ctx) })
 	if d.o.UpdateScreenPatterns != nil {
 		wg.Go(func() { d.o.UpdateScreenPatterns(ctx) })
 	}
@@ -731,10 +732,11 @@ func (d *Daemon) shutdown() {
 		return
 	}
 	d.closing = true
-	s := d.storedState()
+	s, live := d.storedStateNoCwd()
 	sources := d.historySources(s)
 	panes := slices.Collect(maps.Values(d.panes))
 	d.mu.Unlock()
+	fillCwds(&s, live)
 	captureHistory(&s, sources)
 	d.mu.Lock()
 	d.cacheHistory(&s, sources)
@@ -947,6 +949,14 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if err := d.firstSession(ctx, hello.Cwd, hello.Session); err != nil {
 			c.queue(proto.Error{Message: err.Error()})
 		}
+		type connectReq struct {
+			id         string
+			p          Pane
+			live       bool
+			prevOff    int
+			prevPushed uint64
+		}
+		var reqs []connectReq
 		d.mu.Lock()
 		d.clients[c] = struct{}{}
 		if hello.Level >= proto.Since(proto.View{}) {
@@ -954,15 +964,43 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		c.diffs = hello.Level >= proto.Since(proto.FrameRows{})
 		c.moves = hello.Level >= proto.Since(proto.FocusDir{})
-		c.push(func() {
-			c.state = true
-			for id, p := range d.panes {
-				if c.shows(id) {
-					c.frames[id] = d.frameFor(c, id, p)
-				}
+		c.push(func() { c.state = true })
+		for id, p := range d.panes {
+			if c.shows(id) {
+				off, pushed := d.viewState(id)
+				reqs = append(reqs, connectReq{id: id, p: p, live: c.live[id], prevOff: off, prevPushed: pushed})
 			}
-		})
+		}
 		d.mu.Unlock()
+		if len(reqs) > 0 {
+			type captured struct {
+				req       connectReq
+				frame     proto.Frame
+				newOff    int
+				newPushed uint64
+			}
+			out := make([]captured, len(reqs))
+			for i, r := range reqs {
+				f, newOff, newPushed := captureViewFrame(r.id, r.p, r.live, r.prevOff, r.prevPushed)
+				out[i] = captured{req: r, frame: f, newOff: newOff, newPushed: newPushed}
+			}
+			d.mu.Lock()
+			if _, ok := d.clients[c]; ok {
+				for _, item := range out {
+					if d.panes[item.req.id] == item.req.p {
+						d.updateView(item.req.id, item.req.live, item.req.prevOff, item.req.prevPushed, item.newOff, item.newPushed)
+					}
+				}
+				c.push(func() {
+					for _, item := range out {
+						if d.panes[item.req.id] == item.req.p && c.shows(item.req.id) && c.live[item.req.id] == item.req.live {
+							c.frames[item.req.id] = item.frame
+						}
+					}
+				})
+			}
+			d.mu.Unlock()
+		}
 		defer func() {
 			d.unwatchMonitor(c)
 			d.mu.Lock()
@@ -2300,12 +2338,43 @@ func (d *Daemon) checkpointWait(dir, ws string) string {
 	}
 }
 
+type turnLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockTurn serializes checkpoint, turnEnd, and DropTurns per workspace without
+// blocking concurrent turns in unrelated workspaces.
+func (d *Daemon) lockTurn(key string) func() {
+	d.turnLocksMu.Lock()
+	if d.turnLocks == nil {
+		d.turnLocks = map[string]*turnLockEntry{}
+	}
+	e := d.turnLocks[key]
+	if e == nil {
+		e = &turnLockEntry{}
+		d.turnLocks[key] = e
+	}
+	e.refs++
+	d.turnLocksMu.Unlock()
+	e.mu.Lock()
+	return func() {
+		e.mu.Unlock()
+		d.turnLocksMu.Lock()
+		e.refs--
+		if e.refs == 0 {
+			delete(d.turnLocks, key)
+		}
+		d.turnLocksMu.Unlock()
+	}
+}
+
 // checkpoint snapshots tab ws's work tree at dir, unless the tab closed
 // while it waited: its refs are dropped then, and a checkpoint would make
 // them again.
 func (d *Daemon) checkpoint(dir, ws string) string {
-	d.turnMu.Lock()
-	defer d.turnMu.Unlock()
+	unlock := d.lockTurn(ws)
+	defer unlock()
 	d.mu.Lock()
 	open := d.workspace(ws) != nil
 	d.mu.Unlock()
@@ -2368,16 +2437,40 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 		repo   bool
 		stats  *model.BranchStats
 	}
-	got := map[string]git{}
-	for id, path := range paths {
-		var g git
-		g.branch, g.repo = d.o.Branch(ctx, path)
-		if g.repo {
-			if s, err := d.o.Stats(ctx, path); err == nil {
-				g.stats = &s
-			}
+	uniq := make([]string, 0, len(paths))
+	pathIdx := make(map[string]int, len(paths))
+	for _, path := range paths {
+		if _, ok := pathIdx[path]; !ok {
+			pathIdx[path] = len(uniq)
+			uniq = append(uniq, path)
 		}
-		got[id] = g
+	}
+	results := make([]git, len(uniq))
+	if len(uniq) > 0 {
+		const maxWorkers = 4
+		workers := min(maxWorkers, len(uniq))
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				for {
+					i := int(next.Add(1) - 1)
+					if i >= len(uniq) || ctx.Err() != nil {
+						return
+					}
+					path := uniq[i]
+					var g git
+					g.branch, g.repo = d.o.Branch(ctx, path)
+					if g.repo {
+						if s, err := d.o.Stats(ctx, path); err == nil {
+							g.stats = &s
+						}
+					}
+					results[i] = g
+				}
+			})
+		}
+		wg.Wait()
 	}
 	if ctx.Err() != nil {
 		return // git was cut short, not answering "not a repo"
@@ -2387,7 +2480,8 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	changed := false
-	for id, g := range got {
+	for id, path := range paths {
+		g := results[pathIdx[path]]
 		w := d.workspace(id)
 		if w == nil {
 			continue
@@ -2563,17 +2657,19 @@ func (d *Daemon) watch(id string, p Pane) {
 			}
 		case <-titleDue:
 			titleDue = nil
-			g := p.Snapshot()
-			d.setTitle(id, p, g.Title)
 			d.mu.Lock()
 			claude := d.paneProvider(id) == model.ProviderClaude
 			d.mu.Unlock()
 			if claude {
+				g := p.Snapshot()
+				d.setTitle(id, p, g.Title)
 				// Keep settings while the phone is closed, outside the frame lock.
 				m, e := agent.ClaudeSettings(g)
 				d.mu.Lock()
 				d.keepClaudeSettings(id, p, m, e)
 				d.mu.Unlock()
+			} else {
+				d.setTitle(id, p, paneTitle(p))
 			}
 		case <-p.Done():
 			d.pushFrame(id, p)
@@ -2587,35 +2683,74 @@ func (d *Daemon) watch(id string, p Pane) {
 // when there was no GUI to build one for.
 func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.panes[id] != p {
+		d.mu.Unlock()
 		return "", false
 	}
 	if d.phoneTick != nil {
 		close(d.phoneTick) // phoneTabs reads settings outside the frame lock.
 		d.phoneTick = nil
 	}
-	var f, lf *proto.Frame // the shared scroll's frame and the live one, built once each
+	var needShared, needLive bool
 	for c := range d.clients {
 		if !c.shows(id) {
 			continue
 		}
-		at := &f
 		if c.live[id] {
-			at = &lf
+			needLive = true
+		} else {
+			needShared = true
 		}
-		if *at == nil {
-			fr := d.frameFor(c, id, p)
-			*at = &fr
-		}
-		fr := *at
-		c.push(func() { c.frames[id] = *fr })
 	}
+	if !needShared && !needLive {
+		d.mu.Unlock()
+		return "", false
+	}
+	prevOff, prevPushed := d.viewState(id)
+	d.mu.Unlock()
+
+	var f, lf *proto.Frame
+	var newOff int
+	var newPushed, livePushed uint64
+	if needShared {
+		fr, off, pushed := captureViewFrame(id, p, false, prevOff, prevPushed)
+		f, newOff, newPushed = &fr, off, pushed
+	}
+	if needLive {
+		fr, _, pushed := captureViewFrame(id, p, true, 0, 0)
+		lf, livePushed = &fr, pushed
+	}
+
+	d.mu.Lock()
+	if d.panes[id] != p {
+		d.mu.Unlock()
+		return "", false
+	}
+	if needShared {
+		d.updateView(id, false, prevOff, prevPushed, newOff, newPushed)
+	} else if needLive {
+		d.updateView(id, true, prevOff, prevPushed, 0, livePushed)
+	}
+	for c := range d.clients {
+		if !c.shows(id) {
+			continue
+		}
+		var fr *proto.Frame
+		if c.live[id] {
+			fr = lf
+		} else {
+			fr = f
+		}
+		if fr == nil {
+			continue
+		}
+		frame := *fr
+		c.push(func() { c.frames[id] = frame })
+	}
+	d.mu.Unlock()
+
 	if f == nil {
 		f = lf
-	}
-	if f == nil {
-		return "", false
 	}
 	return f.Grid.Title, true
 }
@@ -2627,8 +2762,15 @@ func (c *client) shows(id string) bool { return c.view == nil || c.view[id] }
 // screen, and queues a frame of each pane it did not draw before, or now
 // draws at another scroll: its last frame may be long stale.
 func (d *Daemon) setView(c *client, panes, live []string) {
+	type viewReq struct {
+		id         string
+		p          Pane
+		live       bool
+		prevOff    int
+		prevPushed uint64
+	}
+	var reqs []viewReq
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	view := map[string]bool{}
 	for _, id := range panes {
 		view[id] = true
@@ -2652,13 +2794,49 @@ func (d *Daemon) setView(c *client, panes, live []string) {
 				delete(c.frames, id)
 			}
 		}
-		for id := range view {
-			if p := d.panes[id]; p != nil && (old == nil || !old[id] || was[id] != c.live[id]) {
-				c.frames[id] = d.frameFor(c, id, p)
-				c.fresh[id] = true
+	})
+	for id := range view {
+		if p := d.panes[id]; p != nil && (old == nil || !old[id] || was[id] != c.live[id]) {
+			off, pushed := d.viewState(id)
+			reqs = append(reqs, viewReq{id: id, p: p, live: c.live[id], prevOff: off, prevPushed: pushed})
+		}
+	}
+	d.mu.Unlock()
+
+	if len(reqs) == 0 {
+		return
+	}
+	type captured struct {
+		req       viewReq
+		frame     proto.Frame
+		newOff    int
+		newPushed uint64
+	}
+	out := make([]captured, len(reqs))
+	for i, r := range reqs {
+		f, newOff, newPushed := captureViewFrame(r.id, r.p, r.live, r.prevOff, r.prevPushed)
+		out[i] = captured{req: r, frame: f, newOff: newOff, newPushed: newPushed}
+	}
+	d.mu.Lock()
+	if _, ok := d.clients[c]; ok {
+		for _, item := range out {
+			if d.panes[item.req.id] == item.req.p {
+				d.updateView(item.req.id, item.req.live, item.req.prevOff, item.req.prevPushed, item.newOff, item.newPushed)
 			}
 		}
-	})
+		c.push(func() {
+			if c.fresh == nil {
+				c.fresh = map[string]bool{}
+			}
+			for _, item := range out {
+				if d.panes[item.req.id] == item.req.p && c.shows(item.req.id) && c.live[item.req.id] == item.req.live {
+					c.frames[item.req.id] = item.frame
+					c.fresh[item.req.id] = true
+				}
+			}
+		})
+	}
+	d.mu.Unlock()
 }
 
 // resumeGrace is how soon after a restart a resumed agent may fail and get a
@@ -2881,12 +3059,13 @@ func (d *Daemon) saveState(history bool) error {
 		return fmt.Errorf("daemon is closing")
 	}
 	d.savePending = false
-	s := d.storedState()
+	s, live := d.storedStateNoCwd()
 	var sources map[string]historySource
 	if history {
 		sources = d.historySources(s)
 	}
 	d.mu.Unlock()
+	fillCwds(&s, live)
 	if history {
 		captureHistory(&s, sources)
 		d.mu.Lock()
@@ -2908,20 +3087,34 @@ func (d *Daemon) saveState(history bool) error {
 // or chat tabs' terminal views, which a restart does not bring back. A
 // handoff takes saveSnapshot itself, since its panes live on.
 func (d *Daemon) storedState() model.State {
-	return withoutChatTerminals(withoutPopups(d.saveSnapshot()))
+	s, live := d.storedStateNoCwd()
+	fillCwds(&s, live)
+	return s
+}
+
+func (d *Daemon) storedStateNoCwd() (model.State, map[string]Pane) {
+	s, live := d.saveSnapshotNoCwd()
+	return withoutChatTerminals(withoutPopups(s)), live
 }
 
 // saveSnapshot is snapshot with the start history and each live pane's
 // current directory, so a restart relaunches the shell where the user left it.
 func (d *Daemon) saveSnapshot() model.State {
+	s, live := d.saveSnapshotNoCwd()
+	fillCwds(&s, live)
+	return s
+}
+
+// saveSnapshotNoCwd captures state and live pane handles under d.mu without
+// running h.Cwd() syscalls under the global lock.
+func (d *Daemon) saveSnapshotNoCwd() (model.State, map[string]Pane) {
 	s := d.snapshot()
 	s.Starts = maps.Clone(d.st.Starts)
 	s.Activities = append(s.Activities, d.restoreActivities()...)
-	for i, p := range s.Panes {
+	live := make(map[string]Pane, len(s.Panes))
+	for _, p := range s.Panes {
 		if h := d.panes[p.ID]; h != nil && !p.Exited {
-			if cwd := h.Cwd(); cwd != "" {
-				s.Panes[i].Cwd = cwd
-			}
+			live[p.ID] = h
 		}
 	}
 	for i := range s.Panes {
@@ -2930,7 +3123,18 @@ func (d *Daemon) saveSnapshot() model.State {
 			p.History = h.history
 		}
 	}
-	return s
+	return s, live
+}
+
+// fillCwds populates each live pane's current working directory outside d.mu.
+func fillCwds(s *model.State, live map[string]Pane) {
+	for i, p := range s.Panes {
+		if h := live[p.ID]; h != nil && !p.Exited {
+			if cwd := h.Cwd(); cwd != "" {
+				s.Panes[i].Cwd = cwd
+			}
+		}
+	}
 }
 
 // snapshot deep-copies the state so it can be encoded outside d.mu.

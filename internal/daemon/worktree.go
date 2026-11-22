@@ -198,3 +198,33 @@ func (w *portWatch) PromptOffset(off, n int) int {
 	}
 	return off
 }
+
+// CaptureFrame forwards single-lock frame capture through the port watcher.
+func (w *portWatch) CaptureFrame(off int) vt.Frame {
+	if e, ok := w.Emulator.(interface{ CaptureFrame(int) vt.Frame }); ok {
+		return e.CaptureFrame(off)
+	}
+	return vt.Frame{
+		Grid:         w.Emulator.SnapshotAt(off),
+		Modes:        w.Emulator.Modes(),
+		ScrollMax:    w.Emulator.ScrollbackLen(),
+		ScrollPushed: w.Emulator.ScrollbackPushed(),
+		PromptMarks:  w.HasPromptMarks(),
+	}
+}
+
+// WriteSeq forwards the emulator's write sequence through the port watcher.
+func (w *portWatch) WriteSeq() uint64 {
+	if e, ok := w.Emulator.(interface{ WriteSeq() uint64 }); ok {
+		return e.WriteSeq()
+	}
+	return 0
+}
+
+// Title forwards fast title lookup through the port watcher.
+func (w *portWatch) Title() string {
+	if e, ok := w.Emulator.(interface{ Title() string }); ok {
+		return e.Title()
+	}
+	return w.Emulator.Snapshot().Title
+}

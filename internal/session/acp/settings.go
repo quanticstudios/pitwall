@@ -188,11 +188,11 @@ func (d *driver) elicit(m rpcMessage) []session.Event {
 		err = json.Unmarshal(p.RequestedSchema.Properties, &props)
 	}
 	if err != nil || p.Mode != "form" || p.SessionID != d.s.id || d.s.turn == "" || len(keys) == 0 {
-		d.write(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32602, Message: "No active turn or unsupported elicitation"}})
+		d.queueWrite(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32602, Message: "No active turn or unsupported elicitation"}})
 		return nil
 	}
 	if d.s.cancelled {
-		d.reply(m.ID, map[string]string{"action": "cancel"})
+		d.queueReply(m.ID, map[string]string{"action": "cancel"})
 		return nil
 	}
 	in := input{ID: m.ID, types: map[string]string{}, values: map[string]map[string]string{}, other: map[string]string{}}

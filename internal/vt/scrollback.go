@@ -1,6 +1,9 @@
 package vt
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Scrollback returns the history and screen as plain text with soft wraps
 // joined and trailing empty rows removed. The caller prevents writes and resizes.
@@ -54,7 +57,8 @@ func (t *emulator) ScrollbackSnapshot() func() string {
 				return screen(n)
 			}
 			l := &history[n]
-			buf = append(buf[:0], make([]Cell, l.width())...)
+			w := l.width()
+			buf = slices.Grow(buf[:0], w)[:w]
 			l.fill(buf)
 			return buf, l.wrapped(), true
 		}

@@ -168,6 +168,7 @@ func Restore(data []byte, reply io.Writer) (Emulator, error) {
 	}
 	st := t.st
 	st.shell = s.Shell
+	st.hasPrompt = hasPromptMark(st.shell)
 	st.hist, st.title, st.cwd = h, s.Title, s.Cwd
 	st.hidden, st.shape, st.kitty, st.term, st.last = s.Hidden, s.Shape, s.Kitty, s.Term, s.Last
 	st.modes = make(map[ansi.Mode]bool)

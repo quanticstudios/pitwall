@@ -54,14 +54,56 @@ func Command(ctx context.Context, dir string, args ...string) *exec.Cmd {
 // CommandEnv is Command with the supplied process environment, or the
 // daemon's environment when env is nil. Repository programs remain guarded.
 func CommandEnv(ctx context.Context, dir string, env []string, args ...string) *exec.Cmd {
+	env, err := Env(ctx, dir, env)
+	return commandWithEnv(ctx, dir, env, err, args...)
+}
+
+// commandWithEnv builds a guarded git command from a precomputed Env result so
+// multi-command operations read repository config once.
+func commandWithEnv(ctx context.Context, dir string, env []string, err error, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, guardArgs(args)...)...)
 	nowindow.Set(cmd)
-	env, err := Env(ctx, dir, env)
 	cmd.Env = env
 	if err != nil {
 		cmd.Err = err
 	}
 	return cmd
+}
+
+// runner reuses one Env computation across all git commands of a single
+// high-level operation in the same repository/worktree.
+type runner struct {
+	env []string
+	err error
+}
+
+func newRunner(ctx context.Context, dir string) runner {
+	env, err := Env(ctx, dir, nil)
+	return runner{env: env, err: err}
+}
+
+func (r runner) git(ctx context.Context, dir string, args ...string) (string, error) {
+	return r.gitWith(ctx, dir, nil, "", args...)
+}
+
+func (r runner) gitWith(ctx context.Context, dir string, extraEnv []string, stdin string, args ...string) (string, error) {
+	var cmd *exec.Cmd
+	if r.env == nil && r.err == nil {
+		cmd = Command(ctx, dir, args...)
+		if len(extraEnv) > 0 {
+			cmd.Env = append(cmd.Env, extraEnv...)
+		}
+	} else {
+		env := r.env
+		if len(extraEnv) > 0 {
+			env = append(slices.Clone(r.env), extraEnv...)
+		}
+		cmd = commandWithEnv(ctx, dir, env, r.err, args...)
+	}
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	return output(ctx, cmd, args)
 }
 
 // Env is env (os.Environ when nil) with the settings above for a git that

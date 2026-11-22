@@ -38,8 +38,8 @@ func (d *Daemon) turnEnd(ws string) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.turnMu.Lock() // after the turn's checkpoint, never beside it
-		defer d.turnMu.Unlock()
+		unlock := d.lockTurn(ws) // after the turn's checkpoint, never beside it
+		defer unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		if _, ok := gitstat.RepoRoot(ctx, dir); !ok {

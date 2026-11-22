@@ -25,6 +25,7 @@ type Match struct {
 // line that wrapped does not match across the wrap.
 type Finder struct {
 	q     []byte
+	qs    string
 	fold  bool
 	text  []byte // the row's text, folded when fold is set
 	cells []span // where each cell's text starts, and a sentinel at the end
@@ -38,6 +39,7 @@ func NewFinder(query string) *Finder {
 	if f.fold {
 		query = strings.ToLower(query)
 	}
+	f.qs = query
 	f.q = []byte(query)
 	return f
 }
@@ -217,12 +219,12 @@ func (f *Finder) asciiRow(dst []Match, line uint64, text string) []Match {
 		return dst
 	}
 	for i := 0; i < len(text); {
-		j := strings.Index(text[i:], string(f.q))
+		j := strings.Index(text[i:], f.qs)
 		if j < 0 {
 			break
 		}
-		dst = append(dst, Match{Line: line, Col: i + j, Cols: len(f.q)})
-		i += j + len(f.q)
+		dst = append(dst, Match{Line: line, Col: i + j, Cols: len(f.qs)})
+		i += j + len(f.qs)
 	}
 	return dst
 }

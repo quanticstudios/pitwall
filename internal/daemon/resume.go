@@ -49,12 +49,21 @@ type resume struct {
 	stop  func() bool
 }
 
+type limitChecked struct {
+	p    Pane
+	seq  uint64
+	turn time.Time
+}
+
 // limitResumes is the daemon's resumes. Guarded by d.mu.
 type limitResumes struct {
 	pending map[string]*resume // pane: its continue
 	// seen is, per pane, the limit message last acted on, until it leaves
 	// the screen, so one message on screen schedules once.
 	seen map[string]string
+	// checked skips redundant Snapshots in checkLimits when a pane's WriteSeq
+	// and turn are unchanged.
+	checked map[string]limitChecked
 }
 
 // seenMsg records msg as pane id's limit message acted on.
@@ -106,6 +115,7 @@ func (d *Daemon) checkLimits() {
 		for id := range d.lim.pending {
 			changed = d.dropResume(id) || changed
 		}
+		clear(d.lim.checked)
 		if changed {
 			d.changed()
 		}
@@ -116,13 +126,20 @@ func (d *Daemon) checkLimits() {
 		return
 	}
 	type look struct {
-		id   string
-		p    Pane
-		prov model.Provider
-		turn time.Time
+		id     string
+		p      Pane
+		prov   model.Provider
+		turn   time.Time
+		seq    uint64
+		hasSeq bool
 	}
 	var looks []look
 	d.mu.Lock()
+	for id := range d.lim.checked {
+		if d.panes[id] == nil {
+			delete(d.lim.checked, id)
+		}
+	}
 	for _, sp := range d.st.Panes {
 		p := d.panes[sp.ID]
 		if p == nil || sp.Exited || sp.Provider != model.ProviderClaude && sp.Provider != model.ProviderCodex || d.pendingResume(sp.ID) != nil {
@@ -135,12 +152,29 @@ func (d *Daemon) checkLimits() {
 			}
 			turn = d.st.Activities[i].UpdatedAt
 		}
-		looks = append(looks, look{sp.ID, p, sp.Provider, turn})
+		seq, hasSeq := paneWriteSeq(p)
+		if hasSeq {
+			if prev, ok := d.lim.checked[sp.ID]; ok && prev.p == p && prev.seq == seq && prev.turn.Equal(turn) {
+				continue
+			}
+		}
+		looks = append(looks, look{sp.ID, p, sp.Provider, turn, seq, hasSeq})
 	}
 	d.mu.Unlock()
 	for _, l := range looks {
+		seq, hasSeq := paneWriteSeq(l.p)
 		g := l.p.Snapshot()
 		if agent.ReadScreenOf(l.prov, g) != agent.ScreenNone {
+			if hasSeq {
+				d.mu.Lock()
+				if d.panes[l.id] == l.p {
+					if d.lim.checked == nil {
+						d.lim.checked = map[string]limitChecked{}
+					}
+					d.lim.checked[l.id] = limitChecked{p: l.p, seq: seq, turn: l.turn}
+				}
+				d.mu.Unlock()
+			}
 			continue
 		}
 		msg, resets, ok := agent.UsageLimit(agent.ScreenText(g, 12), resumeNow())
@@ -152,6 +186,12 @@ func (d *Daemon) checkLimits() {
 			delete(d.lim.seen, l.id)
 		case fresh:
 			d.lim.seenMsg(l.id, msg)
+		}
+		if hasSeq && d.panes[l.id] == l.p {
+			if d.lim.checked == nil {
+				d.lim.checked = map[string]limitChecked{}
+			}
+			d.lim.checked[l.id] = limitChecked{p: l.p, seq: seq, turn: l.turn}
 		}
 		d.mu.Unlock()
 		if fresh {

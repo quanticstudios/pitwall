@@ -20,6 +20,11 @@ import (
 // types return nil. When a change has no delta form, the one delta is a
 // snapshot; the loop sets that snapshot's Revision and UpdatedAt too.
 func Reduce(s Snapshot, e Event) []Delta {
+	if e.Type == EventContent {
+		if ds, ok := reduceContent(s, e); ok {
+			return ds
+		}
+	}
 	n, ok := next(s, e)
 	if !ok {
 		return nil
@@ -32,6 +37,118 @@ func Reduce(s Snapshot, e Event) []Delta {
 		return []Delta{{Type: DeltaSessionPatch}}
 	}
 	return ds
+}
+
+// reduceContent fast-paths EventContent without cloning s.Content or running
+// reflect.DeepEqual over all historical items. Returns ok=false only if s has
+// inconsistent derived fields (Running/PlanApproval) that need full diff.
+func reduceContent(s Snapshot, e Event) ([]Delta, bool) {
+	if s.Running != (s.SessionState != StateStopped && s.SessionState != StateError) {
+		return nil, false
+	}
+	if !eqPlanApproval(s.PlanApproval, planApproval(s.PendingApprovals)) {
+		return nil, false
+	}
+	active := len(s.Turns) - 1
+	for active >= 0 && s.Turns[active].State != TurnRunning {
+		active--
+	}
+	var turnID *string
+	if active >= 0 {
+		turnID = ptr(s.Turns[active].ID)
+	}
+
+	// Scan backwards: streaming deltas almost always target the newest item.
+	idx := -1
+	for i := len(s.Content) - 1; i >= 0; i-- {
+		if s.Content[i].ID == e.ItemID && s.Content[i].Kind == e.Kind {
+			idx = i
+			break
+		}
+	}
+	if idx >= 0 {
+		p := s.Content[idx]
+		// Pure text/reasoning append: emit directly with zero string concat or DeepEqual.
+		if e.Text != "" && (e.Phase == "" || e.Phase == p.Phase) && e.Tool == nil {
+			t := DeltaItemTextAppend
+			if p.Kind == KindReasoningText || p.Kind == KindReasoningSummaryText {
+				t = DeltaReasoningAppend
+			}
+			return []Delta{{Type: t, ItemID: p.ID, Text: e.Text, ItemUpdatedAt: e.CreatedAt}}, true
+		}
+		q := p
+		if e.Phase != "" {
+			q.Phase = e.Phase
+		}
+		if e.Tool != nil {
+			q.Tool = toolTimes(*e.Tool, p.Tool, e.CreatedAt)
+		}
+		q.Text += e.Text
+		q.UpdatedAt = e.CreatedAt
+		ds, ok := diffItem(p, q)
+		if !ok {
+			n := s
+			n.Content = slices.Clone(s.Content)
+			n.Content[idx] = q
+			return []Delta{{Type: DeltaSnapshot, Snapshot: &n}}, true
+		}
+		if len(ds) == 0 {
+			return []Delta{{Type: DeltaSessionPatch}}, true
+		}
+		return ds, true
+	}
+
+	it := Item{
+		CreatedAt:   e.CreatedAt,
+		ID:          e.ItemID,
+		Kind:        e.Kind,
+		Phase:       e.Phase,
+		Model:       s.Model,
+		Provider:    ptr(s.Provider),
+		Text:        e.Text,
+		TurnID:      turnID,
+		UpdatedAt:   e.CreatedAt,
+		Attachments: e.Attachments,
+	}
+	if e.Model != "" {
+		it.Model = ptr(e.Model)
+	}
+	if e.Tool != nil {
+		it.Tool = toolTimes(*e.Tool, nil, e.CreatedAt)
+	}
+	if last := len(s.Content) - 1; last >= 0 && it.Kind == KindAssistantText && s.Provider != model.ProviderCodex && it.TurnID != nil {
+		p := &s.Content[last]
+		if p.Kind == KindAssistantText && eq(p.TurnID, it.TurnID) && eq(p.Provider, it.Provider) && eq(p.Model, it.Model) {
+			if it.Text != "" {
+				return []Delta{{Type: DeltaItemTextAppend, ItemID: p.ID, Text: it.Text, ItemUpdatedAt: it.UpdatedAt}}, true
+			}
+			q := *p
+			q.UpdatedAt = it.UpdatedAt
+			ds, ok := diffItem(*p, q)
+			if !ok {
+				n := s
+				n.Content = slices.Clone(s.Content)
+				n.Content[last] = q
+				return []Delta{{Type: DeltaSnapshot, Snapshot: &n}}, true
+			}
+			if len(ds) == 0 {
+				return []Delta{{Type: DeltaSessionPatch}}, true
+			}
+			return ds, true
+		}
+	}
+	t := DeltaItemAdd
+	if it.Tool != nil {
+		t = DeltaToolStart
+	}
+	return []Delta{{Type: t, Item: &it}}, true
+}
+
+func eqPlanApproval(a, b *PlanApproval) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.ID == b.ID && eq(a.Detail, b.Detail)
 }
 
 // next is the snapshot after e, or false for an event that never touches

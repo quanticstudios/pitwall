@@ -2,8 +2,10 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,4 +231,97 @@ func TestReduceCommandsAndSettings(t *testing.T) {
 	if s.Commands != nil || s.PermissionMode != "plan" {
 		t.Fatalf("cleared: %+v", s)
 	}
+}
+
+func TestPatchSnapshotCoversAllFields(t *testing.T) {
+	// Ensure every Snapshot JSON key is handled directly by setSnapshotField/unsetSnapshotField
+	// rather than falling into Extra.
+	for k := range snapshotKeys {
+		var s Snapshot
+		var extra bool
+		_ = setSnapshotField(&s, k, json.RawMessage("null"), func() { extra = true })
+		if extra {
+			t.Errorf("setSnapshotField missed Snapshot key %q", k)
+		}
+		unsetSnapshotField(&s, k, func() { extra = true })
+		if extra {
+			t.Errorf("unsetSnapshotField missed Snapshot key %q", k)
+		}
+	}
+}
+
+// BenchmarkStream measures Reduce, Apply, JSON marshaling, and session patching
+// while streaming tokens onto a long conversation with 500 historical items.
+func BenchmarkStream(b *testing.B) {
+	s := running(base(model.ProviderClaude), "t500")
+	bigOut := strings.Repeat("line of build output in tool call\n", 100)
+	for i := range 500 {
+		id := fmt.Sprintf("item-%d", i)
+		s.Content = append(s.Content, Item{
+			ID:        id,
+			Kind:      KindToolCall,
+			Provider:  ptr(model.ProviderClaude),
+			TurnID:    ptr("t1"),
+			CreatedAt: "t0",
+			UpdatedAt: "t0",
+			Tool:      &ToolCall{CallID: id, ToolName: "Bash", Status: "completed", Output: bigOut, Input: json.RawMessage(`{"command":"go test ./..."}`)},
+		})
+	}
+	s.Content = append(s.Content, Item{
+		ID:        "stream-msg",
+		Kind:      KindAssistantText,
+		Provider:  ptr(model.ProviderClaude),
+		TurnID:    ptr("t500"),
+		Text:      "Starting reply: ",
+		CreatedAt: "t1",
+		UpdatedAt: "t1",
+	})
+
+	b.Run("ReduceApplyMarshal", func(b *testing.B) {
+		cur := s
+		var seq int64 = 1
+		ev := Event{Type: EventContent, CreatedAt: "t2", ItemID: "stream-msg", Kind: KindAssistantText, Text: "token "}
+		b.ResetTimer()
+		for b.Loop() {
+			ds := Reduce(cur, ev)
+			for _, dl := range ds {
+				dl.Version, dl.SessionID, dl.Seq, dl.Revision, dl.UpdatedAt = DeltaVersion, cur.SessionID, seq+1, cur.Revision+1, ev.CreatedAt
+				if _, err := json.Marshal(dl); err != nil {
+					b.Fatal(err)
+				}
+				n, err := Apply(&cur, seq, dl)
+				if err != nil {
+					b.Fatal(err)
+				}
+				cur, seq = n, seq+1
+			}
+			// Keep text bounded so string growth itself doesn't dominate long bench runs.
+			if len(cur.Content[len(cur.Content)-1].Text) > 8192 {
+				cur = s
+				seq = 1
+			}
+		}
+	})
+
+	b.Run("SessionPatch", func(b *testing.B) {
+		cur := s
+		var seq int64 = 1
+		patch := Delta{
+			Version:   DeltaVersion,
+			SessionID: cur.SessionID,
+			Type:      DeltaSessionPatch,
+			Set:       json.RawMessage(`{"model":"claude-sonnet-4-6","queuePaused":false}`),
+		}
+		b.ResetTimer()
+		for b.Loop() {
+			patch.Seq = seq + 1
+			patch.Revision = cur.Revision + 1
+			patch.UpdatedAt = "t2"
+			n, err := Apply(&cur, seq, patch)
+			if err != nil {
+				b.Fatal(err)
+			}
+			cur, seq = n, seq+1
+		}
+	})
 }

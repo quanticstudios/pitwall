@@ -138,6 +138,44 @@ func (p *stopped) HasPromptMarks() bool {
 	return false
 }
 
+// CaptureFrame captures the held screen under one lock.
+func (p *stopped) CaptureFrame(off int) vt.Frame {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.vt.(interface{ CaptureFrame(int) vt.Frame }); ok {
+		return c.CaptureFrame(off)
+	}
+	marked := false
+	if m, ok := p.vt.(interface{ HasPromptMarks() bool }); ok {
+		marked = m.HasPromptMarks()
+	}
+	return vt.Frame{
+		Grid:         p.vt.SnapshotAt(off),
+		Modes:        p.vt.Modes(),
+		ScrollMax:    p.vt.ScrollbackLen(),
+		ScrollPushed: p.vt.ScrollbackPushed(),
+		PromptMarks:  marked,
+	}
+}
+
+// WriteSeq is constant for a stopped pane since no new output arrives.
+func (p *stopped) WriteSeq() uint64 {
+	if s, ok := p.vt.(interface{ WriteSeq() uint64 }); ok {
+		return s.WriteSeq()
+	}
+	return 1
+}
+
+// Title returns the held pane's title without copying the grid.
+func (p *stopped) Title() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if t, ok := p.vt.(interface{ Title() string }); ok {
+		return t.Title()
+	}
+	return p.vt.Snapshot().Title
+}
+
 func (s *stopped) HistoryText(limit int) (int, string) {
 	if s.history == nil {
 		if s.text == "" {

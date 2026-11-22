@@ -516,3 +516,46 @@ func TestSendAfterPeerLeft(t *testing.T) {
 		t.Fatalf("got %v, %v; want the refusal", msg, err)
 	}
 }
+
+func TestConnBufferShrink(t *testing.T) {
+	a, b := net.Pipe()
+	ca, cb := NewConn(a), NewConn(b)
+	defer ca.Close()
+	defer cb.Close()
+	big := PasteImage{Pane: "a", Data: bytes.Repeat([]byte("x"), maxRetainCap+4096)}
+	small := Input{Pane: "a", Data: []byte("ok")}
+	errCh := make(chan error, 1)
+	go func() {
+		if err := ca.Send(big); err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- ca.Send(small)
+	}()
+	gotBig, err := cb.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := gotBig.(PasteImage); !ok || len(p.Data) != len(big.Data) {
+		t.Fatalf("got %T len %d", gotBig, len(p.Data))
+	}
+	if cap(cb.inBuf) > maxRetainCap {
+		t.Fatalf("inBuf cap = %d, want <= %d after oversized frame", cap(cb.inBuf), maxRetainCap)
+	}
+	gotSmall, err := cb.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, ok := gotSmall.(Input); !ok || string(in.Data) != "ok" {
+		t.Fatalf("second frame after shrink: %#v", gotSmall)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+	ca.mu.Lock()
+	outCap := ca.out.Cap()
+	ca.mu.Unlock()
+	if outCap > maxRetainCap {
+		t.Fatalf("out cap = %d, want <= %d after oversized frame", outCap, maxRetainCap)
+	}
+}

@@ -1,6 +1,9 @@
 package vt
 
-import "bytes"
+import (
+	"bytes"
+	"slices"
+)
 
 // Pos is a cell of a pane's text. Line numbers lines as Match does, so a
 // position stays on its text while output scrolls it into history; Col is
@@ -148,7 +151,8 @@ func (t *emulator) Text(s Selection) string {
 			return screen(n)
 		}
 		l := h.at(int(n - oldest))
-		buf = append(buf[:0], make([]Cell, l.width())...)
+		w := l.width()
+		buf = slices.Grow(buf[:0], w)[:w]
 		l.fill(buf)
 		return buf, l.wrapped(), true
 	})

@@ -11,9 +11,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -37,21 +39,25 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 	if p.Command == "" {
 		return nil, fmt.Errorf("ACP command is empty")
 	}
-	c := exec.Command(p.Command, p.Args...)
+	procCtx, procCancel := context.WithCancel(context.Background())
+	c := exec.CommandContext(procCtx, p.Command, p.Args...)
+	childproc.Bound(c)
 	c.Dir = cfg.Cwd
 	c.Env = append(append(os.Environ(), p.Env...), cfg.Env...)
 	c.WaitDelay = waitDelay
 	stdin, err := c.StdinPipe()
 	if err != nil {
+		procCancel()
 		return nil, err
 	}
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		stdin.Close()
+		procCancel()
 		return nil, err
 	}
 	c.Stdout = pw
-	d := &driver{cmd: c, stdin: stdin, emit: emit, stderr: &tail{}, wake: make(chan struct{}, 1), eof: make(chan struct{}), exited: make(chan struct{}), done: make(chan struct{}), pending: map[string]chan rpcMessage{}, s: newStream()}
+	d := &driver{cmd: c, cancel: procCancel, stdin: stdin, emit: emit, stderr: &tail{}, wake: make(chan struct{}, 1), eof: make(chan struct{}), exited: make(chan struct{}), done: make(chan struct{}), pending: map[string]chan rpcMessage{}, s: newStream()}
 	c.Stderr = d.stderr
 	err = ctx.Err()
 	if err == nil {
@@ -61,6 +67,7 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 	if err != nil {
 		pr.Close()
 		stdin.Close()
+		procCancel()
 		return nil, err
 	}
 	go d.emitLoop()
@@ -184,33 +191,35 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// request writes with mu held. Responses either complete a synchronous call
-// or, for session/prompt, end the turn in line.
-func (d *driver) request(method string, params any, ch chan rpcMessage) (string, error) {
+// prepareRequest allocates a JSON-RPC id and encodes the request with mu held.
+func (d *driver) prepareRequest(method string, params any, ch chan rpcMessage) (string, []byte, error) {
 	if d.dead || d.closing {
-		return "", session.ErrClosed
+		return "", nil, session.ErrClosed
 	}
 	d.next++
 	id := strconv.Itoa(d.next)
+	b, err := encodeLine(map[string]any{"jsonrpc": "2.0", "id": d.next, "method": method, "params": params})
+	if err != nil {
+		return "", nil, err
+	}
 	if ch != nil {
 		d.pending[id] = ch
 	}
-	err := d.write(map[string]any{"jsonrpc": "2.0", "id": d.next, "method": method, "params": params})
-	if err != nil {
-		delete(d.pending, id)
-	}
-	return id, err
+	return id, b, nil
 }
 
 func (d *driver) call(ctx context.Context, method string, params, result any) error {
 	ch := make(chan rpcMessage, 1)
 	d.mu.Lock()
-	id, err := d.request(method, params, ch)
+	id, data, err := d.prepareRequest(method, params, ch)
 	d.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	defer func() { d.mu.Lock(); delete(d.pending, id); d.mu.Unlock() }()
+	if err := d.writeBytes(data); err != nil {
+		return err
+	}
 	select {
 	case r, ok := <-ch:
 		if !ok {
@@ -230,14 +239,16 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 		return "", err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.dead || d.closing {
+		d.mu.Unlock()
 		return "", session.ErrClosed
 	}
 	if d.s.turn != "" {
+		d.mu.Unlock()
 		return "", session.ErrBusy
 	}
 	if len(m.Images) > 0 && !d.s.images {
+		d.mu.Unlock()
 		return "", session.ErrUnsupported
 	}
 	content := []map[string]any{}
@@ -247,8 +258,9 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	for _, img := range m.Images {
 		content = append(content, map[string]any{"type": "image", "mimeType": img.MimeType, "data": base64.StdEncoding.EncodeToString(img.Data)})
 	}
-	id, err := d.request("session/prompt", map[string]any{"sessionId": d.s.id, "prompt": content}, nil)
+	id, data, err := d.prepareRequest("session/prompt", map[string]any{"sessionId": d.s.id, "prompt": content}, nil)
 	if err != nil {
+		d.mu.Unlock()
 		return "", err
 	}
 	if m.ID == "" {
@@ -259,7 +271,26 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	d.s.cancelled = false
 	d.s.tools = map[string]*session.ToolCall{}
 	d.s.kinds = map[string]string{}
-	d.post(session.Event{Type: session.EventTurnStarted, TurnID: m.ID})
+	d.sending = true
+	pos := len(d.queue)
+	d.mu.Unlock()
+
+	err = d.writeBytes(data)
+
+	d.mu.Lock()
+	d.sending = false
+	if err != nil {
+		if d.s.turn == m.ID {
+			d.s.turn, d.s.prompt = "", ""
+		}
+		d.notifyWake()
+		d.mu.Unlock()
+		return "", err
+	}
+	ev := session.Event{Type: session.EventTurnStarted, TurnID: m.ID, CreatedAt: session.Stamp(time.Now())}
+	d.queue = slices.Insert(d.queue, min(pos, len(d.queue)), ev)
+	d.notifyWake()
+	d.mu.Unlock()
 	return m.ID, nil
 }
 
@@ -283,18 +314,19 @@ func (d *driver) Interrupt(ctx context.Context) error {
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.dead || d.closing {
+		d.mu.Unlock()
 		return session.ErrClosed
 	}
 	if d.s.turn == "" {
+		d.mu.Unlock()
 		return nil
 	}
-	if err := d.write(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]any{"sessionId": d.s.id}}); err != nil {
-		return err
-	}
+	d.queueWrite(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]any{"sessionId": d.s.id}})
 	d.s.cancelled = true
-	return d.cancelRequests()
+	d.cancelRequests()
+	d.mu.Unlock()
+	return d.flushWrites()
 }
 
 func (d *driver) Approve(ctx context.Context, id string, decision session.Decision) error {
@@ -302,15 +334,17 @@ func (d *driver) Approve(ctx context.Context, id string, decision session.Decisi
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.dead || d.closing {
+		d.mu.Unlock()
 		return session.ErrClosed
 	}
 	p, ok := d.s.permissions[id]
 	if !ok {
+		d.mu.Unlock()
 		return &session.ProviderError{Op: "approve", Message: "request is no longer pending"}
 	}
 	if len(decision.Input) > 0 || decision.Reason != "" {
+		d.mu.Unlock()
 		return session.ErrUnsupported
 	}
 	kind := "reject_once"
@@ -324,17 +358,37 @@ func (d *driver) Approve(ctx context.Context, id string, decision session.Decisi
 			kind = "reject_always"
 		}
 	}
+	var data []byte
+	var found bool
 	for _, o := range p.Options {
 		if o.Kind == kind {
-			if err := d.reply(p.ID, map[string]any{"outcome": map[string]string{"outcome": "selected", "optionId": o.OptionID}}); err != nil {
+			var err error
+			data, err = encodeLine(map[string]any{"jsonrpc": "2.0", "id": p.ID, "result": map[string]any{"outcome": map[string]string{"outcome": "selected", "optionId": o.OptionID}}})
+			if err != nil {
+				d.mu.Unlock()
 				return err
 			}
 			delete(d.s.permissions, id)
-			d.post(session.Event{Type: session.EventRequestResolved, RequestID: id})
-			return nil
+			found = true
+			break
 		}
 	}
-	return fmt.Errorf("ACP permission option %s: %w", kind, session.ErrUnsupported)
+	d.mu.Unlock()
+	if !found {
+		return fmt.Errorf("ACP permission option %s: %w", kind, session.ErrUnsupported)
+	}
+	if err := d.writeBytes(data); err != nil {
+		d.mu.Lock()
+		if !d.dead && !d.closing {
+			d.s.permissions[id] = p
+		}
+		d.mu.Unlock()
+		return err
+	}
+	d.mu.Lock()
+	d.post(session.Event{Type: session.EventRequestResolved, RequestID: id})
+	d.mu.Unlock()
+	return nil
 }
 
 // Answer accepts a form elicitation with the answered fields; with none it
@@ -344,23 +398,37 @@ func (d *driver) Answer(ctx context.Context, id string, answers map[string][]str
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.dead || d.closing {
+		d.mu.Unlock()
 		return session.ErrClosed
 	}
 	in, ok := d.s.inputs[id]
 	if !ok {
+		d.mu.Unlock()
 		return &session.ProviderError{Op: "answer", Message: "request is no longer pending"}
 	}
 	result := map[string]any{"action": "decline"}
 	if content := in.content(answers); len(content) > 0 {
 		result = map[string]any{"action": "accept", "content": content}
 	}
-	if err := d.reply(in.ID, result); err != nil {
+	data, err := encodeLine(map[string]any{"jsonrpc": "2.0", "id": in.ID, "result": result})
+	if err != nil {
+		d.mu.Unlock()
 		return err
 	}
 	delete(d.s.inputs, id)
+	d.mu.Unlock()
+	if err := d.writeBytes(data); err != nil {
+		d.mu.Lock()
+		if !d.dead && !d.closing {
+			d.s.inputs[id] = in
+		}
+		d.mu.Unlock()
+		return err
+	}
+	d.mu.Lock()
 	d.post(session.Event{Type: session.EventInputResolved, RequestID: id})
+	d.mu.Unlock()
 	return nil
 }
 
@@ -402,26 +470,21 @@ func (d *driver) Set(ctx context.Context, s session.Settings) error {
 	return nil
 }
 
-func (d *driver) reply(id json.RawMessage, result any) error {
-	return d.write(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+func (d *driver) queueReply(id json.RawMessage, result any) {
+	d.queueWrite(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
 // cancelRequests answers every open permission and elicitation with the
-// cancelled outcome ACP requires once a turn is cancelled or over.
-func (d *driver) cancelRequests() error {
+// cancelled outcome ACP requires once a turn is cancelled or over. d.mu is held.
+func (d *driver) cancelRequests() {
 	for id, p := range d.s.permissions {
-		if err := d.reply(p.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}); err != nil {
-			return err
-		}
+		d.queueReply(p.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}})
 		delete(d.s.permissions, id)
 		d.post(session.Event{Type: session.EventRequestResolved, RequestID: id})
 	}
 	for id, in := range d.s.inputs {
-		if err := d.reply(in.ID, map[string]string{"action": "cancel"}); err != nil {
-			return err
-		}
+		d.queueReply(in.ID, map[string]string{"action": "cancel"})
 		delete(d.s.inputs, id)
 		d.post(session.Event{Type: session.EventInputResolved, RequestID: id})
 	}
-	return nil
 }

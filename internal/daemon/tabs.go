@@ -132,8 +132,8 @@ func (d *Daemon) removeWorkspace(id string, gone ...model.Pane) []Pane {
 		// A removed worktree's checkpoints are in the repository it was of.
 		dir := cmp.Or(w.WorktreeRoot, d.st.LivePath(*w))
 		go func() {
-			d.turnMu.Lock() // after a checkpoint that is under way
-			defer d.turnMu.Unlock()
+			unlock := d.lockTurn(id) // after a checkpoint that is under way
+			defer unlock()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			if err := d.o.DropTurns(ctx, dir, id); err != nil {

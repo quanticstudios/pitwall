@@ -389,6 +389,52 @@ func (p *Pane) HasPromptMarks() bool {
 	return false
 }
 
+// CaptureFrame captures the grid at off, modes, scrollback bounds, and prompt
+// mark presence under a single lock.
+func (p *Pane) CaptureFrame(off int) vt.Frame {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.vt.(interface{ CaptureFrame(int) vt.Frame }); ok {
+		return c.CaptureFrame(off)
+	}
+	var pushed uint64
+	if s, ok := p.vt.(interface{ ScrollbackPushed() uint64 }); ok {
+		pushed = s.ScrollbackPushed()
+	} else {
+		pushed = uint64(p.vt.ScrollbackLen())
+	}
+	marked := false
+	if m, ok := p.vt.(interface{ HasPromptMarks() bool }); ok {
+		marked = m.HasPromptMarks()
+	}
+	return vt.Frame{
+		Grid:         p.vt.SnapshotAt(off),
+		Modes:        p.vt.Modes(),
+		ScrollMax:    p.vt.ScrollbackLen(),
+		ScrollPushed: pushed,
+		PromptMarks:  marked,
+	}
+}
+
+// WriteSeq returns the emulator's monotonic write/resize sequence number, or 0
+// if the emulator does not expose one.
+func (p *Pane) WriteSeq() uint64 {
+	if s, ok := p.vt.(interface{ WriteSeq() uint64 }); ok {
+		return s.WriteSeq()
+	}
+	return 0
+}
+
+// Title returns the terminal title without copying the grid when supported.
+func (p *Pane) Title() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if t, ok := p.vt.(interface{ Title() string }); ok {
+		return t.Title()
+	}
+	return p.vt.Snapshot().Title
+}
+
 // HistoryText captures the main screen and recent scrollback under the reader's lock.
 func (p *Pane) HistoryText(limit int) (int, string) {
 	p.mu.Lock()

@@ -58,10 +58,26 @@ const coalesce = 16 * time.Millisecond
 // chatClose bounds Driver.Close when a chat or the daemon closes.
 const chatClose = 5 * time.Second
 
+// chatStartTimeout bounds how long chat.start waits for Provider.Start.
+var chatStartTimeout = 30 * time.Second
+
+// recentDelta caches a delta's marshaled JSON and byte length so commit,
+// keepRecent, eventlog.AppendRaw, subscribers, and ChatRead marshal each
+// published delta at most once.
+type recentDelta struct {
+	dl   session.Delta
+	raw  []byte // nil while held for coalescing
+	size int
+}
+
 type chat struct {
 	id    string
 	prov  session.Provider
 	title string // the first prompt's title, for the tab; guarded by Daemon.mu
+
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
 
 	cmds chan func()
 	quit chan struct{}
@@ -70,16 +86,17 @@ type chat struct {
 	evs  []chatEvent // each with the start it came from
 
 	// Owned by the loop.
-	cfg    session.Config
-	snap   session.Snapshot
-	seq    int64
-	drv    session.Driver
-	starts int // Provider.Start calls; an event of an earlier one is dropped
+	cfg      session.Config
+	cfgDirty bool // config changed since last save
+	snap     session.Snapshot
+	seq      int64
+	drv      session.Driver
+	starts   int // Provider.Start calls; an event of an earlier one is dropped
 	// procOf is the latest started driver, for the Servers panel: its
 	// process's pid; unset for a driver with none. Read off the loop.
 	procOf atomic.Pointer[pider]
-	recent []session.Delta
-	// recentSize is the bytes of recent's JSON (keepRecent).
+	recent []recentDelta
+	// recentSize is the bytes of recent's JSON (keepRecentRaw).
 	recentSize int
 	sum        model.Chat // the summary last put in State.Chats
 	// limit is a plan limit that refused the running turn; its end
@@ -788,7 +805,18 @@ func (d *Daemon) dropChat(id string) {
 
 // newChat is a chat whose loop runs, with nothing loaded.
 func (d *Daemon) newChat(id string, prov session.Provider, title string) *chat {
-	c := &chat{id: id, prov: prov, title: title, cmds: make(chan func()), quit: make(chan struct{}), wake: make(chan struct{}, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &chat{
+		id:       id,
+		prov:     prov,
+		title:    title,
+		ctx:      ctx,
+		cancel:   cancel,
+		cfgDirty: true,
+		cmds:     make(chan func()),
+		quit:     make(chan struct{}),
+		wake:     make(chan struct{}, 1),
+	}
 	if d.o.Chats != "" {
 		c.dir = filepath.Join(d.o.Chats, id)
 	}
@@ -830,6 +858,7 @@ func (d *Daemon) loadChats() {
 		c := d.newChat(cfg.ID, d.o.Providers[cfg.Provider], title)
 		c.cfg = cfg
 		c.saved, _ = json.Marshal(cfg)
+		c.cfgDirty = false
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
 			Title: title, RecentPrompt: cfg.RecentPrompt, Pinned: cfg.Pinned, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
 		if len(w.Tabs) > 0 { // a handoff kept the terminal view's claude running
@@ -862,6 +891,7 @@ func (c *chat) open() {
 		for _, it := range c.snap.Content {
 			if it.Kind == session.KindUserPrompt {
 				c.cfg.RecentPrompt = recentPrompt(it.Text)
+				c.cfgDirty = true
 				break
 			}
 		}
@@ -891,51 +921,88 @@ func (c *chat) reconcile(cut, expired string) bool {
 // save writes config.json when the config changed.
 func (c *chat) save() {
 	c.syncQueue()
-	if c.log == nil {
+	if !c.cfgDirty || c.log == nil {
 		return
 	}
+	c.cfgDirty = false
 	b, _ := json.Marshal(c.cfg)
 	if bytes.Equal(b, c.saved) {
 		return
 	}
 	if err := c.log.WriteConfig(c.cfg); err != nil {
+		c.cfgDirty = true
 		log.Printf("chat %s: config: %q", c.id, err)
 		return
 	}
 	c.saved = b
 }
 
-// close ends the driver, the log and the loop. It runs once per chat.
+// close ends the driver, the log and the loop. It runs once per chat and is
+// bounded by chatClose so a wedged provider Start/Send cannot deadlock shutdown.
 func (c *chat) close() {
-	ctx, cancel := context.WithTimeout(context.Background(), chatClose)
-	defer cancel()
-	c.run(func() {
-		if c.drv != nil {
-			if err := c.drv.Close(ctx); err != nil {
-				log.Printf("chat %s: close: %q", c.id, err)
+	c.closeOnce.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), chatClose)
+		defer cancel()
+		done := make(chan struct{})
+		cleanup := func() {
+			defer close(done)
+			if c.next != nil {
+				c.next.Stop()
+				c.next = nil
 			}
-			c.drv = nil
-		}
-		c.hold = time.Time{}
-		c.publish() // a held append, to the log and the subs
-		if c.log != nil {
-			c.save()
-			if err := c.log.Compact(c.snap, c.seq); err != nil {
-				log.Printf("chat %s: compact: %q", c.id, err)
+			if c.flush != nil {
+				c.flush.Stop()
 			}
-			c.log.Close()
-			c.log = nil
+			if c.drv != nil {
+				if err := c.drv.Close(ctx); err != nil {
+					log.Printf("chat %s: close: %q", c.id, err)
+				}
+				c.drv = nil
+			}
+			c.hold = time.Time{}
+			c.publish() // a held append, to the log and the subs
+			if c.log != nil {
+				c.cfgDirty = true
+				c.save()
+				if err := c.log.Compact(c.snap, c.seq); err != nil {
+					log.Printf("chat %s: compact: %q", c.id, err)
+				}
+				c.log.Close()
+				c.log = nil
+			}
+			for s := range c.subs {
+				s.Removed(c.id)
+			}
 		}
-		for s := range c.subs {
-			s.Removed(c.id)
+		select {
+		case c.cmds <- cleanup:
+			select {
+			case <-done:
+			case <-ctx.Done():
+				log.Printf("chat %s: close timed out waiting for cleanup", c.id)
+			}
+		case <-ctx.Done():
+			log.Printf("chat %s: close timed out waiting for loop", c.id)
+		case <-c.quit:
+			return
 		}
+		close(c.quit)
 	})
-	close(c.quit)
 }
 
 func (c *chat) loop(d *Daemon) {
 	c.flush = time.NewTimer(coalesce)
 	c.flush.Stop()
+	defer func() {
+		c.flush.Stop()
+		if c.next != nil {
+			c.next.Stop()
+			c.next = nil
+		}
+	}()
 	for {
 		select {
 		case f := <-c.cmds:
@@ -943,6 +1010,7 @@ func (c *chat) loop(d *Daemon) {
 			if c.cut {
 				c.cut = false
 				d.chatContinue(c)
+				c.cfgDirty = true
 				c.save()
 				d.chatChanged(c)
 			}
@@ -969,7 +1037,7 @@ func (c *chat) loop(d *Daemon) {
 // do runs f on c's loop, the chat loaded, and waits for it; false when the
 // chat is closed.
 func (c *chat) do(f func()) bool {
-	return c.run(func() { c.open(); f(); c.save() })
+	return c.run(func() { c.open(); f(); c.cfgDirty = true; c.save() })
 }
 
 // run is do without loading the chat.
@@ -1005,10 +1073,17 @@ func (c *chat) emitter(start int) func(session.Event) {
 }
 
 // start runs c.prov.Start from `from`. The process outlives any one
-// request: Close ends it.
+// request: Close ends it. Startup is bounded by chatStartTimeout and c.ctx so
+// a wedged provider cannot hang the chat loop or daemon shutdown.
 func (c *chat) start(from session.Origin) (session.Driver, error) {
 	c.starts++
-	drv, err := c.prov.Start(context.Background(), c.cfg, from, c.emitter(c.starts))
+	base := c.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, chatStartTimeout)
+	defer cancel()
+	drv, err := c.prov.Start(ctx, c.cfg, from, c.emitter(c.starts))
 	if p, ok := drv.(interface{ PID() int }); ok && err == nil {
 		c.procOf.Store(&pider{p})
 	}
@@ -1020,6 +1095,7 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 	switch e.Type {
 	case session.EventResumeID:
 		c.cfg.Resume, c.cfg.From = e.ResumeID, nil
+		c.cfgDirty = true
 		c.resuming, c.sent = false, nil
 		return
 	case session.EventLimit:
@@ -1033,6 +1109,7 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 				c.cfg.Points = map[string]string{}
 			}
 			c.cfg.Points[e.TurnID] = e.Point
+			c.cfgDirty = true
 		}
 	case session.EventExited:
 		c.drv = nil // the next command starts it again with Origin{Resume}
@@ -1095,6 +1172,7 @@ func (c *chat) forget(why string, replay bool) {
 		line = "The provider continues from a text recap of this chat, not its history: "
 	}
 	c.resuming, c.cfg.Resume, c.cfg.From, c.cfg.Points = false, "", nil, nil
+	c.cfgDirty = true
 	c.recap = recap(c.snap)
 	c.system(line + why)
 }
@@ -1151,19 +1229,31 @@ func (c *chat) commit(ds []session.Delta, stamp string) {
 			continue
 		}
 		appends := dl.Type == session.DeltaItemTextAppend || dl.Type == session.DeltaReasoningAppend || dl.Type == session.DeltaToolOutputAppend
-		if last := len(c.recent) - 1; appends && time.Now().Before(c.hold) && c.recent[last].Type == dl.Type && c.recent[last].ItemID == dl.ItemID {
+		if last := len(c.recent) - 1; appends && last >= 0 && time.Now().Before(c.hold) && c.recent[last].dl.Type == dl.Type && c.recent[last].dl.ItemID == dl.ItemID {
 			m := &c.recent[last]
-			m.Text += dl.Text
-			m.Revision, m.UpdatedAt, m.ItemUpdatedAt = dl.Revision, dl.UpdatedAt, dl.ItemUpdatedAt
+			m.dl.Text += dl.Text
+			m.dl.Revision, m.dl.UpdatedAt, m.dl.ItemUpdatedAt = dl.Revision, dl.UpdatedAt, dl.ItemUpdatedAt
+			m.raw = nil
+			m.size += len(dl.Text)
 			c.snap, c.recentSize = n, c.recentSize+len(dl.Text)
 			continue
 		}
 		c.snap, c.seq = n, dl.Seq
-		c.recent, c.recentSize = keepRecent(c.recent, c.recentSize, dl, int(c.seq-c.published))
+		var entry recentDelta
+		if appends {
+			// Defer JSON marshaling until publish so coalesced chunks marshal once.
+			entry = recentDelta{dl: dl, size: 160 + len(dl.ItemID) + len(dl.Text)}
+		} else {
+			b, _ := json.Marshal(dl)
+			entry = recentDelta{dl: dl, raw: b, size: len(b)}
+		}
+		c.recent, c.recentSize = keepRecentRaw(c.recent, c.recentSize, entry, int(c.seq-c.published))
 		c.hold = time.Time{}
 		if appends {
 			c.hold = time.Now().Add(coalesce)
-			c.flush.Reset(coalesce)
+			if c.flush != nil {
+				c.flush.Reset(coalesce)
+			}
 		}
 	}
 }
@@ -1179,9 +1269,22 @@ func (c *chat) publish() {
 	if upto <= c.published {
 		return
 	}
-	ds := c.recent[len(c.recent)-int(c.seq-c.published) : len(c.recent)-int(c.seq-upto)]
+	start := len(c.recent) - int(c.seq-c.published)
+	end := len(c.recent) - int(c.seq-upto)
+	entries := c.recent[start:end]
+	ds := make([]session.Delta, len(entries))
+	raws := make([][]byte, len(entries))
+	for i := range entries {
+		e := &entries[i]
+		if e.raw == nil {
+			b, _ := json.Marshal(e.dl)
+			c.recentSize += len(b) - e.size
+			e.raw, e.size = b, len(b)
+		}
+		ds[i], raws[i] = e.dl, e.raw
+	}
 	if c.log != nil {
-		if err := c.log.Append(ds); err != nil {
+		if err := c.log.AppendRaw(ds, raws); err != nil {
 			log.Printf("chat %s: log: %q", c.id, err)
 		} else if upto == c.seq && c.log.Due() {
 			if err := c.log.Compact(c.snap, c.seq); err != nil {
@@ -1190,11 +1293,7 @@ func (c *chat) publish() {
 		}
 	}
 	if len(c.subs) > 0 {
-		out := proto.ChatDeltas{Chat: c.id, Seq: c.published}
-		for _, dl := range ds {
-			b, _ := json.Marshal(dl)
-			out.Deltas = append(out.Deltas, b)
-		}
+		out := proto.ChatDeltas{Chat: c.id, Seq: c.published, Deltas: raws}
 		for s := range c.subs {
 			s.Deltas(out)
 		}
@@ -1265,7 +1364,7 @@ func (c *chat) read(r proto.ChatRead) (proto.ChatDeltas, error) {
 	kept := c.recent[max(0, len(c.recent)-recentDeltas):]
 	first := c.seq - int64(len(kept)) // the seq before the oldest kept delta
 	if r.After > 0 && r.After >= first && r.After <= c.seq {
-		if ds, ok := deltaJSON(kept[r.After-first:]); ok {
+		if ds, ok := deltaRawJSON(kept[r.After-first:]); ok {
 			out.Seq, out.Deltas = r.After, ds
 			return out, nil
 		}
@@ -1285,6 +1384,40 @@ const (
 	snapBytes  = 4 << 20
 	itemBytes  = 16 << 20
 )
+
+// keepRecentRaw is keepRecent for pre-measured recentDelta entries without
+// re-marshaling on every insert or trim.
+func keepRecentRaw(recent []recentDelta, size int, entry recentDelta, owed int) ([]recentDelta, int) {
+	recent, size = append(recent, entry), size+entry.size
+	if len(recent) <= 2*recentDeltas && size <= 2*recentBytes {
+		return recent, size
+	}
+	n, size := 0, 0
+	for i := len(recent) - 1; i >= 0; i-- {
+		s := recent[i].size
+		if n >= owed && (n >= recentDeltas || size+s > recentBytes) {
+			break
+		}
+		n, size = n+1, size+s
+	}
+	return slices.Clone(recent[len(recent)-n:]), size
+}
+
+// deltaRawJSON reuses each entry's cached JSON bytes, false when they exceed deltaBytes.
+func deltaRawJSON(ds []recentDelta) ([][]byte, bool) {
+	out, n := make([][]byte, 0, len(ds)), 0
+	for i := range ds {
+		b := ds[i].raw
+		if b == nil {
+			b, _ = json.Marshal(ds[i].dl)
+		}
+		if n += len(b); n > deltaBytes {
+			return nil, false
+		}
+		out = append(out, b)
+	}
+	return out, true
+}
 
 // keepRecent is recent with dl, and the bytes of their JSON given size,
 // recent's: past twice recentDeltas or recentBytes, only the newest a read
@@ -1584,6 +1717,7 @@ func (d *Daemon) chatSendRows(ctx context.Context, c *chat, i, n int) {
 	for k := range rows {
 		c.cfg.Queue[i+k].Sending = true
 	}
+	c.cfgDirty = true
 	c.save()
 	_, note, err := d.chatTurn(ctx, c, m)
 	if note == "queued" { // the driver was busy after all: chatTurn queued m whole
@@ -1602,6 +1736,7 @@ func (d *Daemon) chatSendRows(ctx context.Context, c *chat, i, n int) {
 			}
 		}
 	}
+	c.cfgDirty = true
 	if err != nil {
 		log.Printf("chat %s: queued message: %q", c.id, err)
 	}
@@ -1672,6 +1807,9 @@ func recentPrompt(text string) string {
 
 // syncQueue publishes the durable config's queue in aide's snapshot shape.
 func (c *chat) syncQueue() {
+	if len(c.cfg.Queue) == 0 && len(c.snap.QueuedInputs) == 0 && !c.cfg.Held && !c.snap.QueuePaused && c.snap.QueueReason == "" {
+		return
+	}
 	inputs := make([]session.QueuedInput, 0, len(c.cfg.Queue))
 	for _, q := range c.cfg.Queue {
 		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: nonNil(q.Attachments), Recipients: []string{}, Error: q.Error, Alone: q.Alone})

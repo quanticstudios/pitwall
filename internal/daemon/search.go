@@ -46,6 +46,10 @@ func (d *Daemon) searchAll(ctx context.Context, q proto.SearchAll, emit func(pro
 		if ctx.Err() != nil {
 			return
 		}
+		if total >= maxMatches {
+			more = true
+			break
+		}
 		matches, extra := searchHistory(ctx, p.pane, q.Query, min(searchPerPane, maxMatches-total))
 		more = more || extra
 		batch := make([]proto.SessionMatch, 0, len(matches))
@@ -62,6 +66,10 @@ func (d *Daemon) searchAll(ctx context.Context, q proto.SearchAll, emit func(pro
 	for _, p := range panes {
 		if ctx.Err() != nil {
 			return
+		}
+		if total >= maxMatches {
+			more = true
+			break
 		}
 		var batch []proto.SessionMatch
 		n := 0

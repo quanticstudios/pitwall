@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -30,9 +31,14 @@ const oscMax = 64 << 10
 // (OSC 7501) are handled here;
 // other OSCs go through unless their payload holds 0x9C, in which case they
 // are dropped.
+var escOSC = []byte{0x1b, ']'}
+
+const oscOutRetainCap = 256 << 10
+
 type oscFilter struct {
 	state int // 0 text, 1 after ESC, 2 in OSC, 3 in OSC after ESC
 	buf   []byte
+	out   []byte // reusable output scratch when filtering is needed
 	// prog gets each OSC 7501 (program status) payload, "7501;" included,
 	// and whether BEL ended it. Nil drops them.
 	prog func(payload []byte, bel bool)
@@ -42,16 +48,36 @@ type oscFilter struct {
 // sequence it removes, notify for each notification. State carries over between calls, so a sequence split
 // across PTY reads is still caught.
 func (f *oscFilter) feed(p []byte, title func(string), notify func(Notification)) []byte {
-	out := make([]byte, 0, len(p))
-	for _, c := range p {
+	if f.state == 0 {
+		if len(p) == 0 {
+			return p
+		}
+		if bytes.Index(p, escOSC) < 0 {
+			if p[len(p)-1] == 0x1b {
+				f.state = 1
+				return p[:len(p)-1]
+			}
+			return p
+		}
+	}
+	if cap(f.out) > oscOutRetainCap && len(p) <= oscOutRetainCap {
+		f.out = nil
+	}
+	out := slices.Grow(f.out[:0], len(p))
+	for i := 0; i < len(p); {
 		switch f.state {
 		case 0:
-			if c == 0x1b {
+			if j := bytes.IndexByte(p[i:], 0x1b); j < 0 {
+				out = append(out, p[i:]...)
+				i = len(p)
+			} else {
+				out = append(out, p[i:i+j]...)
 				f.state = 1
-				continue
+				i += j + 1
 			}
-			out = append(out, c)
 		case 1:
+			c := p[i]
+			i++
 			if c == ']' {
 				f.state, f.buf = 2, f.buf[:0]
 				continue
@@ -64,6 +90,8 @@ func (f *oscFilter) feed(p []byte, title func(string), notify func(Notification)
 			}
 			out = append(out, c)
 		case 2:
+			c := p[i]
+			i++
 			switch {
 			case c == 0x07:
 				out = f.end(out, title, notify, "\x07")
@@ -76,6 +104,8 @@ func (f *oscFilter) feed(p []byte, title func(string), notify func(Notification)
 				f.buf = append(f.buf, c)
 			}
 		case 3:
+			c := p[i]
+			i++
 			if c == '\\' {
 				out = f.end(out, title, notify, "\x1b\\")
 				continue
@@ -91,6 +121,7 @@ func (f *oscFilter) feed(p []byte, title func(string), notify func(Notification)
 			out = append(out, 0x1b, c)
 		}
 	}
+	f.out = out
 	return out
 }
 

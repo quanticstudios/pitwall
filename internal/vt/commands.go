@@ -40,13 +40,24 @@ type shellMark struct {
 	Known bool
 }
 
+func hasPromptMark(marks []shellMark) bool {
+	return slices.ContainsFunc(marks, func(m shellMark) bool { return m.Kind == "A" })
+}
+
 func (t *emulator) pruneShell() {
+	if len(t.st.shell) == 0 {
+		return
+	}
+	before := len(t.st.shell)
 	oldest := t.st.hist.pushed - uint64(t.st.hist.len())
 	t.st.shell = slices.DeleteFunc(t.st.shell, func(m shellMark) bool { return m.At.Line < oldest })
 	// A shell can redraw the same prompt without adding history.
 	limit := 4 * (t.st.hist.limit() + t.e.Height())
 	if len(t.st.shell) > limit {
 		t.st.shell = slices.Clone(t.st.shell[len(t.st.shell)-limit:])
+	}
+	if len(t.st.shell) != before {
+		t.st.hasPrompt = hasPromptMark(t.st.shell)
 	}
 }
 
@@ -69,9 +80,10 @@ func (t *emulator) Commands() ([]CommandBlock, bool) {
 		}
 		l := h.at(int(n - oldest))
 		// Packing can omit the empty right cell of a final wide character.
-		buf = append(buf[:0], make([]Cell, l.width()+1)...)
+		w := l.width()
+		buf = slices.Grow(buf[:0], w+1)[:w+1]
 		l.fill(buf)
-		return buf[:l.width()], l.wrapped(), true
+		return buf[:w], l.wrapped(), true
 	}
 	text := func(a, b Pos) string {
 		if !a.Before(b) {
@@ -128,5 +140,5 @@ func (t *emulator) HasPromptMarks() bool {
 	if t.e.IsAltScreen() {
 		return false
 	}
-	return slices.ContainsFunc(t.st.shell, func(m shellMark) bool { return m.Kind == "A" })
+	return t.st.hasPrompt
 }

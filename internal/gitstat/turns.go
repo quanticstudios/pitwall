@@ -59,7 +59,11 @@ type turnRef struct {
 // turns is the checkpoints under prefix in number order, and the redo
 // snapshot.
 func turns(ctx context.Context, root, prefix string) (list []turnRef, redo turnRef, err error) {
-	out, err := git(ctx, root, "for-each-ref", "--format=%(refname) %(objectname) %(tree) %(parent)", prefix)
+	return turnsWith(ctx, runner{}, root, prefix)
+}
+
+func turnsWith(ctx context.Context, r runner, root, prefix string) (list []turnRef, redo turnRef, err error) {
+	out, err := r.git(ctx, root, "for-each-ref", "--format=%(refname) %(objectname) %(tree) %(parent)", prefix)
 	if err != nil {
 		return nil, redo, err
 	}
@@ -86,6 +90,10 @@ func turns(ctx context.Context, root, prefix string) (list []turnRef, redo turnR
 // snapshot writes root's work tree as a tree object, untracked files
 // included and ignored ones left out, through an index of its own.
 func snapshot(ctx context.Context, root string) (string, error) {
+	return snapshotWith(ctx, runner{}, root)
+}
+
+func snapshotWith(ctx context.Context, r runner, root string) (string, error) {
 	tmp, err := os.MkdirTemp("", "pitwall-turn-")
 	if err != nil {
 		return "", err
@@ -96,7 +104,7 @@ func snapshot(ctx context.Context, root string) (string, error) {
 	// why: a copy of the repository's index keeps its stat data, so add -A
 	// hashes only the files that changed; a new repository has none yet.
 	seeded := false
-	if p, err := git(ctx, root, "rev-parse", "--path-format=absolute", "--git-path", "index"); err == nil {
+	if p, err := r.git(ctx, root, "rev-parse", "--path-format=absolute", "--git-path", "index"); err == nil {
 		src := strings.TrimSpace(p)
 		if b, err := os.ReadFile(src); err == nil {
 			seeded = os.WriteFile(index, b, 0o600) == nil
@@ -107,28 +115,28 @@ func snapshot(ctx context.Context, root string) (string, error) {
 		}
 	}
 	if seeded {
-		if err := unflag(ctx, root, env); err != nil {
+		if err := unflagWith(ctx, r, root, env); err != nil {
 			return "", err
 		}
-	} else if _, err := gitWith(ctx, root, env, "", "read-tree", "HEAD"); err != nil {
+	} else if _, err := r.gitWith(ctx, root, env, "", "read-tree", "HEAD"); err != nil {
 		return "", err
 	}
-	if err := addAll(ctx, root, env); err != nil {
+	if err := addAllWith(ctx, r, root, env); err != nil {
 		return "", err
 	}
-	out, err := gitWith(ctx, root, env, "", "write-tree")
+	out, err := r.gitWith(ctx, root, env, "", "write-tree")
 	return strings.TrimSpace(out), err
 }
 
-// addAll is git add -A in the index env names, without looking inside a
+// addAllWith is git add -A in the index env names, without looking inside a
 // submodule.
 //
 // why: add -A runs git status in each submodule it finds, and no flag or config
 // stops it. That git reads the submodule's own config, whose filter names the
 // settings in Command cannot know, and an agent can plant a submodule. Moving
 // its commit is all add -A would record about it, which is done here instead.
-func addAll(ctx context.Context, root string, env []string) error {
-	out, err := gitWith(ctx, root, env, "", "ls-files", "--stage", "-z")
+func addAllWith(ctx context.Context, r runner, root string, env []string) error {
+	out, err := r.gitWith(ctx, root, env, "", "ls-files", "--stage", "-z")
 	if err != nil {
 		return err
 	}
@@ -152,11 +160,12 @@ func addAll(ctx context.Context, root string, env []string) error {
 			args = append(args, ":(exclude,literal)"+p)
 		}
 	}
-	if _, err := gitWith(ctx, root, env, "", args...); err != nil {
+	if _, err := r.gitWith(ctx, root, env, "", args...); err != nil {
 		return err
 	}
 	var moved strings.Builder
 	for _, p := range links {
+		// Submodules have their own repository config; use a fresh guarded git call.
 		if h, err := head(ctx, filepath.Join(root, filepath.FromSlash(p))); err == nil {
 			fmt.Fprintf(&moved, "160000 %s\t%s\x00", h, p)
 		}
@@ -164,14 +173,14 @@ func addAll(ctx context.Context, root string, env []string) error {
 	if moved.Len() == 0 {
 		return nil
 	}
-	_, err = gitWith(ctx, root, env, moved.String(), "update-index", "--add", "-z", "--index-info")
+	_, err = r.gitWith(ctx, root, env, moved.String(), "update-index", "--add", "-z", "--index-info")
 	return err
 }
 
-// unflag clears the assume-unchanged and skip-worktree flags in the index
+// unflagWith clears the assume-unchanged and skip-worktree flags in the index
 // env names, which would keep add -A from reading those files.
-func unflag(ctx context.Context, root string, env []string) error {
-	out, err := gitWith(ctx, root, env, "", "ls-files", "-v", "-z")
+func unflagWith(ctx context.Context, r runner, root string, env []string) error {
+	out, err := r.gitWith(ctx, root, env, "", "ls-files", "-v", "-z")
 	if err != nil {
 		return err
 	}
@@ -188,7 +197,7 @@ func unflag(ctx context.Context, root string, env []string) error {
 	list := strings.Join(paths, "\x00") + "\x00"
 	// why: given both flags in one run, git 2.56 clears only the first.
 	for _, flag := range []string{"--no-assume-unchanged", "--no-skip-worktree"} {
-		if _, err := gitWith(ctx, root, env, list, "update-index", flag, "-z", "--stdin"); err != nil {
+		if _, err := r.gitWith(ctx, root, env, list, "update-index", flag, "-z", "--stdin"); err != nil {
 			return err
 		}
 	}
@@ -197,16 +206,24 @@ func unflag(ctx context.Context, root string, env []string) error {
 
 // head is root's HEAD commit.
 func head(ctx context.Context, root string) (string, error) {
-	out, err := git(ctx, root, "rev-parse", "--verify", "HEAD")
+	return headWith(ctx, runner{}, root)
+}
+
+func headWith(ctx context.Context, r runner, root string) (string, error) {
+	out, err := r.git(ctx, root, "rev-parse", "--verify", "HEAD")
 	return strings.TrimSpace(out), err
 }
 
 // commitTree makes an unsigned commit of tree on parent, under pitwall's
 // name whatever the user's config says.
 func commitTree(ctx context.Context, root, parent, tree, msg string) (string, error) {
+	return commitTreeWith(ctx, runner{}, root, parent, tree, msg)
+}
+
+func commitTreeWith(ctx context.Context, r runner, root, parent, tree, msg string) (string, error) {
 	env := []string{"GIT_AUTHOR_NAME=pitwall", "GIT_AUTHOR_EMAIL=pitwall@localhost",
 		"GIT_COMMITTER_NAME=pitwall", "GIT_COMMITTER_EMAIL=pitwall@localhost"}
-	out, err := gitWith(ctx, root, env, "", "commit-tree", "--no-gpg-sign", "-p", parent, "-m", msg, tree)
+	out, err := r.gitWith(ctx, root, env, "", "commit-tree", "--no-gpg-sign", "-p", parent, "-m", msg, tree)
 	return strings.TrimSpace(out), err
 }
 
@@ -218,21 +235,26 @@ func Checkpoint(ctx context.Context, worktree, ws string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, ok := RepoRoot(ctx, worktree)
-	if !ok {
-		return "", notRepo(ctx, worktree)
+	r := newRunner(ctx, worktree)
+	rootOut, err := r.git(ctx, worktree, "rev-parse", "--show-toplevel")
+	if err != nil {
+		if r.err != nil {
+			return "", r.err
+		}
+		return "", fmt.Errorf("%s is not in a git repository", worktree)
 	}
-	list, redo, err := turns(ctx, root, prefix)
+	root := gitPath(strings.TrimSuffix(rootOut, "\n"))
+	list, redo, err := turnsWith(ctx, r, root, prefix)
 	if err != nil {
 		return "", err
 	}
 	// HEAD before the files: a commit made while they are read must not
 	// pass for the one they were taken on.
-	parent, err := head(ctx, root)
+	parent, err := headWith(ctx, r, root)
 	if err != nil {
 		return "", err
 	}
-	tree, err := snapshot(ctx, root)
+	tree, err := snapshotWith(ctx, r, root)
 	if err != nil {
 		return "", err
 	}
@@ -240,7 +262,7 @@ func Checkpoint(ctx context.Context, worktree, ws string) (string, error) {
 	if len(list) > 0 {
 		n = list[len(list)-1].n + 1
 	}
-	rev, err := commitTree(ctx, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn %d", ws, n))
+	rev, err := commitTreeWith(ctx, r, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn %d", ws, n))
 	if err != nil {
 		return "", err
 	}
@@ -254,10 +276,10 @@ func Checkpoint(ctx context.Context, worktree, ws string) (string, error) {
 	if redo.name != "" {
 		fmt.Fprintf(&b, "delete %s\n", redo.name)
 	}
-	if end, _ := endOf(ctx, root, prefix); end.rev != "" {
+	if end, _ := endOfWith(ctx, r, root, prefix); end.rev != "" {
 		fmt.Fprintf(&b, "delete %s\n", end.name) // the turn before's: this turn has not ended
 	}
-	if _, err := gitWith(ctx, root, nil, b.String(), "update-ref", "--stdin"); err != nil {
+	if _, err := r.gitWith(ctx, root, nil, b.String(), "update-ref", "--stdin"); err != nil {
 		return "", err
 	}
 	return rev, nil
@@ -271,29 +293,38 @@ func EndTurn(ctx context.Context, worktree, ws string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root, ok := RepoRoot(ctx, worktree)
-	if !ok {
-		return "", notRepo(ctx, worktree)
+	r := newRunner(ctx, worktree)
+	rootOut, err := r.git(ctx, worktree, "rev-parse", "--show-toplevel")
+	if err != nil {
+		if r.err != nil {
+			return "", r.err
+		}
+		return "", fmt.Errorf("%s is not in a git repository", worktree)
 	}
-	parent, err := head(ctx, root)
+	root := gitPath(strings.TrimSuffix(rootOut, "\n"))
+	parent, err := headWith(ctx, r, root)
 	if err != nil {
 		return "", err
 	}
-	tree, err := snapshot(ctx, root)
+	tree, err := snapshotWith(ctx, r, root)
 	if err != nil {
 		return "", err
 	}
-	rev, err := commitTree(ctx, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn end", ws))
+	rev, err := commitTreeWith(ctx, r, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn end", ws))
 	if err != nil {
 		return "", err
 	}
-	_, err = git(ctx, root, "update-ref", prefix+"end", rev)
+	_, err = r.git(ctx, root, "update-ref", prefix+"end", rev)
 	return rev, err
 }
 
 // endOf is the turn end EndTurn took under prefix, a zero turnRef for none.
 func endOf(ctx context.Context, root, prefix string) (turnRef, error) {
-	out, err := git(ctx, root, "for-each-ref", "--format=%(objectname) %(tree) %(parent)", prefix+"end")
+	return endOfWith(ctx, runner{}, root, prefix)
+}
+
+func endOfWith(ctx context.Context, r runner, root, prefix string) (turnRef, error) {
+	out, err := r.git(ctx, root, "for-each-ref", "--format=%(objectname) %(tree) %(parent)", prefix+"end")
 	if f := strings.Fields(out); err == nil && len(f) == 3 {
 		return turnRef{name: prefix + "end", rev: f[0], tree: f[1], parent: f[2]}, nil
 	}

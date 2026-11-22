@@ -34,12 +34,18 @@ const historyEvery = 30 * time.Second
 type cachedHistory struct {
 	history *model.PaneHistory
 	limit   int
+	pane    Pane
+	seq     uint64
+	hasSeq  bool
 }
 
 type historySource struct {
 	pane    Pane
 	history *model.PaneHistory
 	limit   int
+	seq     uint64
+	hasSeq  bool
+	reuse   bool
 }
 
 // loadHistory validates saved rows before any panes or watchers start.
@@ -60,7 +66,7 @@ func (d *Daemon) loadHistory() {
 			log.Printf("pane %s: load history: %q", p.ID, err)
 			continue
 		}
-		d.history[p.ID] = cachedHistory{p.History, limit}
+		d.history[p.ID] = cachedHistory{history: p.History, limit: limit}
 	}
 }
 
@@ -68,7 +74,12 @@ func (d *Daemon) loadHistory() {
 func (d *Daemon) historySources(s model.State) map[string]historySource {
 	sources := make(map[string]historySource, len(s.Panes))
 	for _, p := range s.Panes {
-		sources[p.ID] = historySource{d.panes[p.ID], d.history[p.ID].history, d.historyLines(p)}
+		live := d.panes[p.ID]
+		cached := d.history[p.ID]
+		limit := d.historyLines(p)
+		seq, hasSeq := paneWriteSeq(live)
+		reuse := cached.history != nil && limit > 0 && cached.limit == limit && cached.pane == live && hasSeq && cached.hasSeq && cached.seq == seq
+		sources[p.ID] = historySource{pane: live, history: cached.history, limit: limit, seq: seq, hasSeq: hasSeq, reuse: reuse}
 	}
 	return sources
 }
@@ -83,11 +94,18 @@ func captureHistory(s *model.State, sources map[string]historySource) {
 		if source.limit <= 0 {
 			continue
 		}
+		if source.reuse {
+			p.History = source.history
+			continue
+		}
 		var cols int
 		var text string
 		at := now
 		var err error
 		if h, ok := source.pane.(interface{ HistoryText(int) (int, string) }); ok {
+			// Read WriteSeq before capturing so writes during capture trigger the next refresh.
+			source.seq, source.hasSeq = paneWriteSeq(source.pane)
+			sources[p.ID] = source
 			cols, text = h.HistoryText(source.limit)
 		} else if h := source.history; h != nil {
 			cols, at = h.Cols, h.SavedAt
@@ -117,7 +135,7 @@ func (d *Daemon) cacheHistory(s *model.State, sources map[string]historySource) 
 			delete(d.history, p.ID)
 			continue
 		}
-		d.history[p.ID] = cachedHistory{p.History, source.limit}
+		d.history[p.ID] = cachedHistory{history: p.History, limit: source.limit, pane: source.pane, seq: source.seq, hasSeq: source.hasSeq}
 	}
 }
 
@@ -162,6 +180,34 @@ func (d *Daemon) historyVT(width int, text, banner string, newVT vt.NewFunc) vt.
 	}
 }
 
+// historyDirty reports whether any pane's persisted history needs recapturing.
+func (d *Daemon) historyDirty() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, sp := range d.st.Panes {
+		limit := d.historyLines(sp)
+		cached, has := d.history[sp.ID]
+		if limit <= 0 {
+			if has {
+				return true
+			}
+			continue
+		}
+		live := d.panes[sp.ID]
+		if live == nil {
+			if has && cached.limit != limit {
+				return true
+			}
+			continue
+		}
+		seq, hasSeq := paneWriteSeq(live)
+		if !hasSeq || !has || cached.pane != live || cached.limit != limit || !cached.hasSeq || cached.seq != seq {
+			return true
+		}
+	}
+	return false
+}
+
 // historyLoop refreshes rolling snapshots even when only terminal output changes.
 func (d *Daemon) historyLoop(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
@@ -171,7 +217,7 @@ func (d *Daemon) historyLoop(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if d.o.PersistScrollback != nil && d.o.PersistScrollback() > 0 {
+			if d.o.PersistScrollback != nil && d.o.PersistScrollback() > 0 && d.historyDirty() {
 				d.Save()
 			}
 		}
