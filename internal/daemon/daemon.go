@@ -126,6 +126,12 @@ type Options struct {
 	// holds its pairings, devices and certificate.
 	Remote    func() config.RemoteSettings
 	RemoteDir string
+	// TailscaleStart, when non-nil, overrides how the daemon starts a
+	// built-in Tailscale node (used by tests to inject a fake runner).
+	TailscaleStart func(cfg tsnetStartConfig) (tailscaleNode, error)
+	// TailscaleCheck, when positive, overrides the polling interval for
+	// tailscaleLoop (defaults to remoteCheck).
+	TailscaleCheck time.Duration
 	// Web reads [web]; nil never serves the web protocol. WebPath is
 	// web.json, which holds the listener's address and token.
 	Web           func() config.WebSettings
@@ -281,7 +287,10 @@ type Daemon struct {
 	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed  bool
-	pushWake      chan struct{}          // wakes pushLoop, nil when it is not running
+	pushWake      chan struct{} // wakes pushLoop, nil when it is not running
+	pushMu        sync.Mutex    // refcounts pushLoop shared by loopback and Tailscale remote servers
+	pushRefs      int
+	pushCancel    context.CancelFunc
 	phoneTick     chan struct{}          // closed at the next change, nil while no phone stream waits
 	phoneSeq      uint64                 // the last phone message's id
 	phoneDropped  map[string][]uint64    // pane: phone messages its agent left before they went in
@@ -672,6 +681,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	wg.Go(func() { d.historyLoop(ctx, historyEvery) })
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
+	wg.Go(func() { d.tailscaleLoop(ctx) })
 	wg.Go(func() { d.webLoop(ctx) })
 	wg.Go(func() { d.devProxyLoop(ctx) })
 	wg.Go(func() { d.keepAwakeLoop(ctx) })

@@ -19,6 +19,7 @@ func TestRedact(t *testing.T) {
 		"xoxb-123456789012-abcdefghij",
 		"flagpassword99",
 		"ts_live_abcdefghijklmnopqrstuvwxyz012345",
+		"tskey-" + "auth-" + strings.Repeat("x", 40),
 	}
 	text := strings.Join([]string{
 		"export ANTHROPIC_API_KEY=" + secrets[0] + " && git push https://user:" + secrets[4] + "@example.com/r.git",
@@ -31,6 +32,7 @@ func TestRedact(t *testing.T) {
 		secrets[8],
 		"mysql --password=" + secrets[9],
 		secrets[10],
+		secrets[11],
 	}, "\n")
 	got := Redact(text)
 	for _, s := range secrets {

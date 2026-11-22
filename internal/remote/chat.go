@@ -238,8 +238,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 	var tabs []Tab
 	fresh := true
 	for {
-		// why: revoking a device stops its stream at once, as it stops its token.
-		if !Paired(s.Dir, d.ID) {
+		// why: revoking a device or removing a Tailscale allow rule stops its stream at once.
+		if !s.deviceLive(d) {
 			return
 		}
 		changed := s.Changed()

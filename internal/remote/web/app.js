@@ -10,6 +10,14 @@ const newpill = $('newpill'), pick = $('pick'), sheet = $('sheet');
 
 let token = '';
 try { token = localStorage.getItem(KEY) || ''; } catch (e) { /* private mode: pair again each visit */ }
+let authed = !!token;
+let pushInit = false;
+
+function authHeaders(extra) {
+  const h = Object.assign({}, extra);
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
 
 let tabs = [];          // the latest list, in sidebar order
 let hello = { models: [], efforts: [] };
@@ -40,7 +48,22 @@ function saveToken(t) {
 
 // ---- Pairing.
 
+function denied(msg) {
+  authed = false;
+  if (ctrl) ctrl.abort();
+  ctrl = null;
+  showList();
+  full.hidden = true;
+  push.replaceChildren();
+  $('device').textContent = '';
+  const box = el('div', 'empty');
+  box.append(el('p', '', msg || 'Access denied.'));
+  list.replaceChildren(box);
+  document.title = 'pitwall';
+}
+
 function unpaired(msg) {
+  authed = false;
   saveToken('');
   if (ctrl) ctrl.abort();
   ctrl = null;
@@ -84,13 +107,18 @@ async function pair(code) {
 async function api(path, body) {
   const r = await fetch(path, {
     method: body ? 'POST' : 'GET',
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store',
   });
   if (r.status === 401) {
-    unpaired('This phone is no longer paired.');
+    unpaired(token ? 'This phone is no longer paired.' : '');
     throw new Error('unpaired');
+  }
+  if (r.status === 403) {
+    const msg = (await r.text()).trim() || 'Access denied.';
+    denied(msg);
+    throw new Error(msg);
   }
   if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
   return r.json();
@@ -104,7 +132,6 @@ function offline(on) {
 
 // connect opens the one stream, for the open chat's pane if any.
 function connect() {
-  if (!token) return;
   clearTimeout(retry);
   if (ctrl) ctrl.abort();
   const my = new AbortController();
@@ -112,9 +139,10 @@ function connect() {
   (async () => {
     try {
       const r = await fetch('/api/stream' + (pane ? '?pane=' + encodeURIComponent(pane) : ''), {
-        headers: { 'Authorization': 'Bearer ' + token }, cache: 'no-store', signal: my.signal,
+        headers: authHeaders(), cache: 'no-store', signal: my.signal,
       });
-      if (r.status === 401) { unpaired('This phone is no longer paired.'); return; }
+      if (r.status === 401) { unpaired(token ? 'This phone is no longer paired.' : ''); return; }
+      if (r.status === 403) { denied((await r.text()).trim() || 'Access denied.'); return; }
       if (!r.ok || !r.body) throw new Error(r.statusText);
       const reader = r.body.getReader();
       const dec = new TextDecoder();
@@ -149,10 +177,15 @@ function event(block) {
   switch (name) {
     case 'hello':
       hello = v;
+      authed = true;
       backoff = 1000;
       offline(false);
       full.hidden = !v.web;
       $('device').textContent = v.device || '';
+      if (!pushInit) {
+        pushInit = true;
+        setupPush();
+      }
       break;
     case 'tabs':
       tabs = v || [];
@@ -171,7 +204,7 @@ function event(block) {
 
 // why: a phone drops the connection while the page sleeps, sometimes without an error.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && token) {
+  if (!document.hidden && (token || authed)) {
     backoff = 1000;
     connect();
   }
@@ -946,11 +979,10 @@ function start() {
   const p = hash.get('pane') || '';
   history.replaceState(null, '', location.pathname);
   if (code) { pair(code); return; }
-  if (!token) { unpaired(); return; }
-  // why: a tapped notification opens its chat, and Back still reaches the list.
+  // why: try connecting even without a token so Tailscale-authenticated phones open directly;
+  // an unpaired loopback connection gets 401 and falls back to the pairing form.
   if (p) openChat(p, true);
   else connect();
-  setupPush();
 }
 
 start();
@@ -970,7 +1002,7 @@ function attachImage(file) {
   $('attachment').append(img, remove); $('attachment').hidden = false;
 }
 async function uploadImage(pane, file) {
-  const r = await fetch('/api/upload?pane=' + encodeURIComponent(pane), { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: file });
+  const r = await fetch('/api/upload?pane=' + encodeURIComponent(pane), { method: 'POST', headers: authHeaders(), body: file });
   if (!r.ok) throw new Error(await r.text());
   return (await r.json()).image;
 }

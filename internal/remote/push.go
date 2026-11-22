@@ -329,6 +329,14 @@ func (p *Pusher) Send(ctx context.Context, n Notice) {
 		log.Printf("remote: push: %q", err)
 		return
 	}
+	// Also include Tailscale-authenticated browsers that subscribed to push.
+	if es, err := os.ReadDir(filepath.Join(p.Dir, "devices")); err == nil {
+		for _, e := range es {
+			if id, ok := strings.CutSuffix(e.Name(), ".push.json"); ok && strings.HasPrefix(id, "ts-") {
+				devs = append(devs, Device{ID: id, Name: id, Tailscale: true})
+			}
+		}
+	}
 	now := p.clock()
 	for _, d := range devs {
 		if !Subscribed(p.Dir, d.ID) {

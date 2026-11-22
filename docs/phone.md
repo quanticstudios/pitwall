@@ -11,7 +11,55 @@ at once; download it from the latest release.
 
 <img src="media/phone.webp" alt="The phone page's tab list: a working Claude Code tab, a finished one, a Codex tab asking approval and a pi tab asking a question in group api, a shell, and a failed tab in session infra" width="300"> <img src="media/phone-chat.webp" alt="A Claude Code tab's chat mid-turn: a reply, a failed go test call opened to its output, a code block, and a running call under a Working line" width="300">
 
-It is off until you turn it on in Settings, Phone, or in config.toml:
+It is off until you turn it on. The easiest way to reach it from your
+phone is pitwall's built-in Tailscale support, which needs neither
+`tailscale serve` nor a pairing step:
+
+```sh
+pitwall remote tailscale on
+```
+
+Or turn on **Built-in Tailscale** in Settings, Phone, or in `config.toml`:
+
+```toml
+[remote.tailscale]
+enabled = true
+```
+
+pitwall joins your tailnet inside its background service as its own
+userspace device (`pitwall-<hostname>` by default, with isolated state
+under `remote/tsnet/` in the state folder) and serves the phone page over
+HTTPS with Tailscale's certificate. Because it runs in-process in
+userspace, it does not touch any system or userspace `tailscaled` already
+running on the machine.
+
+On the first run, `pitwall remote tailscale on` (and Settings, Phone)
+shows Tailscale's login URL. For headless setup, set
+`PITWALL_TAILSCALE_AUTHKEY` (or `TS_AUTHKEY`) in the daemon's environment,
+or `auth_key` under `[remote.tailscale]`. Once logged in, pitwall checks
+each request's Tailscale identity (`WhoIs`): by default only the tailnet
+user who logged pitwall in can open the page. To grant additional users
+or tagged nodes access:
+
+```toml
+[remote.tailscale]
+enabled = true
+hostname = "pitwall-workstation"
+allow_users = ["teammate@example.com"]
+allow_tags = ["tag:phones"]
+```
+
+`pitwall remote tailscale status` (or `--json`) shows the device name,
+HTTPS URL, login URL and allowed identities. `pitwall remote tailscale
+off` logs the node out of your tailnet cleanly; pass `--delete-state` (or
+click **Log out & delete** in Settings, Phone) to also remove its saved
+state.
+
+## Local listener and `tailscale serve`
+
+You can also run the local listener alongside or instead of built-in
+Tailscale. Paired-device tokens keep working on both listeners. Turn it
+on in Settings, Phone, or in `config.toml`:
 
 ```toml
 [remote]
@@ -19,8 +67,7 @@ enabled = true
 ```
 
 By default it listens on `127.0.0.1:7777`, which only your computer can
-reach. The way to get it onto your phone is your tailnet. With
-[Tailscale](https://tailscale.com) on both devices:
+reach. With [Tailscale](https://tailscale.com) on both devices:
 
 ```sh
 tailscale serve --bg 7777
@@ -48,11 +95,14 @@ only the token's SHA-256 under `remote/` in the state folder (mode 0600). A
 request without a valid token gets nothing. After 10 failed codes or tokens
 in a minute, every request is refused until the minute is up.
 
-| Command                         | Does                                                                       |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `pitwall remote pair [name]`    | Pair a phone; prints the QR code and URL                                   |
-| `pitwall remote devices`        | List paired devices                                                        |
-| `pitwall remote revoke <name>`  | Unpair one by name or id; its token and its push subscription stop at once |
+| Command                                         | Does                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------- |
+| `pitwall remote tailscale on [--hostname NAME]` | Join your tailnet inside pitwall and serve the phone page over HTTPS       |
+| `pitwall remote tailscale off [--delete-state]` | Log pitwall out of your tailnet; `--delete-state` also deletes saved state |
+| `pitwall remote tailscale status [--json]`      | Show built-in Tailscale state, HTTPS URL, login URL and allowed identities |
+| `pitwall remote pair [name]`                    | Pair a phone; prints the QR code and URL                                   |
+| `pitwall remote devices`                        | List paired devices                                                        |
+| `pitwall remote revoke <name>`                  | Unpair one by name or id; its token and its push subscription stop at once |
 
 ## The tab list
 
