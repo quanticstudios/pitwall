@@ -354,6 +354,19 @@ func (p *Pane) Scrollback() string {
 	return build()
 }
 
+// ScrollbackFormatted returns the pane's history and screen in format
+// ("text", "ansi" or "html"), keeping the last lines logical lines when
+// lines > 0.
+func (p *Pane) ScrollbackFormatted(format string, lines int, pal vt.Palette) (string, error) {
+	p.mu.Lock()
+	build, err := vt.CaptureScrollbackFormat(p.vt, format, lines, pal)
+	p.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return build(), nil
+}
+
 // Commands returns the emulator's OSC 133 command blocks.
 func (p *Pane) Commands() ([]vt.CommandBlock, bool) {
 	p.mu.Lock()

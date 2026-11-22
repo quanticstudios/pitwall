@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // split, prompt, send and read let one agent open another in a pane of
@@ -25,15 +27,43 @@ import (
 
 var errOlder = errors.New("the daemon is older than this pitwall; restart it to use prompt, send and read")
 
+const splitUsage = `usage: pitwall split [-s session] [--down] [--wait] [--json] [--timeout 10m] [tab] [-- cmd args...]
+
+Open a pane running cmd (or a shell) right of the tab's last pane (--down:
+below it) and print its address (e.g. #3.2).
+
+Flags:
+  -s session      session name or id
+  --down          split below instead of to the right
+  --wait          print the pane address first, wait for cmd to exit, and exit with its code
+  --json          print one JSON result object (tab, tab_id, pane, pane_id, and exit details with --wait)
+  --timeout 10m   maximum time to wait (requires --wait)
+  -h, --help      show this help`
+
 // splitCommand opens a pane running cmd next to the last pane of a tab,
-// and prints its address.
-func splitCommand(args []string, out io.Writer) error {
+// prints its address, and with --wait waits for cmd to exit and exits with its code.
+func splitCommand(args []string, out, errOut io.Writer) int {
+	code, err := runSplit(args, out, errOut)
+	if err != nil {
+		if v, refused := proto.RefusedVersion(proto.Error{Message: err.Error()}); refused {
+			err = versionRefusal(v)
+		}
+		fmt.Fprintln(errOut, "pitwall:", err)
+		if code == 0 {
+			return 1
+		}
+		return code
+	}
+	return code
+}
+
+func runSplit(args []string, out, errOut io.Writer) (int, error) {
 	var cmd []string
 	if i := slices.Index(args, "--"); i >= 0 {
 		args, cmd = args[:i], args[i+1:]
 		if len(cmd) > 0 {
 			if err := absCmd(cmd); err != nil {
-				return err
+				return 1, err
 			}
 		}
 	}
@@ -41,22 +71,32 @@ func splitCommand(args []string, out io.Writer) error {
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
 	down := flags.Bool("down", false, "")
+	wait := flags.Bool("wait", false, "")
+	asJSON := flags.Bool("json", false, "")
+	timeout := flags.Duration("timeout", 0, "")
 	args, err := parseFlags(flags, args)
+	if errors.Is(err, flag.ErrHelp) {
+		fmt.Fprintln(out, splitUsage)
+		return 0, nil
+	}
 	if err != nil || len(args) > 1 {
-		return errors.New("usage: pitwall split [-s session] [--down] [tab] [-- cmd args...]")
+		return 1, errors.New(splitUsage)
+	}
+	if *timeout > 0 && !*wait {
+		return 1, errors.New("--timeout requires --wait")
 	}
 	conn, err := dialCLI()
 	if err != nil {
-		return err
+		return 1, err
 	}
 	defer conn.Close()
 	state, err := syncCLI(conn)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	session, err := currentSession(state, *sessionName)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	name := ""
 	if len(args) == 1 {
@@ -64,7 +104,7 @@ func splitCommand(args []string, out io.Writer) error {
 	}
 	w, err := resolveTab(state, session.ID, name)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	open := proto.OpenPane{WorkspaceID: w.ID, TabID: w.ActiveTab, Dir: layout.Horizontal, Cmd: cmd}
 	if *down {
@@ -75,29 +115,78 @@ func splitCommand(args []string, out io.Writer) error {
 			open.Target = panes[len(panes)-1]
 		}
 	}
+	var watch *watcher
+	if *wait {
+		watch, err = dialWatch()
+		if err != nil {
+			return 1, err
+		}
+		defer watch.Close()
+		if _, err := watch.next(); err != nil {
+			return 1, err
+		}
+	}
 	after, err := syncCLI(conn, open)
 	if err != nil {
-		return err
+		return 1, err
 	}
-	return printNewPane(out, state, after, w)
+	if !*wait && !*asJSON {
+		return 0, printNewPane(out, state, after, w)
+	}
+	tabIdx, paneIdx, newPane, err := findNewPane(state, after, w)
+	if err != nil {
+		return 1, err
+	}
+	res := runResult{
+		Tab:    fmt.Sprintf("#%d", tabIdx),
+		TabID:  w.ID,
+		Pane:   fmt.Sprintf("#%d.%d", tabIdx, paneIdx),
+		PaneID: newPane.ID,
+	}
+	if !*wait {
+		return 0, json.NewEncoder(out).Encode(res)
+	}
+	if !*asJSON {
+		if _, err := fmt.Fprintln(out, res.Pane); err != nil {
+			return 1, err
+		}
+	}
+	o, code, err := waitPaneExit(watch, after, newPane.ID, "", *timeout, errOut)
+	if err != nil {
+		return code, err
+	}
+	if *asJSON {
+		if err := encodeRunResult(out, res, o); err != nil {
+			return 1, err
+		}
+	}
+	return code, nil
 }
 
-// printNewPane prints the address of the pane in tab w that after has and
-// before had not.
-func printNewPane(out io.Writer, before, after model.State, w model.Workspace) error {
+func findNewPane(before, after model.State, w model.Workspace) (tabIdx, paneIdx int, p model.Pane, err error) {
 	tabs := numbered(after, w.SessionID)
 	i := slices.IndexFunc(tabs, func(t model.Workspace) bool { return t.ID == w.ID })
 	if i < 0 {
-		return fmt.Errorf("tab %s closed", tabTitle(w))
+		return 0, 0, model.Pane{}, fmt.Errorf("tab %s closed", tabTitle(w))
 	}
 	panes := tabPanes(after, tabs[i])
 	n := slices.IndexFunc(panes, func(p model.Pane) bool {
 		return !slices.ContainsFunc(before.Panes, func(old model.Pane) bool { return old.ID == p.ID })
 	})
 	if n < 0 {
-		return errors.New("cannot identify the new pane from daemon state")
+		return 0, 0, model.Pane{}, errors.New("cannot identify the new pane from daemon state")
 	}
-	_, err := fmt.Fprintf(out, "#%d.%d\n", i+1, n+1)
+	return i + 1, n + 1, panes[n], nil
+}
+
+// printNewPane prints the address of the pane in tab w that after has and
+// before had not.
+func printNewPane(out io.Writer, before, after model.State, w model.Workspace) error {
+	tabIdx, paneIdx, _, err := findNewPane(before, after, w)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "#%d.%d\n", tabIdx, paneIdx)
 	return err
 }
 
@@ -159,15 +248,57 @@ func reviewCommand(args []string, out io.Writer) error {
 	return printNewPane(out, m.State, after, w)
 }
 
-// readCommand prints the last reply of a pane's agent, or its screen.
+const readUsage = `usage: pitwall read [--host name] [-s session] <pane> [--screen | --scrollback [--lines N]] [--format text|ansi|html]
+
+Print the last reply of a pane's agent, its current screen (--screen), or its
+scrollback and screen (--scrollback).
+
+Flags:
+  --host name      read from [[hosts]] machine name (plain text)
+  -s session       session name or id
+  --screen         print the visible screen instead of the agent's last reply
+  --scrollback     print the pane's scrollback and visible screen
+  --lines N        last N lines (requires --scrollback)
+  --format fmt     output format: text (default), ansi, or html (requires --screen or --scrollback)
+  -h, --help       show this help`
+
+// readCommand prints the last reply of a pane's agent, its screen, or its scrollback.
 func readCommand(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("read", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
 	screen := flags.Bool("screen", false, "")
+	scrollback := flags.Bool("scrollback", false, "")
+	lines := flags.Int("lines", 0, "")
+	format := flags.String("format", "", "")
 	args, err := parseFlags(flags, args)
+	if errors.Is(err, flag.ErrHelp) {
+		_, err := fmt.Fprintln(out, readUsage)
+		return err
+	}
 	if err != nil || len(args) != 1 {
-		return errors.New("usage: pitwall read [--host name] [-s session] <pane> [--screen]")
+		return errors.New(readUsage)
+	}
+	if *format != "" && !vt.ValidFormat(*format) {
+		return fmt.Errorf("invalid --format %q: use text, ansi or html", *format)
+	}
+	if *screen && *scrollback {
+		return errors.New("pick --screen or --scrollback, not both")
+	}
+	if *lines < 0 {
+		return errors.New("--lines must be >= 0")
+	}
+	if *lines > 0 && !*scrollback {
+		return errors.New("--lines requires --scrollback")
+	}
+	if (*format == "ansi" || *format == "html") && !*screen && !*scrollback {
+		return errors.New("--format ansi or html requires --screen or --scrollback")
+	}
+	if *scrollback || *format == "ansi" || *format == "html" {
+		if onHost != "" {
+			return errors.New("--format ansi/html and read --scrollback use the local JSON-lines socket; forward the host's socket with PITWALL_SOCKET")
+		}
+		return readFormattedJSON(args[0], *sessionName, *scrollback, *lines, *format, out)
 	}
 	conn, err := dialCLI()
 	if err != nil {
@@ -212,6 +343,51 @@ func readCommand(args []string, out io.Writer) error {
 	}
 	text, err := readPane(target, proto.Read{Pane: p.ID, Screen: *screen})
 	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, text)
+	return err
+}
+
+func readFormattedJSON(pane, sessionName string, scrollback bool, lines int, format string, out io.Writer) error {
+	sess := callerSessionForJSON(sessionName, pane)
+	c, _, err := dialJSON("pitwall-read")
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if format == "" {
+		format = "text"
+	}
+	var req map[string]any
+	if scrollback {
+		req = map[string]any{
+			"type":   "scrollback",
+			"pane":   pane,
+			"lines":  lines,
+			"format": format,
+		}
+	} else {
+		req = map[string]any{
+			"type":   "readPane",
+			"pane":   pane,
+			"screen": true,
+			"format": format,
+		}
+	}
+	if sess != "" {
+		req["session"] = sess
+	}
+	data, err := c.call(req, 30*time.Second)
+	if err != nil {
+		return err
+	}
+	text, _ := data["text"].(string)
+	if scrollback {
+		if format == "html" && text != "" && !strings.HasSuffix(text, "\n") {
+			text += "\n"
+		}
+		_, err = io.WriteString(out, text)
 		return err
 	}
 	_, err = fmt.Fprintln(out, text)

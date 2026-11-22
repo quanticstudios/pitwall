@@ -186,7 +186,8 @@ func TestPeekKeepsPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer nc.Close()
-	if isJSON, err := jsonClient(nc); isJSON || err != nil {
+	nc2, isJSON, err := jsonClient(nc)
+	if isJSON || err != nil || nc2 != nc {
 		t.Fatalf("jsonClient %v, %v", isJSON, err)
 	}
 	if pid := peerPID(nc); pid != os.Getpid() {

@@ -357,7 +357,8 @@ type Daemon struct {
 	lines *web.Server
 	// ctlWatch are the control commands watching state and pane exits;
 	// see control.go. Guarded by mu.
-	ctlWatch map[*ctlWatch]bool
+	ctlWatch  map[*ctlWatch]bool
+	ctlEvents map[*ctlEventSub]bool
 
 	// prog is, per pane, its OSC 7501 records, and progSeq numbers program
 	// reports as they arrive; see program.go. prog is guarded by mu.
@@ -868,12 +869,11 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			cancelSearch()
 		}
 	}()
-	conn := proto.NewConn(nc)
-	defer conn.Close()
+	defer nc.Close()
 	stop := context.AfterFunc(ctx, func() { nc.Close() })
 	defer stop()
 
-	isJSON, err := jsonClient(nc)
+	nc, isJSON, err := jsonClient(nc)
 	if err != nil {
 		return
 	}
@@ -881,6 +881,8 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		d.lines.ServeLines(nc)
 		return
 	}
+	conn := proto.NewConn(nc)
+	defer conn.Close()
 	m, err := conn.Recv()
 	if err != nil {
 		return
@@ -2156,6 +2158,17 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 					d.lim.seenMsg(id, msg)
 					limit = func() { d.limitStopped(id, turn, msg, resets) }
 				}
+			}
+			if next.State == model.StateCompleted || next.State == model.StateError {
+				d.emitEventLocked(web.ControlEvent{
+					Event:  "turn.end",
+					At:     now.UTC(),
+					Tab:    p.WorkspaceID,
+					Pane:   p.ID,
+					Agent:  string(next.Provider),
+					State:  web.EventAgentState(next.State),
+					Detail: next.Detail,
+				})
 			}
 		}
 	}

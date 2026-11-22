@@ -118,6 +118,12 @@
           "$ref": "#/$defs/unsubscribeTabs"
         },
         {
+          "$ref": "#/$defs/subscribeEvents"
+        },
+        {
+          "$ref": "#/$defs/unsubscribeEvents"
+        },
+        {
           "$ref": "#/$defs/readPane"
         },
         {
@@ -134,6 +140,9 @@
         },
         {
           "$ref": "#/$defs/sendPane"
+        },
+        {
+          "$ref": "#/$defs/sendKey"
         },
         {
           "$ref": "#/$defs/promptPane"
@@ -208,6 +217,9 @@
         },
         {
           "$ref": "#/$defs/tabs"
+        },
+        {
+          "$ref": "#/$defs/event"
         }
       ]
     },
@@ -3571,6 +3583,132 @@
       },
       "additionalProperties": false
     },
+    "subscribeEvents": {
+      "description": "Stream state, title, tab, PR, queued-message, turn-end and pane-exit events as they happen.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribeEvents"
+        },
+        "id": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string",
+          "description": "Filter events to this session (id, exact name or unique name prefix); omitted for all sessions unless pane is set."
+        },
+        "pane": {
+          "type": "string",
+          "description": "Filter events to this pane (address as pitwall read takes it)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "unsubscribeEvents": {
+      "description": "Stop the event stream.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "unsubscribeEvents"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "description": "One pushed change from subscribeEvents.",
+      "type": "object",
+      "required": [
+        "type",
+        "event",
+        "at"
+      ],
+      "properties": {
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "enum": [
+            "pane.state",
+            "title",
+            "tab.opened",
+            "tab.closed",
+            "pr.state",
+            "queued.sent",
+            "turn.end",
+            "pane.exited"
+          ]
+        },
+        "at": {
+          "type": "string",
+          "description": "RFC 3339 UTC timestamp."
+        },
+        "session": {
+          "type": "string"
+        },
+        "sessionName": {
+          "type": "string"
+        },
+        "tab": {
+          "type": "string"
+        },
+        "pane": {
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "prState": {
+          "type": "string"
+        },
+        "prReason": {
+          "type": "string"
+        },
+        "prNumber": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "prDetail": {
+          "type": "string"
+        },
+        "prUrl": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "queued": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exitCode": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
     "readPane": {
       "description": "What pitwall read gives: the agent's last reply, or the screen.",
       "type": "object",
@@ -3596,6 +3734,14 @@
         },
         "screen": {
           "type": "boolean"
+        },
+        "format": {
+          "enum": [
+            "text",
+            "ansi",
+            "html"
+          ],
+          "description": "Screen output format; ansi and html require screen: true."
         }
       },
       "additionalProperties": false
@@ -3627,6 +3773,14 @@
           "type": "integer",
           "minimum": 0,
           "description": "The last lines only, at most 10000; 0 or left out for all."
+        },
+        "format": {
+          "enum": [
+            "text",
+            "ansi",
+            "html"
+          ],
+          "description": "Scrollback output format: plain text (default), ANSI SGR colors, or a self-contained HTML snippet with the theme's colors."
         }
       },
       "additionalProperties": false
@@ -3800,6 +3954,40 @@
         "fromPane": {
           "type": "string",
           "description": "The sending agent's pane id: the message's header names it, and it may send a pane at most 20 messages before the user types there."
+        }
+      },
+      "additionalProperties": false
+    },
+    "sendKey": {
+      "description": "What pitwall send-key does: send named keys encoded for the pane's current terminal modes. Refused on guarded tabs.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "pane",
+        "keys"
+      ],
+      "properties": {
+        "type": {
+          "const": "sendKey"
+        },
+        "id": {
+          "type": "string"
+        },
+        "pane": {
+          "type": "string",
+          "description": "An address as pitwall read takes it: #N, N, TAB.N, a title, a unique title prefix, or @ and a pane id."
+        },
+        "session": {
+          "type": "string",
+          "description": "The session: its id, exact name or a unique prefix of its name. Needed for an address other than @ and an id while more than one session is open."
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Key names such as enter, esc, tab, shift+tab, up, down, ctrl+c, a digit or a letter."
         }
       },
       "additionalProperties": false

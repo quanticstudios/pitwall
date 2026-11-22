@@ -30,9 +30,13 @@ take one; a tab alone means its main pane (see `wait`). `pane_list` in
 
 ## Commands
 
-`pitwall new [-n name] [-d] [dir] -- <cmd> [args...]` opens a tab in dir (the
+`pitwall new [-n name] [-d] [--wait] [--json] [--timeout 10m] [dir] -- <cmd> [args...]` opens a tab in dir (the
 current directory by default) running cmd instead of a shell, and prints its
-number, as `#4`. `-d` keeps it out of the sidebar until attached; leave it off
+number, as `#4`. With `--wait`, it prints the pane address (`#4.1`) first, waits
+for cmd to exit (reusing `pitwall wait --until exit`), and exits with cmd's exit
+code (124 on `--timeout`, 3 when a restart lost the code, 1 on signal/error);
+with `--json`, it prints one JSON object (`tab`, `tab_id`, `pane`, `pane_id`,
+and with `--wait` also `outcome`, `exit_code`, `signal`, `unknown`). `-d` keeps it out of the sidebar until attached; leave it off
 when the user should see the work. When cmd exits, its pane stays with the
 output on screen and the exit code recorded, until someone closes it. The
 tab survives a daemon restart (an upgrade or a reboot), but its screen does
@@ -96,10 +100,11 @@ The daemon pushes state in snapshots, so changes close together arrive as
 one; wait judges the latest. An agent pitwall reads from its screen (no
 hooks) is polled, so its state can lag or be misread.
 
-`pitwall split [--down] [tab] -- <cmd> [args...]` opens a pane running cmd
+`pitwall split [--down] [--wait] [--json] [--timeout 10m] [tab] -- <cmd> [args...]` opens a pane running cmd
 right of the tab's last pane, or below it with `--down`, and prints its
-address, as `#3.2`. Without a tab it splits the calling pane's tab. The
-pane closes when cmd exits. A relative command path is the caller's, as
+address, as `#3.2`. With `--wait`, it prints the pane address first, waits for
+cmd to exit and exits with its exit code; `--json` prints one JSON result object,
+just like `pitwall new --wait --json`. Without a tab it splits the calling pane's tab. A relative command path is the caller's, as
 with `new`.
 
 `pitwall prompt <pane> [--wait] [--timeout 10m] -- "text"` types text into
@@ -143,13 +148,57 @@ with an error that says to stop and ask the user, and the user's next
 key in that pane resets the count. Messages from a script are not
 counted.
 
-`pitwall read <pane> [--screen]` prints the last message of the latest turn
+`pitwall send-key [-s session] <pane> [--] <key>...` sends single keys by name
+(`enter`, `esc`, `tab`, `shift+tab`, `space`, `backspace`, `delete`, `insert`,
+`up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `f1`..`f12`,
+modifier chords such as `ctrl+c`, `alt+x`, `shift+enter`, or any single digit or
+letter), encoded the way the GUI encodes them for that pane's current terminal
+modes (application cursor keys, kitty keyboard protocol, etc.). Useful for
+approving or navigating a prompt from a script. Refused on guarded tabs, just as
+`send` and `prompt` honor the guard.
+
+`pitwall read <pane> [--screen | --scrollback [--lines N]] [--format text|ansi|html]` prints the last message of the latest turn
 the pane's agent finished, the same reply `prompt --wait` prints. The
 daemon keeps it in memory, with secrets redacted and cut at 16000
 characters, until the pane closes or the next prompt. After a daemon
 restart, or before the agent finished a turn, there is none: read says so
-on stderr and exits 1. `--screen` prints the text on the pane's screen
-instead.
+on stderr and exits 1. `--screen` prints the pane's visible screen instead, and
+`--scrollback` (with optional `--lines N`) prints scrollback plus visible screen.
+With `--screen` or `--scrollback`, `--format` selects `text` (default), `ansi`
+(with SGR color/style escapes), or `html` (a self-contained `<pre>` snippet using
+the active theme's palette). `pitwall scrollback <pane> [--lines N] [--format text|ansi|html]`
+takes the same `--format` values.
+
+`pitwall events [--json] [--session S] [--pane P]` streams changes from the
+daemon over `$PITWALL_SOCKET`, one event per line. Without `--json`, each line is
+human-readable; with `--json`, each line is one JSON `event` object with stable
+field names (see `docs/web-protocol.md`):
+
+- Common fields: `type` (`"event"`), `at` (RFC 3339 UTC timestamp), `event`,
+  `session`, and when applicable `tab`, `pane`.
+- Event kinds (`event`):
+  - `pane.state`: `agent`, `state` (`working`, `pending-approval`, `awaiting-input`, `plan-ready`, `done`, `error`), optional `detail`.
+  - `title`: `title` (tab or pane title changed).
+  - `tab.opened`, `tab.closed`: `title` (tab opened or closed).
+  - `pr.state`: `prState`, optional `prReason`, `prDetail`, `prNumber`.
+  - `queued.sent`: `from` (sending pane id or `""`), `queued` (remaining queued messages).
+  - `turn.end`: `agent`, `state`, optional `detail`.
+  - `pane.exited`: `exitCode`.
+
+It exits 0 on Ctrl+C / SIGTERM and non-zero if the daemon connection is lost.
+
+`pitwall api [json...]` is the escape hatch for anything the CLI has no dedicated
+command for: it sends raw JSON-lines frames (positional arguments, or stdin when
+omitted or `-`) to `$PITWALL_SOCKET` and prints every reply line on stdout.
+Unless the first frame is already a `hello`, pitwall performs the protocol
+handshake automatically and hides `welcome`; commands omitting `id` get one
+automatically. Subscription frames (`subscribeTabs`, `subscribeEvents`,
+`subscribeSessions`, ...) stream until Ctrl+C or daemon close.
+
+For Claude Code and Codex, the `SessionStart` hook installed by
+`pitwall hooks install` adds a short `additionalContext` line naming your pane id
+(`@<id>`), tab, and session, and noting that `pitwall` commands work from your
+shell without inspecting environment variables.
 
 `pitwall review [tab] [--agent claude|codex]` asks another agent for a
 second opinion on a tab's changes, by default the calling pane's tab, and

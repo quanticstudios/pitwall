@@ -16,6 +16,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/vt"
+	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 // One agent talks to another through pitwall prompt, send and read: the
@@ -459,6 +460,14 @@ func (d *Daemon) deliver(pane string) {
 	if l.seq > d.mail.delivered[pane] {
 		d.mail.delivered[pane] = l.seq
 	}
+	rem := len(d.mail.queue[pane])
+	d.emitEventLocked(web.ControlEvent{
+		Event:  "queued.sent",
+		At:     time.Now().UTC(),
+		Pane:   pane,
+		From:   l.from,
+		Queued: &rem,
+	})
 	d.changed()
 	d.mu.Unlock()
 	if isChat {

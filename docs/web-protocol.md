@@ -121,11 +121,11 @@ that gets 1001 or loses the connection reconnects with backoff and
 <a id="local-socket"></a>
 ### The local socket
 
-On Linux the daemon's own Unix socket, `$PITWALL_SOCKET` in every pane,
-speaks this protocol too, as JSON lines. The daemon reads the first byte
-of each connection without taking it: `{` starts a JSON client, and
-anything else is one of pitwall's own clients, as before. macOS and
-Windows serve only pitwall's own clients there for now.
+The daemon's own Unix socket, `$PITWALL_SOCKET` in every pane, speaks this
+protocol too, as JSON lines, on Linux, macOS and Windows. The daemon peeks at
+the first byte of each connection without consuming it for gob clients: `{`
+starts a JSON client, and anything else is one of pitwall's own clients, as
+before.
 
 - Each frame is one JSON object on one line, ended by `\n`, both ways.
   The server never puts a line break inside a frame. Blank lines are
@@ -178,7 +178,7 @@ OpenSSH creates the local socket with mode 0600 (`StreamLocalBindMask`
   connection. The server answers each command with exactly one `result`
   that carries the same `id`.
 - The server sends `welcome`, `result`, `error`, and the pushed messages
-  `sessions`, `sessionsChanged`, `deltas`, `removed` and `tabs`.
+  `sessions`, `sessionsChanged`, `deltas`, `removed`, `tabs` and `event`.
 - The server handles one connection's commands in the order they arrive,
   but results can come back in another order, since commands to different
   chats run on different chat loops. Pushed messages for one chat keep
@@ -888,12 +888,14 @@ code, and its result's `data` holds what that command prints.
 | --- | --- | --- |
 | `listTabs` | `pitwall ls --json` | `session`, `tabs` |
 | `subscribeTabs`, `unsubscribeTabs` | none | none; `tabs` frames follow |
+| `subscribeEvents`, `unsubscribeEvents` | `pitwall events` | none; `event` frames follow |
 | `readPane` | `pitwall read` | `text` |
 | `scrollback` | `pitwall scrollback` | `text` |
 | `waitPane` | `pitwall wait` | `outcome`, and `state`, `question` or `exit` |
 | `newTab` | `pitwall new` | `tab`, `pane`, or `tab` and `closed` |
 | `splitPane` | `pitwall split` | `pane` |
 | `sendPane` | `pitwall send` | none |
+| `sendKey` | `pitwall send-key` | none |
 | `promptPane` | `pitwall prompt` | none, or with `wait` `outcome` and `reply` or `question` |
 | `killTab`, `renameTab`, `detachTab` | `pitwall kill`, `rename`, `detach` | none |
 | `focusTab` | `pitwall attach`, without opening a window | none |
@@ -968,15 +970,50 @@ reads slowly gets the latest list rather than every one. A second
 {"type": "unsubscribeTabs", "id": "c3"}
 ```
 
+### subscribeEvents and unsubscribeEvents
+
+After its result, `subscribeEvents` pushes one `event` frame for each change
+that occurs from then on. Optional `session` filters to one session; optional
+`pane` filters to one pane (and tab-level events for that pane's tab, such as
+`pr.state` and `tab.closed`). Without either, changes across all sessions are
+streamed. A second `subscribeEvents` replaces the first; `unsubscribeEvents`
+stops them.
+
+| `event` | When | Fields (besides `type`, `event`, `at`, `session`, `sessionName`) |
+| --- | --- | --- |
+| `pane.state` | a pane's agent state, detail or agent changes | `tab`, `pane`, `agent`, `state` (`working`, `pending-approval`, `awaiting-input`, `plan-ready`, `done`, `error`, `pr-open`, `parked`, `idle`, `running`, `exited`), optional `detail` |
+| `title` | a tab or pane title changes | `tab`, optional `pane`, `title` |
+| `tab.opened` | a tab opens | `tab`, optional `pane`, `title`, optional `parent` |
+| `tab.closed` | a tab closes | `tab`, `title`, optional `parent` |
+| `pr.state` | a tab or worker's pull request state changes | `tab`, optional `parent`, `prState`, `prReason`, optional `prNumber`, `prDetail`, `prUrl` |
+| `queued.sent` | a queued message is sent to a pane | `tab`, `pane`, optional `from`, `queued` (remaining count) |
+| `turn.end` | an agent's turn finishes | `tab`, `pane`, `agent`, `state` (`done` or `error`), optional `detail` |
+| `pane.exited` | a pane's process exits | `tab`, `pane`, optional `agent`, `exitCode` |
+
+```json
+{"type": "subscribeEvents", "id": "e1", "session": "work", "pane": "@p7c1"}
+```
+
+```json
+{"type": "event", "event": "pane.state", "at": "2026-11-15T09:12:51.002Z", "session": "4f1c2a9e", "sessionName": "work", "tab": "a3f2", "pane": "p7c1", "agent": "claude", "state": "pending-approval", "detail": "Bash\ngo test ./..."}
+```
+
+```json
+{"type": "unsubscribeEvents", "id": "e2"}
+```
+
 ### readPane and scrollback
 
 `readPane` is the reply the pane's agent last finished, or with `screen`
 the text on the pane's screen. `scrollback` is the pane's history and
-screen; `lines` keeps only the last lines, at most 10,000. A text over
+screen; `lines` keeps only the last lines, at most 10,000. Both take an
+optional `format`: `text` (default), `ansi` (ANSI SGR colors) or `html`
+(a self-contained `<pre>` snippet with the theme's colors). `readPane`
+requires `screen: true` when `format` is `ansi` or `html`. A text over
 4 MiB is `tooLarge`: ask for fewer `lines`.
 
 ```json
-{"type": "readPane", "id": "c4", "session": "work", "pane": "#1", "screen": true}
+{"type": "readPane", "id": "c4", "session": "work", "pane": "#1", "screen": true, "format": "ansi"}
 ```
 
 ```json
@@ -984,7 +1021,7 @@ screen; `lines` keeps only the last lines, at most 10,000. A text over
 ```
 
 ```json
-{"type": "scrollback", "id": "c5", "pane": "@p7c1", "lines": 200}
+{"type": "scrollback", "id": "c5", "pane": "@p7c1", "lines": 200, "format": "html"}
 ```
 
 ### waitPane
@@ -1105,6 +1142,18 @@ count toward the 64 waits a connection may have.
 
 ```json
 {"type": "sendPane", "id": "c11", "pane": "@p7c1", "text": "the build is green", "fromPane": "p8d2"}
+```
+
+### sendKey
+
+`sendKey` sends single keys by name (`enter`, `esc`, `tab`, `shift+tab`,
+`up`, `down`, `left`, `right`, `ctrl+c`, digits, letters, function keys)
+encoded against the pane's current terminal modes (DECCKM application cursor
+keys, kitty keyboard protocol, etc.), the same way the GUI encodes them.
+A guarded tab is refused with `refused`.
+
+```json
+{"type": "sendKey", "id": "c11k", "pane": "@p7c1", "keys": ["down", "enter"]}
 ```
 
 ```json

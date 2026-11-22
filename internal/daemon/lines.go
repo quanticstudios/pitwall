@@ -1,4 +1,4 @@
-//go:build linux
+//go:build unix
 
 package daemon
 
@@ -19,14 +19,14 @@ var helloWait = 10 * time.Second
 // most 64 MiB and so never starts with 0x7b. It peeks with MSG_PEEK, so
 // the gob path reads every byte through the same *net.UnixConn, which
 // handoff and peerPID need. Only a unix socket is peeked.
-func jsonClient(nc net.Conn) (bool, error) {
+func jsonClient(nc net.Conn) (net.Conn, bool, error) {
 	uc, ok := nc.(*net.UnixConn)
 	if !ok {
-		return false, nil
+		return nc, false, nil
 	}
 	raw, err := uc.SyscallConn()
 	if err != nil {
-		return false, err
+		return nc, false, err
 	}
 	uc.SetReadDeadline(time.Now().Add(helloWait))
 	defer uc.SetReadDeadline(time.Time{})
@@ -39,11 +39,11 @@ func jsonClient(nc net.Conn) (bool, error) {
 	})
 	switch {
 	case err != nil:
-		return false, err
+		return nc, false, err
 	case perr != nil:
-		return false, perr
+		return nc, false, perr
 	case n == 0:
-		return false, errors.New("closed before its first byte")
+		return nc, false, errors.New("closed before its first byte")
 	}
-	return b[0] == '{', nil
+	return nc, b[0] == '{', nil
 }

@@ -7,25 +7,40 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/control"
+	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 // ctlHub is the daemon as web.Control.
 type ctlHub struct{ d *Daemon }
 
-var _ web.Control = ctlHub{}
+var (
+	_ web.Control            = ctlHub{}
+	_ web.ControlFormatter   = ctlHub{}
+	_ web.ControlKeys        = ctlHub{}
+	_ web.ControlEventSource = ctlHub{}
+)
 
 // ctlWatch is one web.Control.Watch.
 type ctlWatch struct {
 	changed func()
 	exited  func(pane string, code int)
+}
+
+// ctlEventSub is one web.ControlEventSource.WatchEvents subscriber.
+type ctlEventSub struct {
+	fn func(web.ControlEvent)
 }
 
 func (h ctlHub) State() model.State {
@@ -44,6 +59,26 @@ func (h ctlHub) Read(pane string, screen bool) (string, error) {
 	return r.Text, nil
 }
 
+func (h ctlHub) ReadFormat(pane string, screen bool, format string) (string, error) {
+	if !screen {
+		if format != "" && format != vt.FormatText {
+			return "", web.ControlError("invalid", "format ansi or html requires screen: true")
+		}
+		return h.Read(pane, false)
+	}
+	h.d.mu.Lock()
+	p := h.d.panes[pane]
+	h.d.mu.Unlock()
+	if p == nil {
+		return "", web.ControlError("not-found", fmt.Sprintf("no pane %s", pane))
+	}
+	text, err := vt.FormatGrid(p.Snapshot(), format, vt.CurrentPalette())
+	if err != nil {
+		return "", web.ControlError("invalid", err.Error())
+	}
+	return text, nil
+}
+
 func (h ctlHub) Scrollback(pane string, lines int) (string, error) {
 	switch r := h.d.scrollback(proto.Scrollback{Pane: pane, Lines: lines}).(type) {
 	case proto.ScrollbackResult:
@@ -52,6 +87,65 @@ func (h ctlHub) Scrollback(pane string, lines int) (string, error) {
 		return "", errors.New(r.Message)
 	}
 	return "", errors.New("no scrollback")
+}
+
+func (h ctlHub) ScrollbackFormat(pane string, lines int, format string) (string, error) {
+	if format == "" || format == vt.FormatText {
+		return h.Scrollback(pane, lines)
+	}
+	if lines < 0 {
+		return "", web.ControlError("invalid", "lines must be non-negative")
+	}
+	h.d.mu.Lock()
+	p := h.d.panes[pane]
+	h.d.mu.Unlock()
+	if p == nil {
+		return "", web.ControlError("not-found", fmt.Sprintf("no pane %s", pane))
+	}
+	pal := vt.CurrentPalette()
+	if sf, ok := p.(interface {
+		ScrollbackFormatted(format string, lines int, pal vt.Palette) (string, error)
+	}); ok {
+		text, err := sf.ScrollbackFormatted(format, lines, pal)
+		if err != nil {
+			return "", web.ControlError("invalid", err.Error())
+		}
+		return text, nil
+	}
+	// Fallback for test fakes without ScrollbackFormatted: format the snapshot.
+	text, err := vt.FormatGrid(p.Snapshot(), format, pal)
+	if err != nil {
+		return "", web.ControlError("invalid", err.Error())
+	}
+	return text, nil
+}
+
+func (h ctlHub) SendKeys(ctx context.Context, pane string, keys []string) error {
+	h.d.mu.Lock()
+	st := h.d.snapshot()
+	p := h.d.panes[pane]
+	alive := p != nil && h.d.inputs[pane] != nil
+	var tabID string
+	if i := slices.IndexFunc(st.Panes, func(sp model.Pane) bool { return sp.ID == pane }); i >= 0 {
+		tabID = st.Panes[i].WorkspaceID
+	}
+	h.d.mu.Unlock()
+	if !alive {
+		return web.ControlError("not-found", fmt.Sprintf("no running pane %s", pane))
+	}
+	if tabID != "" && control.Guarded(st, tabID) {
+		return web.ControlError("refused", "the tab is guarded: sendKey cannot send keys to a guarded tab")
+	}
+	for _, k := range keys {
+		data, err := input.EncodeKey(k, p.Modes())
+		if err != nil {
+			return web.ControlError("invalid", err.Error())
+		}
+		if err := h.d.handle(ctx, proto.Input{Pane: pane, Data: data}); err != nil {
+			return ctlFail(err)
+		}
+	}
+	return nil
 }
 
 func (h ctlHub) Watch(changed func(), exited func(string, int)) func() {
@@ -66,6 +160,53 @@ func (h ctlHub) Watch(changed func(), exited func(string, int)) func() {
 		h.d.mu.Lock()
 		delete(h.d.ctlWatch, w)
 		h.d.mu.Unlock()
+	}
+}
+
+func (h ctlHub) WatchEvents(fn func(web.ControlEvent)) func() {
+	sub := &ctlEventSub{fn: fn}
+	h.d.mu.Lock()
+	if h.d.ctlEvents == nil {
+		h.d.ctlEvents = map[*ctlEventSub]bool{}
+	}
+	h.d.ctlEvents[sub] = true
+	h.d.mu.Unlock()
+	return func() {
+		h.d.mu.Lock()
+		delete(h.d.ctlEvents, sub)
+		h.d.mu.Unlock()
+	}
+}
+
+// emitEventLocked sends a direct ControlEvent to all subscribeEvents watchers.
+// Callers hold d.mu; subscriber callbacks never block.
+func (d *Daemon) emitEventLocked(ev web.ControlEvent) {
+	if len(d.ctlEvents) == 0 {
+		return
+	}
+	if ev.At.IsZero() {
+		ev.At = time.Now().UTC()
+	}
+	if ev.Tab == "" && ev.Pane != "" {
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == ev.Pane }); i >= 0 {
+			ev.Tab = d.st.Panes[i].WorkspaceID
+		}
+	}
+	if ev.Session == "" && ev.Tab != "" {
+		ev.Session = d.st.SessionOf(ev.Tab)
+	}
+	if ev.SessionName == "" && ev.Session != "" {
+		if s := d.st.Session(ev.Session); s != nil {
+			ev.SessionName = s.Name
+		}
+	}
+	if ev.Parent == "" && ev.Tab != "" {
+		if w := d.workspace(ev.Tab); w != nil {
+			ev.Parent = w.Parent
+		}
+	}
+	for sub := range d.ctlEvents {
+		sub.fn(ev)
 	}
 }
 
