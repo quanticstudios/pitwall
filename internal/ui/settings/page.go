@@ -25,7 +25,6 @@ import (
 	"gioui.org/io/clipboard"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -1015,7 +1014,7 @@ func (p *Page) labeled(id string, opts, labels []string, cur string, pick func(s
 			for i, o := range opts {
 				c := p.btn(id + ":" + o)
 				ws = append(ws, func(gtx gl.Context) gl.Dimensions {
-					return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+					return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 						label := o
 						if labels != nil {
 							label = labels[i]
@@ -1041,8 +1040,6 @@ func (p *Page) labeled(id string, opts, labels []string, cur string, pick func(s
 						oo := op.Offset(sz.Sub(d.Size).Div(2)).Push(gtx.Ops)
 						call.Add(gtx.Ops)
 						oo.Pop()
-						defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-						pointer.CursorPointer.Add(gtx.Ops)
 						return gl.Dimensions{Size: sz}
 					})
 				})
@@ -1134,13 +1131,11 @@ func (p *Page) chords(a config.Action) gl.Widget {
 				label = "Press keys…"
 			}
 			ws = append(ws, func(gtx gl.Context) gl.Dimensions {
-				return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+				return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 					d := p.keycap(gtx, label, hot, c.Hovered())
 					if gtx.Focused(c) {
 						kit.FocusRing(gtx, th, image.Rectangle{Max: d.Size}, gtx.Dp(4))
 					}
-					defer clip.Rect{Max: d.Size}.Push(gtx.Ops).Pop()
-					pointer.CursorPointer.Add(gtx.Ops)
 					return d
 				})
 			})

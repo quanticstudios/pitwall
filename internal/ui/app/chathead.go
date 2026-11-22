@@ -437,7 +437,7 @@ func ghostMenuButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon,
 }
 
 func ghostButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon, text string, chevron, open bool) gl.Dimensions {
-	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 		fg, fill := th.Muted, color.NRGBA{}
 		switch {
 		case c.Pressed():
@@ -471,8 +471,6 @@ func ghostButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon, tex
 			sidebar.Icon(gtx, "chevron-down", chevSz, th.Muted)
 			o.Pop()
 		}
-		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 }
@@ -551,7 +549,7 @@ func (u *ui) chatMenu(gtx gl.Context, h *chatHead, top int) {
 	o2 := op.Offset(image.Pt(pad, pad)).Push(gtx.Ops)
 	g := gtx
 	g.Constraints = gl.Exact(row)
-	h.aide.Layout(g, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(g, &h.aide, func(gtx gl.Context) gl.Dimensions {
 		if gtx.Focused(&h.aide) {
 			kit.FocusRing(gtx, th, image.Rectangle{Max: row}, gtx.Dp(theme.RadiusControl))
 		}
@@ -561,7 +559,6 @@ func (u *ui) chatMenu(gtx gl.Context, h *chatHead, top int) {
 		t := op.Offset(image.Pt(gtx.Dp(theme.SpaceM), (row.Y-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		t.Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: row}
 	})
 	o2.Pop()

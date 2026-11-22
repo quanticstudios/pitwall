@@ -67,7 +67,7 @@ func row(gtx layout.Context, gap, h int, ws ...layout.Widget) layout.Dimensions 
 // textButton is a 28dp ghost button with a Small label.
 func textButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, label string) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		h, pad := gtx.Dp(28), gtx.Dp(10)
 		m := op.Record(gtx.Ops)
 		d := text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, label)
@@ -84,7 +84,7 @@ func textButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, label 
 // iconButton is a 28dp ghost button with a 14dp icon.
 func iconButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, label string) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
 		s, is := gtx.Dp(28), gtx.Dp(14)
 		ghostFill(gtx, th, b, image.Pt(s, s))
@@ -124,7 +124,7 @@ func menuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, name stri
 
 // iconMenuRow is menuRow with a 14dp icon before the name, in col with it.
 func iconMenuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, name string, col color.NRGBA, on bool) layout.Dimensions {
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(28)
 		w := gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}

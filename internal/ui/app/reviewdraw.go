@@ -12,7 +12,6 @@ import (
 	"gioui.org/font"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -362,7 +361,7 @@ func (u *ui) reviewPRStatus(gtx gl.Context, st *model.State) gl.Dimensions {
 	}
 	h := gtx.Dp(28) // the buttons' height
 	text := strings.TrimPrefix(sidebar.PRSummary(pr), fmt.Sprintf("#%d ", pr.Number))
-	return r.prChip.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, &r.prChip, func(gtx gl.Context) gl.Dimensions {
 		m := op.Record(gtx.Ops)
 		chip := sidebar.PRChip(gtx, th, pr, th.Surface)
 		chipCall := m.Stop()
@@ -374,8 +373,6 @@ func (u *ui) reviewPRStatus(gtx gl.Context, st *model.State) gl.Dimensions {
 		call.Add(gtx.Ops)
 		o.Pop()
 		size := image.Pt(chip.Size.X+gtx.Dp(6)+sz.X, h)
-		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 }
@@ -453,7 +450,7 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 				r.selectFile(files, i)
 				r.focus = true
 			}
-			return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+			return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 				sz := image.Pt(w, rowH)
 				switch {
 				case i == r.sel:
@@ -464,10 +461,8 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 				x := gtx.Dp(8)
 				box := gtx.Dp(14)
 				o := op.Offset(image.Pt(x, (rowH-box)/2)).Push(gtx.Ops)
-				chk.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+				kit.Clickable(gtx, chk, func(gtx gl.Context) gl.Dimensions {
 					drawCheck(gtx, th, box, done)
-					defer clip.Rect{Max: image.Pt(box, box)}.Push(gtx.Ops).Pop()
-					pointer.CursorPointer.Add(gtx.Ops)
 					return gl.Dimensions{Size: image.Pt(box, box)}
 				})
 				o.Pop()
@@ -495,8 +490,6 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 				if dir != "" {
 					drawMid(g, th, image.Pt(x+gtx.Dp(6), rowH), th.UIFont, th.Sp(theme.Small), th.Muted, strings.TrimSuffix(dir, "/"), g.Constraints.Max.X)
 				}
-				defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-				pointer.CursorPointer.Add(gtx.Ops)
 				return gl.Dimensions{Size: sz}
 			})
 		})
@@ -751,7 +744,7 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 		for c.Clicked(gtx) {
 			r.openFold(f.Key(), row.Line)
 		}
-		return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 			sz := image.Pt(w, m.h+gtx.Dp(6))
 			bg := th.SurfaceSecondary
 			if c.Hovered() {
@@ -763,8 +756,6 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 				s = "…  1 unchanged line"
 			}
 			drawMid(gtx, th, image.Pt(gutter+m.mark, sz.Y), th.UIFont, th.Sp(theme.Small), th.Muted, s, w)
-			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-			pointer.CursorPointer.Add(gtx.Ops)
 			return gl.Dimensions{Size: sz}
 		})
 	}
@@ -830,16 +821,14 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 	o := op.Offset(image.Point{}).Push(gtx.Ops)
 	gg := gtx
 	gg.Constraints = gl.Exact(image.Pt(gutter, h))
-	gc.Layout(gg, func(gtx gl.Context) gl.Dimensions {
-		defer clip.Rect{Max: image.Pt(gutter, h)}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
+	kit.Clickable(gg, gc, func(gtx gl.Context) gl.Dimensions {
 		return gl.Dimensions{Size: image.Pt(gutter, h)}
 	})
 	o.Pop()
 	o = op.Offset(image.Pt(gutter, 0)).Push(gtx.Ops)
 	lg := gtx
 	lg.Constraints = gl.Exact(image.Pt(w-gutter, h))
-	lc.Layout(lg, func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{Size: image.Pt(w-gutter, h)} })
+	kit.Clickable(lg, lc, func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{Size: image.Pt(w-gutter, h)} })
 	o.Pop()
 
 	// Comments and the comment field hang under the line, past the gutter.
@@ -971,10 +960,8 @@ func (u *ui) reviewNote(gtx gl.Context, root string, n *note, lost bool) gl.Dime
 					}
 					dc, dsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), c, "Delete")
 					o := op.Offset(image.Pt(w-dsz.X, 0)).Push(gtx.Ops)
-					n.del.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+					kit.Clickable(gtx, &n.del, func(gtx gl.Context) gl.Dimensions {
 						dc.Add(gtx.Ops)
-						defer clip.Rect{Max: dsz}.Push(gtx.Ops).Pop()
-						pointer.CursorPointer.Add(gtx.Ops)
 						return gl.Dimensions{Size: dsz}
 					})
 					o.Pop()

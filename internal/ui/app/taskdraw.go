@@ -405,7 +405,7 @@ func (u *ui) chips(gtx gl.Context, cs []widget.Clickable, names []string, on ...
 		g := gtx
 		g.Constraints = gl.Exact(image.Pt(bw, h))
 		c := &cs[i]
-		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+		kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 			r := gtx.Dp(8)
 			rect := image.Rect(0, 0, bw, h)
 			bg, ring := th.SurfaceSecondary, th.BorderSubtle
@@ -418,7 +418,6 @@ func (u *ui) chips(gtx gl.Context, cs []widget.Clickable, names []string, on ...
 			}
 			paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, r).Op(gtx.Ops))
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
-			pointer.CursorPointer.Add(gtx.Ops)
 			t := op.Offset(image.Pt((bw-sz.X)/2, (h-sz.Y)/2)).Push(gtx.Ops)
 			call.Add(gtx.Ops)
 			t.Pop()

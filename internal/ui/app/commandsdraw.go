@@ -117,7 +117,7 @@ func (u *ui) commandList(gtx gl.Context, rect image.Rectangle) {
 		size := image.Pt(rect.Dx(), g.Dp(56))
 		c := &b.rows[i]
 		g.Constraints = gl.Exact(size)
-		c.Layout(g, func(gl.Context) gl.Dimensions { return gl.Dimensions{Size: size} })
+		kit.Clickable(g, c, func(gl.Context) gl.Dimensions { return gl.Dimensions{Size: size} })
 		box := image.Rectangle{Max: size}.Inset(g.Dp(2))
 		if i == b.sel || c.Hovered() {
 			u.highlight(g, box, false)

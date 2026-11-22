@@ -6,7 +6,6 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/font"
-	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -175,7 +174,7 @@ func checkGlyph(p *clip.Path, s float32) {
 // iconButton is a 28px square ghost button with a glyph.
 func (p *Page) iconButton(gtx gl.Context, c *widget.Clickable, glyph func(*clip.Path, float32)) gl.Dimensions {
 	th := p.th
-	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 		sz := gtx.Dp(28)
 		fg := th.Muted
 		if c.Hovered() {
@@ -189,8 +188,6 @@ func (p *Page) iconButton(gtx gl.Context, c *widget.Clickable, glyph func(*clip.
 		o := op.Offset(image.Pt((sz-is)/2, (sz-is)/2)).Push(gtx.Ops)
 		icon(gtx, fg, is, glyph)
 		o.Pop()
-		defer clip.Rect{Max: image.Pt(sz, sz)}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: image.Pt(sz, sz)}
 	})
 }

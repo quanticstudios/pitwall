@@ -251,7 +251,7 @@ func (c *Composer) mentionPop(gtx layout.Context, th *theme.Theme) {
 // under the pointer.
 func (c *Composer) mentionRow(gtx layout.Context, th *theme.Theme, p string, on bool) layout.Dimensions {
 	b := c.click("mention:" + p)
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(p).Add(gtx.Ops)
 		h, w := gtx.Dp(28), gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}

@@ -8,7 +8,6 @@ import (
 
 	"gioui.org/font"
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -498,7 +497,6 @@ func (d *cdraw) thumbFace(gtx layout.Context, tb thumb, w, h, n int, hover bool)
 		veil.A = 0x14
 		paint.FillShape(gtx.Ops, veil, clip.Rect(r).Op())
 	}
-	pointer.CursorPointer.Add(gtx.Ops)
 	cl.Pop()
 	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(r, rad).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {

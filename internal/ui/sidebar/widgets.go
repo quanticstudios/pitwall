@@ -5,7 +5,6 @@ import (
 	"image/color"
 
 	"gioui.org/font"
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -14,6 +13,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -41,12 +41,7 @@ const listPad unit.Dp = 8
 
 // clickable wraps c with a pointer cursor.
 func clickable(gtx layout.Context, c *widget.Clickable, w layout.Widget) layout.Dimensions {
-	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		d := w(gtx)
-		defer clip.Rect{Max: d.Size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
-		return d
-	})
+	return kit.Clickable(gtx, c, w)
 }
 
 // iconButton is aide's square ghost icon button: muted glyph, surface-

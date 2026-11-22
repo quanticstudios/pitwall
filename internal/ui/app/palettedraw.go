@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 
-	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -14,6 +13,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -256,11 +256,10 @@ func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, que
 	}
 	g := gtx
 	g.Constraints = gl.Exact(size)
-	c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 		if c.Hovered() && !sel {
 			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.035), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 	px := gtx.Dp(12)

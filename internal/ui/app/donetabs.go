@@ -13,6 +13,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -196,7 +197,7 @@ func (u *ui) drawDone(gtx gl.Context) {
 		openSz := image.Pt(w-closeW, h)
 		g := gtx
 		g.Constraints = gl.Constraints{Min: openSz, Max: openSz}
-		it.open.Layout(g, func(g gl.Context) gl.Dimensions {
+		kit.Clickable(g, &it.open, func(g gl.Context) gl.Dimensions {
 			if it.open.Hovered() {
 				paint.FillShape(g.Ops, theme.Mix(th.Surface, th.Fg, 0.05), clip.UniformRRect(image.Rect(1, 1, openSz.X, openSz.Y-1), rad-1).Op(g.Ops))
 			}
@@ -214,7 +215,7 @@ func (u *ui) drawDone(gtx gl.Context) {
 		c := gtx
 		c.Constraints = gl.Constraints{Min: image.Pt(closeW, h), Max: image.Pt(closeW, h)}
 		o := op.Offset(image.Pt(w-closeW, 0)).Push(gtx.Ops)
-		it.close.Layout(c, func(c gl.Context) gl.Dimensions {
+		kit.Clickable(c, &it.close, func(c gl.Context) gl.Dimensions {
 			cc, cs := textCall(c, th, th.UIFont, th.Sp(theme.Large), th.Muted, "×")
 			off := op.Offset(image.Pt((closeW-cs.X)/2, pad.Y+(hs.Y-cs.Y)/2)).Push(c.Ops)
 			cc.Add(c.Ops)

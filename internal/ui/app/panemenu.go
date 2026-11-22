@@ -112,11 +112,10 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 // paneMenuRow is one row of the pane menu: an icon and a label.
 func (u *ui) paneMenuRow(gtx gl.Context, b *widget.Clickable, row image.Point, icon, label string) {
 	h := row.Y
-	b.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(gtx, b, func(gtx gl.Context) gl.Dimensions {
 		if b.Hovered() {
 			paint.FillShape(gtx.Ops, u.th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(8)).Op(gtx.Ops))
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		x := gtx.Dp(8)
 		x += drawIconAt(gtx, image.Pt(x, (h-gtx.Dp(14))/2), func(gtx gl.Context) {
 			if icon == "message-square" {

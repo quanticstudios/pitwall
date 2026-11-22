@@ -10,13 +10,14 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func (u *ui) searchRow(gtx gl.Context, st *model.State, c *widget.Clickable, m proto.SessionMatch, first bool, size image.Point) {
 	g := gtx
 	g.Constraints = gl.Exact(size)
-	c.Layout(g, func(gl.Context) gl.Dimensions { return gl.Dimensions{Size: size} })
+	kit.Clickable(g, c, func(gl.Context) gl.Dimensions { return gl.Dimensions{Size: size} })
 	th := u.th
 	label := ""
 	if first {

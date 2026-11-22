@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"slices"
 
-	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -25,11 +25,10 @@ func (u *ui) pathRow(gtx gl.Context, c *widget.Clickable, path, query string, se
 	th := u.th
 	g := gtx
 	g.Constraints = gl.Exact(size)
-	c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 		if c.Hovered() && !sel {
 			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.035), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 	x := gtx.Dp(12)

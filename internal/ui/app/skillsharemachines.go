@@ -162,7 +162,7 @@ func (u *ui) ssCard(st *model.State, host string, busy bool) ssW {
 		headH := gtx.Dp(40)
 		g := gtx
 		g.Constraints = gl.Exact(image.Pt(w, headH))
-		s.click(id+":open").Layout(g, func(gtx gl.Context) gl.Dimensions {
+		kit.Clickable(g, s.click(id+":open"), func(gtx gl.Context) gl.Dimensions {
 			if s.click(id + ":open").Hovered() {
 				paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Max}, gtx.Dp(10)).Op(gtx.Ops))
 			}
@@ -292,7 +292,7 @@ func (u *ui) ssMachinePill(gtx gl.Context, st *model.State) gl.Dimensions {
 		return u.ssPill(gtx, ssLabel(s.to.host), th.Muted)
 	}
 	s.acts["machine"] = func() { s.menu = !s.menu }
-	d := s.click("machine").Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	d := kit.Clickable(gtx, s.click("machine"), func(gtx gl.Context) gl.Dimensions {
 		return u.ssPill(gtx, ssLabel(s.to.host)+" ▾", th.Fg)
 	})
 	if !s.menu {
@@ -312,7 +312,7 @@ func (u *ui) ssMachinePill(gtx gl.Context, st *model.State) gl.Dimensions {
 		g := gtx
 		g.Constraints = gl.Exact(image.Pt(w-gtx.Dp(8), rowH))
 		c := s.click(key)
-		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+		kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 			sz := gtx.Constraints.Max
 			if c.Hovered() {
 				paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rectangle{Max: sz}, gtx.Dp(6)).Op(gtx.Ops))

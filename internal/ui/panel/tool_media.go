@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -84,7 +83,6 @@ func (d *cdraw) toolThumb(gtx layout.Context, k string, a session.Attachment) la
 			veil.A = 0x14
 			paint.FillShape(gtx.Ops, veil, clip.Rect(r).Op())
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		cl.Pop()
 		paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(r, rad).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 		return layout.Dimensions{Size: r.Size()}
@@ -251,8 +249,6 @@ func (d *cdraw) linkList(gtx layout.Context, id string, rows []linkRow, noun str
 				if nd.Size.X > 0 {
 					at(gtx, image.Pt(nx, onBase(base, nd)), func(gtx layout.Context) layout.Dimensions { nc.Add(gtx.Ops); return nd })
 				}
-				defer clip.Rect(box).Push(gtx.Ops).Pop()
-				pointer.CursorPointer.Add(gtx.Ops)
 				return layout.Dimensions{Size: box.Size()}
 			})
 		})

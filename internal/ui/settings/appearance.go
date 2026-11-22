@@ -52,7 +52,7 @@ func (p *Page) themeCards(gtx gl.Context) gl.Dimensions {
 		o := op.Offset(image.Pt((i%cols)*(cw+gap), y)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = gl.Constraints{Min: image.Pt(cw, 0), Max: image.Pt(cw, gtx.Constraints.Max.Y)}
-		d := c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+		d := kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 			d := p.themeCard(gtx, t, cw, c.Hovered())
 			if gtx.Focused(c) {
 				kit.FocusRing(gtx, p.th, image.Rectangle{Max: d.Size}, gtx.Dp(8))
@@ -109,8 +109,6 @@ func (p *Page) themeCard(gtx gl.Context, t config.NamedTheme, w int, hover bool)
 		tag.Add(gtx.Ops)
 		o.Pop()
 	}
-	defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-	pointer.CursorPointer.Add(gtx.Ops)
 	return gl.Dimensions{Size: sz}
 }
 
@@ -392,7 +390,7 @@ func (p *Page) fontPicker(k, cur, def string) gl.Widget {
 			p.resetSlot(id+"reset", !strings.EqualFold(cur, def)),
 			func(gtx gl.Context) gl.Dimensions {
 				w, h := gtx.Dp(240), gtx.Dp(32)
-				d := c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+				d := kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 					border := th.Border
 					if c.Hovered() || p.dd == k {
 						border = theme.Mix(th.Border, th.Fg, 0.25)
@@ -414,8 +412,6 @@ func (p *Page) fontPicker(k, cur, def string) gl.Widget {
 					o = op.Offset(image.Pt(w-gtx.Dp(10)-is, (h-is)/2)).Push(gtx.Ops)
 					icon(gtx, th.Muted, is, chevronGlyph)
 					o.Pop()
-					defer clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops).Pop()
-					pointer.CursorPointer.Add(gtx.Ops)
 					return gl.Dimensions{Size: image.Pt(w, h)}
 				})
 				if p.dd == k {
@@ -531,7 +527,7 @@ func (p *Page) popover(gtx gl.Context, k, cur, def string, w, top int) {
 		p.ddList.Layout(lg, min(len(shown), 401), func(gtx gl.Context, i int) gl.Dimensions {
 			f := shown[i]
 			c := p.btn("font:" + f)
-			return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+			return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 				sz := image.Pt(gtx.Constraints.Max.X, itemH)
 				if c.Hovered() {
 					rrect(gtx, theme.Mix(th.SurfaceElevated, th.Fg, 0.06), image.Rectangle{Max: sz}, gtx.Dp(4))
@@ -550,8 +546,6 @@ func (p *Page) popover(gtx gl.Context, k, cur, def string, w, top int) {
 					icon(gtx, th.Primary, is, checkGlyph)
 					oo.Pop()
 				}
-				defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-				pointer.CursorPointer.Add(gtx.Ops)
 				return gl.Dimensions{Size: sz}
 			})
 		})

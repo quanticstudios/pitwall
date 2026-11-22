@@ -10,6 +10,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -55,7 +56,7 @@ func (c *Composer) stashMenu(gtx layout.Context, th *theme.Theme) layout.Dimensi
 
 func (c *Composer) stashRow(gtx layout.Context, th *theme.Theme, i int, s Stash) layout.Dimensions {
 	b, rm := c.click("stash:"+itoa(i)), c.click("stashrm:"+itoa(i))
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Restore stashed draft: " + StashPreview(s)).Add(gtx.Ops)
 		h, w := gtx.Dp(32), gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}

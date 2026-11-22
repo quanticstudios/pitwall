@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"gioui.org/io/key"
-	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -354,7 +353,7 @@ func (u *ui) kindTabs(gtx gl.Context, github bool) gl.Dimensions {
 // pickRow is one matching branch under the ref field; a click takes it.
 func (u *ui) pickRow(gtx gl.Context, c *widget.Clickable, name string) gl.Dimensions {
 	th := u.th
-	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+	return kit.Clickable(gtx, c, func(gtx gl.Context) gl.Dimensions {
 		h := gtx.Dp(24)
 		size := image.Pt(gtx.Constraints.Max.X, h)
 		if c.Hovered() {
@@ -364,8 +363,6 @@ func (u *ui) pickRow(gtx gl.Context, c *widget.Clickable, name string) gl.Dimens
 		o := op.Offset(image.Pt(gtx.Dp(8), (h-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
-		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}
 	})
 }

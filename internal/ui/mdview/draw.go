@@ -652,8 +652,7 @@ func (d *Doc) images(gtx gl.Context, th *theme.Theme, i int, b *Block) gl.Dimens
 			t := op.Offset(at).Push(gtx.Ops)
 			cg := gtx
 			cg.Constraints = gl.Exact(sz)
-			c.Layout(cg, func(gtx gl.Context) gl.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
+			kit.Clickable(cg, c, func(gtx gl.Context) gl.Dimensions {
 				return gl.Dimensions{Size: sz}
 			})
 			t.Pop()

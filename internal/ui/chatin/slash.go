@@ -339,7 +339,7 @@ func (c *Composer) slashNote(gtx layout.Context, th *theme.Theme) layout.Dimensi
 // there. Each part is one line, cut with an ellipsis.
 func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Command, on bool) layout.Dimensions {
 	b := c.click("slash:" + cmd.Name)
-	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("/" + cmd.Name).Add(gtx.Ops)
 		if b.Hovered() {
 			c.slash.hovered = cmd.Name

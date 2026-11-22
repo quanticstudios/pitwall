@@ -180,12 +180,11 @@ func (u *ui) drawPiP(gtx gl.Context, st *model.State) {
 	o = op.Offset(image.Pt(xr, card.Min.Y+(head-is)/2)).Push(gtx.Ops)
 	bgtx := gtx
 	bgtx.Constraints = gl.Exact(image.Pt(is, is))
-	pv.close.Layout(bgtx, func(gtx gl.Context) gl.Dimensions {
+	kit.Clickable(bgtx, &pv.close, func(gtx gl.Context) gl.Dimensions {
 		c := th.Muted
 		if pv.close.Hovered() {
 			c = th.Fg
 		}
-		pointer.CursorPointer.Add(gtx.Ops)
 		return sidebar.Icon(gtx, "x", is, c)
 	})
 	o.Pop()
