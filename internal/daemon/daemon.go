@@ -2139,6 +2139,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			d.dropActivity(p.ID)
 		case next.State == "":
 		default:
+			var prevState model.AgentState
+			if prev != nil {
+				prevState = prev.State
+			}
+			delete(d.live.screenWait, p.ID)
+			d.noteWorkState(p.ID, prevState, next.State, now)
 			next.PaneID, next.WorkspaceID = p.ID, p.WorkspaceID
 			// why: a turn that ended on a background shell reads Background, not Working, until the agent works again.
 			next.Background = next.State == model.StateWorking && d.live.background[p.ID]

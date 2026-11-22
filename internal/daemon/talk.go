@@ -541,7 +541,14 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 			d.save()
 		}
 	}()
-	d.mail.keyAt[pane] = time.Now()
+	now := time.Now()
+	d.mail.keyAt[pane] = now
+	if len(b) > 0 && pressed {
+		if d.live.tuiKeyAt == nil {
+			d.live.tuiKeyAt = map[string]time.Time{}
+		}
+		d.live.tuiKeyAt[pane] = now
+	}
 	d.dropRepeat(pane)
 	if draftKey { // a reply or an answer from the phone leaves no draft
 		if !d.mail.drafting[pane] {

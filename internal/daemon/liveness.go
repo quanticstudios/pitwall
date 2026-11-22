@@ -73,6 +73,12 @@ type liveness struct {
 	// piRetired is, per pane, the nonces of pi runtimes that sent their
 	// session_shutdown; their later reports are dropped.
 	piRetired map[string]map[string]bool
+	// tuiKeyAt is when the user last sent real keyboard input into the pane's
+	// TUI (never daemon typing or focus reports), workStart is when the pane
+	// entered StateWorking, and screenWait tracks forms seen while working.
+	tuiKeyAt   map[string]time.Time
+	workStart  map[string]time.Time
+	screenWait map[string]*screenWait
 }
 
 // foregrounder is the optional Pane method behind the exit check;
@@ -167,9 +173,13 @@ func (d *Daemon) settle(id string, at time.Time) {
 	}
 	d.recordExplanation(id, d.st.Activities[i].Provider, model.StateWorking, "settle-working", trace)
 	delete(d.live.background, id)
+	delete(d.live.screenWait, id)
 	if a := &d.st.Activities[i]; a.State != model.StateWorking || a.Background {
+		prev := a.State
+		now := time.Now()
 		a.Background = false
-		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", time.Now()
+		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", now
+		d.noteWorkState(id, prev, model.StateWorking, now)
 		d.changed()
 	}
 }
@@ -201,6 +211,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		d.checkQueue(time.Now())
 		d.checkForeground()
 		d.detect(ctx)
+		d.checkWaiting(ctx)
 		d.checkLimits()
 		d.checkQuiet()
 		d.checkWaking()
@@ -249,6 +260,21 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.piRetired, id)
 		}
 	}
+	for id := range d.live.tuiKeyAt {
+		if d.panes[id] == nil {
+			delete(d.live.tuiKeyAt, id)
+		}
+	}
+	for id := range d.live.workStart {
+		if d.panes[id] == nil {
+			delete(d.live.workStart, id)
+		}
+	}
+	for id := range d.live.screenWait {
+		if d.panes[id] == nil {
+			delete(d.live.screenWait, id)
+		}
+	}
 	// Hooks own a pane only while their agent's group is in the foreground.
 	// Once it leaves, an agent started later without hooks is detect's.
 	for id, want := range d.live.fg {
@@ -283,6 +309,8 @@ func (d *Daemon) dropActivity(id string) {
 	}
 	delete(d.live.asked, id)
 	delete(d.live.background, id)
+	delete(d.live.workStart, id)
+	delete(d.live.screenWait, id)
 	if i := d.activityIndex(id); i >= 0 {
 		d.st.Activities = slices.Delete(d.st.Activities, i, i+1)
 		d.changed()

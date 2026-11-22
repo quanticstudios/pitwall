@@ -24,14 +24,15 @@ import (
 // A response with no tool call ends the turn once no subagent still runs.
 // A call shows once its result is in, as agy writes nothing while it runs.
 type Transcript struct {
-	turn    string               // the running turn's id; "" while idle
-	asked   string               // the open request's id, "" for none
-	model   string               // the model of the last response, without its effort
-	effort  string               // that response's effort
-	pending []*pending           // the calls whose results have not come, oldest first
-	tasks   string               // the task list's text as agy last wrote it
-	agents  map[string]*subagent // spawned subagents by parent Agent call id
-	byConv  map[string]*subagent // the same subagents by their conversationId
+	turn       string               // the running turn's id; "" while idle
+	asked      string               // the open request's id, "" for none
+	askedInput bool                 // whether asked is a PendingUserInputs question
+	model      string               // the model of the last response, without its effort
+	effort     string               // that response's effort
+	pending    []*pending           // the calls whose results have not come, oldest first
+	tasks      string               // the task list's text as agy last wrote it
+	agents     map[string]*subagent // spawned subagents by parent Agent call id
+	byConv     map[string]*subagent // the same subagents by their conversationId
 }
 
 // pending is a call a response made, waiting for its GENERIC step. A call
@@ -333,22 +334,43 @@ func (t *Transcript) End(state string) []session.Event {
 	return out
 }
 
-// Ask opens request id, a permission prompt agy's TUI shows. detail is
-// what agy's terminal report says, as "Approve Bash: rm -rf build"; a
-// Bash one is a command approval.
+// Ask opens request id, a permission prompt or plan approval agy's TUI shows.
+// detail is what agy's terminal report or screen says, as "Approve Bash: rm -rf
+// build" or "Approve plan".
 func (t *Transcript) Ask(id, detail string) []session.Event {
-	if id == t.asked {
+	if id == t.asked && !t.askedInput {
 		return nil
 	}
 	out := t.Resolve()
-	t.asked = id
+	t.asked, t.askedInput = id, false
 	e := session.Event{Type: session.EventRequestOpened, RequestID: id, RequestType: session.RequestUnknown, Detail: detail}
-	if tool, target, ok := strings.Cut(strings.TrimPrefix(detail, "Approve "), ": "); ok && tool == "Bash" {
-		e.RequestType = session.RequestCommand
-		e.Request = &session.ToolRequest{ToolName: tool, Command: target}
-		e.Request.Input, _ = json.Marshal(map[string]string{"command": target})
+	switch {
+	case detail == "Approve plan" || strings.HasPrefix(detail, "Approve plan"):
+		e.RequestType = session.RequestPlan
+		e.Request = &session.ToolRequest{ToolName: "ExitPlanMode"}
+	default:
+		if tool, target, ok := strings.Cut(strings.TrimPrefix(detail, "Approve "), ": "); ok && tool == "Bash" {
+			e.RequestType = session.RequestCommand
+			e.Request = &session.ToolRequest{ToolName: tool, Command: target}
+			e.Request.Input, _ = json.Marshal(map[string]string{"command": target})
+		}
 	}
 	return append(out, e)
+}
+
+// AskInput opens request id as a user-input question card in the chat.
+func (t *Transcript) AskInput(id, detail string, qs []session.Question) []session.Event {
+	if id == t.asked && t.askedInput {
+		return nil
+	}
+	out := t.Resolve()
+	t.asked, t.askedInput = id, true
+	return append(out, session.Event{
+		Type:      session.EventInputRequested,
+		RequestID: id,
+		Detail:    detail,
+		Questions: qs,
+	})
 }
 
 // Resolve withdraws the open request, if any.
@@ -356,8 +378,11 @@ func (t *Transcript) Resolve() []session.Event {
 	if t.asked == "" {
 		return nil
 	}
-	id := t.asked
-	t.asked = ""
+	id, input := t.asked, t.askedInput
+	t.asked, t.askedInput = "", false
+	if input {
+		return []session.Event{{Type: session.EventInputResolved, RequestID: id}}
+	}
 	return []session.Event{{Type: session.EventRequestResolved, RequestID: id}}
 }
 

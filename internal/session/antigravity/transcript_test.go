@@ -105,6 +105,19 @@ func TestTranscriptAsk(t *testing.T) {
 	if es := tr.Ask("8", "Trust this folder?"); len(es) != 1 || es[0].RequestType != session.RequestUnknown {
 		t.Errorf("unknown ask %+v", es)
 	}
+	if es := tr.Ask("9", "Approve plan"); len(es) != 2 || es[0].Type != session.EventRequestResolved || es[1].RequestType != session.RequestPlan {
+		t.Errorf("plan ask %+v", es)
+	}
+	qs := []session.Question{{ID: "q1", Prompt: "Which framework?", Options: []session.PromptOption{{Label: "Go"}, {Label: "Rust"}}}}
+	if es := tr.AskInput("10", "Which framework?", qs); len(es) != 2 || es[0].Type != session.EventRequestResolved || es[1].Type != session.EventInputRequested || len(es[1].Questions) != 1 {
+		t.Errorf("input ask %+v", es)
+	}
+	if again := tr.AskInput("10", "Which framework?", qs); again != nil {
+		t.Errorf("same input opened twice: %+v", again)
+	}
+	if es := tr.Resolve(); len(es) != 1 || es[0].Type != session.EventInputResolved || es[0].RequestID != "10" {
+		t.Errorf("resolve input %+v", es)
+	}
 }
 
 // TestTranscriptTasks: agy keeps its to-do list in task.md in the

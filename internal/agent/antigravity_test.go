@@ -300,6 +300,159 @@ func TestAgyTrustOffers(t *testing.T) {
 	}
 }
 
+// TestAgyPromptDetectionAndDetail checks every recorded agy screen fixture
+// (approval, wrapped approval, question with and without Recommended, folder
+// trust, plan review, working, working with numbered list, user-opened /model
+// and /settings menus, idle) through StateOf, ReadScreenOf, AgyPromptDetail,
+// ReadQuestion and Offers.
+func TestAgyPromptDetectionAndDetail(t *testing.T) {
+	read := func(name string) vt.Grid {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := vt.New(100, 30, nil)
+		e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+		return e.Snapshot()
+	}
+
+	for _, tc := range []struct {
+		file       string
+		wantState  model.AgentState
+		wantScreen Screen
+		wantDetail string
+		wantOffers []Offer
+		wantQOpts  []string
+	}{
+		{
+			file:       "antigravity-approval.txt",
+			wantState:  model.StatePendingApproval,
+			wantScreen: ScreenForm,
+			wantDetail: "Approve Bash: rm -rf ./junk",
+			wantOffers: []Offer{{Label: AllowAlways, Key: "2"}},
+		},
+		{
+			file:       "antigravity-approval-wrapped.txt",
+			wantState:  model.StatePendingApproval,
+			wantScreen: ScreenForm,
+			wantDetail: "Approve Bash: echo hello-repro",
+			wantOffers: []Offer{{Label: AllowAlways, Key: "2"}},
+		},
+		{
+			file:       "antigravity-question.txt",
+			wantState:  model.StateAwaitingInput,
+			wantScreen: ScreenForm,
+			wantDetail: "Which color do you like?",
+			wantOffers: []Offer{{Label: "(Recommended) Red", Key: "1"}, {Label: "Blue", Key: "2"}},
+			wantQOpts:  []string{"(Recommended) Red", "Blue"},
+		},
+		{
+			file:       "antigravity-question-no-rec.txt",
+			wantState:  model.StateAwaitingInput,
+			wantScreen: ScreenForm,
+			wantDetail: "Which framework do you prefer?",
+			wantOffers: []Offer{{Label: "Go", Key: "1"}, {Label: "Rust", Key: "2"}},
+			wantQOpts:  []string{"Go", "Rust"},
+		},
+		{
+			file:       "antigravity-trust.txt",
+			wantState:  model.StateAwaitingInput,
+			wantScreen: ScreenForm,
+			wantDetail: "Trust this folder?",
+			wantOffers: []Offer{{Label: Trust, Key: "⏎"}, {Label: DontTrust, Key: "⎋"}},
+		},
+		{
+			file:       "antigravity-plan-artifact.txt",
+			wantState:  model.StatePlanReady,
+			wantScreen: ScreenForm,
+			wantDetail: "Approve plan",
+			wantOffers: []Offer{{Label: ApprovePlan, Key: "y"}},
+		},
+		{
+			file:       "antigravity-working.txt",
+			wantState:  model.StateWorking,
+			wantScreen: ScreenBusy,
+		},
+		{
+			file:       "antigravity-working-list.txt",
+			wantState:  model.StateWorking,
+			wantScreen: ScreenBusy,
+		},
+		{
+			file:       "antigravity-working-generating.txt",
+			wantState:  model.StateWorking,
+			wantScreen: ScreenBusy,
+		},
+		{
+			file:       "antigravity-model-menu.txt",
+			wantState:  "",
+			wantScreen: ScreenForm,
+		},
+		{
+			file:       "antigravity-settings-menu.txt",
+			wantState:  "",
+			wantScreen: ScreenForm,
+		},
+		{
+			file:       "antigravity-idle.txt",
+			wantState:  "",
+			wantScreen: ScreenNone,
+		},
+		{
+			file:       "antigravity-plan.txt",
+			wantState:  "",
+			wantScreen: ScreenNone,
+		},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			g := read(tc.file)
+			if got := StateOf(model.ProviderAntigravity, g); got != tc.wantState {
+				t.Errorf("StateOf = %q, want %q", got, tc.wantState)
+			}
+			if got := ReadScreenOf(model.ProviderAntigravity, g); got != tc.wantScreen {
+				t.Errorf("ReadScreenOf = %d, want %d", got, tc.wantScreen)
+			}
+			if got := ScreenDetail(model.ProviderAntigravity, tc.wantState, g); got != tc.wantDetail {
+				t.Errorf("ScreenDetail = %q, want %q", got, tc.wantDetail)
+			}
+			a := model.Activity{Provider: model.ProviderAntigravity, State: tc.wantState}
+			gotOffers := Offers(a, g)
+			if len(gotOffers) != len(tc.wantOffers) {
+				t.Fatalf("Offers = %+v, want %+v", gotOffers, tc.wantOffers)
+			}
+			for i := range gotOffers {
+				if gotOffers[i] != tc.wantOffers[i] {
+					t.Errorf("Offers[%d] = %+v, want %+v", i, gotOffers[i], tc.wantOffers[i])
+				}
+			}
+			q := ReadQuestion(model.ProviderAntigravity, g)
+			if len(tc.wantQOpts) == 0 {
+				if q != nil {
+					t.Errorf("ReadQuestion = %+v, want nil", q)
+				}
+			} else {
+				if q == nil || !q.Other || q.OtherIndex != len(tc.wantQOpts) || q.Cursor != 0 || len(q.Options) != len(tc.wantQOpts) {
+					t.Fatalf("ReadQuestion = %+v, want options %v", q, tc.wantQOpts)
+				}
+				for i, want := range tc.wantQOpts {
+					if q.Options[i].Label != want {
+						t.Errorf("option %d = %q, want %q", i, q.Options[i].Label, want)
+					}
+				}
+			}
+		})
+	}
+
+	// A question scrolled into transcript above a new prompt must not match.
+	g := read("antigravity-question.txt")
+	e := vt.New(100, 40, nil)
+	e.Write([]byte(strings.ReplaceAll(ScreenText(g, 30)+"\n> New prompt", "\n", "\r\n")))
+	if q := ReadQuestion(model.ProviderAntigravity, e.Snapshot()); q != nil {
+		t.Errorf("question above a prompt matched: %+v", q)
+	}
+}
+
 // TestSamePath: a trusted folder matches through a symlink, a trailing
 // separator and, on Windows, another case or slash.
 func TestSamePath(t *testing.T) {

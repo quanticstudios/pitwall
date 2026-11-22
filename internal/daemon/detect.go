@@ -190,7 +190,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 			s = model.StateCompleted
 		}
 		det.cells = g.Cells
-		d.setActivity(ctx, l.id, prov, s, "")
+		d.setActivity(ctx, l.id, prov, s, agent.ScreenDetail(prov, s, g))
 		d.recordExplanation(l.id, prov, s, rule, trace)
 	case !own || l.shell == "": // a job, or the command the pane was opened with
 		det.cells = nil
@@ -272,6 +272,10 @@ func (d *Daemon) setActivity(ctx context.Context, id string, prov model.Provider
 	now := time.Now()
 	next := model.Activity{PaneID: id, WorkspaceID: p.WorkspaceID, Provider: prov, State: state, Detail: detail, UpdatedAt: now}
 	i := d.activityIndex(id)
+	var prevState model.AgentState
+	if i >= 0 {
+		prevState = d.st.Activities[i].State
+	}
 	switch {
 	case i < 0:
 		d.st.Activities = append(d.st.Activities, next)
@@ -283,6 +287,7 @@ func (d *Daemon) setActivity(ctx context.Context, id string, prov model.Provider
 		}
 		d.st.Activities[i] = next
 	}
+	d.noteWorkState(id, prevState, state, now)
 	if prov != model.ProviderTerminal {
 		p.Provider = prov
 		if w := d.workspace(p.WorkspaceID); w != nil {

@@ -367,6 +367,13 @@ func (d *Daemon) pressOffer(pane string, at int64, label string) error {
 	}
 	for _, o := range agent.Offers(a, g) {
 		if o.Label == label {
+			if a.Provider == model.ProviderAntigravity && a.State == model.StateAwaitingInput {
+				if q := agent.ReadQuestion(model.ProviderAntigravity, g); q != nil {
+					if idx := slices.IndexFunc(q.Options, func(opt agent.QuestionOption) bool { return opt.Label == label }); idx >= 0 {
+						return d.phoneQuestion(pane, q.ID, idx, "")
+					}
+				}
+			}
 			d.noteUserKey(pane, nil)
 			return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.Name(o.Key), p.Modes())})
 		}
