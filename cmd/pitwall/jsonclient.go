@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -101,10 +102,7 @@ func (c *jsonClient) writeJSON(v any) error {
 
 func (c *jsonClient) writeRawLine(line []byte) error {
 	line = bytes.TrimRight(line, "\r\n")
-	buf := make([]byte, len(line)+1)
-	copy(buf, line)
-	buf[len(line)] = '\n'
-	_, err := c.nc.Write(buf)
+	_, err := c.nc.Write(append(slices.Clip(line), '\n')) // Clip: never write into the caller's spare capacity
 	return err
 }
 
