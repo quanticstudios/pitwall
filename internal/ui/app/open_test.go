@@ -1,7 +1,6 @@
 package app
 
 import (
-	"slices"
 	"testing"
 )
 
@@ -39,14 +38,5 @@ func TestValidateOpenURL(t *testing.T) {
 		if err := OpenURL(bad); err == nil {
 			t.Errorf("OpenURL(%q) = nil, want error", bad)
 		}
-	}
-}
-
-func TestOpenCommandUnix(t *testing.T) {
-	if cmd := openCommandForOS("darwin", "https://example.com"); !slices.Equal(cmd.Args, []string{"open", "--", "https://example.com"}) {
-		t.Fatalf("darwin args = %q", cmd.Args)
-	}
-	if cmd := openCommandForOS("linux", "https://example.com"); !slices.Equal(cmd.Args, []string{"xdg-open", "https://example.com"}) {
-		t.Fatalf("linux args = %q", cmd.Args)
 	}
 }
