@@ -26,6 +26,7 @@ import (
 	"golang.org/x/image/vector"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -216,7 +217,7 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 	}
 	v.wasFocused = focused
 	on := true
-	if c := g.Cursor; focused && c.Visible {
+	if c := g.Cursor; focused && c.Visible && !anim.Reduced() {
 		el := gtx.Now.Sub(v.blinkAt)
 		on = el/blink%2 == 0
 		gtx.Execute(op.InvalidateCmd{At: v.blinkAt.Add((el/blink + 1) * blink)})
@@ -439,16 +440,22 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 	}
 	v.jobs = jobs
 
-	var next atomic.Int64
-	var wg sync.WaitGroup
-	for range min(len(jobs), runtime.GOMAXPROCS(0)) {
-		wg.Go(func() {
-			for i := int(next.Add(1) - 1); i < len(jobs); i = int(next.Add(1) - 1) {
-				v.paintRow(&jobs[i])
-			}
-		})
+	if len(jobs) <= 2 {
+		for i := range jobs {
+			v.paintRow(&jobs[i])
+		}
+	} else {
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for range min(len(jobs), runtime.GOMAXPROCS(0)) {
+			wg.Go(func() {
+				for i := int(next.Add(1) - 1); i < len(jobs); i = int(next.Add(1) - 1) {
+					v.paintRow(&jobs[i])
+				}
+			})
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 	for _, j := range jobs {
 		j.r.op = paint.NewImageOp(j.r.img)
 		j.r.op.Filter = paint.FilterNearest
@@ -716,7 +723,10 @@ func (v *View) cursor(ops *op.Ops, g *vt.Grid, c vt.Cursor, focused bool) {
 		fill(ops, cur, image.Rect(r.Min.X, r.Min.Y, r.Min.X+2*t, r.Max.Y))
 	default:
 		// The block shows the glyph under it in the background color.
-		st := v.resolveStyles(nil, []vt.Cell{cell}, -1, -1)[0]
+		var one [1]vt.Cell
+		one[0] = cell
+		var stBuf [1]style
+		st := v.resolveStyles(stBuf[:0], one[:], -1, -1)[0]
 		k := glyphKey{st.font | uint8(w)<<2, cell.Content}
 		if st.blank {
 			k.s = ""

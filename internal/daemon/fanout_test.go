@@ -85,7 +85,29 @@ func (p *emuPane) ScrollbackPushed() uint64 {
 	defer p.mu.Unlock()
 	return p.e.ScrollbackPushed()
 }
-func (p *emuPane) Modes() vt.Modes        { p.mu.Lock(); defer p.mu.Unlock(); return p.e.Modes() }
+func (p *emuPane) Modes() vt.Modes { p.mu.Lock(); defer p.mu.Unlock(); return p.e.Modes() }
+func (p *emuPane) CaptureFrame(off int) vt.Frame {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.e.(interface{ CaptureFrame(int) vt.Frame }); ok {
+		return c.CaptureFrame(off)
+	}
+	return vt.Frame{Grid: p.e.SnapshotAt(off), Modes: p.e.Modes(), ScrollMax: p.e.ScrollbackLen(), ScrollPushed: p.e.ScrollbackPushed()}
+}
+func (p *emuPane) WriteSeq() uint64 {
+	if s, ok := p.e.(interface{ WriteSeq() uint64 }); ok {
+		return s.WriteSeq()
+	}
+	return 0
+}
+func (p *emuPane) Title() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if t, ok := p.e.(interface{ Title() string }); ok {
+		return t.Title()
+	}
+	return p.e.Snapshot().Title
+}
 func (p *emuPane) Dirty() <-chan struct{} { return p.dirty }
 func (p *emuPane) Done() <-chan struct{}  { return p.done }
 func (p *emuPane) ExitCode() int          { return 0 }

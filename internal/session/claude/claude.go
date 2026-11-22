@@ -16,11 +16,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -43,11 +45,14 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	if id == "" {
 		id = newUUID()
 	}
-	c := exec.Command(name, args(cfg, from, id)...)
+	procCtx, procCancel := context.WithCancel(context.Background())
+	c := exec.CommandContext(procCtx, name, args(cfg, from, id)...)
+	childproc.Bound(c)
 	c.Dir = cfg.Cwd
 	c.Env = append(os.Environ(), cfg.Env...)
 	stdin, err := c.StdinPipe()
 	if err != nil {
+		procCancel()
 		return nil, err
 	}
 	// An os.Pipe rather than StdoutPipe: Wait closes StdoutPipe as soon as
@@ -55,12 +60,14 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		stdin.Close()
+		procCancel()
 		return nil, err
 	}
 	c.Stdout = pw
 	c.WaitDelay = waitDelay
 	d := &driver{
 		cmd:    c,
+		cancel: procCancel,
 		stdin:  stdin,
 		emit:   emit,
 		stderr: &tail{},
@@ -80,8 +87,10 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	if err != nil {
 		pr.Close()
 		stdin.Close()
+		procCancel()
 		return nil, err
 	}
+	var initPayload []byte
 	d.mu.Lock()
 	d.post(session.Event{Type: session.EventState, State: session.StateReady})
 	if from.Resume == "" {
@@ -89,10 +98,22 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	}
 	// why: claude -p lists its commands only in the first turn's system/init; initialize answers with them, described, at once, and the files stand in until it does.
 	d.post(session.Event{Type: session.EventCommands, Commands: Headless(d.s.conf, d.s.cwd)})
-	if d.request(ctx, map[string]any{"subtype": "initialize"}) == nil {
-		d.s.initID = fmt.Sprintf("req_%d", d.reqs)
+	if ctx.Err() == nil {
+		d.reqs++
+		initID := fmt.Sprintf("req_%d", d.reqs)
+		if b, err := encodeLine(map[string]any{"type": "control_request", "request_id": initID, "request": map[string]any{"subtype": "initialize"}}); err == nil {
+			d.s.initID = initID
+			initPayload = b
+		}
 	}
 	d.mu.Unlock()
+	if len(initPayload) > 0 {
+		if err := d.writeBytes(initPayload); err != nil {
+			d.mu.Lock()
+			d.s.initID = ""
+			d.mu.Unlock()
+		}
+	}
 	go d.emitLoop()
 	go d.read(pr)
 	go d.wait(pr)
@@ -125,18 +146,21 @@ func args(cfg session.Config, from session.Origin, id string) []string {
 }
 
 type driver struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	emit   func(session.Event)
-	stderr *tail
-	wake   chan struct{} // a post since emitLoop last looked
-	eof    chan struct{} // closed once stdout is read to its end
-	exited chan struct{} // closed once the process is gone and session.exited is queued
-	done   chan struct{} // closed once emitLoop has emitted everything
+	cmd     *exec.Cmd
+	cancel  context.CancelFunc
+	stdin   io.WriteCloser
+	writeMu sync.Mutex // serializes stdin.Write off d.mu so Close never deadlocks on a full pipe
+	emit    func(session.Event)
+	stderr  *tail
+	wake    chan struct{} // a post since emitLoop last looked
+	eof     chan struct{} // closed once stdout is read to its end
+	exited  chan struct{} // closed once the process is gone and session.exited is queued
+	done    chan struct{} // closed once emitLoop has emitted everything
 
 	mu      sync.Mutex
 	s       *stream
 	queue   []session.Event
+	sending bool // Send is writing a user line; emitLoop waits so EventTurnStarted stays first
 	dead    bool // the process is gone; nothing is posted after its session.exited
 	closing bool // Close was called
 	reqs    int  // control requests the driver sent
@@ -146,6 +170,10 @@ type driver struct {
 func (d *driver) post(e session.Event) {
 	e.CreatedAt = session.Stamp(time.Now())
 	d.queue = append(d.queue, e)
+	d.notifyWake()
+}
+
+func (d *driver) notifyWake() {
 	select {
 	case d.wake <- struct{}{}:
 	default:
@@ -158,6 +186,11 @@ func (d *driver) emitLoop() {
 	defer close(d.done)
 	for {
 		d.mu.Lock()
+		if d.sending {
+			d.mu.Unlock()
+			<-d.wake
+			continue
+		}
 		q, dead := d.queue, d.dead
 		d.queue = nil
 		d.mu.Unlock()
@@ -174,13 +207,19 @@ func (d *driver) emitLoop() {
 	}
 }
 
-// write sends one JSON line to the CLI. d.mu is held.
-func (d *driver) write(v any) error {
+func encodeLine(v any) ([]byte, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := d.stdin.Write(append(b, '\n')); err != nil {
+	return append(b, '\n'), nil
+}
+
+// writeBytes sends one encoded JSON line to the CLI without holding d.mu.
+func (d *driver) writeBytes(b []byte) error {
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+	if _, err := d.stdin.Write(b); err != nil {
 		return session.ErrClosed
 	}
 	return nil
@@ -197,15 +236,20 @@ func (d *driver) read(stdout io.Reader) {
 	for {
 		b, err := r.ReadBytes('\n')
 		if len(bytes.TrimSpace(b)) > 0 {
+			var reply any
 			d.mu.Lock()
 			for _, e := range d.s.line(b) {
 				d.post(e)
 			}
-			if reply := d.s.reply; reply != nil {
-				d.s.reply = nil
-				d.write(reply) // shortcut: a failed reply means the CLI is exiting, and the exit reports it
+			if d.s.reply != nil {
+				reply, d.s.reply = d.s.reply, nil
 			}
 			d.mu.Unlock()
+			if reply != nil {
+				if data, merr := encodeLine(reply); merr == nil {
+					_ = d.writeBytes(data) // shortcut: a failed reply means the CLI is exiting, and the exit reports it
+				}
+			}
 		}
 		if err != nil {
 			return
@@ -215,6 +259,7 @@ func (d *driver) read(stdout io.Reader) {
 
 // wait reports the CLI's exit once its output is read.
 func (d *driver) wait(stdout io.Closer) {
+	defer d.cancel()
 	err := d.cmd.Wait()
 	select {
 	case <-d.eof:
@@ -252,22 +297,44 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 		return "", err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	switch {
 	case d.dead || d.closing:
+		d.mu.Unlock()
 		return "", session.ErrClosed
 	case d.s.turn != "":
+		d.mu.Unlock()
 		return "", session.ErrBusy
 	}
 	if m.ID == "" {
 		m.ID = newUUID()
 	}
 	m.Text = skillText(m.Text, m.Skill)
-	if err := d.write(userLine(m)); err != nil {
+	data, err := encodeLine(userLine(m))
+	if err != nil {
+		d.mu.Unlock()
 		return "", err
 	}
 	d.s.turn, d.s.recap = m.ID, strings.TrimSpace(m.Text) == "/recap"
-	d.post(session.Event{Type: session.EventTurnStarted, TurnID: m.ID})
+	d.sending = true
+	pos := len(d.queue)
+	d.mu.Unlock()
+
+	err = d.writeBytes(data)
+
+	d.mu.Lock()
+	d.sending = false
+	if err != nil {
+		if d.s.turn == m.ID {
+			d.s.turn, d.s.recap = "", false
+		}
+		d.notifyWake()
+		d.mu.Unlock()
+		return "", err
+	}
+	ev := session.Event{Type: session.EventTurnStarted, TurnID: m.ID, CreatedAt: session.Stamp(time.Now())}
+	d.queue = slices.Insert(d.queue, min(pos, len(d.queue)), ev)
+	d.notifyWake()
+	d.mu.Unlock()
 	return m.ID, nil
 }
 
@@ -309,22 +376,33 @@ func (d *driver) Steer(ctx context.Context, m session.Message) error {
 		return err
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	switch {
 	case d.dead || d.closing:
+		d.mu.Unlock()
 		return session.ErrClosed
 	case d.s.turn == "":
+		d.mu.Unlock()
 		return session.ErrIdle
 	case m.Skill != nil:
+		d.mu.Unlock()
 		return session.ErrUnsupported
 	}
 	if m.ID == "" {
 		m.ID = newUUID()
 	}
-	if err := d.write(userLine(m)); err != nil {
+	data, err := encodeLine(userLine(m))
+	if err != nil {
+		d.mu.Unlock()
 		return err
 	}
 	d.s.steered[m.ID] = true
+	d.mu.Unlock()
+	if err := d.writeBytes(data); err != nil {
+		d.mu.Lock()
+		delete(d.s.steered, m.ID)
+		d.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
@@ -332,59 +410,66 @@ func (d *driver) Steer(ctx context.Context, m session.Message) error {
 // (control_cancel_request) and ends the turn with an aborted result.
 func (d *driver) Interrupt(ctx context.Context) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.s.turn == "" {
+		d.mu.Unlock()
 		return nil
 	}
-	return d.request(ctx, map[string]any{"subtype": "interrupt"})
+	data, err := d.prepareRequest(ctx, map[string]any{"subtype": "interrupt"})
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return d.writeBytes(data)
 }
 
 // Approve answers a can_use_tool ask. Allowing ExitPlanMode lets Claude
 // implement its plan; denying it with a reason asks for another.
 func (d *driver) Approve(ctx context.Context, requestID string, dec session.Decision) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	a, err := d.take(ctx, requestID)
+	d.mu.Unlock()
 	if err != nil {
 		return err
 	}
+	var resp map[string]any
 	if !dec.Allow {
 		msg := dec.Reason
 		if msg == "" {
 			msg = "The pitwall user denied this."
 		}
-		return d.respond(requestID, map[string]any{"behavior": "deny", "message": msg})
-	}
-	input := dec.Input
-	if input == nil {
-		input = a.input
-	}
-	r := map[string]any{"behavior": "allow", "updatedInput": input}
-	if dec.ForSession {
-		// The CLI's own "always allow" rules, kept for this session only.
-		// shortcut: no capture of updatedPermissions exists (sdk.d.ts is the
-		// spec); an ask with no addRules suggestion is allowed once.
-		var rules []map[string]any
-		for _, raw := range a.suggestions {
-			var sg map[string]any
-			if json.Unmarshal(raw, &sg) == nil && sg["type"] == "addRules" {
-				sg["destination"] = "session"
-				rules = append(rules, sg)
+		resp = map[string]any{"behavior": "deny", "message": msg}
+	} else {
+		input := dec.Input
+		if input == nil {
+			input = a.input
+		}
+		resp = map[string]any{"behavior": "allow", "updatedInput": input}
+		if dec.ForSession {
+			// The CLI's own "always allow" rules, kept for this session only.
+			// shortcut: no capture of updatedPermissions exists (sdk.d.ts is the
+			// spec); an ask with no addRules suggestion is allowed once.
+			var rules []map[string]any
+			for _, raw := range a.suggestions {
+				var sg map[string]any
+				if json.Unmarshal(raw, &sg) == nil && sg["type"] == "addRules" {
+					sg["destination"] = "session"
+					rules = append(rules, sg)
+				}
+			}
+			if rules != nil {
+				resp["updatedPermissions"] = rules
 			}
 		}
-		if rules != nil {
-			r["updatedPermissions"] = rules
-		}
 	}
-	return d.respond(requestID, r)
+	return d.respond(requestID, resp)
 }
 
 // Answer answers AskUserQuestion: its input plus the answers keyed by
 // question text, several labels joined as Claude Code joins them.
 func (d *driver) Answer(ctx context.Context, requestID string, answers map[string][]string) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	a, err := d.take(ctx, requestID)
+	d.mu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -414,68 +499,82 @@ func (d *driver) take(ctx context.Context, requestID string) (ask, error) {
 	return a, nil
 }
 
-// respond writes the success control_response to a CLI request. d.mu is
-// held.
+// respond writes the success control_response to a CLI request without holding d.mu.
 func (d *driver) respond(requestID string, response map[string]any) error {
-	return d.write(map[string]any{"type": "control_response", "response": map[string]any{
+	data, err := encodeLine(map[string]any{"type": "control_response", "response": map[string]any{
 		"subtype": "success", "request_id": requestID, "response": response}})
+	if err != nil {
+		return err
+	}
+	return d.writeBytes(data)
 }
 
 // Set changes the model, effort and permission mode, one control request
 // each.
 func (d *driver) Set(ctx context.Context, s session.Settings) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	for _, r := range []struct {
-		value string
-		req   map[string]any
+		value   string
+		isModel bool
+		req     map[string]any
 	}{
-		{s.Model, map[string]any{"subtype": "set_model", "model": s.Model}},
-		{s.Effort, map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": s.Effort}}},
-		{s.Mode, map[string]any{"subtype": "set_permission_mode", "mode": s.Mode}},
+		{s.Model, true, map[string]any{"subtype": "set_model", "model": s.Model}},
+		{s.Effort, false, map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": s.Effort}}},
+		{s.Mode, false, map[string]any{"subtype": "set_permission_mode", "mode": s.Mode}},
 	} {
 		if r.value == "" {
 			continue
 		}
-		if err := d.request(ctx, r.req); err != nil {
+		d.mu.Lock()
+		data, err := d.prepareRequest(ctx, r.req)
+		if err == nil && r.isModel {
+			d.s.modelEchoes++ // the chat loop says the switch itself
+		}
+		d.mu.Unlock()
+		if err != nil {
 			return err
 		}
-		if r.value == s.Model {
-			d.s.modelEchoes++ // the chat loop says the switch itself
+		if err := d.writeBytes(data); err != nil {
+			if r.isModel {
+				d.mu.Lock()
+				d.s.modelEchoes--
+				d.mu.Unlock()
+			}
+			return err
 		}
 	}
 	return nil
 }
 
-// request writes a control request to the CLI. d.mu is held.
-func (d *driver) request(ctx context.Context, req map[string]any) error {
+// prepareRequest encodes a control request. d.mu is held.
+func (d *driver) prepareRequest(ctx context.Context, req map[string]any) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if d.dead || d.closing {
-		return session.ErrClosed
+		return nil, session.ErrClosed
 	}
 	d.reqs++
-	return d.write(map[string]any{"type": "control_request", "request_id": fmt.Sprintf("req_%d", d.reqs), "request": req})
+	return encodeLine(map[string]any{"type": "control_request", "request_id": fmt.Sprintf("req_%d", d.reqs), "request": req})
 }
 
 // PID is the provider process's id, for the Servers panel: what it
 // started is the chat's.
 func (d *driver) PID() int { return d.cmd.Process.Pid }
 
-// Close closes stdin, which ends the CLI, and kills it when ctx ends
-// first. It returns once every event is out.
+// Close closes stdin, which ends the CLI, and kills its process group when ctx
+// ends first. It returns once every event is out.
 func (d *driver) Close(ctx context.Context) error {
 	d.mu.Lock()
-	if !d.closing {
-		d.closing = true
+	first := !d.closing
+	d.closing = true
+	d.mu.Unlock()
+	if first {
 		d.stdin.Close()
 	}
-	d.mu.Unlock()
 	select {
 	case <-d.exited:
 	case <-ctx.Done():
-		d.cmd.Process.Kill()
+		d.cancel()
 		<-d.exited
 	}
 	<-d.done

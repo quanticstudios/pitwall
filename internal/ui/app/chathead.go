@@ -217,28 +217,100 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		prov = c.Provider
 	}
 	th := u.th
+	left := func(gtx gl.Context) gl.Dimensions {
+		hgt := gtx.Dp(headControl)
+		maxW := gtx.Constraints.Max.X
+		if maxW <= 0 {
+			return gl.Dimensions{Size: image.Pt(0, hgt)}
+		}
+		defer clip.Rect{Max: image.Pt(maxW, hgt)}.Push(gtx.Ops).Pop()
+		x := 0
+		markS := gtx.Dp(headMark)
+		o := op.Offset(image.Pt(0, (hgt-markS)/2)).Push(gtx.Ops)
+		sidebar.AgentMark(gtx, prov, markS, th.Fg)
+		o.Pop()
+		x += markS + gtx.Dp(theme.SpaceS)
+		if x >= maxW {
+			return gl.Dimensions{Size: image.Pt(maxW, hgt)}
+		}
+		var sizeCall op.CallOp
+		var sizeDim gl.Dimensions
+		sizeGap := 0
+		if l := u.chatSizeLabel(gtx); l != nil {
+			m := op.Record(gtx.Ops)
+			g := gtx
+			g.Constraints = gl.Constraints{Max: image.Pt(maxW-x, hgt)}
+			sizeDim = l(g)
+			sizeCall = m.Stop()
+			sizeGap = gtx.Dp(theme.SpaceM)
+		}
+		avail := maxW - x
+		if sizeDim.Size.X > 0 && sizeDim.Size.X+sizeGap+gtx.Dp(48) <= avail {
+			avail -= sizeDim.Size.X + sizeGap
+		} else {
+			sizeDim = gl.Dimensions{}
+			sizeGap = 0
+		}
+		unbounded := gtx
+		unbounded.Constraints = gl.Constraints{Max: image.Pt(1<<20, hgt)}
+		_, titleNat := textCall(unbounded, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, title)
+		branchIconW, branchGap, branchPad := gtx.Dp(headBranch), gtx.Dp(theme.SpaceXS), gtx.Dp(theme.SpaceM)
+		branchNatW := 0
+		if ws.Branch != "" {
+			_, bs := textCall(unbounded, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
+			branchNatW = bs.X
+		}
+		titleW, branchW := min(titleNat.X, avail), 0
+		if ws.Branch != "" && avail > branchPad+branchIconW+branchGap+gtx.Dp(24) {
+			need := titleNat.X + branchPad + branchIconW + branchGap + branchNatW
+			if need <= avail {
+				titleW, branchW = titleNat.X, branchNatW
+			} else {
+				titleW = min(titleNat.X, max(avail/2, avail-(branchPad+branchIconW+branchGap+branchNatW)))
+				branchW = avail - titleW - branchPad - branchIconW - branchGap
+				if branchW < gtx.Dp(24) {
+					titleW = min(titleNat.X, avail)
+					branchW = 0
+				}
+			}
+		}
+		tg := gtx
+		tg.Constraints = gl.Constraints{Max: image.Pt(max(0, titleW), hgt)}
+		m := op.Record(gtx.Ops)
+		td := label(tg, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, title)
+		tcall := m.Stop()
+		o = op.Offset(image.Pt(x, (hgt-td.Size.Y)/2)).Push(gtx.Ops)
+		tcall.Add(gtx.Ops)
+		o.Pop()
+		x += td.Size.X
+		if branchW > 0 {
+			x += branchPad
+			o = op.Offset(image.Pt(x, (hgt-branchIconW)/2)).Push(gtx.Ops)
+			sidebar.Icon(gtx, "git-branch", branchIconW, th.Muted)
+			o.Pop()
+			x += branchIconW + branchGap
+			bg := gtx
+			bg.Constraints = gl.Constraints{Max: image.Pt(branchW, hgt)}
+			m = op.Record(gtx.Ops)
+			bd := label(bg, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
+			bcall := m.Stop()
+			o = op.Offset(image.Pt(x, (hgt-bd.Size.Y)/2)).Push(gtx.Ops)
+			bcall.Add(gtx.Ops)
+			o.Pop()
+			x += bd.Size.X
+		}
+		if sizeDim.Size.X > 0 {
+			x += sizeGap
+			o = op.Offset(image.Pt(x, (hgt-sizeDim.Size.Y)/2)).Push(gtx.Ops)
+			sizeCall.Add(gtx.Ops)
+			o.Pop()
+		}
+		return gl.Dimensions{Size: image.Pt(maxW, hgt)}
+	}
 	kids := []gl.FlexChild{
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return sidebar.AgentMark(gtx, prov, gtx.Dp(headMark), th.Fg) }),
+		gl.Flexed(1, left),
 		gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, title)
-		}),
 	}
-	if ws.Branch != "" {
-		kids = append(kids,
-			gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout),
-			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return sidebar.Icon(gtx, "git-branch", gtx.Dp(headBranch), th.Muted)
-			}),
-			gl.Rigid(gl.Spacer{Width: theme.SpaceXS}.Layout),
-			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, ws.Branch)
-			}))
-	}
-	if l := u.chatSizeLabel(gtx); l != nil {
-		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout), gl.Rigid(l))
-	}
-	kids = append(kids, gl.Flexed(1, fill))
 	var toolsW, afterW int
 	after := func(w gl.Widget) gl.FlexChild {
 		return gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -410,11 +482,6 @@ func (u *ui) strip(gtx gl.Context, fill color.NRGBA, kids []gl.FlexChild) int {
 	return hgt
 }
 
-// fill takes the width it is given, as a Flexed spacer must.
-func fill(gtx gl.Context) gl.Dimensions {
-	return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
-}
-
 // label is one line of s, cut with an ellipsis to the width it gets.
 func label(gtx gl.Context, th *theme.Theme, f font.Font, size unit.Sp, c color.NRGBA, s string) gl.Dimensions {
 	gtx.Constraints.Min = image.Point{}
@@ -554,7 +621,7 @@ func (u *ui) chatMenu(gtx gl.Context, h *chatHead, top int) {
 			kit.FocusRing(gtx, th, image.Rectangle{Max: row}, gtx.Dp(theme.RadiusControl))
 		}
 		if h.aide.Hovered() {
-			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.HoverElevated, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
 		t := op.Offset(image.Pt(gtx.Dp(theme.SpaceM), (row.Y-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)

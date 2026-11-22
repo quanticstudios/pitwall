@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -212,7 +213,7 @@ type Server struct {
 	pins map[string]pin // by tab, the folder its files are read from
 
 	mu    sync.Mutex
-	fails []time.Time // failed pairings and tokens in the last failWindow
+	fails map[string][]time.Time // failed pairings and tokens per client IP in the last failWindow
 	now   func() time.Time
 }
 
@@ -248,7 +249,7 @@ func (s *Server) Handler() http.Handler {
 	for _, png := range []string{"icon-192.png", "icon-512.png", "apple-touch-icon.png"} {
 		mux.HandleFunc("GET /"+png, file(png, "image/png"))
 	}
-	mux.HandleFunc("POST /api/pair", s.pair)
+	mux.Handle("POST /api/pair", sameOrigin(http.HandlerFunc(s.pair)))
 	if s.Tabs != nil {
 		mux.Handle("GET /api/stream", sameOrigin(s.authed(s.stream)))
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
@@ -283,20 +284,20 @@ func (s *Server) Handler() http.Handler {
 	if s.Folder != nil {
 		mux.Handle("GET /api/file", sameOrigin(s.authed(s.file)))
 	}
-	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	mux.Handle("GET /api/items", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})
-	}))
+	})))
 	if s.Web != nil {
-		mux.HandleFunc("POST /api/web", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+		mux.Handle("POST /api/web", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 			s.Web.Start(w, r, d.ID)
 			log.Printf("remote: %q opened the web client", d.Name)
 			writeJSON200(w, map[string]any{"url": "/app/"})
-		}))
+		})))
 		mux.Handle("GET /app/", http.StripPrefix("/app", s.Web.Bundle()))
-		mux.HandleFunc("GET /_pitwall/bootstrap", s.Web.Bootstrap)
+		mux.Handle("GET /_pitwall/bootstrap", sameOrigin(http.HandlerFunc(s.Web.Bootstrap)))
 		mux.Handle("GET /ws", sameOrigin(s.WS))
 	}
-	mux.HandleFunc("GET /api/push", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	mux.Handle("GET /api/push", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		key, err := VAPIDKey(s.Dir)
 		if err != nil {
 			log.Printf("remote: push key: %q", err)
@@ -304,8 +305,8 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON200(w, map[string]any{"key": VAPIDPublic(key), "subscribed": Subscribed(s.Dir, d.ID)})
-	}))
-	mux.HandleFunc("POST /api/push", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	})))
+	mux.Handle("POST /api/push", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		var sub Subscription
 		if !decode(w, r, &sub) {
 			return
@@ -316,8 +317,8 @@ func (s *Server) Handler() http.Handler {
 		}
 		log.Printf("remote: %q turned on push notifications", d.Name)
 		writeJSON200(w, map[string]any{})
-	}))
-	mux.HandleFunc("POST /api/answer", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	})))
+	mux.Handle("POST /api/answer", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		var req struct {
 			Pane  string `json:"pane"`
 			At    int64  `json:"at,string"`
@@ -337,8 +338,8 @@ func (s *Server) Handler() http.Handler {
 		}
 		log.Printf("remote: %q: %s sent to pane %s", d.Name, verb, req.Pane)
 		writeJSON200(w, map[string]any{})
-	}))
-	mux.HandleFunc("POST /api/reply", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	})))
+	mux.Handle("POST /api/reply", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		var req struct {
 			Pane string `json:"pane"`
 			At   int64  `json:"at,string"`
@@ -354,8 +355,8 @@ func (s *Server) Handler() http.Handler {
 		}
 		log.Printf("remote: %q: reply sent to pane %s", d.Name, req.Pane) // never the text
 		writeJSON200(w, map[string]any{})
-	}))
-	mux.HandleFunc("POST /api/approve", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	})))
+	mux.Handle("POST /api/approve", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		var req struct {
 			Chat     string `json:"chat"`
 			Request  string `json:"request"`
@@ -373,8 +374,8 @@ func (s *Server) Handler() http.Handler {
 		}
 		log.Printf("remote: %q: %s sent to chat %s", d.Name, req.Decision, req.Chat) // never the reason
 		writeJSON200(w, map[string]any{})
-	}))
-	mux.HandleFunc("POST /api/input", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+	})))
+	mux.Handle("POST /api/input", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		var req struct {
 			Chat    string              `json:"chat"`
 			Request string              `json:"request"`
@@ -390,7 +391,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		log.Printf("remote: %q: answer sent to chat %s", d.Name, req.Chat) // never the answer
 		writeJSON200(w, map[string]any{})
-	}))
+	})))
 	return headers(mux)
 }
 
@@ -408,7 +409,7 @@ func named(w http.ResponseWriter, chat, request string) bool {
 func headers(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("Cache-Control", "no-store")
@@ -456,20 +457,51 @@ func writeJSON200(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// limited reports whether attempts are refused now, dropping old failures.
-// Callers hold s.mu.
-func (s *Server) limited() bool {
-	now := s.now()
-	for len(s.fails) > 0 && now.Sub(s.fails[0]) >= failWindow {
-		s.fails = s.fails[1:]
+func clientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+		return host
 	}
-	return len(s.fails) >= maxFails
+	return r.RemoteAddr
 }
 
-// fail counts a failed attempt. Callers hold s.mu.
+// limited reports whether attempts from r's client IP are refused now,
+// dropping old failures. Callers hold s.mu.
+func (s *Server) limited(r *http.Request) bool {
+	ip := clientIP(r)
+	now := s.now()
+	fs := s.fails[ip]
+	for len(fs) > 0 && now.Sub(fs[0]) >= failWindow {
+		fs = fs[1:]
+	}
+	if len(fs) == 0 {
+		delete(s.fails, ip)
+		return false
+	}
+	s.fails[ip] = fs
+	return len(fs) >= maxFails
+}
+
+// fail counts a failed attempt for r's client IP. Callers hold s.mu.
 func (s *Server) fail(what string, r *http.Request) {
-	s.fails = append(s.fails, s.now())
-	if ok, held := failLog.Allow(what, s.now()); ok {
+	ip := clientIP(r)
+	now := s.now()
+	if s.fails == nil {
+		s.fails = map[string][]time.Time{}
+	}
+	if len(s.fails) >= 256 {
+		for k, fs := range s.fails {
+			for len(fs) > 0 && now.Sub(fs[0]) >= failWindow {
+				fs = fs[1:]
+			}
+			if len(fs) == 0 {
+				delete(s.fails, k)
+			} else {
+				s.fails[k] = fs
+			}
+		}
+	}
+	s.fails[ip] = append(s.fails[ip], now)
+	if ok, held := failLog.Allow(what, now); ok {
 		more := ""
 		if held > 0 {
 			more = fmt.Sprintf(" (%d more since the last line)", held)
@@ -500,7 +532,7 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, Device)) http
 			return
 		}
 		s.mu.Lock()
-		if s.limited() {
+		if s.limited(r) {
 			s.mu.Unlock()
 			http.Error(w, errLimited.Error(), http.StatusTooManyRequests)
 			return
@@ -534,7 +566,7 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.limited() {
+	if s.limited(r) {
 		http.Error(w, errLimited.Error(), http.StatusTooManyRequests)
 		return
 	}

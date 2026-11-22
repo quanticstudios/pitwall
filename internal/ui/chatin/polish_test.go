@@ -233,3 +233,38 @@ func TestComposerPopoverCloses(t *testing.T) {
 		t.Fatalf("a press outside: menu %v, the pane under it pressed %v", h.c.menu, pressed)
 	}
 }
+
+func TestComposerFocusRingAndCursor(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Provider = "claude"
+	h.snap.SessionState = "running"
+	h.snap.Turns = []session.TurnSummary{{ID: "t1", State: session.TurnRunning}}
+	used, total := int64(10000), int64(100000)
+	h.snap.Usage = &session.Usage{ContextTokens: &used, MaxTokens: &total}
+	h.c.SetText("hello")
+	frameUnfocused := func() {
+		h.ops.Reset()
+		gtx := layout.Context{
+			Ops:         &h.ops,
+			Source:      h.r.Source(),
+			Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: layout.Exact(image.Pt(1000, 800)),
+			Now:         h.now,
+		}
+		env := h.env()
+		env.Focus = false
+		h.c.Layout(gtx, theme.Dark(), env)
+		h.r.Frame(&h.ops)
+	}
+	frameUnfocused()
+
+	// Focus each interactive composer control and ensure it lays out cleanly
+	// with kit.FocusRing and pointer.CursorPointer.
+	for _, target := range []*widget.Clickable{&h.c.modeBtn, &h.c.modelBtn, &h.c.effortBtn, &h.c.meterBtn, &h.c.sendBtn, &h.c.stopBtn} {
+		h.r.Source().Execute(key.FocusCmd{Tag: target})
+		frameUnfocused()
+		if !h.r.Source().Focused(target) {
+			t.Errorf("control %p did not retain focus", target)
+		}
+	}
+}

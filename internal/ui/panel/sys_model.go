@@ -397,6 +397,42 @@ func lastTodo(content []session.Item, lo, hi int) int {
 	return -1
 }
 
+// turnOfAt is turnOf when it's index in s.Content is known, avoiding O(N) scans.
+func turnOfAt(s *session.Snapshot, idx int, hasTurns bool) string {
+	if idx < 0 || idx >= len(s.Content) {
+		return ""
+	}
+	if t := deref(s.Content[idx].TurnID); t != "" {
+		return t
+	}
+	if !hasTurns {
+		return ""
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if t := deref(s.Content[i].TurnID); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// lastReplyAt is lastReply when it's index in s.Content and turn are known.
+func lastReplyAt(s *session.Snapshot, idx int, turn string) bool {
+	if idx < 0 || idx >= len(s.Content) {
+		return true
+	}
+	for j := idx + 1; j < len(s.Content); j++ {
+		c := &s.Content[j]
+		switch {
+		case c.Kind == session.KindUserPrompt, c.TurnID != nil && *c.TurnID != turn:
+			return true
+		case c.Kind == session.KindAssistantText:
+			return false
+		}
+	}
+	return true
+}
+
 // turnOf is the turn an item belongs to: its own, or for one Claude wrote
 // outside a turn the chat knows (after a background subagent reported),
 // the turn of the nearest item before it.

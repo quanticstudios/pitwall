@@ -24,10 +24,11 @@ type paneMenu struct {
 	at                 image.Point
 	outside            int
 	edit, add          widget.Clickable
+	sel                int
 	requested, focused bool
 }
 
-func (m *paneMenu) close() { m.pane, m.requested, m.focused = "", false, false }
+func (m *paneMenu) close() { m.pane, m.sel, m.requested, m.focused = "", 0, false, false }
 
 func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 	m := &u.paneMenu
@@ -38,12 +39,37 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 		m.close()
 		return
 	}
+	add := u.canAddToChat(st, m.pane)
+	rows := 1
+	if add {
+		rows = 2 // Add to chat first, as T3 Code's terminal menu has it
+	}
+	if m.sel < 0 || m.sel >= rows {
+		m.sel = 0
+	}
 	if !m.requested {
 		gtx.Execute(key.FocusCmd{Tag: m})
 		m.requested = true
 	}
+	activate := func(idx int) {
+		if add && idx == 0 {
+			u.panes[m.pane].view.Run("add_to_chat")
+			gtx.Execute(op.InvalidateCmd{})
+		} else {
+			u.editScrollback(st, m.pane)
+		}
+		m.close()
+	}
 	for {
-		ev, ok := gtx.Event(pointer.Filter{Target: &m.outside, Kinds: pointer.Press}, key.FocusFilter{Target: m}, key.Filter{Focus: m, Name: key.NameEscape}, key.Filter{Focus: m, Name: key.NameReturn})
+		ev, ok := gtx.Event(
+			pointer.Filter{Target: &m.outside, Kinds: pointer.Press},
+			key.FocusFilter{Target: m},
+			key.Filter{Focus: m, Name: key.NameEscape},
+			key.Filter{Focus: m, Name: key.NameReturn},
+			key.Filter{Focus: m, Name: key.NameEnter},
+			key.Filter{Focus: m, Name: key.NameUpArrow},
+			key.Filter{Focus: m, Name: key.NameDownArrow},
+		)
 		if !ok {
 			break
 		}
@@ -59,8 +85,16 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 			if e.State != key.Press {
 				continue
 			}
-			if e.Name == key.NameReturn {
-				u.editScrollback(st, m.pane)
+			switch e.Name {
+			case key.NameUpArrow:
+				m.sel = (m.sel + rows - 1) % rows
+				continue
+			case key.NameDownArrow:
+				m.sel = (m.sel + 1) % rows
+				continue
+			case key.NameReturn, key.NameEnter:
+				activate(m.sel)
+				return
 			}
 		}
 		m.close()
@@ -74,11 +108,8 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 		m.close()
 		return
 	}
-	add := u.canAddToChat(st, m.pane)
 	if m.add.Clicked(gtx) && add {
-		u.panes[m.pane].view.Run("add_to_chat")
-		gtx.Execute(op.InvalidateCmd{})
-		m.close()
+		activate(0)
 		return
 	}
 	// The full-area catcher keeps presses outside the menu out of the pane.
@@ -86,10 +117,6 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 	event.Op(gtx.Ops, &m.outside)
 	c.Pop()
 	p, h := gtx.Dp(4), gtx.Dp(32)
-	rows := 1
-	if add {
-		rows = 2 // Add to chat first, as T3 Code's terminal menu has it
-	}
 	size := image.Pt(gtx.Dp(288), rows*h+2*p)
 	at := kit.Place(image.Rectangle{Min: m.at, Max: m.at}, size, image.Rectangle{Max: gtx.Constraints.Max}, kit.BelowStart, 0, gtx.Dp(8))
 	defer op.Offset(at).Push(gtx.Ops).Pop()
@@ -102,19 +129,24 @@ func (u *ui) layoutPaneMenu(gtx gl.Context, st *model.State) {
 	defer op.Offset(image.Pt(p, p)).Push(gtx.Ops).Pop()
 	row := image.Pt(size.X-2*p, h)
 	gtx.Constraints = gl.Exact(row)
+	idx := 0
 	if add {
-		u.paneMenuRow(gtx, &m.add, row, "message-square", "Add to chat")
+		u.paneMenuRow(gtx, &m.add, row, "message-square", "Add to chat", m.sel == idx)
+		idx++
 		defer op.Offset(image.Pt(0, h)).Push(gtx.Ops).Pop()
 	}
-	u.paneMenuRow(gtx, &m.edit, row, "pencil", "Open scrollback in editor")
+	u.paneMenuRow(gtx, &m.edit, row, "pencil", "Open scrollback in editor", m.sel == idx)
 }
 
 // paneMenuRow is one row of the pane menu: an icon and a label.
-func (u *ui) paneMenuRow(gtx gl.Context, b *widget.Clickable, row image.Point, icon, label string) {
+func (u *ui) paneMenuRow(gtx gl.Context, b *widget.Clickable, row image.Point, icon, label string, selected bool) {
 	h := row.Y
 	kit.Clickable(gtx, b, func(gtx gl.Context) gl.Dimensions {
-		if b.Hovered() {
+		switch {
+		case b.Hovered():
 			paint.FillShape(gtx.Ops, u.th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(8)).Op(gtx.Ops))
+		case selected:
+			paint.FillShape(gtx.Ops, u.th.SelectedBg, clip.UniformRRect(image.Rectangle{Max: row}, gtx.Dp(8)).Op(gtx.Ops))
 		}
 		x := gtx.Dp(8)
 		x += drawIconAt(gtx, image.Pt(x, (h-gtx.Dp(14))/2), func(gtx gl.Context) {

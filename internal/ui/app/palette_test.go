@@ -1,17 +1,30 @@
 package app
 
 import (
+	"image"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"gioui.org/f32"
+	"gioui.org/io/event"
+	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
+	"gioui.org/io/transfer"
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // TestFuzzy: the best alignment counts, word starts and runs beat
@@ -262,5 +275,139 @@ func TestPaletteWindow(t *testing.T) {
 	keys(press(key.NameReturn, 0))
 	if !u.sidebar.Editing() {
 		t.Fatal("tab mode's rename did not start a rename")
+	}
+}
+
+// TestPaletteEditorFeatures verifies the palette's widget.Editor filter supports
+// Unicode/IME input, clipboard paste, cursor navigation, Ctrl+W, and Ctrl+U.
+func TestPaletteEditorFeatures(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: conventional}}
+	var r input.Router
+	var ops op.Ops
+	now := time.Unix(1e9, 0)
+	frame := func(evs ...event.Event) {
+		if len(evs) > 0 {
+			r.Queue(evs...)
+		}
+		now = now.Add(16 * time.Millisecond)
+		ops.Reset()
+		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(1280, 800)), Now: now}
+		u.layout(gtx)
+		r.Frame(&ops)
+	}
+	frame()
+	frame()
+
+	cs := key.ModCtrl | key.ModShift
+	frame(press("P", cs))
+	frame(key.Event{Name: "P", Modifiers: cs, State: key.Release})
+	if !u.pal.open {
+		t.Fatal("palette did not open")
+	}
+
+	// Unicode/IME EditEvent (with SelectionEvent as Gio delivers).
+	frame(key.EditEvent{Range: key.Range{Start: 0, End: 0}, Text: "日本語"}, key.SelectionEvent{Start: 3, End: 3})
+	if u.pal.query != "日本語" {
+		t.Fatalf("Unicode EditEvent: query = %q, want 日本語", u.pal.query)
+	}
+
+	// Ctrl+U clears to start of line.
+	frame(press("U", key.ModCtrl))
+	if u.pal.query != "" {
+		t.Fatalf("Ctrl+U: query = %q, want empty", u.pal.query)
+	}
+
+	// Clipboard paste via Ctrl+V -> transfer.DataEvent.
+	frame(press("V", key.ModShortcut))
+	frame(transfer.DataEvent{Type: "application/text", Open: func() io.ReadCloser {
+		return io.NopCloser(strings.NewReader("split pane"))
+	}})
+	if u.pal.query != "split pane" {
+		t.Fatalf("paste: query = %q, want %q", u.pal.query, "split pane")
+	}
+
+	// Cursor navigation: move left 4 chars (caret at 6) and insert "my ".
+	for range 4 {
+		frame(press(key.NameLeftArrow, 0))
+	}
+	c, _ := u.pal.ed.Selection()
+	if c != 6 {
+		t.Fatalf("after 4x LeftArrow: caret = %d, want 6", c)
+	}
+	frame(key.EditEvent{Range: key.Range{Start: c, End: c}, Text: "my "}, key.SelectionEvent{Start: c + 3, End: c + 3})
+	if u.pal.query != "split my pane" {
+		t.Fatalf("mid-query insert: query = %q, want %q", u.pal.query, "split my pane")
+	}
+
+	// Ctrl+W deletes the word before the caret ("my "), leaving "split pane".
+	frame(press("W", key.ModCtrl))
+	if u.pal.query != "split pane" {
+		t.Fatalf("Ctrl+W: query = %q, want %q", u.pal.query, "split pane")
+	}
+}
+
+// TestListScrollWheelAndReduceMotion checks mouse-wheel scrolling on listScroll
+// and verifies anim.Reduced() stops glide and caret-blink invalidations.
+func TestListScrollWheelAndReduceMotion(t *testing.T) {
+	var ls listScroll
+	ls.selY = -1
+	var r input.Router
+	var ops op.Ops
+	now := time.Unix(1e9, 0)
+	rect := image.Rect(0, 0, 400, 120)
+	step := func(sel int, evs ...event.Event) (int, time.Time, bool) {
+		if len(evs) > 0 {
+			r.Queue(evs...)
+		}
+		ops.Reset()
+		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(400, 120)), Now: now}
+		ls.handleScroll(gtx, rect, 20, 34, 2)
+		hy := ls.update(gtx, sel, 20, 34, 2, 0, 120)
+		ls.scrollArea(gtx, rect)
+		r.Frame(&ops)
+		w, ok := r.WakeupTime()
+		return hy, w, ok
+	}
+	step(0)
+	// Wheel scroll down by 100px must move ls.scroll and not snap back to sel=0.
+	now = now.Add(16 * time.Millisecond)
+	step(0, pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(50, 50), Scroll: f32.Pt(0, 100)})
+	if ls.scroll != 100 {
+		t.Fatalf("wheel scroll = %d, want 100", ls.scroll)
+	}
+	now = now.Add(16 * time.Millisecond)
+	step(0)
+	if ls.scroll != 100 {
+		t.Fatalf("scroll snapped back to %d on next frame, want 100", ls.scroll)
+	}
+
+	// Under reduce_motion, changing selection snaps immediately with no wakeup,
+	// and caret schedules no blink wakeup.
+	prev := anim.Reduced()
+	anim.SetReduced(true)
+	t.Cleanup(func() { anim.SetReduced(prev) })
+
+	now = now.Add(16 * time.Millisecond)
+	hy, _, ok := step(5)
+	wantY := 5*36 - ls.scroll
+	if hy != wantY {
+		t.Fatalf("reduce_motion hy = %d, want %d", hy, wantY)
+	}
+	if ok {
+		t.Fatal("reduce_motion listScroll scheduled glide wakeup")
+	}
+
+	u := &ui{th: theme.Dark()}
+	var r2 input.Router
+	ops.Reset()
+	gtx := gl.Context{Ops: &ops, Source: r2.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: gl.Exact(image.Pt(200, 40)), Now: now}
+	u.caret(gtx, image.Rect(10, 4, 12, 20), now.Add(-100*time.Millisecond))
+	r2.Frame(&ops)
+	if _, ok := r2.WakeupTime(); ok {
+		t.Fatal("reduce_motion caret scheduled blink wakeup")
 	}
 }

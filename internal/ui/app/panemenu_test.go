@@ -15,6 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -157,6 +158,63 @@ func TestPaneMenuAndHints(t *testing.T) {
 			}
 			if got := sentOf[proto.Input](b); len(got) != 0 {
 				t.Fatalf("pane received mode keys: %+v", got)
+			}
+		})
+	}
+}
+
+// TestPaneMenuArrowSelection verifies Up/Down arrow selection with two rows
+// (Add to chat + Open scrollback in editor) so Enter activates the selected row.
+func TestPaneMenuArrowSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		keys     []key.Name
+		wantEdit bool
+	}{
+		{"default-row-0-add-to-chat", []key.Name{key.NameReturn}, false},
+		{"down-selects-edit", []key.Name{key.NameDownArrow, key.NameReturn}, true},
+		{"down-up-returns-to-add", []key.Name{key.NameDownArrow, key.NameUpArrow, key.NameReturn}, false},
+		{"up-wraps-to-edit", []key.Name{key.NameUpArrow, key.NameReturn}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, u, frame, queue := formWindow(t)
+			pane := u.nav.focused()
+			b.mu.Lock()
+			b.st.Chats = append(b.st.Chats, model.Chat{ID: "c1", WorkspaceID: u.nav.workspace, Provider: model.ProviderClaude})
+			b.mu.Unlock()
+			u.adds.last = "c1"
+			frame()
+
+			// Drag across the pane to create a selection so "Add to chat" is row 0.
+			r := u.panes[pane].rect
+			p1 := f32.Pt(float32(r.Min.X+16), float32(r.Min.Y+16))
+			p2 := f32.Pt(float32(r.Min.X+160), float32(r.Min.Y+16))
+			queue(
+				pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: p1},
+				pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Position: p1, Buttons: pointer.ButtonPrimary},
+				pointer.Event{Kind: pointer.Move, Source: pointer.Mouse, Position: p2, Buttons: pointer.ButtonPrimary},
+				pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: p2},
+			)
+			st := b.State()
+			if !u.canAddToChat(&st, pane) {
+				t.Fatalf("pane selection not active (selected=%v chatFor=%q)", u.panes[pane].view.Selected(), u.chatFor(&st, pane))
+			}
+
+			u.paneMenu.close()
+			u.paneMenu.pane = pane
+			u.paneMenu.at = r.Min.Add(image.Pt(40, 40))
+			frame()
+			frame()
+
+			for _, k := range tc.keys {
+				queue(key.Event{Name: k, State: key.Press})
+			}
+			if u.paneMenu.pane != "" {
+				t.Fatalf("menu stayed open: %q", u.paneMenu.pane)
+			}
+			gotEdit := len(sentOf[proto.EditScrollback](b)) > 0
+			if gotEdit != tc.wantEdit {
+				t.Fatalf("editScrollback sent = %v, want %v", gotEdit, tc.wantEdit)
 			}
 		})
 	}

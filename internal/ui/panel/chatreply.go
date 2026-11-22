@@ -31,6 +31,7 @@ type reply struct {
 	live   bool // parsed healed, as a reply still streaming
 	blocks []mdview.Block
 	paras  map[int]para                // text blocks' plain text and styled ranges
+	tables map[int]string              // precomputed tablePlain by block index
 	doc    mdview.Doc                  // tables, flowcharts and images
 	plain  string                      // the reply without its markdown, for Copy reply
 	wide   map[string]*mdview.Sideways // code blocks' sideways scroll, by key
@@ -66,7 +67,7 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 		src = mdview.Heal(src)
 	}
 	old := r
-	r = &reply{text: it.Text, live: live, blocks: mdview.ParseChat([]byte(src)), paras: map[int]para{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
+	r = &reply{text: it.Text, live: live, blocks: mdview.ParseChat([]byte(src)), paras: map[int]para{}, tables: map[int]string{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
 	if old != nil {
 		r.wide, r.code = old.wide, old.code // a code block keeps its scroll and tokens as the reply grows
 	}
@@ -81,7 +82,9 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 		case mdview.Code, mdview.Mermaid:
 			plain = append(plain, strings.TrimRight(b.Text, "\n"))
 		case mdview.Table:
-			plain = append(plain, tablePlain(&b))
+			tp := tablePlain(&b)
+			r.tables[i] = tp
+			plain = append(plain, tp)
 		case mdview.Images:
 			for _, im := range b.Imgs {
 				plain = append(plain, im.Alt)
@@ -142,10 +145,21 @@ func (t *Transcript) href(link string, code bool) string {
 		}
 		p = filepath.Join(t.Dir, p)
 	}
-	if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
-		return ""
+	key := t.Dir + "\x00" + p
+	if got, ok := t.hrefs[key]; ok {
+		return got
 	}
-	return mdview.FileURL(p)
+	res := ""
+	if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+		res = mdview.FileURL(p)
+	}
+	if t.hrefs == nil {
+		t.hrefs = map[string]string{}
+	} else if len(t.hrefs) >= 4096 {
+		clear(t.hrefs)
+	}
+	t.hrefs[key] = res
+	return res
 }
 
 var lineSuffix = regexp.MustCompile(`(:\d+)+$`)
@@ -211,7 +225,7 @@ func (d *cdraw) reply(gtx layout.Context, i int, running bool, start, end time.T
 	r := d.t.reply(it, running)
 	ws := []layout.Widget{func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, it.ID, r) }}
 	if !running {
-		ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.replyFoot(gtx, it, r, start, end) })
+		ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.replyFoot(gtx, i, it, r, start, end) })
 	}
 	return vstack(gtx, gtx.Dp(gapFoot)-gtx.Dp((hit-20)/2), ws...)
 }
@@ -325,7 +339,7 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 			fallthrough
 		case mdview.Table:
 			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions {
-				return d.whole(gtx, key, tablePlain(b), func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
+				return d.whole(gtx, key, r.tables[i], func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
 			})
 		default:
 			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
@@ -547,7 +561,7 @@ func (d *cdraw) marker(gtx layout.Context, b *mdview.Block, x int, st tstyle, td
 // replyFoot is a finished reply's row: Copy reply, Copy as Markdown, the
 // time it finished and how long the turn took. Its buttons sit flush
 // with the reply's left edge.
-func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start, end time.Time) layout.Dimensions {
+func (d *cdraw) replyFoot(gtx layout.Context, idx int, it *session.Item, r *reply, start, end time.Time) layout.Dimensions {
 	plain, md := d.t.click("copy:plain:"+it.ID), d.t.click("copy:md:"+it.ID)
 	if plain.Clicked(gtx) {
 		d.t.copy(gtx, "plain:"+it.ID, r.plain)
@@ -575,7 +589,7 @@ func (d *cdraw) replyFoot(gtx layout.Context, it *session.Item, r *reply, start,
 			},
 			func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Left: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return d.footMeta(gtx, it, when)
+					return d.footMeta(gtx, idx, when)
 				})
 			},
 		)

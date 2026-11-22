@@ -16,6 +16,7 @@ import (
 
 	lay "github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -196,5 +197,34 @@ func TestNearRowsDetached(t *testing.T) {
 	frame()
 	if !slices.ContainsFunc(evs, func(e Event) bool { a, ok := e.(AttachSession); return ok && a.WorkspaceID == "d" }) {
 		t.Fatalf("Attach gave %v", evs)
+	}
+}
+
+// TestSidebarReduceMotion verifies working rows do not request 30fps redraws
+// when anim.ReduceMotion is enabled.
+func TestSidebarReduceMotion(t *testing.T) {
+	prev := anim.Reduced()
+	anim.SetReduced(true)
+	t.Cleanup(func() { anim.SetReduced(prev) })
+
+	st := manyTabs(5)
+	s := Sidebar{Rev: 1}
+	var r input.Router
+	var ops op.Ops
+	now := time.Unix(1e9, 0)
+	frame := func(ts time.Time) (time.Time, bool) {
+		ops.Reset()
+		gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(288, 600)), Now: ts}
+		s.Layout(gtx, theme.Dark(), &st, "s", "")
+		r.Frame(&ops)
+		return r.WakeupTime()
+	}
+	frame(now)
+	wake, ok := frame(now.Add(time.Second))
+	if !ok {
+		t.Fatal("expected 10s relative-time wakeup")
+	}
+	if d := wake.Sub(now.Add(time.Second)); d < time.Second {
+		t.Fatalf("reduce_motion scheduled fast redraw in %v, want >= 1s", d)
 	}
 }

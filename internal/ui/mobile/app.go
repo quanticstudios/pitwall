@@ -7,6 +7,8 @@ package mobile
 import (
 	"context"
 	"errors"
+	"image"
+	"image/color"
 	"log"
 	"runtime"
 	"slices"
@@ -14,7 +16,9 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/io/key"
+	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -155,11 +159,8 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			for range 3 {
 				gtx = app.NewContext(&ops, e)
 				a.pollUpdates(gtx)
-				paint.Fill(gtx.Ops, th.Bg)
-				gtx.Metric.PxPerDp *= zoom
-				gtx.Metric.PxPerSp *= zoom
 				before := a.screen()
-				a.layout(gtx)
+				a.layoutFrame(gtx, e.Insets)
 				if a.screen() == before {
 					break
 				}
@@ -507,7 +508,7 @@ func (a *App) chatLayout(gtx C) {
 		env.Host, env.Hosts = l.m.Name, a.hosts()
 	}
 	if l.offline != "" {
-		env.Offline = offlineText(l.retryAt, gtx.Now)
+		env.Offline = offlineStatus(l.offline, l.retryAt, gtx.Now)
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 	}
 	if a.chat.layout(gtx, a.th, env) {
@@ -527,6 +528,29 @@ func (a *App) screen() screen {
 		reader = a.reader.v.Path()
 	}
 	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
+}
+
+// layoutFrame draws the window inside insets (Android 15 edge-to-edge safe
+// areas, in unzoomed dp), painting the status bar and background behind them.
+func (a *App) layoutFrame(gtx C, insets app.Insets) {
+	paint.Fill(gtx.Ops, a.th.Bg)
+	if top := gtx.Dp(insets.Top); top > 0 {
+		paint.FillShape(gtx.Ops, a.statusColor(), clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, top)}.Op())
+	}
+	layout.Inset{Top: insets.Top, Bottom: insets.Bottom, Left: insets.Left, Right: insets.Right}.Layout(gtx, func(gtx C) D {
+		gtx.Constraints = layout.Exact(gtx.Constraints.Max)
+		gtx.Metric.PxPerDp *= zoom
+		gtx.Metric.PxPerSp *= zoom
+		a.layout(gtx)
+		return D{Size: gtx.Constraints.Max}
+	})
+}
+
+func (a *App) statusColor() color.NRGBA {
+	if a.fleet == nil || a.adding || a.reader.v != nil || (a.chat.pane != "" && a.links[a.chatM] != nil) {
+		return a.th.Bg
+	}
+	return a.th.Sidebar
 }
 
 func (a *App) layout(gtx C) {

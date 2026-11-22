@@ -47,8 +47,15 @@ func (u *ui) openPeek(st *model.State, ws, pane string) {
 
 // keysHeld reports whether something other than a pane holds the
 // keyboard: a dialog, a rename field, tab or pane mode, the palette, a
-// form, hints mode, a pane menu, the command browser or the host picker.
+// form, hints mode, a pane menu, the command browser, the host picker or
+// the welcome modal.
 func (u *ui) keysHeld(st *model.State) bool {
+	return u.keysHeldAboveWelcome(st) || u.welcome.modal()
+}
+
+// keysHeldAboveWelcome reports whether a higher modal or overlay than
+// the welcome card currently holds keyboard focus.
+func (u *ui) keysHeldAboveWelcome(st *model.State) bool {
 	return u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open ||
 		u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" || u.browser.open || u.picker.open
 }

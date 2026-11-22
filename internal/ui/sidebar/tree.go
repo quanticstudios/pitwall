@@ -175,12 +175,21 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 	offs, moving := s.animate(gtx, elems, total)
 	s.sliding = moving
 	animating := false
-	byID := map[string]model.Workspace{}
-	for _, ws := range v.st.Workspaces {
-		byID[ws.ID] = ws
+	byID := v.byID
+	if byID == nil {
+		byID = make(map[string]model.Workspace, len(v.st.Workspaces))
+		for _, ws := range v.st.Workspaces {
+			byID[ws.ID] = ws
+		}
 	}
+	viewH := gtx.Constraints.Max.Y
 	d := s.list.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
 		w := gtx.Constraints.Max.X
+		viewTop := s.list.Position.Offset
+		viewBot := viewTop + viewH
+		inView := func(y0, y1 int) bool {
+			return viewH <= 0 || (y1 > viewTop && y0 < viewBot)
+		}
 		n := 0 // rows so far, for their digits
 		for i, e := range elems {
 			digit := ""
@@ -194,16 +203,22 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				continue
 			}
 			y := e.top + int(offs[i]+0.5)
+			ey1 := y + (e.bot - e.top)
 			if e.kind == 'm' {
 				if s.HostSections && e.host != "" {
 					// The rule runs from the header to the section's last row.
-					bot := y + e.bot - e.top
+					bot := ey1
 					for j := i + 1; j < len(elems) && elems[j].kind != 'm'; j++ {
 						if !(s.drag.active && s.carried(elems[j])) {
 							bot = max(bot, elems[j].bot+int(offs[j]+0.5))
 						}
 					}
-					sectionRule(gtx, v.th, s.Hosts, e.host, y+e.head-e.top, bot)
+					if inView(y+e.head-e.top, bot) {
+						sectionRule(gtx, v.th, s.Hosts, e.host, y+e.head-e.top, bot)
+					}
+				}
+				if !inView(y, ey1) && s.hostColor != e.id {
+					continue
 				}
 				x := 0
 				if s.HostSections && e.host != "" {
@@ -217,6 +232,9 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				continue
 			}
 			if e.kind == 'h' {
+				if !inView(y, ey1) {
+					continue
+				}
 				o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 				hg := gtx
 				hg.Constraints = layout.Exact(image.Pt(w, e.bot-e.top))
@@ -226,6 +244,9 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				continue
 			}
 			if e.kind == 'g' {
+				if !inView(y, ey1) && s.groupMenu != e.id && s.appearance != e.id && s.renamingGroup != e.id {
+					continue
+				}
 				if e.head > e.top {
 					sy := y + gtx.Dp(6)
 					paint.FillShape(gtx.Ops, theme.Mix(v.th.Sidebar, v.th.Border, 0.6), clip.Rect{Min: image.Pt(0, sy), Max: image.Pt(w, sy+1)}.Op())
@@ -234,12 +255,20 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				o := op.Offset(image.Pt(e.x, y+e.head-e.top)).Push(gtx.Ops)
 				hg := gtx
 				hg.Constraints.Max.X = w - e.x
-				for _, p := range v.st.Projects {
-					if p.ID == e.id {
-						s.projectHeader(hg, v, p)
+				if p, ok := v.projects[e.id]; ok {
+					s.projectHeader(hg, v, p)
+				} else if v.projects == nil {
+					for _, p := range v.st.Projects {
+						if p.ID == e.id {
+							s.projectHeader(hg, v, p)
+						}
 					}
 				}
 				o.Pop()
+				continue
+			}
+			vis := inView(y, ey1)
+			if !vis && s.menuWS != e.id && s.renaming != e.id && s.replying != e.id && s.reply.ws != e.id && s.hover.shown != e.id {
 				continue
 			}
 			s.rowAt = image.Pt(gtx.Dp(listPad)+e.x, top+y-s.list.Position.Offset)
@@ -277,8 +306,11 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 			if (e.kind == 's' || e.worker) && e.id == s.hover.shown {
 				s.cardAt, s.cardY = e.id, y
 			}
-			animating = animating || a
+			if vis {
+				animating = animating || a
+			}
 		}
+		qHead, qRow := queueHeights(gtx)
 		for _, b := range s.queue {
 			if s.drag.active && s.drag.kind == 'g' && s.drag.id == b.group {
 				continue // the lifted group is drawn without it
@@ -286,6 +318,9 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 			y := b.top
 			if b.after >= 0 {
 				y += int(offs[b.after] + 0.5)
+			}
+			if !inView(y, y+qHead+len(b.tasks)*qRow+gtx.Dp(4)) {
+				continue
 			}
 			o := op.Offset(image.Pt(b.x, y)).Push(gtx.Ops)
 			s.drawQueue(gtx, v.th, b)

@@ -156,7 +156,7 @@ func (b *FindBar) Layout(gtx layout.Context, th *theme.Theme, size image.Point, 
 		x -= bs
 		r := image.Rect(x, y, x+bs, y+bs)
 		at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
-			return d.toolButton(gtx, bt.c, bt.ic, th.Muted, false)
+			return d.toolButtonOn(gtx, bt.c, bt.ic, th.Muted, false, d.th.HoverElevated)
 		})
 		if bt.c.Hovered() {
 			defer d.tooltip(gtx, bt.tip, r.Add(rect.Min), size)
@@ -518,7 +518,7 @@ func (t *Transcript) findRow(s *session.Snapshot, i int) int {
 		return -1 // the next frame's rows hold it
 	}
 	for k, r := range t.rows {
-		if rowItem(r) == i && r.tail == nil && r.res == nil {
+		if rowItem(r) == i && !r.isTail() && r.res == nil {
 			return k
 		}
 		if r.seg == segHead && !r.open && r.b.lo <= i && i < r.b.hi {

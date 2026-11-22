@@ -149,11 +149,10 @@ func decodeICO(b []byte) image.Image {
 	return img
 }
 
-// favicon is a repo's icon scaled to px pixels, or none.
+// favicon is a repo's icon scaled per pixel size, or none.
 type favicon struct {
 	src image.Image
-	px  int
-	op  paint.ImageOp
+	ops map[int]paint.ImageOp
 
 	// With no src: a tile of col with letter on it.
 	letter string
@@ -203,13 +202,18 @@ func (f *favicon) draw(gtx layout.Context, size int) layout.Dimensions {
 	if f.src == nil {
 		return f.tile(gtx, size)
 	}
-	if f.px != size {
+	imgOp, ok := f.ops[size]
+	if !ok {
 		dst := image.NewNRGBA(image.Rect(0, 0, size, size))
 		xdraw.CatmullRom.Scale(dst, dst.Bounds(), f.src, f.src.Bounds(), xdraw.Over, nil)
-		f.px, f.op = size, paint.NewImageOp(dst)
+		imgOp = paint.NewImageOp(dst)
+		if f.ops == nil {
+			f.ops = map[int]paint.ImageOp{}
+		}
+		f.ops[size] = imgOp
 	}
 	defer clip.UniformRRect(image.Rectangle{Max: image.Pt(size, size)}, size/5).Push(gtx.Ops).Pop()
-	f.op.Add(gtx.Ops)
+	imgOp.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
 	return layout.Dimensions{Size: image.Pt(size, size)}
 }
@@ -247,9 +251,13 @@ func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
 	name, colorID := filepath.Base(root), ""
 	if root == ws.RepoRoot {
 		name = filepath.Base(cmp.Or(ws.WorktreeRoot, root))
-		for _, p := range v.st.Projects {
-			if p.ID == ws.ProjectID {
-				name, colorID = p.Name, p.Color
+		if p, ok := v.projects[ws.ProjectID]; ok {
+			name, colorID = p.Name, p.Color
+		} else if v.projects == nil {
+			for _, p := range v.st.Projects {
+				if p.ID == ws.ProjectID {
+					name, colorID = p.Name, p.Color
+				}
 			}
 		}
 	}

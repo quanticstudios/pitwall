@@ -1077,6 +1077,10 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 	xg.Constraints = layout.Exact(image.Pt(hit, hit))
 	kit.Clickable(xg, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Remove image #" + itoa(im.N)).Add(gtx.Ops)
+		btnRect := image.Rect(in, in, in+xs, in+xs)
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, btnRect, xs/2)
+		}
 		fill := withAlpha(th.Bg, 0xd9)
 		switch {
 		case b.Pressed():
@@ -1084,11 +1088,13 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 		case b.Hovered():
 			fill = th.Hover
 		}
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(in, in, in+xs, in+xs), xs/2).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(btnRect, xs/2).Op(gtx.Ops))
 		is := gtx.Dp(12)
 		o := op.Offset(image.Pt((hit-is)/2, (hit-is)/2)).Push(gtx.Ops)
 		sidebar.Icon(gtx, "x", is, th.Fg)
 		o.Pop()
+		defer clip.Rect{Max: image.Pt(hit, hit)}.Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: image.Pt(hit, hit)}
 	})
 	at.Pop()
@@ -1380,6 +1386,11 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 		d := row(g, gtx.Dp(6), h, ws...)
 		call := m.Stop()
 		size := image.Pt(d.Size.X+2*pad, h)
+		rect := image.Rectangle{Max: size}
+		r := gtx.Dp(theme.RadiusControl)
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, rect, r)
+		}
 		fill := theme.Transparent
 		switch {
 		case b.Pressed():
@@ -1387,10 +1398,12 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 		case b.Hovered() || b == c.which && c.menu:
 			fill = th.Hover
 		}
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	})
 }
@@ -1434,10 +1447,16 @@ func (c *Composer) meter(gtx layout.Context, th *theme.Theme, used, total int64)
 			})
 		call := m.Stop()
 		size := image.Pt(rd.Size.X+2*pad, h)
+		rect := image.Rectangle{Max: size}
+		if gtx.Focused(&c.meterBtn) {
+			kit.FocusRing(gtx, th, rect, gtx.Dp(theme.RadiusControl))
+		}
 		ghostFill(gtx, th, &c.meterBtn, size)
 		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	})
 	c.hoverCard(gtx, th, &c.meterBtn, d.Size, true, func(gtx layout.Context) layout.Dimensions {
@@ -1568,6 +1587,9 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Di
 			semantic.LabelOp("Send").Add(gtx.Ops)
 			semantic.EnabledOp(false).Add(gtx.Ops)
 		}
+		if live && gtx.Focused(&c.sendBtn) {
+			kit.FocusRing(gtx, th, rect, gtx.Dp(7))
+		}
 		switch {
 		case c.sendBtn.Pressed() && live:
 			fill = theme.Mix(fill, th.Bg, 0.2)
@@ -1588,6 +1610,10 @@ func (c *Composer) send(gtx layout.Context, th *theme.Theme, b Button) layout.Di
 			sidebar.Icon(gtx, "arrow-up", is, fg)
 		}
 		o.Pop()
+		if live {
+			defer clip.Rect(rect).Push(gtx.Ops).Pop()
+			pointer.CursorPointer.Add(gtx.Ops)
+		}
 		return layout.Dimensions{Size: rect.Max}
 	}
 	if !live {
@@ -1609,6 +1635,11 @@ func (c *Composer) ghostStop(gtx layout.Context, th *theme.Theme) layout.Dimensi
 	return kit.Clickable(gtx, &c.stopBtn, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("Stop").Add(gtx.Ops)
 		s := gtx.Dp(28)
+		rect := image.Rectangle{Max: image.Pt(s, s)}
+		r := gtx.Dp(theme.RadiusControl)
+		if gtx.Focused(&c.stopBtn) {
+			kit.FocusRing(gtx, th, rect, r)
+		}
 		fill, fg := theme.Transparent, th.Muted
 		switch {
 		case c.stopBtn.Pressed():
@@ -1616,12 +1647,14 @@ func (c *Composer) ghostStop(gtx layout.Context, th *theme.Theme) layout.Dimensi
 		case c.stopBtn.Hovered():
 			fill, fg = th.Hover, th.Fg
 		}
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: image.Pt(s, s)}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		is := gtx.Dp(14)
 		o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
 		stopSquare(gtx, is, fg)
 		o.Pop()
-		return layout.Dimensions{Size: image.Pt(s, s)}
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
+		return layout.Dimensions{Size: rect.Max}
 	})
 }
 

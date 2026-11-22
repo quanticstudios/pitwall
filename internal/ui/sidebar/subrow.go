@@ -429,7 +429,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 		op.Defer(gtx.Ops, m.Stop())
 		o.Pop()
 	}
-	return layout.Dimensions{Size: image.Pt(w, h)}, model.Pulses(a)
+	return layout.Dimensions{Size: image.Pt(w, h)}, model.Pulses(a) && !anim.Reduced()
 }
 
 // subTitle is what a sub-row calls its pane or worker.

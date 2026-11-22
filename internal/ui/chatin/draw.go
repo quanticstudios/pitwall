@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gioui.org/font"
+	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -73,10 +74,16 @@ func textButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, label 
 		d := text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, label)
 		call := m.Stop()
 		size := image.Pt(d.Size.X+2*pad, h)
+		rect := image.Rectangle{Max: size}
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, rect, gtx.Dp(theme.RadiusControl))
+		}
 		ghostFill(gtx, th, b, size)
 		o := op.Offset(image.Pt(pad, (h-d.Size.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	})
 }
@@ -87,11 +94,18 @@ func iconButton(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon, 
 	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
 		s, is := gtx.Dp(28), gtx.Dp(14)
-		ghostFill(gtx, th, b, image.Pt(s, s))
+		size := image.Pt(s, s)
+		rect := image.Rectangle{Max: size}
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, rect, gtx.Dp(theme.RadiusControl))
+		}
+		ghostFill(gtx, th, b, size)
 		o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
 		sidebar.Icon(gtx, icon, is, th.Muted)
 		o.Pop()
-		return layout.Dimensions{Size: image.Pt(s, s)}
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
+		return layout.Dimensions{Size: size}
 	})
 }
 
@@ -128,13 +142,17 @@ func iconMenuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon,
 		h := gtx.Dp(28)
 		w := gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}
+		r := gtx.Dp(theme.RadiusControl)
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, rect, r)
+		}
 		switch {
 		case b.Pressed():
-			paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		case b.Hovered():
-			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.HoverElevated, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		case on:
-			paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		}
 		o := op.Offset(image.Pt(gtx.Dp(theme.SpaceS), 0)).Push(gtx.Ops)
 		g := gtx
@@ -154,6 +172,8 @@ func iconMenuRow(gtx layout.Context, th *theme.Theme, b *widget.Clickable, icon,
 			sidebar.Icon(gtx, "check", is, th.Readable(th.Primary, th.SurfaceElevated))
 			o.Pop()
 		}
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Dimensions{Size: rect.Max}
 	})
 }

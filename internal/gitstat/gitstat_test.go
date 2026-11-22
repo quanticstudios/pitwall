@@ -475,3 +475,41 @@ func TestChangedAndConflicts(t *testing.T) {
 		t.Fatalf("Conflicts(a, clash) = %q, %v", files, err)
 	}
 }
+
+func TestMergeTreeCache(t *testing.T) {
+	ctx := context.Background()
+	dir := repo(t)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "file.txt", "feature\ntwo\nthree\n")
+	commit(t, dir)
+	runGit(t, dir, "checkout", "main")
+	writeFile(t, dir, "file.txt", "main\ntwo\nthree\n")
+	commit(t, dir)
+	runGit(t, dir, "checkout", "feature")
+
+	baseOID := runGit(t, dir, "rev-parse", "refs/heads/main")
+	headOID := runGit(t, dir, "rev-parse", "HEAD")
+
+	st, err := Stats(ctx, dir)
+	if err != nil || st.MergeStatus != model.MergeConflicts {
+		t.Fatalf("first Stats = %+v, %v", st, err)
+	}
+	// why: git and the code spell the common dir differently on Windows (slashes, 8.3 names), so find the entry by its commits
+	var key mergeTreeKey
+	mergeTreeCache.mu.Lock()
+	for k := range mergeTreeCache.m {
+		if k.baseOID == baseOID && k.headOID == headOID {
+			key = k
+		}
+	}
+	mergeTreeCache.mu.Unlock()
+	cached, ok := lookupMergeTree(key)
+	if !ok || cached != model.MergeConflicts {
+		t.Fatalf("mergeTreeCache[%+v] = (%v, %v), want (MergeConflicts, true)", key, cached, ok)
+	}
+	// Second call hits the cache and returns the same status.
+	st2, err := Stats(ctx, dir)
+	if err != nil || st2.MergeStatus != model.MergeConflicts {
+		t.Fatalf("cached Stats = %+v, %v", st2, err)
+	}
+}

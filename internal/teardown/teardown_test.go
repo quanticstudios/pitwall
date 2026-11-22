@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/testenv"
@@ -130,5 +132,26 @@ func TestTimeoutNamesLimit(t *testing.T) {
 	_, err := Run(ctx, t.TempDir(), config.WorktreeSettings{Teardown: "true"}, model.PortBlock{}, "")
 	if err == nil || !strings.Contains(err.Error(), "2 minute teardown limit reached") {
 		t.Fatalf("timeout reason: %v", err)
+	}
+}
+
+func TestBoundCancelSafeAfterExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix process group signal check")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	// A failing command exits and is reaped without signaling a reused PID.
+	notice, err := Run(context.Background(), t.TempDir(), config.WorktreeSettings{Teardown: "exit 9"}, model.PortBlock{}, "")
+	if err == nil || !strings.Contains(notice, "exit status 9") {
+		t.Fatalf("failed teardown: %q %v", notice, err)
+	}
+	// childproc.Bound's Cancel returns os.ErrProcessDone after Wait reaps the process.
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", "exit 9")
+	childproc.Bound(cmd)
+	_ = cmd.Run()
+	if cerr := cmd.Cancel(); !errors.Is(cerr, os.ErrProcessDone) {
+		t.Fatalf("Cancel after reap = %v, want os.ErrProcessDone", cerr)
 	}
 }

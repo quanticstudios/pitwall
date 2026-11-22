@@ -359,7 +359,7 @@ func Takeover(path string, o Options) (*Daemon, net.Listener, error) {
 		return nil, nil, err
 	}
 	defer nc.Close()
-	conn := proto.NewConn(nc)
+	conn := proto.NewUnbufferedConn(nc)
 	d, ln, err := takeover(nc.(*net.UnixConn), conn, o)
 	if err != nil {
 		conn.Send(handoffAbort{Reason: err.Error()}) // the old daemon may be gone

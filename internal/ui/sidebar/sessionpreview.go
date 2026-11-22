@@ -232,7 +232,7 @@ func (s *Sidebar) drawSessionPreview(gtx layout.Context, th *theme.Theme, st *mo
 				})
 			})
 		})
-		if model.Pulses(tab.activity) {
+		if model.Pulses(tab.activity) && !anim.Reduced() {
 			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 		}
 	}

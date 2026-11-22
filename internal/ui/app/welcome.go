@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
@@ -171,13 +172,56 @@ func (u *ui) drawWelcome(gtx gl.Context, st *model.State) {
 		u.drawNoAgents(gtx)
 		return
 	}
+	// Handle Escape while the welcome modal holds focus, swallow plain/Shift
+	// keys on the backdrop so typing cannot reach the terminal underneath, and
+	// keep keyboard focus on welcome when no higher modal holds it.
+	focusTag := w.focusedTag(gtx)
+	for {
+		ev, ok := gtx.Event(
+			key.FocusFilter{Target: &w.backdrop},
+			key.Filter{Focus: &w.backdrop, Name: key.NameEscape},
+			key.Filter{Focus: focusTag, Name: key.NameEscape},
+			key.Filter{Focus: &w.backdrop, Optional: key.ModShift},
+		)
+		if !ok {
+			break
+		}
+		if e, ok := ev.(key.Event); ok && e.State == key.Press && e.Name == key.NameEscape {
+			u.endWelcome()
+			return
+		}
+	}
 	// The panes dim behind the card; a press on them dismisses it, as one
 	// outside an overlay closes it.
 	if u.backdrop(gtx, anim.At(gtx, w.shownAt, anim.Dialog), &w.backdrop) {
 		u.endWelcome()
 		return
 	}
+	if !u.keysHeldAboveWelcome(st) {
+		gtx.Execute(key.FocusCmd{Tag: focusTag})
+	}
 	u.card(gtx, &w.tag, w.shownAt, u.welcomeBody)
+}
+
+// modal reports whether the centered modal welcome card is currently shown
+// (as opposed to the non-modal bottom no-agents card).
+func (w *welcome) modal() bool { return w.on && len(w.agents) > 0 }
+
+// focusedTag returns whichever welcome control already has keyboard focus, or
+// &w.backdrop so the dimmed terminal behind the card never receives keys.
+func (w *welcome) focusedTag(gtx gl.Context) event.Tag {
+	if gtx.Focused(&w.dismiss) {
+		return &w.dismiss
+	}
+	if gtx.Focused(&w.install) {
+		return &w.install
+	}
+	for i := range w.start {
+		if gtx.Focused(&w.start[i]) {
+			return &w.start[i]
+		}
+	}
+	return &w.backdrop
 }
 
 func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
@@ -270,61 +314,121 @@ func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable)
 	return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
 }
 
-// drawNoAgents is the first run without an agent on PATH: one line at the
-// bottom of the pane area with where to get each, and Dismiss.
+// drawNoAgents is the first run without an agent on PATH: a wrapping
+// multi-line card at the bottom of the pane area with where to get each,
+// and Dismiss.
 func (u *ui) drawNoAgents(gtx gl.Context) {
 	th, w := u.th, &u.welcome
+	size := gtx.Constraints.Max
+	margin := gtx.Dp(16)
+	padX, padY := gtx.Dp(14), gtx.Dp(10)
+	gapX, gapY := gtx.Dp(12), gtx.Dp(6)
+	maxBoxW := min(size.X-2*margin, gtx.Dp(640))
+	innerW := maxBoxW - 2*padX
+	if innerW < gtx.Dp(120) || size.Y < gtx.Dp(60) {
+		return
+	}
+
 	type part struct {
-		c    *widget.Clickable // nil for plain text
+		c    *widget.Clickable
 		call op.CallOp
 		size image.Point
 	}
-	msg, ms := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "No agent CLI on PATH. Install one:")
-	parts := []part{{call: msg, size: ms}}
+	measure := gtx
+	measure.Constraints = gl.Constraints{Max: image.Pt(innerW, size.Y)}
+	msg, ms := textCall(measure, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, "No agent CLI on PATH. Install one:")
+	dismissCol := th.Muted
+	if w.dismiss.Hovered() {
+		dismissCol = th.Fg
+	}
+	dc, ds := textCall(measure, th, th.UIFont, th.Sp(theme.Body), dismissCol, "Dismiss")
+
+	links := make([]part, 0, len(welcomeAgents))
 	for i, a := range welcomeAgents {
 		col := th.Primary
 		if w.links[i].Hovered() {
 			col = theme.Mix(th.Primary, th.Fg, 0.3)
 		}
-		c, s := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), col, a.name)
-		parts = append(parts, part{c: &w.links[i], call: c, size: s})
+		c, s := textCall(measure, th, th.UIFont, th.Sp(theme.Body), col, a.name)
+		links = append(links, part{c: &w.links[i], call: c, size: s})
 	}
-	hc, hs := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, "Dismiss")
-	parts = append(parts, part{c: &w.dismiss, call: hc, size: hs})
-	pad, gap := gtx.Dp(12), gtx.Dp(12)
-	box := image.Pt(pad, ms.Y+2*gtx.Dp(10))
-	for i, p := range parts {
-		if i > 0 {
-			box.X += gap
+
+	// Wrap agent links into rows that fit within innerW.
+	type line struct {
+		items []part
+		w, h  int
+	}
+	var rows []line
+	for _, p := range links {
+		if len(rows) == 0 || rows[len(rows)-1].w+gapX+p.size.X > innerW {
+			rows = append(rows, line{items: []part{p}, w: p.size.X, h: p.size.Y})
+			continue
 		}
-		box.X += p.size.X
+		cur := &rows[len(rows)-1]
+		cur.items = append(cur.items, p)
+		cur.w += gapX + p.size.X
+		cur.h = max(cur.h, p.size.Y)
 	}
-	box.X += pad
-	size := gtx.Constraints.Max
-	if box.X+gtx.Dp(24) > size.X {
+
+	headSameRow := ms.X+gapX+ds.X <= innerW
+	contentW := max(ms.X, ds.X)
+	headH := ms.Y + gapY + ds.Y
+	if headSameRow {
+		contentW = ms.X + gapX + ds.X
+		headH = max(ms.Y, ds.Y)
+	}
+	linksH := 0
+	for i, r := range rows {
+		contentW = max(contentW, r.w)
+		if i > 0 {
+			linksH += gapY
+		}
+		linksH += r.h
+	}
+	box := image.Pt(min(maxBoxW, contentW+2*padX), padY+headH+gapY+linksH+padY)
+	if box.Y+2*margin > size.Y {
 		return
 	}
-	defer op.Offset(image.Pt((size.X-box.X)/2, size.Y-box.Y-gtx.Dp(16))).Push(gtx.Ops).Pop()
-	rad := gtx.Dp(8)
-	paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rad).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rad-1).Op(gtx.Ops))
+	defer op.Offset(image.Pt((size.X-box.X)/2, size.Y-box.Y-margin)).Push(gtx.Ops).Pop()
+	rad := gtx.Dp(theme.RadiusPopover)
+	kit.Surface(gtx, image.Rectangle{Max: box}, rad, kit.Floating, th.BorderStrong, th.Surface)
 	area := clip.Rect{Max: box}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &w.tag)
 	area.Pop()
-	x := pad
-	for _, p := range parts {
-		o := op.Offset(image.Pt(x, (box.Y-p.size.Y)/2)).Push(gtx.Ops)
-		if p.c == nil {
+
+	drawClick := func(at image.Point, p part) {
+		o := op.Offset(at).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = gl.Exact(p.size)
+		kit.Clickable(g, p.c, func(gtx gl.Context) gl.Dimensions {
+			if gtx.Focused(p.c) {
+				kit.FocusRing(gtx, th, image.Rectangle{Max: p.size}, gtx.Dp(theme.RadiusControl))
+			}
 			p.call.Add(gtx.Ops)
-		} else {
-			g := gtx
-			g.Constraints = gl.Exact(p.size)
-			kit.Clickable(g, p.c, func(gtx gl.Context) gl.Dimensions {
-				p.call.Add(gtx.Ops)
-				return gl.Dimensions{Size: p.size}
-			})
-		}
+			return gl.Dimensions{Size: p.size}
+		})
 		o.Pop()
-		x += p.size.X + gap
+	}
+
+	y := padY
+	if headSameRow {
+		o := op.Offset(image.Pt(padX, y+(headH-ms.Y)/2)).Push(gtx.Ops)
+		msg.Add(gtx.Ops)
+		o.Pop()
+		drawClick(image.Pt(box.X-padX-ds.X, y+(headH-ds.Y)/2), part{c: &w.dismiss, call: dc, size: ds})
+	} else {
+		o := op.Offset(image.Pt(padX, y)).Push(gtx.Ops)
+		msg.Add(gtx.Ops)
+		o.Pop()
+		drawClick(image.Pt(padX, y+ms.Y+gapY), part{c: &w.dismiss, call: dc, size: ds})
+	}
+	y += headH + gapY
+	for _, r := range rows {
+		x := padX
+		for _, p := range r.items {
+			drawClick(image.Pt(x, y+(r.h-p.size.Y)/2), p)
+			x += p.size.X + gapX
+		}
+		y += r.h + gapY
 	}
 }

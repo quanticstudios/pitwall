@@ -17,10 +17,13 @@ import (
 
 // quietPane is what checkQuiet keeps per working pane. Guarded by d.mu.
 type quietPane struct {
-	p     Pane
-	cells []vt.Cell // the screen at the last poll
-	since time.Time // when the screen last changed
-	shown bool      // still for quiet_after: clients get QuietSince
+	p      Pane
+	cells  []vt.Cell // the screen at the last poll
+	grid   vt.Grid   // cached screen when WriteSeq is unchanged
+	seq    uint64
+	hasSeq bool
+	since  time.Time // when the screen last changed
+	shown  bool      // still for quiet_after: clients get QuietSince
 	// nudged is when continue was typed, zero for not yet. It holds until
 	// the agent stops working or the user types in the pane, so one
 	// stretch of work gets one continue, its echo and any turn it starts
@@ -47,16 +50,24 @@ func (d *Daemon) checkQuiet() {
 	after := d.quietAfter()
 	nudge := d.o.ContinueWhenQuiet != nil && d.o.ContinueWhenQuiet()
 	type look struct {
-		id   string
-		p    Pane
-		prov model.Provider
-		seq  uint64
+		id     string
+		p      Pane
+		prov   model.Provider
+		seq    uint64
+		cached bool
+		grid   vt.Grid
 	}
 	var looks []look
 	d.mu.Lock()
 	for _, a := range d.st.Activities {
 		if p := d.panes[a.PaneID]; p != nil && after > 0 && a.State == model.StateWorking {
-			looks = append(looks, look{a.PaneID, p, a.Provider, d.live.hookSeq[a.PaneID]})
+			l := look{id: a.PaneID, p: p, prov: a.Provider, seq: d.live.hookSeq[a.PaneID]}
+			if wseq, ok := paneWriteSeq(p); ok {
+				if q := d.quiet[a.PaneID]; q != nil && q.p == p && q.hasSeq && q.seq == wseq {
+					l.cached, l.grid = true, q.grid
+				}
+			}
+			looks = append(looks, l)
 		}
 	}
 	for id, q := range d.quiet {
@@ -70,7 +81,15 @@ func (d *Daemon) checkQuiet() {
 	d.mu.Unlock()
 	now := time.Now()
 	for _, l := range looks {
-		g := l.p.Snapshot()
+		var g vt.Grid
+		var wseq uint64
+		var hasSeq bool
+		if l.cached {
+			g = l.grid
+		} else {
+			wseq, hasSeq = paneWriteSeq(l.p)
+			g = l.p.Snapshot()
+		}
 		d.mu.Lock()
 		i := d.activityIndex(l.id)
 		if d.closing || d.frozen || d.panes[l.id] != l.p || d.live.hookSeq[l.id] != l.seq || i < 0 || d.st.Activities[i].State != model.StateWorking || d.st.Activities[i].Provider != l.prov {
@@ -85,8 +104,11 @@ func (d *Daemon) checkQuiet() {
 			q = &quietPane{p: l.p}
 			d.quiet[l.id] = q
 		}
-		if q.cells == nil || !slices.Equal(q.cells, g.Cells) {
-			q.cells, q.since = g.Cells, now
+		if !l.cached {
+			if q.cells == nil || !slices.Equal(q.cells, g.Cells) {
+				q.cells, q.since = g.Cells, now
+			}
+			q.grid, q.seq, q.hasSeq = g, wseq, hasSeq
 		}
 		if now.Sub(q.since) >= after && !d.live.hookAt[l.id].IsZero() && !d.live.background[l.id] && agent.InputReady(l.prov, g) {
 			d.setActivity(context.Background(), l.id, l.prov, model.StateCompleted, "")

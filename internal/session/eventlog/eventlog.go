@@ -187,14 +187,32 @@ func readJSON(path string, v any) (bool, error) {
 // Append writes ds, one line each, in one write. It syncs when a delta ends
 // a turn or resolves an approval or input, so those survive a power cut.
 func (l *Log) Append(ds []session.Delta) error {
-	var buf bytes.Buffer
-	sync := false
-	for _, d := range ds {
+	raw := make([][]byte, len(ds))
+	for i, d := range ds {
 		b, err := json.Marshal(d)
 		if err != nil {
 			return err
 		}
-		buf.Write(b)
+		raw[i] = b
+	}
+	return l.AppendRaw(ds, raw)
+}
+
+// AppendRaw writes pre-marshaled JSON lines for ds in one write, avoiding
+// redundant JSON encoding when the caller already marshaled the deltas.
+func (l *Log) AppendRaw(ds []session.Delta, raw [][]byte) error {
+	if len(ds) != len(raw) {
+		return fmt.Errorf("eventlog: AppendRaw length mismatch (%d deltas, %d raw)", len(ds), len(raw))
+	}
+	total := 0
+	for _, b := range raw {
+		total += len(b) + 1
+	}
+	var buf bytes.Buffer
+	buf.Grow(total)
+	sync := false
+	for i, d := range ds {
+		buf.Write(raw[i])
 		buf.WriteByte('\n')
 		sync = sync || durable(d)
 	}

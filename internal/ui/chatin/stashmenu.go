@@ -66,7 +66,7 @@ func (c *Composer) stashRow(gtx layout.Context, th *theme.Theme, i int, s Stash)
 		case i == c.stashSel:
 			paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		case b.Hovered():
-			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.HoverElevated, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
 		// The right side first, to know what the preview may take.
 		var ws []layout.Widget

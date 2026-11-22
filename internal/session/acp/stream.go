@@ -129,11 +129,11 @@ func (d *driver) line(b []byte) []session.Event {
 		if m.Method == "session/request_permission" {
 			var p permission
 			if json.Unmarshal(m.Params, &p) != nil || p.SessionID != d.s.id || d.s.turn == "" || p.ToolCall.ToolCallID == "" {
-				d.write(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32602, Message: "No active turn or invalid permission parameters"}})
+				d.queueWrite(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32602, Message: "No active turn or invalid permission parameters"}})
 				return nil
 			}
 			if d.s.cancelled {
-				d.reply(m.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}})
+				d.queueReply(m.ID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}})
 				return nil
 			}
 			p.ID = m.ID
@@ -155,7 +155,7 @@ func (d *driver) line(b []byte) []session.Event {
 		if m.Method == "elicitation/create" {
 			return d.elicit(m)
 		}
-		d.write(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32601, Message: "Unsupported client method: " + m.Method}})
+		d.queueWrite(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": rpcError{Code: -32601, Message: "Unsupported client method: " + m.Method}})
 	}
 	d.s.unsupported(m.Method)
 	return nil

@@ -64,6 +64,8 @@ type state struct {
 	wake      func()      // set by SetDirtyFunc
 	last      *Grid       // the previous Snapshot, shown while syncing
 	shell     []shellMark
+	hasPrompt bool
+	writeSeq  atomic.Uint64
 	hist      history
 	term      byte          // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
 	dropped   atomic.Uint64 // reply bytes dropped at replyCap
@@ -125,6 +127,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 			if !e.IsAltScreen() {
 				top := st.hist.pushed + uint64(e.Scrollback().Len())
 				st.shell = slices.DeleteFunc(st.shell, func(m shellMark) bool { return m.At.Line >= top })
+				st.hasPrompt = hasPromptMark(st.shell)
 			}
 			st.gfx.clear(e, st, "screen") // so clear clears images too, as kitty
 		case n == 3 && !e.IsAltScreen():
@@ -305,29 +308,104 @@ func (st *state) armSync() {
 	switch {
 	case st.wake == nil:
 	case st.syncTimer == nil:
-		st.syncTimer = time.AfterFunc(max(0, syncTimeout-time.Since(st.syncStart)), st.wake)
+		wake := st.wake
+		st.syncTimer = time.AfterFunc(max(0, syncTimeout-time.Since(st.syncStart)), func() {
+			st.writeSeq.Add(1)
+			wake()
+		})
 	default:
 		st.syncTimer.Reset(max(0, syncTimeout-time.Since(st.syncStart)))
 	}
 }
 
-// Write cuts p after every BEL and ESC so the OSC handlers know which
-// terminator ended a query, then moves lines that scrolled off into history.
+// WriteSeq monotonically increases on every non-empty Write, Resize, or
+// synchronized-output timeout. Callers find it through an interface check.
+func (t *emulator) WriteSeq() uint64 { return t.st.writeSeq.Load() }
+
+// Title returns the current terminal title without copying the grid.
+// Callers find it through an interface check.
+func (t *emulator) Title() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.st.title
+}
+
+// Frame is a single-lock capture of the grid, modes, scrollback bounds, and
+// prompt-mark presence needed to push a frame.
+type Frame struct {
+	Grid         Grid
+	Modes        Modes
+	ScrollMax    int
+	ScrollPushed uint64
+	PromptMarks  bool
+}
+
+// CaptureFrame captures the grid at off, modes, scrollback bounds, and prompt
+// mark status under one lock. Callers find it through an interface check.
+func (t *emulator) CaptureFrame(off int) Frame {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	alt := t.e.IsAltScreen()
+	scrollMax := 0
+	if !alt {
+		scrollMax = t.st.hist.len()
+	}
+	return Frame{
+		Grid:         t.snapshotAt(off),
+		Modes:        t.modes(),
+		ScrollMax:    scrollMax,
+		ScrollPushed: t.st.hist.pushed,
+		PromptMarks:  !alt && t.st.hasPrompt,
+	}
+}
+
+// nextWriteSplit finds the next split boundary in p for t.e.Write: after BEL
+// or after any non-CSI ESC (so OSC query terminators and APC/graphics moves
+// stay exact without splitting CSI SGR/cursor runs).
+func nextWriteSplit(p []byte) int {
+	for off := 0; off < len(p); {
+		esc := bytes.IndexByte(p[off:], 0x1b)
+		limit := len(p) - off
+		if esc >= 0 {
+			limit = esc
+		}
+		if bel := bytes.IndexByte(p[off:off+limit], 0x07); bel >= 0 {
+			return off + bel + 1
+		}
+		if esc < 0 {
+			return len(p)
+		}
+		pos := off + esc
+		if pos+1 < len(p) && p[pos+1] == '[' {
+			off = pos + 2
+			continue
+		}
+		return pos + 1
+	}
+	return len(p)
+}
+
+// Write cuts p around BEL and non-CSI ESC so OSC handlers know which
+// terminator ended a query and kitty graphics cursor moves run between
+// sequences, then moves lines that scrolled off into history.
 func (t *emulator) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(p)
+	prevOldest := t.st.hist.pushed - uint64(t.st.hist.len())
 	p = t.osc.feed(p, func(s string) { t.st.title = s }, t.notify)
 	for len(p) > 0 {
-		i := bytes.IndexAny(p, "\x07\x1b") + 1
-		if i == 0 {
-			i = len(p)
-		}
+		var i int
 		if t.st.term == ansi.ESC && p[0] == '\\' {
 			i = 1 // ends a sequence, which may have placed an image
+		} else {
+			i = nextWriteSplit(p)
 		}
 		t.st.term = p[i-1]
 		if _, err := t.e.Write(p[:i]); err != nil {
+			if n > len(p) {
+				t.st.writeSeq.Add(1)
+			}
 			return n - len(p), err
 		}
 		if t.st.term != ansi.ESC {
@@ -344,7 +422,13 @@ func (t *emulator) Write(p []byte) (int, error) {
 		sb.Clear()
 	}
 	t.st.gfx.prune(t.e, t.st)
-	t.pruneShell()
+	newOldest := t.st.hist.pushed - uint64(t.st.hist.len())
+	if len(t.st.shell) > 0 && (newOldest != prevOldest || len(t.st.shell) > 4*(t.st.hist.limit()+t.e.Height())) {
+		t.pruneShell()
+	}
+	if n > 0 {
+		t.st.writeSeq.Add(1)
+	}
 	return n, nil
 }
 
@@ -359,6 +443,7 @@ func (t *emulator) Resize(cols, rows int) {
 		t.reflow(cols, rows)
 	}
 	t.st.last = nil
+	t.st.writeSeq.Add(1)
 }
 
 // Snapshot copies the screen. While a synchronized-output frame is open it
@@ -380,10 +465,43 @@ func (t *emulator) Snapshot() Grid {
 func (t *emulator) SnapshotAt(off int) Grid {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	g := t.snapshot()
+	return t.snapshotAt(off)
+}
+
+func (t *emulator) snapshotAt(off int) Grid {
 	h := &t.st.hist
 	off = min(off, h.len())
-	if off <= 0 || g.AltScreen {
+	if off <= 0 {
+		return t.snapshot()
+	}
+	st := t.st
+	syncing := st.syncing && st.last != nil && time.Since(st.syncStart) < syncTimeout
+	if !syncing {
+		if t.e.IsAltScreen() {
+			return t.snapshot()
+		}
+		cols, rows := t.e.Width(), t.e.Height()
+		if off >= rows {
+			out := Grid{
+				Cols:    cols,
+				Rows:    rows,
+				Cells:   make([]Cell, cols*rows),
+				Title:   st.title,
+				Wrapped: make([]bool, rows),
+				Images:  st.gfx.view(t.e, st, off, rows),
+			}
+			p := t.e.CursorPosition()
+			out.Cursor = Cursor{X: p.X, Y: p.Y + off, Visible: false, Shape: st.shape}
+			for y := range rows {
+				l := h.at(h.len() + y - off)
+				l.fill(out.Cells[y*cols : (y+1)*cols])
+				out.Wrapped[y] = l.wrapped()
+			}
+			return out
+		}
+	}
+	g := t.snapshot()
+	if g.AltScreen {
 		return g
 	}
 	out := g
@@ -478,6 +596,10 @@ func (t *emulator) snapshot() Grid {
 func (t *emulator) Modes() Modes {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.modes()
+}
+
+func (t *emulator) modes() Modes {
 	m := t.st.modes
 	out := Modes{
 		AppCursorKeys:  m[ansi.ModeCursorKeys],
@@ -658,6 +780,9 @@ func registerShell(e *xvt.Emulator, st *state) {
 			code, err := strconv.Atoi(status)
 			_, _, cur, _ := e.MainLines()
 			st.shell = append(st.shell, shellMark{At: Pos{Line: st.hist.pushed + uint64(e.Scrollback().Len()+y), Col: cur.X}, Kind: mark, Time: time.Now(), Code: code, Known: status != "" && err == nil})
+			if mark == "A" {
+				st.hasPrompt = true
+			}
 		}
 		return true
 	})

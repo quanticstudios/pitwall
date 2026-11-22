@@ -17,6 +17,7 @@ import (
 	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -49,7 +50,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	rect := image.Rect(0, 0, w, h)
 	rr := gtx.Dp(8)
 
-	animating := model.Pulses(a) && !ghost
+	animating := model.Pulses(a) && !ghost && !anim.Reduced()
 	hovered := !ghost && r.hovered()
 	base := rowBase(th, a, isActive, hovered)
 	selected := s.selected[ws.ID] && !ghost
@@ -198,8 +199,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		}
 		// The inbox mixes groups: each row names its own.
 		if g := v.groupOf(ws.ID); v.inbox && g != "" {
-			if i := slices.IndexFunc(v.st.Projects, func(p model.Project) bool { return p.ID == g }); i >= 0 {
-				line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return s.groupTag(gtx, v, v.st.Projects[i], muted) }})
+			if p, ok := v.projects[g]; ok {
+				line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return s.groupTag(gtx, v, p, muted) }})
+			} else if v.projects == nil {
+				if i := slices.IndexFunc(v.st.Projects, func(p model.Project) bool { return p.ID == g }); i >= 0 {
+					line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return s.groupTag(gtx, v, v.st.Projects[i], muted) }})
+				}
 			}
 		}
 		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
@@ -281,15 +286,16 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, "Wakes "+wakeText(v.now, ws.SnoozedUntil))
 			}})
-		case draftHeld(v.st, ws):
+		case v.isDraftHeld(ws):
 			// A message waits for the user, which matters more than the time or Merged.
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, "Waits: your draft")
 			}})
-		case QueueLabel(v.st, ws) != "":
+		case v.tabQueueLabel(ws) != "":
 			// Queued messages say so in place of the time, quietly.
+			ql := v.tabQueueLabel(ws)
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, QueueLabel(v.st, ws))
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, ql)
 			}})
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -415,7 +421,26 @@ func Title(ws model.Workspace) string {
 	return ws.Label
 }
 
-func (v *view) t(s *Sidebar) float64 { return v.now.Sub(s.epoch).Seconds() }
+func (v *view) t(s *Sidebar) float64 {
+	if anim.Reduced() {
+		return 0
+	}
+	return v.now.Sub(s.epoch).Seconds()
+}
+
+func (v *view) isDraftHeld(ws model.Workspace) bool {
+	if v.draftHeld != nil {
+		return v.draftHeld[ws.ID]
+	}
+	return draftHeld(v.st, ws)
+}
+
+func (v *view) tabQueueLabel(ws model.Workspace) string {
+	if v.queueLabel != nil {
+		return v.queueLabel[ws.ID]
+	}
+	return QueueLabel(v.st, ws)
+}
 
 // stateIcon is renderWorkspaceStateIcon: a 12px glyph per agent state.
 func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *model.Activity, isActive bool, base color.NRGBA) layout.Dimensions {

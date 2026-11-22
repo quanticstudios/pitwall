@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -102,5 +104,36 @@ func TestBoardAnswersShownCards(t *testing.T) {
 	ev, ok := h.s.BoardAnswer(true, h.now)
 	if a, _ := ev.(Answer); !ok || a.PaneID != "pa11" || !a.Allow {
 		t.Fatalf("after Down onto a11: %+v %v, scroll %d", ev, ok, h.s.bd.colY[0])
+	}
+}
+
+// TestScopeMenuBlocksClickThrough verifies that clicking outside the open
+// scope menu closes it without clicking cards underneath.
+func TestScopeMenuBlocksClickThrough(t *testing.T) {
+	h := newBoardHarness(2)
+	h.now = h.now.Add(2 * time.Second)
+	h.frame()
+	h.s.bd.open = true
+	h.s.bd.opened = h.now
+	h.frame()
+	if !h.s.bd.open {
+		t.Fatal("scope menu did not stay open")
+	}
+	// Click on the NeedsYou card area outside the scope menu (menu is x:[70,310], y:[44,142]).
+	pt := f32.Pt(100, 220)
+	h.r.Queue(
+		pointer.Event{Kind: pointer.Press, Position: pt, Buttons: pointer.ButtonPrimary, Source: pointer.Mouse},
+		pointer.Event{Kind: pointer.Release, Position: pt, Source: pointer.Mouse},
+	)
+	evs := h.frame()
+	evs = append(evs, h.frame()...)
+	if h.s.bd.open {
+		t.Fatal("clicking outside scope menu did not close it")
+	}
+	if h.s.bd.cur != "" {
+		t.Fatalf("click passed through scope menu to card %q", h.s.bd.cur)
+	}
+	if len(evs) > 0 {
+		t.Fatalf("click passed through scope menu and emitted %+v", evs)
 	}
 }

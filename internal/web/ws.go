@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // writeTimeout is how long a client may take to read a frame; a var for
@@ -49,11 +50,12 @@ var (
 )
 
 type conn struct {
-	name  string // hello's client.name
-	nc    net.Conn
-	br    *bufio.Reader
-	lines bool // JSON lines on the daemon's socket, not WebSocket (lines.go)
-	wmu   sync.Mutex
+	name        string // hello's client.name
+	nc          net.Conn
+	br          *bufio.Reader
+	lines       bool // JSON lines on the daemon's socket, not WebSocket (lines.go)
+	readTimeout time.Duration
+	wmu         sync.Mutex
 
 	// The outgoing queue and the subscriptions, see stream.go.
 	mu         sync.Mutex
@@ -165,6 +167,9 @@ func (c *conn) read() ([]byte, error) {
 		for i := range p {
 			p[i] ^= mask[i%4]
 		}
+		if c.readTimeout > 0 {
+			c.nc.SetReadDeadline(time.Now().Add(c.readTimeout))
+		}
 		switch {
 		case op == opClose:
 			return nil, closeErr{1000, ""}
@@ -221,7 +226,22 @@ func (c *conn) close(code int, reason string) {
 		c.nc.Close()
 		return
 	}
+	if len(reason) > 123 {
+		// RFC 6455 control frames hold at most 125 bytes: 2 for code + 123 for UTF-8 reason.
+		reason = trimUTF8(reason, 123)
+	}
 	p := append(binary.BigEndian.AppendUint16(nil, uint16(code)), reason...)
 	c.writeRaw(time.Second, []byte{0x80 | opClose, byte(len(p))}, p)
 	c.nc.Close()
+}
+
+func trimUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	n := maxBytes
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -33,24 +34,54 @@ func RepoRoot(ctx context.Context, path string) (string, bool) {
 	return gitPath(strings.TrimSuffix(out, "\n")), err == nil
 }
 
+type mergeTreeKey struct {
+	commonDir, baseOID, headOID string
+}
+
+const maxMergeTreeCache = 4096
+
+var mergeTreeCache = struct {
+	mu sync.Mutex
+	m  map[mergeTreeKey]model.MergeStatus
+}{m: map[mergeTreeKey]model.MergeStatus{}}
+
+func lookupMergeTree(k mergeTreeKey) (model.MergeStatus, bool) {
+	mergeTreeCache.mu.Lock()
+	defer mergeTreeCache.mu.Unlock()
+	v, ok := mergeTreeCache.m[k]
+	return v, ok
+}
+
+func storeMergeTree(k mergeTreeKey, v model.MergeStatus) {
+	mergeTreeCache.mu.Lock()
+	defer mergeTreeCache.mu.Unlock()
+	if len(mergeTreeCache.m) >= maxMergeTreeCache {
+		clear(mergeTreeCache.m)
+	}
+	mergeTreeCache.m[k] = v
+}
+
 // Stats counts the lines changed from the merge base with the default
 // branch to the work tree, committed, staged and unstaged, untracked files
 // left out, and how far the branch is ahead and behind.
 func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 	var stats model.BranchStats
-	if _, err := git(ctx, worktree, "rev-parse", "--git-dir"); err != nil {
+	r := newRunner(ctx, worktree)
+	commonOut, err := r.git(ctx, worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
 		return stats, err
 	}
-	base, err := defaultRef(ctx, worktree)
+	commonDir := strings.TrimSpace(commonOut)
+	base, err := defaultRefWith(ctx, r, worktree)
 	if err != nil || base == "" {
 		return stats, err
 	}
 	stats.Base = base
-	mb, err := mergeBase(ctx, worktree, base)
+	mb, err := mergeBaseWith(ctx, r, worktree, base)
 	if err != nil {
 		return stats, err
 	}
-	files, err := numstat(ctx, worktree, mb)
+	files, err := numstatWith(ctx, r, worktree, mb)
 	if err != nil {
 		return stats, err
 	}
@@ -58,7 +89,7 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 		stats.Additions += f.Add
 		stats.Deletions += f.Del
 	}
-	out, err := git(ctx, worktree, "rev-list", "--left-right", "--count", base+"...HEAD", "--")
+	out, err := r.git(ctx, worktree, "rev-list", "--left-right", "--count", base+"...HEAD", "--")
 	if err != nil {
 		return stats, err
 	}
@@ -66,13 +97,28 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 		return stats, err
 	}
 	if stats.Ahead > 0 {
-		stats.Compare = compare(ctx, worktree, BranchName(base))
+		stats.Compare = compareWith(ctx, r, worktree, BranchName(base))
 	}
 	if stats.Ahead == 0 && stats.Behind == 0 {
 		stats.MergeStatus = model.MergeUpToDate
 		return stats, nil
 	}
-	_, err = git(ctx, worktree, "merge-tree", "--write-tree", base, "HEAD")
+	var key mergeTreeKey
+	if oids, oerr := r.git(ctx, worktree, "rev-parse", base+"^{commit}", "HEAD^{commit}"); oerr == nil {
+		lines := strings.Split(strings.TrimSpace(oids), "\n")
+		if len(lines) == 2 && lines[0] != "" && lines[1] != "" {
+			key = mergeTreeKey{commonDir: commonDir, baseOID: lines[0], headOID: lines[1]}
+			if cached, ok := lookupMergeTree(key); ok {
+				stats.MergeStatus = cached
+				return stats, nil
+			}
+		}
+	}
+	a, b := base, "HEAD"
+	if key.baseOID != "" {
+		a, b = key.baseOID, key.headOID
+	}
+	_, err = r.git(ctx, worktree, "merge-tree", "--write-tree", a, b)
 	switch {
 	case err == nil:
 		stats.MergeStatus = model.MergeClean
@@ -80,6 +126,9 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 		stats.MergeStatus = model.MergeConflicts
 	default:
 		return stats, err
+	}
+	if key.baseOID != "" {
+		storeMergeTree(key, stats.MergeStatus)
 	}
 	return stats, nil
 }
@@ -419,12 +468,12 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch, fo
 // compare is the web page to open a pull request against base for the
 // branch at dir, when it is pushed to origin and origin is not on GitHub,
 // where gh opens one; "" otherwise.
-func compare(ctx context.Context, dir, base string) string {
-	remote, err := git(ctx, dir, "config", "--get", "remote.origin.url")
+func compareWith(ctx context.Context, r runner, dir, base string) string {
+	remote, err := r.git(ctx, dir, "config", "--get", "remote.origin.url")
 	if remote = strings.TrimSpace(remote); err != nil || strings.Contains(strings.ToLower(remote), "github.com") {
 		return ""
 	}
-	up, err := git(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	up, err := r.git(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	head, ok := strings.CutPrefix(strings.TrimSpace(up), "origin/")
 	if err != nil || !ok {
 		return ""
@@ -470,7 +519,11 @@ var workspaceSegment = regexp.MustCompile(`[^a-z0-9]+`)
 // defaultRef prefers origin's default branch, then main/master, then the current branch.
 // Comparison uses the remote ref when available, as aide does.
 func defaultRef(ctx context.Context, dir string) (string, error) {
-	out, err := git(ctx, dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	return defaultRefWith(ctx, runner{}, dir)
+}
+
+func defaultRefWith(ctx context.Context, r runner, dir string) (string, error) {
+	out, err := r.git(ctx, dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	if err != nil && (exitCode(err) != 1 || ctx.Err() != nil) {
 		return "", err
 	}
@@ -480,14 +533,14 @@ func defaultRef(ctx context.Context, dir string) (string, error) {
 			continue
 		}
 		for _, ref := range []string{"refs/remotes/origin/" + name, "refs/heads/" + name} {
-			if _, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", ref); err == nil {
+			if _, err := r.git(ctx, dir, "rev-parse", "--verify", "--quiet", ref); err == nil {
 				return ref, nil
 			} else if exitCode(err) != 1 || ctx.Err() != nil {
 				return "", err
 			}
 		}
 	}
-	out, err = git(ctx, dir, "symbolic-ref", "--quiet", "HEAD")
+	out, err = r.git(ctx, dir, "symbolic-ref", "--quiet", "HEAD")
 	if err != nil {
 		if exitCode(err) == 1 && ctx.Err() == nil {
 			return "", nil
@@ -495,7 +548,7 @@ func defaultRef(ctx context.Context, dir string) (string, error) {
 		return "", err
 	}
 	ref := strings.TrimSpace(out)
-	if _, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", ref); err != nil {
+	if _, err := r.git(ctx, dir, "rev-parse", "--verify", "--quiet", ref); err != nil {
 		if exitCode(err) == 1 && ctx.Err() == nil {
 			return "", nil
 		}
@@ -582,17 +635,12 @@ func CreatedFrom(ctx context.Context, worktree string) string {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	return gitWith(ctx, dir, nil, "", args...)
+	return (runner{}).git(ctx, dir, args...)
 }
 
 // gitWith is git with env added to the environment and stdin as input.
 func gitWith(ctx context.Context, dir string, env []string, stdin string, args ...string) (string, error) {
-	cmd := Command(ctx, dir, args...)
-	cmd.Env = append(cmd.Env, env...)
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
-	return output(ctx, cmd, args)
+	return (runner{}).gitWith(ctx, dir, env, stdin, args...)
 }
 
 // output is cmd's stdout, and its stderr in the error of a failed git args.
@@ -690,14 +738,22 @@ func Files(ctx context.Context, worktree string) (base string, files []FileStat,
 }
 
 func mergeBase(ctx context.Context, dir, ref string) (string, error) {
-	out, err := git(ctx, dir, "merge-base", ref, "HEAD")
+	return mergeBaseWith(ctx, runner{}, dir, ref)
+}
+
+func mergeBaseWith(ctx context.Context, r runner, dir, ref string) (string, error) {
+	out, err := r.git(ctx, dir, "merge-base", ref, "HEAD")
 	return strings.TrimSpace(out), err
 }
 
 // numstat is the line counts per file from rev to the work tree, by final
 // path, in path order. A binary file counts 0.
 func numstat(ctx context.Context, dir, rev string) ([]FileStat, error) {
-	out, err := git(ctx, dir, "diff", "--numstat", "-z", rev, "--")
+	return numstatWith(ctx, runner{}, dir, rev)
+}
+
+func numstatWith(ctx context.Context, r runner, dir, rev string) ([]FileStat, error) {
+	out, err := r.git(ctx, dir, "diff", "--numstat", "-z", rev, "--")
 	if err != nil {
 		return nil, err
 	}
@@ -768,7 +824,8 @@ type Changes struct {
 // branch has Common, Root and Head but no files.
 func Changed(ctx context.Context, worktree string) (Changes, error) {
 	var c Changes
-	out, err := git(ctx, worktree, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel", "HEAD")
+	r := newRunner(ctx, worktree)
+	out, err := r.git(ctx, worktree, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel", "HEAD")
 	if err != nil {
 		return c, err
 	}
@@ -777,28 +834,32 @@ func Changed(ctx context.Context, worktree string) (Changes, error) {
 		return c, fmt.Errorf("git rev-parse: unexpected output %q", out)
 	}
 	c.Common, c.Root, c.Head = lines[0], lines[1], lines[2]
-	base, err := defaultRef(ctx, c.Root)
+	base, err := defaultRefWith(ctx, r, c.Root)
 	if err != nil || base == "" {
 		return c, err
 	}
-	mb, err := mergeBase(ctx, c.Root, base)
+	mb, err := mergeBaseWith(ctx, r, c.Root, base)
 	if err != nil {
 		return c, err
 	}
-	if c.Committed, err = names(ctx, c.Root, "diff", "--name-only", "-z", mb, "HEAD", "--"); err != nil {
+	if c.Committed, err = namesWith(ctx, r, c.Root, "diff", "--name-only", "-z", mb, "HEAD", "--"); err != nil {
 		return c, err
 	}
-	if c.Uncommitted, err = names(ctx, c.Root, "diff", "--name-only", "-z", "HEAD", "--"); err != nil {
+	if c.Uncommitted, err = namesWith(ctx, r, c.Root, "diff", "--name-only", "-z", "HEAD", "--"); err != nil {
 		return c, err
 	}
-	untracked, err := names(ctx, c.Root, "ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := namesWith(ctx, r, c.Root, "ls-files", "--others", "--exclude-standard", "-z")
 	c.Uncommitted = append(c.Uncommitted, untracked...)
 	return c, err
 }
 
 // names is the NUL-separated paths git prints for args.
 func names(ctx context.Context, dir string, args ...string) ([]string, error) {
-	out, err := git(ctx, dir, args...)
+	return namesWith(ctx, runner{}, dir, args...)
+}
+
+func namesWith(ctx context.Context, r runner, dir string, args ...string) ([]string, error) {
+	out, err := r.git(ctx, dir, args...)
 	if err != nil {
 		return nil, err
 	}

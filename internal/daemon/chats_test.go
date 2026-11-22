@@ -607,3 +607,50 @@ func TestChatClaudeDefaults(t *testing.T) {
 		t.Errorf("settings changed: %s", b)
 	}
 }
+
+type blockingProvider struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (p *blockingProvider) Start(ctx context.Context, _ session.Config, _ session.Origin, _ func(session.Event)) (session.Driver, error) {
+	close(p.started)
+	<-ctx.Done()
+	close(p.canceled)
+	return nil, ctx.Err()
+}
+
+func TestChatCloseAbortsHungStart(t *testing.T) {
+	p := &blockingProvider{started: make(chan struct{}), canceled: make(chan struct{})}
+	d := &Daemon{}
+	c := d.newChat("hung", p, "hung")
+	c.cfg = session.Config{Provider: model.ProviderCodex, Cwd: t.TempDir()}
+	go c.loop(d)
+
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		c.do(func() { _, err = c.start(session.Origin{}) })
+		done <- err
+	}()
+	<-p.started
+
+	closed := make(chan struct{})
+	go func() {
+		c.close()
+		close(closed)
+	}()
+	select {
+	case <-p.canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("chat.close did not cancel hung Start")
+	}
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("chat.close hung on blocked Start")
+	}
+	if err := <-done; err == nil {
+		t.Fatal("expected error from canceled Start")
+	}
+}

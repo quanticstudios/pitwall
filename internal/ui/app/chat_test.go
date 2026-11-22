@@ -231,3 +231,12 @@ func TestChatSelectCopies(t *testing.T) {
 		t.Errorf("typing after a selection: draft %q", cmp.Text())
 	}
 }
+
+func TestChatLiveWaitingNotPolled(t *testing.T) {
+	if chatLive(session.StateWaiting) {
+		t.Fatal("chatLive(StateWaiting) = true, want false to avoid 150ms idle polling")
+	}
+	if !chatLive(session.StateConnecting) || !chatLive(session.StateRunning) {
+		t.Fatal("chatLive should remain true for StateConnecting and StateRunning")
+	}
+}

@@ -147,22 +147,26 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	y += tsz.Y + gtx.Dp(12)
 
+	p.syncEditor()
 	if p.search {
-		u.filterField(gtx, image.Rect(pad, y, pad+inner, y+gtx.Dp(34)), p.query, hint, "", u.all.preview == nil, p.openedAt)
+		u.filterEditor(gtx, image.Rect(pad, y, pad+inner, y+gtx.Dp(34)), &p.ed, hint, "", u.all.preview == nil)
 		drawText(gtx, th, image.Pt(pad+gtx.Dp(8), y+gtx.Dp(38)), th.UIFont, th.Sp(theme.Small), th.Muted, count)
 	} else {
-		u.filterField(gtx, image.Rect(pad, y, pad+inner, y+fieldH), p.query, hint, count, true, p.openedAt)
+		u.filterEditor(gtx, image.Rect(pad, y, pad+inner, y+fieldH), &p.ed, hint, count, true)
 	}
 	y += fieldH + gtx.Dp(10)
 
 	listTop, listBot := y, h-footH-gtx.Dp(8)
+	listRect := image.Rect(0, listTop, w, listBot)
+	p.list.handleScroll(gtx, listRect, len(rows), rowH, gap)
 	sel := p.sel
 	if len(rows) == 0 {
 		sel = -1
 	}
 	hy := p.list.update(gtx, sel, len(rows), rowH, gap, listTop, listBot-listTop)
 	hl := image.Rect(pad, hy, pad+inner, hy+rowH)
-	lc := clip.Rect{Min: image.Pt(0, listTop), Max: image.Pt(w, listBot)}.Push(gtx.Ops)
+	lc := clip.Rect(listRect).Push(gtx.Ops)
+	p.list.scrollArea(gtx, listRect)
 	if sel >= 0 {
 		u.highlight(gtx, hl, false)
 	}

@@ -10,12 +10,12 @@ import (
 // Tokens are the colors derived from a theme's palette, computed once in
 // New so every surface draws hover, borders and quiet text the same way.
 type Tokens struct {
-	Hover, Pressed             color.NRGBA // a ghost control's fill under the pointer and held down
-	BorderSubtle, BorderStrong color.NRGBA // a card's ring, a floating surface's ring
-	TextQuiet                  color.NRGBA // the quietest text that still reads at 4.5:1
-	OnDanger                   color.NRGBA // text on a Red fill
-	Scrim                      color.NRGBA // the backdrop under a dialog or overlay
-	SelectedBg                 color.NRGBA // a picked option's fill
+	Hover, HoverElevated, Pressed color.NRGBA // a ghost control's fill under the pointer (on base and elevated surfaces) and held down
+	BorderSubtle, BorderStrong    color.NRGBA // a card's ring, a floating surface's ring
+	TextQuiet                     color.NRGBA // the quietest text that still reads at 4.5:1
+	OnDanger                      color.NRGBA // text on a Red fill
+	Scrim                         color.NRGBA // the backdrop under a dialog or overlay
+	SelectedBg                    color.NRGBA // a picked option's fill
 }
 
 // Transparent is no color: a fill or ring left out.
@@ -29,6 +29,7 @@ const MinContrast = 4.5
 
 func (t *Theme) derive() {
 	t.Hover = t.SurfaceElevated
+	t.HoverElevated = Mix(t.SurfaceElevated, t.Fg, 0.08)
 	t.Pressed = Mix(t.SurfaceElevated, t.Fg, 0.06)
 	t.BorderSubtle = Mix(t.Surface, t.Fg, 0.07)
 	t.BorderStrong = Mix(t.Sidebar, t.Fg, 0.14)

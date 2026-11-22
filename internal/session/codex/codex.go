@@ -21,11 +21,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/childproc"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // now is the clock behind event times; tests fix it.
 var now = time.Now
+
+// startTimeout bounds how long Start waits for initialize + thread open when
+// the caller's context has no deadline.
+var startTimeout = 30 * time.Second
+
+// waitDelay bounds how long wait waits for stdout EOF after the server exits
+// (for example, when a descendant inherited stdout).
+const waitDelay = 2 * time.Second
 
 // Restarts within a minute that a crashed server gets before Send refuses.
 const maxRestarts = 3
@@ -83,12 +92,14 @@ type driver struct {
 // proc is one app-server process.
 type proc struct {
 	cmd      *exec.Cmd
+	cancel   context.CancelFunc
 	stdin    io.WriteCloser
 	stderr   *tail
 	wmu      sync.Mutex
 	next     int64            // under driver.mu
 	calls    map[string]*call // under driver.mu; nil once the process ended
 	stopping bool             // under driver.mu: pitwall ended it
+	eof      chan struct{}
 	done     chan struct{}
 }
 
@@ -127,34 +138,57 @@ func (d *driver) post(e session.Event) {
 // start runs a server and opens the thread: a new one, a resumed one, or a
 // fork. The caller holds cmdMu.
 func (d *driver) start(ctx context.Context, from session.Origin) error {
-	cmd := exec.Command(cmp.Or(os.Getenv("PITWALL_CODEX_COMMAND"), "codex"), "app-server")
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancelStart context.CancelFunc
+		ctx, cancelStart = context.WithTimeout(ctx, startTimeout)
+		defer cancelStart()
+	}
+	procCtx, procCancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(procCtx, cmp.Or(os.Getenv("PITWALL_CODEX_COMMAND"), "codex"), "app-server")
+	childproc.Bound(cmd)
+	cmd.WaitDelay = waitDelay
 	cmd.Dir = d.cfg.Cwd
 	cmd.Env = append(os.Environ(), d.cfg.Env...)
-	p := &proc{cmd: cmd, stderr: &tail{}, calls: map[string]*call{}, done: make(chan struct{})}
+	p := &proc{cmd: cmd, cancel: procCancel, stderr: &tail{}, calls: map[string]*call{}, eof: make(chan struct{}), done: make(chan struct{})}
 	cmd.Stderr = p.stderr
 	var err error
 	if p.stdin, err = cmd.StdinPipe(); err != nil {
+		procCancel()
 		return err
 	}
-	stdout, err := cmd.StdoutPipe()
+	pr, pw, err := os.Pipe()
 	if err != nil {
+		p.stdin.Close()
+		procCancel()
 		return err
 	}
-	if err := cmd.Start(); err != nil {
+	cmd.Stdout = pw
+	err = ctx.Err()
+	if err == nil {
+		err = cmd.Start()
+	}
+	pw.Close()
+	if err != nil {
+		pr.Close()
+		p.stdin.Close()
+		procCancel()
 		return err
 	}
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
-		cmd.Process.Kill()
+		p.stdin.Close()
+		procCancel()
 		cmd.Wait()
+		pr.Close()
 		return session.ErrClosed
 	}
 	d.p = p
 	d.mu.Unlock()
 	d.tools, d.phases, d.streamed, d.unknown, d.lastUsage = map[string]*session.ToolCall{}, map[string]string{}, map[string]bool{}, map[string]bool{}, nil
 	d.post(session.Event{Type: session.EventStarted})
-	go d.read(p, stdout)
+	go d.read(p, pr)
+	go d.wait(p, pr)
 
 	if err := d.open(ctx, p, from); err != nil {
 		kill, cancel := context.WithCancel(context.Background())
@@ -274,7 +308,7 @@ func (p *proc) write(m message) error {
 	return err
 }
 
-// stop ends p: stdin closed, then killed when ctx ends.
+// stop ends p: stdin closed, then the process group is killed when ctx ends.
 func (d *driver) stop(ctx context.Context, p *proc) {
 	d.mu.Lock()
 	p.stopping = true
@@ -283,14 +317,14 @@ func (d *driver) stop(ctx context.Context, p *proc) {
 	select {
 	case <-p.done:
 	case <-ctx.Done():
-		p.cmd.Process.Kill()
+		p.cancel()
 		<-p.done
 	}
 }
 
-// read handles p's output until it exits, then reports the exit. A crash
-// fails the open turn and leaves no server; the next Send starts one.
+// read handles p's stdout lines until EOF.
 func (d *driver) read(p *proc, stdout io.Reader) {
+	defer close(p.eof)
 	r := bufio.NewReader(stdout)
 	for {
 		line, err := r.ReadBytes('\n')
@@ -298,11 +332,27 @@ func (d *driver) read(p *proc, stdout io.Reader) {
 			d.handle(p, line)
 		}
 		if err != nil {
-			break
+			return
 		}
 	}
+}
+
+// wait reaps p, drains stdout (bounded by waitDelay so a descendant holding
+// stdout cannot wedge Close), and reports the exit.
+func (d *driver) wait(p *proc, stdout io.Closer) {
+	defer p.cancel()
 	p.cmd.Wait()
-	code := p.cmd.ProcessState.ExitCode() // -1 on a signal
+	select {
+	case <-p.eof:
+	case <-time.After(waitDelay):
+		stdout.Close()
+		<-p.eof
+	}
+	stdout.Close()
+	code := -1
+	if st := p.cmd.ProcessState; st != nil {
+		code = st.ExitCode() // -1 on a signal
+	}
 
 	d.mu.Lock()
 	calls, stopping := p.calls, p.stopping

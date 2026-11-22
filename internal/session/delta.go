@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 )
 
@@ -83,73 +84,135 @@ type Delta struct {
 	Live []Item `json:"live"`
 }
 
+type deltaEnvelope struct {
+	Version   int       `json:"version"`
+	SessionID string    `json:"sessionId"`
+	Seq       int64     `json:"seq"`
+	Revision  int64     `json:"revision"`
+	UpdatedAt string    `json:"updatedAt"`
+	Type      DeltaType `json:"type"`
+}
+
 func (d Delta) MarshalJSON() ([]byte, error) {
-	f := []any{
-		"version", d.Version, "sessionId", d.SessionID, "seq", d.Seq,
-		"revision", d.Revision, "updatedAt", d.UpdatedAt, "type", d.Type,
+	env := deltaEnvelope{
+		Version:   d.Version,
+		SessionID: d.SessionID,
+		Seq:       d.Seq,
+		Revision:  d.Revision,
+		UpdatedAt: d.UpdatedAt,
+		Type:      d.Type,
 	}
 	switch d.Type {
 	case DeltaSnapshot:
-		f = append(f, "snapshot", d.Snapshot)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Snapshot *Snapshot `json:"snapshot"`
+		}{env, d.Snapshot})
 	case DeltaItemAdd, DeltaToolStart:
-		f = append(f, "item", d.Item)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Item *Item `json:"item"`
+		}{env, d.Item})
 	case DeltaItemTextAppend, DeltaReasoningAppend, DeltaToolOutputAppend:
-		f = append(f, "itemId", d.ItemID, "text", d.Text, "itemUpdatedAt", d.ItemUpdatedAt)
+		return json.Marshal(struct {
+			deltaEnvelope
+			ItemID        string `json:"itemId"`
+			Text          string `json:"text"`
+			ItemUpdatedAt string `json:"itemUpdatedAt"`
+		}{env, d.ItemID, d.Text, d.ItemUpdatedAt})
 	case DeltaItemPatch:
-		f = append(f, "itemId", d.ItemID, "patch", rawObject(d.Patch))
+		return json.Marshal(struct {
+			deltaEnvelope
+			ItemID string          `json:"itemId"`
+			Patch  json.RawMessage `json:"patch"`
+		}{env, d.ItemID, rawObject(d.Patch)})
 	case DeltaToolEnd:
-		f = append(f, "itemId", d.ItemID, "status", d.Status)
-		if d.ExitCode != nil {
-			f = append(f, "exitCode", d.ExitCode)
-		}
-		f = append(f, "startedAt", d.StartedAt, "endedAt", d.EndedAt)
+		return json.Marshal(struct {
+			deltaEnvelope
+			ItemID    string `json:"itemId"`
+			Status    string `json:"status"`
+			ExitCode  *int   `json:"exitCode,omitempty"`
+			StartedAt string `json:"startedAt"`
+			EndedAt   string `json:"endedAt"`
+		}{env, d.ItemID, d.Status, d.ExitCode, d.StartedAt, d.EndedAt})
 	case DeltaPlanUpdate:
-		f = append(f, "itemId", d.ItemID, "tasks", nonNil(d.Tasks), "itemUpdatedAt", d.ItemUpdatedAt)
+		return json.Marshal(struct {
+			deltaEnvelope
+			ItemID        string `json:"itemId"`
+			Tasks         []Task `json:"tasks"`
+			ItemUpdatedAt string `json:"itemUpdatedAt"`
+		}{env, d.ItemID, nonNil(d.Tasks), d.ItemUpdatedAt})
 	case DeltaApprovalAdd:
-		f = append(f, "approval", d.Approval)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Approval *Approval `json:"approval"`
+		}{env, d.Approval})
 	case DeltaInputAdd:
-		f = append(f, "input", d.Input)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Input *InputRequest `json:"input"`
+		}{env, d.Input})
 	case DeltaApprovalResolve, DeltaInputResolve:
-		f = append(f, "requestId", d.RequestID)
+		return json.Marshal(struct {
+			deltaEnvelope
+			RequestID string `json:"requestId"`
+		}{env, d.RequestID})
 	case DeltaTurn:
-		f = append(f, "turn", d.Turn)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Turn *TurnSummary `json:"turn"`
+		}{env, d.Turn})
 	case DeltaStatus:
-		f = append(f, "status", d.Status, "sessionState", d.SessionState, "running", d.Running,
-			"detail", d.Detail, "lastCompletedAt", d.LastCompletedAt)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Status          string  `json:"status"`
+			SessionState    string  `json:"sessionState"`
+			Running         bool    `json:"running"`
+			Detail          *string `json:"detail"`
+			LastCompletedAt *string `json:"lastCompletedAt"`
+		}{env, d.Status, d.SessionState, d.Running, d.Detail, d.LastCompletedAt})
 	case DeltaLimit:
-		f = append(f, "limit", d.Limit)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Limit *UsageLimit `json:"limit"`
+		}{env, d.Limit})
 	case DeltaUsage:
-		f = append(f, "usage", d.Usage)
+		return json.Marshal(struct {
+			deltaEnvelope
+			Usage *Usage `json:"usage"`
+		}{env, d.Usage})
 	case DeltaUsageReports:
-		f = append(f, "usageReports", nonNil(d.UsageReports), "usageSummary", d.UsageSummary)
+		return json.Marshal(struct {
+			deltaEnvelope
+			UsageReports []UsageReport `json:"usageReports"`
+			UsageSummary *UsageSummary `json:"usageSummary"`
+		}{env, nonNil(d.UsageReports), d.UsageSummary})
 	case DeltaError:
-		f = append(f, "lastError", d.LastError, "lastErrorAt", d.LastErrorAt)
+		return json.Marshal(struct {
+			deltaEnvelope
+			LastError   *string `json:"lastError"`
+			LastErrorAt *string `json:"lastErrorAt"`
+		}{env, d.LastError, d.LastErrorAt})
 	case DeltaLive:
-		f = append(f, "live", nonNil(d.Live))
+		return json.Marshal(struct {
+			deltaEnvelope
+			Live []Item `json:"live"`
+		}{env, nonNil(d.Live)})
 	case DeltaSessionPatch:
-		f = append(f, "set", rawObject(d.Set))
 		if d.Unset != nil {
-			f = append(f, "unset", d.Unset)
+			return json.Marshal(struct {
+				deltaEnvelope
+				Set   json.RawMessage `json:"set"`
+				Unset []string        `json:"unset"`
+			}{env, rawObject(d.Set), d.Unset})
 		}
+		return json.Marshal(struct {
+			deltaEnvelope
+			Set json.RawMessage `json:"set"`
+		}{env, rawObject(d.Set)})
+	default:
+		return json.Marshal(env)
 	}
-	var buf bytes.Buffer
-	for i := 0; i < len(f); i += 2 {
-		if i == 0 {
-			buf.WriteByte('{')
-		} else {
-			buf.WriteByte(',')
-		}
-		k, _ := json.Marshal(f[i])
-		v, err := json.Marshal(f[i+1])
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(k)
-		buf.WriteByte(':')
-		buf.Write(v)
-	}
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
 }
 
 // rawObject is r, or {} when r is empty.
@@ -197,7 +260,13 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("session: %s delta %d has no %s", d.Type, d.Seq, what)
 	}
 	updateItem := func(update func(*Item) error) error {
-		i := slices.IndexFunc(s.Content, func(it Item) bool { return it.ID == d.ItemID })
+		i := -1
+		for j := len(s.Content) - 1; j >= 0; j-- {
+			if s.Content[j].ID == d.ItemID {
+				i = j
+				break
+			}
+		}
 		if i < 0 {
 			return &ResyncError{"item", fmt.Sprintf("delta %d names unknown item %s", d.Seq, d.ItemID)}
 		}
@@ -268,7 +337,14 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 		if d.Turn == nil {
 			return missing("turn")
 		}
-		if i := slices.IndexFunc(s.Turns, func(t TurnSummary) bool { return t.ID == d.Turn.ID }); i >= 0 {
+		i := -1
+		for j := len(s.Turns) - 1; j >= 0; j-- {
+			if s.Turns[j].ID == d.Turn.ID {
+				i = j
+				break
+			}
+		}
+		if i >= 0 {
 			n.Turns = slices.Clone(s.Turns)
 			n.Turns[i] = *d.Turn
 		} else {
@@ -296,7 +372,7 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 		}
 	case DeltaSessionPatch:
 		if !isEmptyObject(d.Set) || len(d.Unset) > 0 {
-			err = mergeJSON(&n, d.Set, d.Unset)
+			err = patchSnapshot(&n, d.Set, d.Unset)
 		}
 	}
 	// Any other type is newer than this schema: like aide, only the
@@ -305,6 +381,223 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return n, nil
+}
+
+// patchSnapshot applies set and unset directly to Snapshot fields without
+// re-marshaling untouched fields such as Content.
+func patchSnapshot(n *Snapshot, set json.RawMessage, unset []string) error {
+	extraCloned := false
+	cloneExtra := func() {
+		if !extraCloned {
+			n.Extra = maps.Clone(n.Extra)
+			extraCloned = true
+		}
+	}
+	if !isEmptyObject(set) {
+		var patch map[string]json.RawMessage
+		if err := json.Unmarshal(set, &patch); err != nil {
+			return fmt.Errorf("session: patch is not an object: %w", err)
+		}
+		for k, val := range patch {
+			if err := setSnapshotField(n, k, val, cloneExtra); err != nil {
+				return err
+			}
+		}
+	}
+	for _, k := range unset {
+		unsetSnapshotField(n, k, cloneExtra)
+	}
+	return nil
+}
+
+func setSnapshotField(n *Snapshot, k string, val json.RawMessage, cloneExtra func()) error {
+	switch k {
+	case "sessionId":
+		n.SessionID = ""
+		return json.Unmarshal(val, &n.SessionID)
+	case "paneId":
+		n.PaneID = ""
+		return json.Unmarshal(val, &n.PaneID)
+	case "workspaceId":
+		n.WorkspaceID = ""
+		return json.Unmarshal(val, &n.WorkspaceID)
+	case "provider":
+		n.Provider = ""
+		return json.Unmarshal(val, &n.Provider)
+	case "content":
+		n.Content = nil
+		return json.Unmarshal(val, &n.Content)
+	case "turns":
+		n.Turns = nil
+		return json.Unmarshal(val, &n.Turns)
+	case "pendingApprovals":
+		n.PendingApprovals = nil
+		return json.Unmarshal(val, &n.PendingApprovals)
+	case "pendingUserInputs":
+		n.PendingUserInputs = nil
+		return json.Unmarshal(val, &n.PendingUserInputs)
+	case "planApproval":
+		n.PlanApproval = nil
+		return json.Unmarshal(val, &n.PlanApproval)
+	case "sessionState":
+		n.SessionState = ""
+		return json.Unmarshal(val, &n.SessionState)
+	case "running":
+		n.Running = false
+		return json.Unmarshal(val, &n.Running)
+	case "detail":
+		n.Detail = nil
+		return json.Unmarshal(val, &n.Detail)
+	case "lastCompletedAt":
+		n.LastCompletedAt = nil
+		return json.Unmarshal(val, &n.LastCompletedAt)
+	case "lastError":
+		n.LastError = nil
+		return json.Unmarshal(val, &n.LastError)
+	case "lastErrorAt":
+		n.LastErrorAt = nil
+		return json.Unmarshal(val, &n.LastErrorAt)
+	case "model":
+		n.Model = nil
+		return json.Unmarshal(val, &n.Model)
+	case "effort":
+		n.Effort = nil
+		return json.Unmarshal(val, &n.Effort)
+	case "serviceTier":
+		n.ServiceTier = nil
+		return json.Unmarshal(val, &n.ServiceTier)
+	case "permissionMode":
+		n.PermissionMode = ""
+		return json.Unmarshal(val, &n.PermissionMode)
+	case "interactionMode":
+		n.InteractionMode = ""
+		return json.Unmarshal(val, &n.InteractionMode)
+	case "selectionNotice":
+		n.SelectionNotice = nil
+		return json.Unmarshal(val, &n.SelectionNotice)
+	case "runtimeGeneration":
+		n.RuntimeGeneration = 0
+		return json.Unmarshal(val, &n.RuntimeGeneration)
+	case "revision":
+		n.Revision = 0
+		return json.Unmarshal(val, &n.Revision)
+	case "updatedAt":
+		n.UpdatedAt = ""
+		return json.Unmarshal(val, &n.UpdatedAt)
+	case "queuedInputs":
+		n.QueuedInputs = nil
+		return json.Unmarshal(val, &n.QueuedInputs)
+	case "queuePaused":
+		n.QueuePaused = false
+		return json.Unmarshal(val, &n.QueuePaused)
+	case "queueReason":
+		n.QueueReason = ""
+		return json.Unmarshal(val, &n.QueueReason)
+	case "usageLimit":
+		n.UsageLimit = nil
+		return json.Unmarshal(val, &n.UsageLimit)
+	case "usage":
+		n.Usage = nil
+		return json.Unmarshal(val, &n.Usage)
+	case "usageReports":
+		n.UsageReports = nil
+		return json.Unmarshal(val, &n.UsageReports)
+	case "usageSummary":
+		n.UsageSummary = nil
+		return json.Unmarshal(val, &n.UsageSummary)
+	case "commands":
+		n.Commands = nil
+		return json.Unmarshal(val, &n.Commands)
+	case "live":
+		n.Live = nil
+		return json.Unmarshal(val, &n.Live)
+	default:
+		cloneExtra()
+		if n.Extra == nil {
+			n.Extra = map[string]json.RawMessage{}
+		}
+		n.Extra[k] = slices.Clone(val)
+		return nil
+	}
+}
+
+func unsetSnapshotField(n *Snapshot, k string, cloneExtra func()) {
+	switch k {
+	case "sessionId":
+		n.SessionID = ""
+	case "paneId":
+		n.PaneID = ""
+	case "workspaceId":
+		n.WorkspaceID = ""
+	case "provider":
+		n.Provider = ""
+	case "content":
+		n.Content = nil
+	case "turns":
+		n.Turns = nil
+	case "pendingApprovals":
+		n.PendingApprovals = nil
+	case "pendingUserInputs":
+		n.PendingUserInputs = nil
+	case "planApproval":
+		n.PlanApproval = nil
+	case "sessionState":
+		n.SessionState = ""
+	case "running":
+		n.Running = false
+	case "detail":
+		n.Detail = nil
+	case "lastCompletedAt":
+		n.LastCompletedAt = nil
+	case "lastError":
+		n.LastError = nil
+	case "lastErrorAt":
+		n.LastErrorAt = nil
+	case "model":
+		n.Model = nil
+	case "effort":
+		n.Effort = nil
+	case "serviceTier":
+		n.ServiceTier = nil
+	case "permissionMode":
+		n.PermissionMode = ""
+	case "interactionMode":
+		n.InteractionMode = ""
+	case "selectionNotice":
+		n.SelectionNotice = nil
+	case "runtimeGeneration":
+		n.RuntimeGeneration = 0
+	case "revision":
+		n.Revision = 0
+	case "updatedAt":
+		n.UpdatedAt = ""
+	case "queuedInputs":
+		n.QueuedInputs = nil
+	case "queuePaused":
+		n.QueuePaused = false
+	case "queueReason":
+		n.QueueReason = ""
+	case "usageLimit":
+		n.UsageLimit = nil
+	case "usage":
+		n.Usage = nil
+	case "usageReports":
+		n.UsageReports = nil
+	case "usageSummary":
+		n.UsageSummary = nil
+	case "commands":
+		n.Commands = nil
+	case "live":
+		n.Live = nil
+	default:
+		if _, ok := n.Extra[k]; ok {
+			cloneExtra()
+			delete(n.Extra, k)
+			if len(n.Extra) == 0 {
+				n.Extra = nil
+			}
+		}
+	}
 }
 
 // mergeJSON shallow-merges the JSON object set into *v and deletes the

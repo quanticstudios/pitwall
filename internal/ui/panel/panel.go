@@ -23,6 +23,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -158,7 +159,11 @@ func (p *Panel) Layout(gtx layout.Context, th *theme.Theme, in Input) layout.Dim
 	size := gtx.Constraints.Max
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: size}.Op())
-	d := &drawer{p: p, th: th, c: palette(th), in: &in, t: gtx.Now.Sub(p.epoch).Seconds()}
+	sec := gtx.Now.Sub(p.epoch).Seconds()
+	if anim.Reduced() {
+		sec = 0
+	}
+	d := &drawer{p: p, th: th, c: palette(th), in: &in, t: sec}
 
 	hm := op.Record(gtx.Ops)
 	hgtx := gtx
@@ -186,7 +191,7 @@ func (p *Panel) Layout(gtx layout.Context, th *theme.Theme, in Input) layout.Dim
 	header.Add(gtx.Ops)
 
 	switch {
-	case p.live:
+	case p.live && !anim.Reduced():
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 	case p.tick:
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Truncate(time.Second).Add(time.Second)})

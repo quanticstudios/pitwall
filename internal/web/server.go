@@ -20,7 +20,11 @@ const (
 	DeltaVersion = 1
 )
 
-var helloTimeout = 10 * time.Second // a var for tests
+var (
+	helloTimeout = 10 * time.Second // a var for tests
+	pingInterval = 30 * time.Second // how often WebSocket connections send opPing; a var for tests
+	pongTimeout  = 60 * time.Second // read deadline refreshed on every received WebSocket frame; a var for tests
+)
 
 // Server serves the web protocol at /ws: it checks Host and Origin before
 // the upgrade, then the token in hello. Commands other than the
@@ -118,12 +122,13 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 
 // run serves c from its hello until it ends; from names the peer in logs.
 func (s *Server) run(c *conn, from string) {
+	pingEvery, pongWait := pingInterval, pongTimeout
 	if !s.add(c) {
 		c.close(1001, "daemon exiting")
 		return
 	}
 	defer s.remove(c)
-	name, err := s.hello(c)
+	name, err := s.hello(c, pongWait)
 	if err != nil {
 		var ce closeErr
 		if errors.As(err, &ce) {
@@ -144,6 +149,25 @@ func (s *Server) run(c *conn, from string) {
 			c.nc.Close()
 		}
 	}()
+	if !c.lines && pingEvery > 0 {
+		go func() {
+			t := time.NewTicker(pingEvery)
+			defer t.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-c.dead:
+					return
+				case <-t.C:
+					if err := c.write(opPing, nil); err != nil {
+						c.nc.Close()
+						return
+					}
+				}
+			}
+		}()
+	}
 	err = s.serve(c)
 	s.endControl(c)
 	close(done)
@@ -200,7 +224,7 @@ type hello struct {
 
 // hello reads the client's hello, checks its token (WebSocket only), then
 // its protocol, and answers welcome. It returns the client's name.
-func (s *Server) hello(c *conn) (string, error) {
+func (s *Server) hello(c *conn, pongWait time.Duration) (string, error) {
 	c.nc.SetReadDeadline(time.Now().Add(helloTimeout))
 	msg, err := c.read()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -219,7 +243,12 @@ func (s *Server) hello(c *conn) (string, error) {
 	if h.Protocol != Protocol {
 		return "", closeErr{4002, fmt.Sprintf("pitwall speaks protocol %d, client sent %d: update aide or pitwall", Protocol, h.Protocol)}
 	}
-	c.nc.SetReadDeadline(time.Time{})
+	if !c.lines && pongWait > 0 {
+		c.readTimeout = pongWait
+		c.nc.SetReadDeadline(time.Now().Add(pongWait))
+	} else {
+		c.nc.SetReadDeadline(time.Time{})
+	}
 	err = s.send(c, map[string]any{
 		"type": "welcome", "protocol": Protocol, "deltaVersion": DeltaVersion,
 		"server":       map[string]string{"name": "pitwall", "version": s.Version},

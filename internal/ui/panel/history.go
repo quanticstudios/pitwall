@@ -55,7 +55,7 @@ func (t *Transcript) keepPlace(s *session.Snapshot) {
 			at = i
 			break
 		}
-		if at < 0 && r.tail == nil && r.res == nil && r.seg != segItem && r.seg != segProse && r.b.lo <= a && a < r.b.hi {
+		if at < 0 && !r.isTail() && r.res == nil && r.seg != segItem && r.seg != segProse && r.b.lo <= a && a < r.b.hi {
 			at = i // a turn the page made longer at its start
 		}
 	}
@@ -89,7 +89,7 @@ func (t *Transcript) atTop(s *session.Snapshot, h int) {
 // log's header, -1 for none.
 func rowItem(r trow) int {
 	switch {
-	case r.tail != nil || r.res != nil:
+	case r.isTail() || r.res != nil:
 		return -1
 	case r.seg == segItem || r.seg == segProse:
 		return r.i
@@ -101,7 +101,7 @@ func rowItem(r trow) int {
 
 // wantWhole reads the cut items row r lays out whole.
 func (t *Transcript) wantWhole(s *session.Snapshot, r *trow) {
-	if t.Full == nil || r.tail != nil || r.res != nil {
+	if t.Full == nil || r.isTail() || r.res != nil {
 		return
 	}
 	lo, hi := r.b.lo, r.b.hi
@@ -148,7 +148,7 @@ func (t *Transcript) forget(s *session.Snapshot) {
 		if r.seg == segItem || r.seg == segProse {
 			lo, hi = r.i, r.i+1
 		}
-		for i := max(0, lo); r.tail == nil && r.res == nil && i < min(hi, len(s.Content)); i++ {
+		for i := max(0, lo); !r.isTail() && r.res == nil && i < min(hi, len(s.Content)); i++ {
 			near[s.Content[i].ID] = true
 		}
 	}

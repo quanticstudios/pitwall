@@ -16,6 +16,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -460,7 +461,11 @@ func (t *Transcript) TodoStrip(gtx layout.Context, th *theme.Theme, s *session.S
 	if t.open == nil {
 		t.init()
 	}
-	d := &cdraw{t: t, th: th, s: s, sec: gtx.Now.Sub(t.epoch).Seconds()}
+	sec := gtx.Now.Sub(t.epoch).Seconds()
+	if anim.Reduced() {
+		sec = 0
+	}
+	d := &cdraw{t: t, th: th, s: s, sec: sec}
 	size := gtx.Constraints.Max
 	col := max(0, size.X-2*gtx.Dp(theme.SpaceXL))
 	if t.Width > 0 {
@@ -537,7 +542,7 @@ func (t *Transcript) TodoStrip(gtx layout.Context, th *theme.Theme, s *session.S
 		bc()
 		return layout.Dimensions{Size: image.Pt(w, h)}
 	})
-	if t.live {
+	if t.live && !anim.Reduced() {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 	}
 	return layout.Dimensions{Size: image.Pt(size.X, dims.Size.Y+gtx.Dp(theme.SpaceXS))}
@@ -818,11 +823,11 @@ func (d *cdraw) interrupted(gtx layout.Context) layout.Dimensions {
 
 // footMeta is a finished turn's footer after its time: the tokens and
 // the cost, hover for each model's.
-func (d *cdraw) footMeta(gtx layout.Context, it *session.Item, when string) layout.Dimensions {
+func (d *cdraw) footMeta(gtx layout.Context, idx int, when string) layout.Dimensions {
 	th := d.th
-	turn, last := turnOf(d.s, it), lastReply(d.s, it)
+	turn := turnOfAt(d.s, idx, d.t.hasTurns)
 	var u usage
-	if last { // a turn's usage shows once, under its last reply
+	if turn != "" && lastReplyAt(d.s, idx, turn) { // a turn's usage shows once, under its last reply
 		u = turnUsage(d.s, turn)
 	}
 	txt := when

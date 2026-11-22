@@ -218,3 +218,23 @@ func TestEmulatorProgramStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestOSCFilterFastPathAndTrailingESC(t *testing.T) {
+	var f oscFilter
+	plain := []byte("plain output \x1b[32mgreen\x1b[0m\r\n")
+	if got := f.feed(plain, func(string) {}, func(Notification) {}); &got[0] != &plain[0] || len(got) != len(plain) {
+		t.Fatalf("expected zero-copy slice for plain CSI input")
+	}
+	var title string
+	out1 := f.feed([]byte("ab\x1b"), func(s string) { title = s }, func(Notification) {})
+	out2 := f.feed([]byte("]0;hi\x07cd"), func(s string) { title = s }, func(Notification) {})
+	if string(out1)+string(out2) != "abcd" || title != "hi" {
+		t.Fatalf("split ESC+]: out=%q+%q title=%q", out1, out2, title)
+	}
+	// Trailing ESC followed by CSI must not drop the ESC.
+	out3 := f.feed([]byte("x\x1b"), func(string) {}, func(Notification) {})
+	out4 := f.feed([]byte("[1my"), func(string) {}, func(Notification) {})
+	if string(out3)+string(out4) != "x\x1b[1my" {
+		t.Fatalf("split ESC+[: out=%q+%q", out3, out4)
+	}
+}

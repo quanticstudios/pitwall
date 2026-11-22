@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
@@ -53,27 +54,42 @@ func SocketPath() (string, error) {
 // interface value.
 type envelope struct{ M any }
 
-const maxFrameSize = 64 << 20
+const (
+	maxFrameSize = 64 << 20
+	maxRetainCap = 256 << 10
+)
 
 // Conn frames gob-encoded envelopes with a uint32 big-endian byte length.
 // Send takes message values (Hello{}, not &Hello{}) and is safe for
 // concurrent use; Recv is not. Recv returns message values.
 type Conn struct {
-	c   net.Conn
-	mu  sync.Mutex
-	out bytes.Buffer
-	in  bytes.Reader
-	enc *gob.Encoder
-	dec *gob.Decoder
+	c     net.Conn
+	r     io.Reader
+	mu    sync.Mutex
+	out   bytes.Buffer
+	in    bytes.Reader
+	inBuf []byte
+	enc   *gob.Encoder
+	dec   *gob.Decoder
 }
 
-func NewConn(c net.Conn) *Conn {
-	conn := &Conn{c: c}
+func newConn(c net.Conn, r io.Reader) *Conn {
+	conn := &Conn{c: c, r: r}
 	// Keep the gob type registry across frames. bytes.Reader implements
 	// io.ByteReader, so the decoder does not buffer bytes from another frame.
 	conn.enc = gob.NewEncoder(&conn.out)
 	conn.dec = gob.NewDecoder(&conn.in)
 	return conn
+}
+
+func NewConn(c net.Conn) *Conn {
+	return newConn(c, bufio.NewReaderSize(c, 32<<10))
+}
+
+// NewUnbufferedConn wraps c without read-ahead buffering, for handoff
+// connections that interleave SCM_RIGHTS descriptors on the same socket.
+func NewUnbufferedConn(c net.Conn) *Conn {
+	return newConn(c, c)
 }
 
 // Dial connects to the daemon. It sends nothing: the caller sends
@@ -116,6 +132,11 @@ func (c *Conn) Send(msg any) (err error) {
 	}
 	binary.BigEndian.PutUint32(c.out.Bytes()[:4], uint32(size))
 	_, err = c.out.WriteTo(c.c)
+	// Release oversized send buffers (e.g. Kitty images or large ChatDeltas)
+	// without replacing c.enc, which retains the gob type registry.
+	if c.out.Cap() > maxRetainCap {
+		c.out = bytes.Buffer{}
+	}
 	return err
 }
 
@@ -123,20 +144,29 @@ func (c *Conn) Send(msg any) (err error) {
 // know; the connection stays usable after an Unknown.
 func (c *Conn) Recv() (any, error) {
 	var header [4]byte
-	if _, err := io.ReadFull(c.c, header[:]); err != nil {
+	if _, err := io.ReadFull(c.r, header[:]); err != nil {
 		return nil, err
 	}
 	size := binary.BigEndian.Uint32(header[:])
 	if size > maxFrameSize {
 		return nil, fmt.Errorf("frame size %d exceeds limit %d", size, maxFrameSize)
 	}
-	body := make([]byte, int(size))
-	if _, err := io.ReadFull(c.c, body); err != nil {
+	n := int(size)
+	if cap(c.inBuf) < n {
+		c.inBuf = make([]byte, n)
+	}
+	body := c.inBuf[:n]
+	if _, err := io.ReadFull(c.r, body); err != nil {
 		return nil, err
 	}
 	c.in.Reset(body)
 	var e envelope
-	if err := c.dec.Decode(&e); err != nil {
+	err := c.dec.Decode(&e)
+	c.in.Reset(nil)
+	if cap(c.inBuf) > maxRetainCap {
+		c.inBuf = nil
+	}
+	if err != nil {
 		// why: gob has no typed error for this. It reads the type
 		// definitions in the frame before it looks the name up, so the
 		// decoder keeps every type it was sent, and the next frame starts

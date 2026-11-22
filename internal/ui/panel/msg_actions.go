@@ -252,9 +252,14 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 		w := len(tools)*bs + (len(tools)-1)*gap
 		x0 := max(0, x-gtx.Dp(theme.SpaceXS)-w)
 		y0 := bh - bs
-		if x0+w > x { // no room beside a wide bubble: a raised strip over its corner
+		elevated := x0+w > x
+		if elevated { // no room beside a wide bubble: a raised strip over its corner
 			r := image.Rect(x0-gap, y0-gap, x0+w+gap, bh+gap)
 			kit.Surface(gtx, r, gtx.Dp(theme.RadiusPopover), kit.Floating, d.th.BorderStrong, d.th.SurfaceElevated)
+		}
+		hoverFill := d.th.Hover
+		if elevated {
+			hoverFill = d.th.HoverElevated
 		}
 		for i, b := range tools {
 			r := image.Rect(x0+i*(bs+gap), y0, x0+i*(bs+gap)+bs, bh)
@@ -263,7 +268,7 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 				ic, col = icCheck, d.th.Readable(d.th.Green, d.th.Bg)
 			}
 			at(gtx, r.Min, func(gtx layout.Context) layout.Dimensions {
-				return d.toolButton(gtx, clicks[i], ic, col, b.key == "rewind" && m.confirm == it.ID)
+				return d.toolButtonOn(gtx, clicks[i], ic, col, b.key == "rewind" && m.confirm == it.ID, hoverFill)
 			})
 			d.tipFor(gtx, clicks[i], b.tip, r)
 			if b.key == "rewind" {
@@ -278,9 +283,13 @@ func (d *cdraw) promptTools(gtx layout.Context, it *session.Item, x, bh int) {
 	area.Pop()
 }
 
-// toolButton is a ghost button of icon path ic, hit square, the Hover
-// fill under the pointer, Pressed while held or held open.
+// toolButton is a ghost button of icon path ic, hit square, with visible
+// hover on SurfaceElevated, Pressed while held or held open.
 func (d *cdraw) toolButton(gtx layout.Context, c *widget.Clickable, ic string, col color.NRGBA, held bool) layout.Dimensions {
+	return d.toolButtonOn(gtx, c, ic, col, held, d.th.HoverElevated)
+}
+
+func (d *cdraw) toolButtonOn(gtx layout.Context, c *widget.Clickable, ic string, col color.NRGBA, held bool, hoverFill color.NRGBA) layout.Dimensions {
 	th := d.th
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		bs, isz := gtx.Dp(hit), gtx.Dp(theme.SpaceM+theme.Space2XS)
@@ -289,7 +298,7 @@ func (d *cdraw) toolButton(gtx layout.Context, c *widget.Clickable, ic string, c
 		case c.Pressed() || held:
 			paint.FillShape(gtx.Ops, th.Pressed, r.Op(gtx.Ops))
 		case c.Hovered():
-			paint.FillShape(gtx.Ops, th.Hover, r.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, hoverFill, r.Op(gtx.Ops))
 		}
 		if c.Hovered() || held {
 			col = th.Fg

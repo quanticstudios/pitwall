@@ -49,6 +49,9 @@ func desktopSender() func(context.Context, notification) {
 	disabled, soundFailed := false, false
 	var actions *bool
 	return func(ctx context.Context, n notification) {
+		if ctx.Err() != nil {
+			return
+		}
 		if n.sound != "" {
 			if err := playSound(n.sound); err != nil && !soundFailed {
 				soundFailed = true
@@ -126,7 +129,33 @@ func (n *notifier) setView(focused *bool, active, session string) {
 }
 
 func (n *notifier) run(ctx context.Context, b Backend, initial model.State, invalidate func(), send func(context.Context, notification)) {
-	defer close(n.done)
+	// Decouple subprocess delivery from the b.Changed() -> invalidate() relay
+	// so a slow notify-send/osascript call never stalls window redraws.
+	deliver := make(chan notification, 32)
+	var wg sync.WaitGroup
+	if send != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for nt := range deliver {
+				send(ctx, nt)
+			}
+		}()
+	}
+	enqueue := func(nt notification) {
+		if send == nil {
+			return
+		}
+		select {
+		case deliver <- nt:
+		default:
+		}
+	}
+	defer func() {
+		close(deliver)
+		wg.Wait()
+		close(n.done)
+	}()
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
@@ -190,7 +219,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 					// the background, where its notice cannot be seen.
 					if !model.WaitsOnUser(a) || focused {
 						if sound {
-							send(ctx, notification{sound: rules.Sound, soundOnly: true})
+							enqueue(notification{sound: rules.Sound, soundOnly: true})
 						}
 						continue
 					}
@@ -200,7 +229,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 					nt.sound = rules.Sound
 				}
 				nt.act = func(action string) { n.act(b, a, action) }
-				send(ctx, nt)
+				enqueue(nt)
 			}
 		}
 		timer.Stop()

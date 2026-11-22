@@ -352,6 +352,7 @@ func (a *App) offlineLine(gtx C) D {
 	if a.many() {
 		msg = l.m.Name + " o" + msg[1:]
 	}
+	why := firstLine(l.offline)
 	if left := l.retryAt.Sub(gtx.Now); left > 0 {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(min(left, time.Second))})
 	}
@@ -364,7 +365,17 @@ func (a *App) offlineLine(gtx C) D {
 				return layout.Inset{Right: 6}.Layout(gtx, func(gtx C) D { return sidebar.Icon(gtx, "wifi-off", gtx.Dp(12), red) })
 			}),
 			layout.Flexed(1, func(gtx C) D {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, 1, msg)
+				return layout.Inset{Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, 1, msg) }),
+						layout.Rigid(func(gtx C) D {
+							if why == "" {
+								return D{}
+							}
+							return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 2, sentence(why))
+						}),
+					)
+				})
 			}),
 			layout.Rigid(func(gtx C) D { return textButton(gtx, th, &a.list.retry, "Retry") }),
 		)

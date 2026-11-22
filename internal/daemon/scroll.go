@@ -99,16 +99,121 @@ func (d *Daemon) view(id string, p Pane) (*view, int) {
 	return v, hist
 }
 
-// frame builds id's frame at its scroll offset. Callers hold d.mu.
-// ponytail: output landing between view and SnapshotAt shows one frame off by
-// those lines; the next frame corrects it.
-func (d *Daemon) frame(id string, p Pane) proto.Frame {
-	v, hist := d.view(id, p)
+type frameCapturer interface{ CaptureFrame(off int) vt.Frame }
+type writeSeqer interface{ WriteSeq() uint64 }
+type titler interface{ Title() string }
+
+func paneWriteSeq(p Pane) (uint64, bool) {
+	if s, ok := p.(writeSeqer); ok {
+		if seq := s.WriteSeq(); seq > 0 {
+			return seq, true
+		}
+	}
+	return 0, false
+}
+
+func paneTitle(p Pane) string {
+	if t, ok := p.(titler); ok {
+		return t.Title()
+	}
+	return p.Snapshot().Title
+}
+
+func capturePaneFrame(p Pane, off int) vt.Frame {
+	if c, ok := p.(frameCapturer); ok {
+		return c.CaptureFrame(off)
+	}
 	marked := false
 	if shell, ok := p.(interface{ HasPromptMarks() bool }); ok {
 		marked = shell.HasPromptMarks()
 	}
-	return proto.Frame{PromptMarks: marked, Pane: id, Grid: p.SnapshotAt(v.off), Modes: p.Modes(), ScrollOffset: v.off, ScrollMax: hist, ScrollPushed: v.pushed}
+	return vt.Frame{
+		Grid:         p.SnapshotAt(off),
+		Modes:        p.Modes(),
+		ScrollMax:    p.ScrollbackLen(),
+		ScrollPushed: scrollPushed(p),
+		PromptMarks:  marked,
+	}
+}
+
+// captureViewFrame captures a pane's frame without holding d.mu. When not live
+// and scrolled back, it anchors prevOff against ScrollPushed and recaptures if
+// new lines scrolled off since prevPushed.
+func captureViewFrame(id string, p Pane, live bool, prevOff int, prevPushed uint64) (proto.Frame, int, uint64) {
+	if live {
+		cf := capturePaneFrame(p, 0)
+		return proto.Frame{
+			PromptMarks:  cf.PromptMarks,
+			Pane:         id,
+			Grid:         cf.Grid,
+			Modes:        cf.Modes,
+			ScrollMax:    cf.ScrollMax,
+			ScrollPushed: cf.ScrollPushed,
+		}, 0, cf.ScrollPushed
+	}
+	cf := capturePaneFrame(p, prevOff)
+	off := prevOff
+	if off > 0 && cf.ScrollPushed > prevPushed {
+		off += int(cf.ScrollPushed - prevPushed)
+	}
+	off = min(off, cf.ScrollMax)
+	if off != prevOff {
+		cf = capturePaneFrame(p, off)
+		off = min(off, cf.ScrollMax)
+	}
+	return proto.Frame{
+		PromptMarks:  cf.PromptMarks,
+		Pane:         id,
+		Grid:         cf.Grid,
+		Modes:        cf.Modes,
+		ScrollOffset: off,
+		ScrollMax:    cf.ScrollMax,
+		ScrollPushed: cf.ScrollPushed,
+	}, off, cf.ScrollPushed
+}
+
+// viewState reads id's current scroll offset and pushed count. Callers hold d.mu.
+func (d *Daemon) viewState(id string) (off int, pushed uint64) {
+	if v := d.views[id]; v != nil {
+		return v.off, v.pushed
+	}
+	return 0, 0
+}
+
+// updateView records the anchored scroll offset and pushed count from an
+// unlocked CaptureFrame, unless a concurrent scroll/unscroll moved the view.
+// Callers hold d.mu.
+func (d *Daemon) updateView(id string, live bool, prevOff int, prevPushed uint64, newOff int, newPushed uint64) {
+	if d.views == nil {
+		d.views = map[string]*view{}
+	}
+	v := d.views[id]
+	if v == nil {
+		if live {
+			d.views[id] = &view{pushed: newPushed}
+		} else {
+			d.views[id] = &view{off: newOff, pushed: newPushed}
+		}
+		return
+	}
+	if live {
+		if v.off == 0 && newPushed >= v.pushed {
+			v.pushed = newPushed
+		}
+		return
+	}
+	if v.off == prevOff && v.pushed == prevPushed {
+		v.off = newOff
+		v.pushed = newPushed
+	}
+}
+
+// frame builds id's frame at its scroll offset. Callers hold d.mu.
+func (d *Daemon) frame(id string, p Pane) proto.Frame {
+	prevOff, prevPushed := d.viewState(id)
+	f, newOff, newPushed := captureViewFrame(id, p, false, prevOff, prevPushed)
+	d.updateView(id, false, prevOff, prevPushed, newOff, newPushed)
+	return f
 }
 
 // frameFor is id's frame for c: at the live screen for a pane c asked to
@@ -117,12 +222,10 @@ func (d *Daemon) frameFor(c *client, id string, p Pane) proto.Frame {
 	if !c.live[id] {
 		return d.frame(id, p)
 	}
-	v, hist := d.view(id, p)
-	marked := false
-	if shell, ok := p.(interface{ HasPromptMarks() bool }); ok {
-		marked = shell.HasPromptMarks()
-	}
-	return proto.Frame{PromptMarks: marked, Pane: id, Grid: p.SnapshotAt(0), Modes: p.Modes(), ScrollMax: hist, ScrollPushed: v.pushed}
+	prevOff, prevPushed := d.viewState(id)
+	f, newOff, newPushed := captureViewFrame(id, p, true, prevOff, prevPushed)
+	d.updateView(id, true, prevOff, prevPushed, newOff, newPushed)
+	return f
 }
 
 // scroll moves the view m.Lines into history (negative goes back toward the

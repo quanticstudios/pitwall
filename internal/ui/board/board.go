@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -103,6 +104,9 @@ type Card struct {
 	// focus; Now is the kind it has moved on to.
 	Held bool
 	Now  Kind
+
+	ans    Answer
+	ansSet bool
 }
 
 // Column is the card's column.
@@ -132,6 +136,13 @@ const (
 // pitwall does not know, from a tool other than a shell or an older
 // daemon, gets none.
 func (c Card) Answers() Answer {
+	if c.ansSet && c.Kind == KindApproval && c.Tab.Chat == "" {
+		return c.ans
+	}
+	return c.computeAnswers()
+}
+
+func (c Card) computeAnswers() Answer {
 	switch {
 	case c.Kind != KindApproval:
 		return AnswerNone
@@ -153,11 +164,35 @@ func (c Card) Answers() Answer {
 	return AnswerAllow
 }
 
+var (
+	deniedMu    sync.Mutex
+	deniedCache = map[string]bool{}
+)
+
 // Denied reports whether the guard's built-in deny list, or extra, names a
 // part of cmd.
 func Denied(cmd string, extra []string) bool {
+	key := cmd
+	if len(extra) > 0 {
+		key = cmd + "\x00" + strings.Join(extra, "\x00")
+	}
+	deniedMu.Lock()
+	if v, ok := deniedCache[key]; ok {
+		deniedMu.Unlock()
+		return v
+	}
+	deniedMu.Unlock()
+
 	in, _ := json.Marshal(map[string]string{"command": cmd})
-	return guard.Check(extra, in) != ""
+	v := guard.Check(extra, in) != ""
+
+	deniedMu.Lock()
+	if len(deniedCache) >= 512 {
+		clear(deniedCache)
+	}
+	deniedCache[key] = v
+	deniedMu.Unlock()
+	return v
 }
 
 // ScopeKind is what a scope narrows the board to.
@@ -206,16 +241,66 @@ type Board struct {
 // Count is how many cards column c shows.
 func (b *Board) Count(c Column) int { return len(b.Cols[c]) }
 
+// stateIndex pre-indexes activities, agent panes and programs per workspace
+// in one linear pass over st, avoiding O(W*P) and O(W^2) scans in Derive and NeedCount.
+type stateIndex struct {
+	acts     map[string][]model.Activity
+	agentTab map[string]bool
+	prog     map[string]*model.Program
+}
+
+func indexState(st *model.State) stateIndex {
+	idx := stateIndex{
+		acts:     make(map[string][]model.Activity, len(st.Workspaces)),
+		agentTab: make(map[string]bool, len(st.Workspaces)),
+		prog:     make(map[string]*model.Program),
+	}
+	paneAct := make(map[string]model.Provider, len(st.Activities))
+	for _, a := range st.Activities {
+		idx.acts[a.WorkspaceID] = append(idx.acts[a.WorkspaceID], a)
+		if _, seen := paneAct[a.PaneID]; !seen {
+			paneAct[a.PaneID] = a.Provider
+		}
+	}
+	for i := range st.Panes {
+		p := &st.Panes[i]
+		if model.IsAgent(p.Provider) || model.IsAgent(paneAct[p.ID]) {
+			idx.agentTab[p.WorkspaceID] = true
+		}
+		if p.Program != nil {
+			if cur := idx.prog[p.WorkspaceID]; cur == nil || p.Program.UpdatedAt.After(cur.UpdatedAt) {
+				idx.prog[p.WorkspaceID] = p.Program
+			}
+		}
+	}
+	return idx
+}
+
+func rootOf(byID map[string]*model.Workspace, w model.Workspace) string {
+	root := ""
+	for range 16 {
+		p, ok := byID[w.Parent]
+		if w.Parent == "" || !ok || p.SessionID != w.SessionID || p.ProjectID != w.ProjectID && !w.RemoteParent {
+			break
+		}
+		w = *p
+		root = w.ID
+	}
+	return root
+}
+
 // Derive sorts the state's tabs into columns. Workers fold into their
 // orchestrator's card while they work or are done.
 func Derive(st *model.State, o Options) Board {
-	b := Board{All: map[string]Card{}}
-	acts := map[string][]model.Activity{}
-	for _, a := range st.Activities {
-		acts[a.WorkspaceID] = append(acts[a.WorkspaceID], a)
-	}
+	b := Board{All: make(map[string]Card, len(st.Workspaces))}
+	idx := indexState(st)
 	watching := st.Watching()
-	var shown []Card
+	wsByID := make(map[string]*model.Workspace, len(st.Workspaces))
+	for i := range st.Workspaces {
+		wsByID[st.Workspaces[i].ID] = &st.Workspaces[i]
+	}
+	shown := make([]Card, 0, len(st.Workspaces))
+	shownIdx := make(map[string]int, len(st.Workspaces))
 	for _, w := range st.Workspaces {
 		host := cmp.Or(o.Hosts[w.ID], o.Hosts[w.SessionID])
 		if w.Detached || !inScope(w, host, o) {
@@ -229,12 +314,16 @@ func Derive(st *model.State, o Options) Board {
 			b.Settled++
 			continue
 		}
-		c := cardOf(st, w, acts[w.ID], watching[w.ID], o.Now)
+		c := cardOfIndexed(w, idx.acts[w.ID], idx.agentTab[w.ID], idx.prog[w.ID], watching[w.ID], o.Now)
 		c.Host, c.GuardDeny = host, o.GuardDeny
+		if c.Kind == KindApproval && c.Tab.Chat == "" {
+			c.ans, c.ansSet = c.computeAnswers(), true
+		}
 		if c.Kind == KindShell && !o.Shells {
 			b.HiddenShells++
 			continue
 		}
+		shownIdx[c.ID] = len(shown)
 		b.All[c.ID] = c
 		shown = append(shown, c)
 	}
@@ -242,12 +331,12 @@ func Derive(st *model.State, o Options) Board {
 	// work or are done.
 	for i := range shown {
 		c := &shown[i]
-		root := st.Root(c.Tab)
+		root := rootOf(wsByID, c.Tab)
 		if root == "" {
 			continue
 		}
-		j := slices.IndexFunc(shown, func(p Card) bool { return p.ID == root })
-		if j < 0 {
+		j, ok := shownIdx[root]
+		if !ok {
 			continue
 		}
 		c.Parent = root
@@ -315,11 +404,9 @@ var rank = map[Kind]int{
 	KindWorking: 5, KindWatching: 5, KindRunning: 4, KindPR: 3, KindDone: 2,
 }
 
-// cardOf is tab w's card: its most pressing activity, or what its panes
-// are when it has none.
-func cardOf(st *model.State, w model.Workspace, acts []model.Activity, watching bool, now time.Time) Card {
+// cardOfIndexed is tab w's card using pre-indexed activities, agent status and program.
+func cardOfIndexed(w model.Workspace, acts []model.Activity, agentTab bool, prog *model.Program, watching bool, now time.Time) Card {
 	c := Card{ID: w.ID, Tab: w, Kind: -1}
-	agentTab := len(st.AgentPanes(w)) > 0
 	for _, a := range acts {
 		if !agentTab && a.State == model.StateTerminalRunning {
 			continue // a plain shell's command, unless it reports its status
@@ -335,10 +422,10 @@ func cardOf(st *model.State, w model.Workspace, acts []model.Activity, watching 
 	if c.Kind >= 0 {
 		return c
 	}
-	if p := program(st, w); p != nil {
-		if k, ok := programKind(*p); ok {
+	if prog != nil {
+		if k, ok := programKind(*prog); ok {
 			c.Kind = k
-			c.Act = model.Activity{WorkspaceID: w.ID, Detail: p.Message, UpdatedAt: p.UpdatedAt}
+			c.Act = model.Activity{WorkspaceID: w.ID, Detail: prog.Message, UpdatedAt: prog.UpdatedAt}
 			return c
 		}
 	}
@@ -380,18 +467,6 @@ func kindOf(a model.Activity, now time.Time) Kind {
 		return KindPR
 	}
 	return KindDone
-}
-
-// program is the most recent status report of w's panes, nil for none.
-func program(st *model.State, w model.Workspace) *model.Program {
-	var out *model.Program
-	for i := range st.Panes {
-		p := st.Panes[i].Program
-		if st.Panes[i].WorkspaceID == w.ID && p != nil && (out == nil || p.UpdatedAt.After(out.UpdatedAt)) {
-			out = p
-		}
-	}
-	return out
 }
 
 // programKind is the kind a watched command's report shows as. A blocked
@@ -445,6 +520,35 @@ func sortColumn(col Column, cs []Card) {
 // NeedCount is how many cards wait on the user anywhere: the board
 // button's badge.
 func NeedCount(st *model.State, hosts map[string]string, now time.Time) int {
-	b := Derive(st, Options{Hosts: hosts, Now: now})
-	return b.Count(NeedsYou)
+	idx := indexState(st)
+	n := 0
+	for _, w := range st.Workspaces {
+		if w.Detached || w.SnoozedUntil.After(now) || !w.Settled.IsZero() {
+			continue
+		}
+		agentTab := idx.agentTab[w.ID]
+		hasAct, needs := false, false
+		for _, a := range idx.acts[w.ID] {
+			if !agentTab && a.State == model.StateTerminalRunning {
+				continue
+			}
+			hasAct = true
+			if ColumnOf(kindOf(a, now)) == NeedsYou {
+				needs = true
+				break
+			}
+		}
+		if needs {
+			n++
+			continue
+		}
+		if !hasAct {
+			if p := idx.prog[w.ID]; p != nil {
+				if k, ok := programKind(*p); ok && ColumnOf(k) == NeedsYou {
+					n++
+				}
+			}
+		}
+	}
+	return n
 }

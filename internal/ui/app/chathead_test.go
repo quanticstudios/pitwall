@@ -3,10 +3,14 @@ package app
 import (
 	"image"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"gioui.org/f32"
+	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -139,5 +143,49 @@ func TestTipReady(t *testing.T) {
 	}
 	if !tipReady(t0.Add(time.Millisecond), t0, t0.Add(-200*time.Millisecond)) || tipReady(t0.Add(time.Millisecond), t0, t0.Add(-time.Second)) {
 		t.Fatal("neighbor within 300ms not at once")
+	}
+}
+
+// TestChatHeadLongTitleDoesNotClipButtons verifies that a very long title and
+// branch name truncate inside the Flexed(1) left cluster so right-side toolbar
+// buttons stay inside the header width and clickable.
+func TestChatHeadLongTitleDoesNotClipButtons(t *testing.T) {
+	b, u := chatTab(t, session.StateReady)
+	b.mu.Lock()
+	w := &b.st.Workspaces[len(b.st.Workspaces)-1]
+	w.Label = strings.Repeat("Very Long Chat Workspace Title ", 8)
+	w.Branch = "feature/" + strings.Repeat("extremely-long-branch-name-", 8)
+	b.mu.Unlock()
+
+	st := b.State()
+	ws := st.Workspace("wc")
+	var r input.Router
+	var ops op.Ops
+	const width = 500
+	frame := func() {
+		ops.Reset()
+		gtx := gl.Context{
+			Ops:         &ops,
+			Source:      r.Source(),
+			Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(width, 200)),
+			Now:         time.Now(),
+		}
+		u.layoutChatHead(gtx, &st, ws)
+		r.Frame(&ops)
+	}
+	frame()
+	// The rightmost control (panel button) sits at [width-SpaceL-headControl, width-SpaceL].
+	// Clicking inside it must toggle u.nav.panelOpen rather than being clipped off-screen.
+	pos := f32.Pt(float32(width-16-14), float32(22))
+	r.Queue(
+		pointer.Event{Kind: pointer.Move, Position: pos, Source: pointer.Mouse},
+		pointer.Event{Kind: pointer.Press, Position: pos, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary},
+		pointer.Event{Kind: pointer.Release, Position: pos, Source: pointer.Mouse},
+	)
+	frame()
+	frame()
+	if !u.nav.panelOpen {
+		t.Fatal("rightmost Agent panel button was clipped or unclickable with long title+branch")
 	}
 }

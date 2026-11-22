@@ -556,3 +556,26 @@ func TestManyImages(t *testing.T) {
 		t.Fatalf("read: %d images, %v", images(&r.Snapshot), err)
 	}
 }
+
+// TestQueueResetsWhenEmpty verifies that draining c.q resets the slice to
+// c.q[:0] instead of advancing past the backing array's capacity.
+func TestQueueResetsWhenEmpty(t *testing.T) {
+	f := newFakeChats(t)
+	s, c := streamServer(t, f)
+	var v viewer
+	c.send(t, subscribe("1", 0))
+	expectResult(t, &v, c, "1", true)
+	v.next(t, c)
+
+	conn := onlyConn(s)
+	for i := range 20 {
+		f.say(t, "x")
+		v.until(t, c, f.seq)
+		conn.mu.Lock()
+		n, cp := len(conn.q), cap(conn.q)
+		conn.mu.Unlock()
+		if n == 0 && cp == 0 {
+			t.Fatalf("iter %d: empty queue lost its backing capacity (cap=0)", i)
+		}
+	}
+}

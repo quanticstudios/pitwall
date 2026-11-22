@@ -346,3 +346,68 @@ func TestFile(t *testing.T) {
 		t.Fatalf("after delete: %+v %v, want a new token", f, err)
 	}
 }
+
+func TestKeepalivePingPong(t *testing.T) {
+	oldPing, oldPong := pingInterval, pongTimeout
+	t.Cleanup(func() { pingInterval, pongTimeout = oldPing, oldPong })
+	pingInterval, pongTimeout = 25*time.Millisecond, 100*time.Millisecond
+
+	s, hs := newServer(t, fixed(goodToken))
+	c, _ := dial(t, hs, "", "")
+	c.nc.SetDeadline(time.Now().Add(5 * time.Second))
+	c.send(t, hi(goodToken, Protocol))
+	if w := c.json(t); w["type"] != "welcome" {
+		t.Fatalf("welcome: %v", w)
+	}
+
+	// Answer server pings past pongTimeout; the read deadline must refresh.
+	pings := 0
+	deadline := time.Now().Add(180 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		op, p := c.recv(t)
+		if op != opPing {
+			t.Fatalf("got op %#x, want opPing", op)
+		}
+		pings++
+		c.frame(t, opPong, true, p)
+	}
+	if pings < 3 {
+		t.Fatalf("only %d pings received", pings)
+	}
+	c.send(t, map[string]any{"type": "listSessions", "id": "k1"})
+	for {
+		op, p := c.recv(t)
+		if op == opPing {
+			c.frame(t, opPong, true, p)
+			continue
+		}
+		if op != opText {
+			t.Fatalf("got op %#x after keepalive, want text result", op)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(p, &m); err != nil || m["id"] != "k1" {
+			t.Fatalf("reply %s %v", p, err)
+		}
+		break
+	}
+	s.Close()
+}
+
+func TestKeepaliveTimeout(t *testing.T) {
+	oldPing, oldPong := pingInterval, pongTimeout
+	t.Cleanup(func() { pingInterval, pongTimeout = oldPing, oldPong })
+	pingInterval, pongTimeout = 20*time.Millisecond, 70*time.Millisecond
+
+	s, hs := newServer(t, fixed(goodToken))
+	c, _ := dial(t, hs, "", "")
+	c.send(t, hi(goodToken, Protocol))
+	if w := c.json(t); w["type"] != "welcome" {
+		t.Fatalf("welcome: %v", w)
+	}
+	// Do not answer pings; server must drop the half-open connection.
+	for wait := time.Now().Add(2 * time.Second); onlyConn(s) != nil; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(wait) {
+			t.Fatal("silent client was not closed after pongTimeout")
+		}
+	}
+}

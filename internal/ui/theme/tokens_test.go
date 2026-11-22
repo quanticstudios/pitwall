@@ -135,3 +135,17 @@ palette = 8=#dddddd
 		})
 	}
 }
+
+func TestHoverElevated(t *testing.T) {
+	for _, name := range config.Themes {
+		c, _ := config.Builtin(name)
+		th, _ := New(c, config.Font{})
+		want := Mix(th.SurfaceElevated, th.Fg, 0.08)
+		if th.HoverElevated != want {
+			t.Errorf("%s: HoverElevated = %v, want %v", name, th.HoverElevated, want)
+		}
+		if th.HoverElevated == th.SurfaceElevated {
+			t.Errorf("%s: HoverElevated equals SurfaceElevated (%v)", name, th.SurfaceElevated)
+		}
+	}
+}

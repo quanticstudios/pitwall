@@ -228,8 +228,14 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 }
 
 func (d *Daemon) checkForeground() {
+	type probe struct {
+		id   string
+		p    Pane
+		f    foregrounder
+		want int
+	}
+	var probes []probe
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	for id := range d.live.hookAt {
 		if d.panes[id] == nil {
 			delete(d.live.fg, id)
@@ -281,19 +287,47 @@ func (d *Daemon) checkForeground() {
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 && model.ReportedName(d.st.Panes[i].Provider) != "" {
 			continue // detect releases self-reports only at an idle shell
 		}
+		p := d.panes[id]
+		if p == nil {
+			continue
+		}
 		select {
-		case <-d.panes[id].Done():
+		case <-p.Done():
 			continue // why: the process ended; exited decides what its activity does
 		default:
 		}
-		if f, ok := d.panes[id].(foregrounder); ok && f.Foreground() != want {
-			delete(d.live.fg, id)
-			delete(d.live.hookAt, id)
-			d.dropActivity(id)
-			delete(d.live.background, id)
-			d.setProvider(id, "") // detect names the next agent, if one took over
-			d.recordExplanation(id, "", "", "hook-process-left", agent.ScreenTrace{})
+		if f, ok := p.(foregrounder); ok {
+			probes = append(probes, probe{id: id, p: p, f: f, want: want})
 		}
+	}
+	d.mu.Unlock()
+
+	var left []probe
+	for _, pr := range probes {
+		if pr.f.Foreground() != pr.want {
+			left = append(left, pr)
+		}
+	}
+	if len(left) == 0 {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, pr := range left {
+		if d.panes[pr.id] != pr.p || d.live.fg[pr.id] != pr.want {
+			continue
+		}
+		select {
+		case <-pr.p.Done():
+			continue
+		default:
+		}
+		delete(d.live.fg, pr.id)
+		delete(d.live.hookAt, pr.id)
+		d.dropActivity(pr.id)
+		delete(d.live.background, pr.id)
+		d.setProvider(pr.id, "") // detect names the next agent, if one took over
+		d.recordExplanation(pr.id, "", "", "hook-process-left", agent.ScreenTrace{})
 	}
 }
 

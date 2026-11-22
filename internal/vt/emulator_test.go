@@ -365,3 +365,31 @@ func TestReplyFloodIsCapped(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteSeqTitleCaptureFrameAndDeepScrollback(t *testing.T) {
+	e := New(20, 3, nil).(*emulator)
+	if e.WriteSeq() != 0 {
+		t.Fatalf("initial WriteSeq = %d, want 0", e.WriteSeq())
+	}
+	_, _ = e.Write([]byte("\x1b]2;build\x07line0\r\nline1\r\nline2\r\nline3\r\nline4\r\nline5"))
+	seq1 := e.WriteSeq()
+	if seq1 == 0 {
+		t.Fatal("WriteSeq did not advance after Write")
+	}
+	if got := e.Title(); got != "build" {
+		t.Fatalf("Title() = %q, want %q", got, "build")
+	}
+	e.Resize(20, 3)
+	if e.WriteSeq() <= seq1 {
+		t.Fatal("WriteSeq did not advance after Resize")
+	}
+	// Deep scrollback (off >= Rows) reads purely from scrollback and matches SnapshotAt.
+	f := e.CaptureFrame(3)
+	g := e.SnapshotAt(3)
+	if f.Grid.Title != "build" || row(f.Grid, 0) != "line0" || row(f.Grid, 2) != "line2" {
+		t.Fatalf("CaptureFrame(3): title=%q rows=%q,%q,%q", f.Grid.Title, row(f.Grid, 0), row(f.Grid, 1), row(f.Grid, 2))
+	}
+	if row(g, 0) != row(f.Grid, 0) || row(g, 2) != row(f.Grid, 2) || f.ScrollMax != e.ScrollbackLen() {
+		t.Fatalf("CaptureFrame vs SnapshotAt mismatch: %+v vs %+v", f.Grid, g)
+	}
+}

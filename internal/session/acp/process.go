@@ -15,28 +15,36 @@ import (
 )
 
 type driver struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	emit   func(session.Event)
-	stderr *tail
-	wake   chan struct{} // a post since emitLoop last looked
-	eof    chan struct{} // closed once stdout is read to its end
-	exited chan struct{} // closed once the process is gone and session.exited is queued
-	done   chan struct{} // closed once emitLoop has emitted everything
+	cmd     *exec.Cmd
+	cancel  context.CancelFunc
+	stdin   io.WriteCloser
+	writeMu sync.Mutex // serializes stdin.Write off d.mu so Close never deadlocks on a full pipe
+	emit    func(session.Event)
+	stderr  *tail
+	wake    chan struct{} // a post since emitLoop last looked
+	eof     chan struct{} // closed once stdout is read to its end
+	exited  chan struct{} // closed once the process is gone and session.exited is queued
+	done    chan struct{} // closed once emitLoop has emitted everything
 
 	mu      sync.Mutex
 	s       *stream
 	next    int
 	pending map[string]chan rpcMessage
 	queue   []session.Event
-	dead    bool // the process is gone; nothing is posted after its session.exited
-	closing bool // Close was called
+	outbox  [][]byte // lines queued under d.mu and flushed off d.mu
+	sending int      // Send/Approve/Answer writes in flight; emitLoop waits so synthetic events stay ahead of CLI replies
+	dead    bool     // the process is gone; nothing is posted after its session.exited
+	closing bool     // Close was called
 }
 
 // post queues e for emitLoop, stamped now. d.mu is held.
 func (d *driver) post(e session.Event) {
 	e.CreatedAt = session.Stamp(time.Now())
 	d.queue = append(d.queue, e)
+	d.notifyWake()
+}
+
+func (d *driver) notifyWake() {
 	select {
 	case d.wake <- struct{}{}:
 	default:
@@ -49,6 +57,11 @@ func (d *driver) emitLoop() {
 	defer close(d.done)
 	for {
 		d.mu.Lock()
+		if d.sending > 0 {
+			d.mu.Unlock()
+			<-d.wake
+			continue
+		}
 		q, dead := d.queue, d.dead
 		d.queue = nil
 		d.mu.Unlock()
@@ -65,14 +78,42 @@ func (d *driver) emitLoop() {
 	}
 }
 
-// write sends one JSON line to the CLI. d.mu is held.
-func (d *driver) write(v any) error {
+func encodeLine(v any) ([]byte, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if _, err := d.stdin.Write(append(b, '\n')); err != nil {
+	return append(b, '\n'), nil
+}
+
+// writeBytes sends one encoded JSON line to the CLI without holding d.mu.
+func (d *driver) writeBytes(b []byte) error {
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+	if _, err := d.stdin.Write(b); err != nil {
 		return session.ErrClosed
+	}
+	return nil
+}
+
+// queueWrite appends an encoded JSON line to be written once d.mu is released.
+// d.mu is held.
+func (d *driver) queueWrite(v any) {
+	if b, err := encodeLine(v); err == nil {
+		d.outbox = append(d.outbox, b)
+	}
+}
+
+// flushWrites writes any queued outbox lines without holding d.mu.
+func (d *driver) flushWrites() error {
+	d.mu.Lock()
+	lines := d.outbox
+	d.outbox = nil
+	d.mu.Unlock()
+	for _, b := range lines {
+		if err := d.writeBytes(b); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -93,6 +134,7 @@ func (d *driver) read(stdout io.Reader) {
 				d.post(e)
 			}
 			d.mu.Unlock()
+			_ = d.flushWrites()
 		}
 		if err != nil {
 			return
@@ -102,6 +144,7 @@ func (d *driver) read(stdout io.Reader) {
 
 // wait reports the CLI's exit once its output is read.
 func (d *driver) wait(stdout io.Closer) {
+	defer d.cancel()
 	err := d.cmd.Wait()
 	select {
 	case <-d.eof:
@@ -142,22 +185,26 @@ func (d *driver) wait(stdout io.Closer) {
 // started is the chat's.
 func (d *driver) PID() int { return d.cmd.Process.Pid }
 
-// Close closes stdin, which ends the CLI, and kills it when ctx ends
-// first. It returns once every event is out.
+// Close closes stdin, which ends the CLI, and kills its process group when ctx
+// ends first. It returns once every event is out.
 func (d *driver) Close(ctx context.Context) error {
 	d.mu.Lock()
-	if !d.closing {
+	first := !d.closing
+	if first {
 		d.closing = true
 		if !d.dead {
 			d.cancelRequests()
 		}
-		d.stdin.Close()
+		d.outbox = nil // closing stdin ends the process; do not block Close on a stalled pipe
 	}
 	d.mu.Unlock()
+	if first {
+		d.stdin.Close()
+	}
 	select {
 	case <-d.exited:
 	case <-ctx.Done():
-		d.cmd.Process.Kill()
+		d.cancel()
 		<-d.exited
 	}
 	<-d.done
