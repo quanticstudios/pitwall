@@ -56,7 +56,19 @@ type chatHead struct {
 	tipShown time.Time         // the last frame a tooltip showed, so a neighbor's shows at once
 
 	find  widget.Clickable // Find in chat
-	tools widget.Clickable // cycles [chat] tool_calls
+	tools widget.Clickable // opens the [chat] tool_calls dropdown
+
+	toolsOpen     bool                // the Tools menu is open
+	toolsAt       time.Time           // when it last opened or closed, for its fade
+	toolsSel      int                 // highlighted choice in the Tools menu
+	toolsHover    int                 // choice hovered last frame, -1 for none
+	toolsAnchor   image.Rectangle     // the Tools button's rect in the chat area
+	toolsBackdrop int                 // click outside closes the menu
+	toolsPanel    int                 // swallows clicks inside the menu
+	toolsTag      int                 // key focus while open
+	toolsReq      bool                // key focus requested since opening
+	toolsFocused  bool                // toolsTag has had focus since opening
+	toolsItems    [4]widget.Clickable // one per toolChoice
 }
 
 // Tooltip timing: the first waits tipDelay, a neighbor hovered within
@@ -105,6 +117,7 @@ func (u *ui) toggleChatTerminal(st *model.State, ws *model.Workspace) {
 		return
 	}
 	u.chatHead.setMenu(false, time.Now())
+	u.chatHead.closeTools()
 	u.send(msg)
 }
 
@@ -167,7 +180,17 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		}
 	}
 	for h.tools.Clicked(gtx) {
-		u.cycleTools()
+		if h.toolsOpen {
+			h.setTools(false, gtx.Now)
+		} else {
+			h.toolsSel = toolsIndex(u.cfg.Chat.ToolCalls)
+			h.setTools(true, gtx.Now)
+		}
+	}
+	if tr == nil {
+		h.closeTools()
+	} else {
+		u.toolsEvents(gtx, h)
 	}
 	for h.servers.Clicked(gtx) {
 		if tr != nil {
@@ -175,7 +198,11 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		}
 	}
 	for h.more.Clicked(gtx) {
-		h.setMenu(!h.menu, gtx.Now)
+		open := !h.menu
+		if open {
+			h.setTools(false, gtx.Now)
+		}
+		h.setMenu(open, gtx.Now)
 	}
 	for h.aide.Clicked(gtx) {
 		h.setMenu(false, gtx.Now)
@@ -212,33 +239,51 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceM}.Layout), gl.Rigid(l))
 	}
 	kids = append(kids, gl.Flexed(1, fill))
+	var toolsW, afterW int
+	after := func(w gl.Widget) gl.FlexChild {
+		return gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			d := w(gtx)
+			afterW += d.Size.X
+			return d
+		})
+	}
 	if tr != nil {
 		mode := u.cfg.Chat.ToolCalls
 		narrow := gtx.Constraints.Max.X < gtx.Dp(toolsNarrow) // a split pane's header keeps the glyph alone
+		tip := toolsTip(mode)
+		if h.toolsOpen {
+			tip = ""
+		}
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.tipped(gtx, h, &h.tools, toolsTip(mode), func(gtx gl.Context) gl.Dimensions {
+			d := u.tipped(gtx, h, &h.tools, tip, func(gtx gl.Context) gl.Dimensions {
 				if narrow {
-					return kit.IconButton(gtx, th, &h.tools, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
+					kind := kit.Ghost
+					if h.toolsOpen {
+						kind = kit.Secondary
+					}
+					return kit.IconButton(gtx, th, &h.tools, kind, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 						sidebar.Icon(gtx, "wrench", size, col)
 					})
 				}
-				return ghostIconButton(gtx, th, &h.tools, "wrench", toolsLabel(mode))
+				return ghostMenuButton(gtx, th, &h.tools, "wrench", toolsLabel(mode), h.toolsOpen)
 			})
-		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+			toolsW = d.Size.X
+			return d
+		}), after(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
-	kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+	kids = append(kids, after(func(gtx gl.Context) gl.Dimensions {
 		return u.tipped(gtx, h, &h.find, withKey("Find in chat", "Ctrl+F"), func(gtx gl.Context) gl.Dimensions {
 			return kit.IconButton(gtx, th, &h.find, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "search", size, col)
 			})
 		})
-	}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+	}), after(gl.Spacer{Width: theme.SpaceS}.Layout))
 	if claude {
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+		kids = append(kids, after(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, h, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
 				return ghostIconButton(gtx, th, &h.term, "terminal", "Terminal")
 			})
-		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+		}), after(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
 	// What the tab's servers were when the transcript last drew, a frame ago.
 	if tr != nil && len(tr.Servers.List) > 0 {
@@ -246,28 +291,28 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		if tr.ServersOpen() {
 			kind = kit.Secondary
 		}
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+		kids = append(kids, after(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, h, &h.servers, serversTip(tr.Servers.List), func(gtx gl.Context) gl.Dimensions {
 				return kit.IconButton(gtx, th, &h.servers, kind, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 					sidebar.IconPath(gtx, panel.IconGlobe, size, col)
 				})
 			})
-		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+		}), after(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
 	if tr != nil {
 		kind := kit.Ghost
 		if tr.FilesOpen() && !tr.ServersOpen() {
 			kind = kit.Secondary
 		}
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+		kids = append(kids, after(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, h, &h.files, "Files and changes", func(gtx gl.Context) gl.Dimensions {
 				return kit.IconButton(gtx, th, &h.files, kind, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 					sidebar.IconPath(gtx, panel.IconFileDiff, size, col)
 				})
 			})
-		}), gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout))
+		}), after(gl.Spacer{Width: theme.SpaceS}.Layout))
 	}
-	kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+	kids = append(kids, after(func(gtx gl.Context) gl.Dimensions {
 		return u.tipped(gtx, h, &h.panel, withKey("Agent panel", u.keyOf("toggle_panel")), func(gtx gl.Context) gl.Dimensions {
 			return kit.IconButton(gtx, th, &h.panel, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "panel-right", size, col)
@@ -275,7 +320,7 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		})
 	}))
 	if aide {
-		kids = append(kids, gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+		kids = append(kids, after(gl.Spacer{Width: theme.SpaceS}.Layout), after(func(gtx gl.Context) gl.Dimensions {
 			return kit.IconButton(gtx, th, &h.more, kit.Ghost, kit.Medium, func(gtx gl.Context, col color.NRGBA, size int) {
 				sidebar.Icon(gtx, "ellipsis", size, col)
 			})
@@ -284,6 +329,14 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 		h.setMenu(false, gtx.Now)
 	}
 	height := u.strip(gtx, th.Bg, kids)
+	if tr != nil {
+		btn := gtx.Dp(headControl)
+		right := max(toolsW, gtx.Constraints.Max.X-gtx.Dp(theme.SpaceL)-afterW)
+		h.toolsAnchor = image.Rect(right-toolsW, (height-btn)/2, right, (height+btn)/2)
+		if h.toolsOpen || !anim.Reduced() && !h.toolsAt.IsZero() && gtx.Now.Sub(h.toolsAt) < menuOut {
+			u.toolsMenu(gtx, h)
+		}
+	}
 	if aide && (h.menu || !anim.Reduced() && gtx.Now.Sub(h.menuAt) < menuOut) {
 		u.chatMenu(gtx, h, height)
 	}
@@ -374,17 +427,32 @@ func label(gtx gl.Context, th *theme.Theme, f font.Font, size unit.Sp, c color.N
 // ghostIconButton is a ghost button with an icon before its label, as the
 // header's Terminal.
 func ghostIconButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon, text string) gl.Dimensions {
+	return ghostButton(gtx, th, c, icon, text, false, false)
+}
+
+// ghostMenuButton is ghostIconButton with a trailing chevron for a
+// dropdown trigger, keeping its hover look while open.
+func ghostMenuButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon, text string, open bool) gl.Dimensions {
+	return ghostButton(gtx, th, c, icon, text, true, open)
+}
+
+func ghostButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon, text string, chevron, open bool) gl.Dimensions {
 	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 		fg, fill := th.Muted, color.NRGBA{}
 		switch {
 		case c.Pressed():
 			fg, fill = th.Fg, th.Pressed
-		case c.Hovered():
+		case c.Hovered() || open:
 			fg, fill = th.Fg, th.Hover
 		}
 		call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), fg, text)
 		pad, gap, is := gtx.Dp(headPad), gtx.Dp(theme.SpaceS), gtx.Dp(headIcon)
-		size := image.Pt(pad+is+gap+sz.X+pad, gtx.Dp(headControl))
+		w := pad + is + gap + sz.X + pad
+		chevGap, chevSz := gtx.Dp(theme.SpaceXS), gtx.Dp(theme.SpaceM)
+		if chevron {
+			w += chevGap + chevSz
+		}
+		size := image.Pt(w, gtx.Dp(headControl))
 		r := gtx.Dp(theme.RadiusControl)
 		if gtx.Focused(c) {
 			kit.FocusRing(gtx, th, image.Rectangle{Max: size}, r)
@@ -398,6 +466,11 @@ func ghostIconButton(gtx gl.Context, th *theme.Theme, c *widget.Clickable, icon,
 		o = op.Offset(image.Pt(pad+is+gap, (size.Y-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
+		if chevron {
+			o = op.Offset(image.Pt(pad+is+gap+sz.X+chevGap, (size.Y-chevSz)/2)).Push(gtx.Ops)
+			sidebar.Icon(gtx, "chevron-down", chevSz, th.Muted)
+			o.Pop()
+		}
 		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 		pointer.CursorPointer.Add(gtx.Ops)
 		return gl.Dimensions{Size: size}

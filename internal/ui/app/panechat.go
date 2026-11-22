@@ -76,6 +76,9 @@ func (u *ui) flipPaneChat(id string) {
 		u.paneFlip = map[string]bool{}
 	}
 	u.paneFlip[id] = !u.paneFlip[id]
+	if h := u.paneHeads[id]; h != nil {
+		h.closeTools()
+	}
 	delete(u.tui, id)        // the full TUI shows a TUI command's screen itself
 	if u.invalidate != nil { // why: the flip lands after this frame drew the pane
 		u.invalidate()
@@ -146,8 +149,11 @@ func (u *ui) layoutPaneChat(gtx gl.Context, st *model.State, ws *model.Workspace
 		h = &chatHead{}
 		u.paneHeads[id] = h
 	}
+	if !focused || tui != nil {
+		h.closeTools()
+	}
 	head := u.chatStrip(gtx, h, ws, paneChatOf(st, id), func() { u.flipPaneChat(id) })
 	defer op.Offset(image.Pt(0, head)).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(image.Pt(in.Dx(), max(0, in.Dy()-head)))
-	u.chatBody(gtx, st, u.b.(Chatter), id, ws, focused && tui == nil, func() { u.flipPaneChat(id) })
+	u.chatBody(gtx, st, u.b.(Chatter), id, ws, focused && tui == nil && !h.toolsOpen, func() { u.flipPaneChat(id) })
 }

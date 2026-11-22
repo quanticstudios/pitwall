@@ -1235,6 +1235,14 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 				c.CloseMenu()
 			}
 		}
+		if ws := findWorkspace(st, u.nav.workspace); ws == nil || ws.Chat == "" || !u.drawn[ws.Chat] {
+			u.chatHead.closeTools()
+		}
+		for id, h := range u.paneHeads {
+			if !u.drawn[id] {
+				h.closeTools()
+			}
+		}
 		u.showPanes(live)
 		for id, p := range u.panes {
 			if live[id] {
