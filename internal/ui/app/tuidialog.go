@@ -37,7 +37,8 @@ import (
 
 // tuiCommand is the command text runs when it needs the agent's terminal,
 // "" otherwise: when cmds, the chat's commands, mark it Terminal, or with
-// no list, when session.TerminalCommand names it.
+// no list, when session.TerminalCommand names it. An alias counts as its
+// command's name.
 func tuiCommand(text string, cmds []session.Command) string {
 	t := strings.TrimSpace(text)
 	name, _, _ := strings.Cut(strings.TrimPrefix(t, "/"), " ")
@@ -46,7 +47,7 @@ func tuiCommand(text string, cmds []session.Command) string {
 	}
 	term := session.TerminalCommand(name)
 	if len(cmds) > 0 {
-		i := slices.IndexFunc(cmds, func(c session.Command) bool { return c.Name == name })
+		i := slices.IndexFunc(cmds, func(c session.Command) bool { return c.Is(name) })
 		term = i >= 0 && cmds[i].Terminal
 	}
 	if !term {

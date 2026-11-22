@@ -2,10 +2,14 @@ package codex
 
 import "github.com/quanticstudios/pitwall/internal/session"
 
-// Builtins are the commands Codex 0.171's / menu lists, in its order and
-// words. It lists nothing else: neither $CODEX_HOME/prompts nor skills
-// show there. Terminal marks one that opens a picker or a view of its own
-// in the TUI.
+// Builtins are the commands Codex 0.171.0's / menu lists for a ChatGPT
+// login, in its order and words, read from its binary and its menu. It
+// lists nothing else: neither $CODEX_HOME/prompts nor skills show there.
+// Aliases are the names its menu also takes. /apps is in only for an
+// account with apps; left out are /debug-config, which the menu never
+// lists, the Desktop app's command (macOS and Windows), Windows' sandbox
+// setup and debug builds' own. Terminal marks one that opens a picker or
+// a view of its own in the TUI.
 var Builtins = []session.Command{
 	{Name: "model", Description: "choose what model and reasoning effort to use", Terminal: true},
 	{Name: "fast", Description: "2x speed, increased usage"},
@@ -38,7 +42,7 @@ var Builtins = []session.Command{
 	{Name: "voice", Description: "start or stop voice; use /voice settings to choose a voice"},
 	{Name: "goal", Description: "set or view the goal for a long-running task"},
 	{Name: "agents", Description: "open the agent command center", Terminal: true},
-	{Name: "side", Description: "start a side conversation"},
+	{Name: "side", Description: "start a side conversation", Aliases: []string{"btw"}},
 	{Name: "copy", Description: "copy the last response or part of it"},
 	{Name: "export", Description: "export the conversation as markdown"},
 	{Name: "raw", Description: "toggle raw scrollback mode for copy-friendly terminal selection"},
@@ -57,9 +61,10 @@ var Builtins = []session.Command{
 	{Name: "theme", Description: "choose a syntax highlighting theme", Terminal: true},
 	{Name: "pets", Description: "choose or hide the terminal pet", Terminal: true},
 	{Name: "mcp", Description: "list MCP tools; /mcp verbose or /mcp login <name> [--environment <id>]"},
+	{Name: "apps", Description: "manage apps", Terminal: true},
 	{Name: "plugins", Description: "browse plugins", Terminal: true},
 	{Name: "logout", Description: "log out of Codex"},
-	{Name: "exit", Description: "exit Codex"},
+	{Name: "exit", Description: "exit Codex", Aliases: []string{"quit"}},
 	{Name: "feedback", Description: "send logs to maintainers or save a ZIP", Terminal: true},
 	{Name: "ps", Description: "list background terminals"},
 	{Name: "stop", Description: "stop all background terminals"},

@@ -496,9 +496,10 @@ func (c *Composer) submit(env Env, at time.Time, other bool) {
 		m.How = followUp(env, text, other)
 	}
 	c.out = append(c.out, m)
-	if name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " "); strings.HasPrefix(text, "/") &&
-		slices.ContainsFunc(env.Snap.Commands, func(c session.Command) bool { return c.Name == name }) {
-		slashUsed[name]++
+	if name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimSpace(text), "/"), " "); strings.HasPrefix(text, "/") {
+		if i := slices.IndexFunc(env.Snap.Commands, func(c session.Command) bool { return c.Is(name) }); i >= 0 {
+			slashUsed[env.Snap.Commands[i].Name]++ // SlashMatches ranks by name, so an alias counts for it
+		}
 	}
 	kept := c.draft
 	kept.Images = imgs
