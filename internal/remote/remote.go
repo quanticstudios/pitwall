@@ -40,12 +40,13 @@ const PairTTL = 10 * time.Minute
 // Dir is the remote folder in the state folder.
 func Dir() string { return filepath.Join(config.StateDir(), "remote") }
 
-// Device is a paired phone.
+// Device is a paired phone, or a Tailscale peer when Tailscale is true.
 type Device struct {
-	ID     string
-	Name   string
-	Hash   string // hex SHA-256 of the token's secret; the token is not kept
-	Paired time.Time
+	ID        string
+	Name      string
+	Hash      string // hex SHA-256 of the token's secret; the token is not kept
+	Paired    time.Time
+	Tailscale bool `json:"-"` // authenticated by Tailscale WhoIs rather than a pairing token
 }
 
 // pairing is pair.json: a code not yet used.

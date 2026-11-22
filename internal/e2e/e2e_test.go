@@ -25,6 +25,10 @@ import (
 
 const timeout = 5 * time.Second
 
+// buildTimeout bounds a cold `go build ./cmd/pitwall` inside e2e tests when
+// the test shard builds tailscale.com/tsnet alongside other packages.
+const buildTimeout = 3 * time.Minute
+
 const permission = `{"hook_event_name":"PermissionRequest","tool_name":"Bash"}`
 const stop = `{"hook_event_name":"Stop"}`
 
@@ -293,7 +297,7 @@ func TestPromptNamesSession(t *testing.T) {
 func TestBinaryHook(t *testing.T) {
 	isolate(t)
 	bin := filepath.Join(t.TempDir(), "pitwall.exe") // Windows runs no file without .exe
-	run(t, time.Minute, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
+	run(t, buildTimeout, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
 	startDaemon(t)
 	gui := connect(t, "gui")
 	w := newWorkspace(t, gui)
@@ -688,7 +692,7 @@ func run(t *testing.T, limit time.Duration, dir, name string, args ...string) st
 func TestDriveTabs(t *testing.T) {
 	isolate(t)
 	bin := filepath.Join(t.TempDir(), "pitwall.exe") // Windows runs no file without .exe
-	run(t, time.Minute, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
+	run(t, buildTimeout, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
 	startDaemon(t)
 	pitwall := func(args ...string) (int, string, string) {
 		t.Helper()

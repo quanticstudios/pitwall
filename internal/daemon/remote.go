@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"gioui.org/io/key"
@@ -38,19 +39,60 @@ type phone struct {
 	Bundle string
 }
 
+// phoneListen is the comparable subset of [remote] that drives the local
+// TCP listener; changes under [remote.tailscale] do not disturb it.
+type phoneListen struct {
+	Enabled bool
+	Listen  string
+	TLS     bool
+	URL     string
+	Bundle  string
+}
+
 // remoteLoop serves the phone page while [remote] enables it.
 func (d *Daemon) remoteLoop(ctx context.Context) {
 	if d.o.Remote == nil {
 		return
 	}
-	get := func() phone {
-		p := phone{RemoteSettings: d.o.Remote()}
+	get := func() phoneListen {
+		r := d.o.Remote()
+		p := phoneListen{Enabled: r.Enabled, Listen: r.Listen, TLS: r.TLS, URL: r.URL}
 		if d.o.Web != nil {
 			p.Bundle = d.o.Web().Bundle
 		}
 		return p
 	}
-	watchListener(ctx, get, func(p phone) bool { return p.Enabled }, d.serveRemote)
+	watchListener(ctx, get, func(p phoneListen) bool { return p.Enabled }, func(p phoneListen) func() {
+		return d.serveRemote(phone{
+			RemoteSettings: config.RemoteSettings{Enabled: p.Enabled, Listen: p.Listen, TLS: p.TLS, URL: p.URL},
+			Bundle:         p.Bundle,
+		})
+	})
+}
+
+// acquirePush starts the shared pushLoop if it is not running yet, and returns
+// a release function that stops it when the last remote listener closes.
+func (d *Daemon) acquirePush() func() {
+	d.pushMu.Lock()
+	d.pushRefs++
+	if d.pushRefs == 1 {
+		ctx, cancel := context.WithCancel(context.Background())
+		d.pushCancel = cancel
+		go d.pushLoop(ctx, &remote.Pusher{Dir: d.o.RemoteDir})
+	}
+	d.pushMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			d.pushMu.Lock()
+			d.pushRefs--
+			if d.pushRefs == 0 && d.pushCancel != nil {
+				d.pushCancel()
+				d.pushCancel = nil
+			}
+			d.pushMu.Unlock()
+		})
+	}
 }
 
 // watchListener runs serve while on(get()) holds, and serves anew when the
@@ -121,11 +163,10 @@ func (d *Daemon) serveRemote(s phone) (stop func()) {
 	}
 	srv := &http.Server{Handler: rs.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
-	ctx, cancel := context.WithCancel(context.Background())
-	go d.pushLoop(ctx, &remote.Pusher{Dir: d.o.RemoteDir})
+	releasePush := d.acquirePush()
 	log.Printf("remote: serving %s://%s for paired devices", scheme, ln.Addr())
 	return func() {
-		cancel()
+		releasePush()
 		if ws != nil {
 			ws.Close()
 		}

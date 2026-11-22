@@ -178,6 +178,15 @@ type Server struct {
 	// Icons, when set, serves the repo icons Tab.Icon names.
 	Icons *Icons
 
+	// Authorize, when set (on the built-in Tailscale listener only),
+	// authenticates requests without a paired-device Bearer token using
+	// the connection's Tailscale identity. code == 0 allows the request
+	// as Device; a non-zero HTTP status code denies it with msg.
+	Authorize func(*http.Request) (Device, int, string)
+	// DeviceLive reports whether an already-authenticated Device may keep
+	// an open event stream alive. When nil, Paired(s.Dir, d.ID) is used.
+	DeviceLive func(Device) bool
+
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
 
@@ -394,14 +403,26 @@ func headers(h http.Handler) http.Handler {
 // stops it before the upgrade.
 func sameOrigin(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if o := r.Header.Get("Origin"); o != "" {
-			if u, err := url.Parse(o); err != nil || u.Host != r.Host || u.Scheme != "http" && u.Scheme != "https" {
-				http.Error(w, "forbidden origin", http.StatusForbidden)
-				return
-			}
+		if !sameOriginRequest(r) {
+			http.Error(w, "forbidden origin", http.StatusForbidden)
+			return
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// sameOriginRequest reports whether r does not come from another origin.
+// Non-browser clients omit Origin and Sec-Fetch-Site and pass.
+func sameOriginRequest(r *http.Request) bool {
+	if o := r.Header.Get("Origin"); o != "" {
+		if u, err := url.Parse(o); err != nil || u.Host != r.Host || u.Scheme != "http" && u.Scheme != "https" {
+			return false
+		}
+	}
+	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" && sfs != "same-origin" && sfs != "none" {
+		return false
+	}
+	return true
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -443,13 +464,29 @@ var errLimited = errors.New("too many failed attempts; try again in a minute")
 
 func (s *Server) authed(h func(http.ResponseWriter, *http.Request, Device)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		token, hasBearer := strings.CutPrefix(auth, "Bearer ")
+		// Without a paired-device token, fall back to Tailscale WhoIs when configured.
+		if (!hasBearer || token == "") && s.Authorize != nil {
+			// why: Tailscale identity needs no Authorization header, so enforce same-origin to stop cross-site requests.
+			if !sameOriginRequest(r) {
+				http.Error(w, "forbidden origin", http.StatusForbidden)
+				return
+			}
+			d, code, msg := s.Authorize(r)
+			if code != 0 {
+				http.Error(w, msg, code)
+				return
+			}
+			h(w, r, d)
+			return
+		}
 		s.mu.Lock()
 		if s.limited() {
 			s.mu.Unlock()
 			http.Error(w, errLimited.Error(), http.StatusTooManyRequests)
 			return
 		}
-		token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		d, ok := check(s.Dir, token)
 		if !ok {
 			s.fail("a bad device token", r)
@@ -461,6 +498,13 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, Device)) http
 		}
 		h(w, r, d)
 	}
+}
+
+func (s *Server) deviceLive(d Device) bool {
+	if s.DeviceLive != nil {
+		return s.DeviceLive(d)
+	}
+	return Paired(s.Dir, d.ID)
 }
 
 func (s *Server) pair(w http.ResponseWriter, r *http.Request) {

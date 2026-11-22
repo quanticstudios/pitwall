@@ -35,6 +35,7 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`),
 	regexp.MustCompile(`\bey[JK][A-Za-z0-9_-]{10,}\.ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`),
 	regexp.MustCompile(`\bts[-_](?:live|test|key)?[-_]?[A-Za-z0-9]{24,}`),
+	regexp.MustCompile(`\btskey-[A-Za-z0-9_-]{16,}`),
 }
 
 // Redact replaces secrets in s: private keys, Authorization headers,

@@ -192,7 +192,7 @@ const usage = `usage:
   pitwall snapshots [restore <name>]
                              list the saved tabs' snapshots, or stop the daemon
                              and put one back (see docs/state.md)
-  pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
+  pitwall remote <cmd>       pair, devices, revoke, tailscale: answer agents from a phone (see pitwall remote)
   pitwall web <cmd>          open: the web client in a browser; token: the token local web clients connect with (see pitwall web)
 `
 

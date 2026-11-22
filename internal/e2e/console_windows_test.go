@@ -16,7 +16,7 @@ import (
 // attaches to cmd's console and prints there. Piped, it prints to the pipe.
 func TestGUIBinaryPrints(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "pitwall.exe")
-	run(t, time.Minute, filepath.Join("..", ".."), "go", "build", "-ldflags=-H=windowsgui", "-o", bin, "./cmd/pitwall")
+	run(t, buildTimeout, filepath.Join("..", ".."), "go", "build", "-ldflags=-H=windowsgui", "-o", bin, "./cmd/pitwall")
 	if out := run(t, 10*time.Second, ".", bin, "--version"); !strings.HasPrefix(out, "pitwall ") {
 		t.Fatalf("piped: %q", out)
 	}
