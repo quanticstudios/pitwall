@@ -112,7 +112,10 @@ type Env struct {
 	Chat  string
 	Snap  *session.Snapshot
 	Width unit.Dp // the column the card is centered in
-	Focus bool    // take key focus: nothing else in the window holds it
+	// Gutter is Ledger's time and name gutter width, which the card's
+	// column leaves room for beside it, as the transcript's does.
+	Gutter unit.Dp
+	Focus  bool // take key focus: nothing else in the window holds it
 	// Images is whether the daemon takes image attachments. ReadImage
 	// reads the clipboard's image off the UI goroutine, and Invalidate
 	// redraws the window once it is in.
@@ -912,14 +915,11 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	}
 	c.events(gtx, env)
 	full := gtx.Constraints.Max.X
-	sidePad := gtx.Dp(theme.SpaceXL)
+	w := max(0, min(full-2*gtx.Dp(theme.SpaceXL), gtx.Dp(env.Width)))
+	x := (full - w) / 2
 	if env.Ledger {
-		sidePad = gtx.Dp(ledgerSidePad)
-		if full < gtx.Dp(400) {
-			sidePad = min(sidePad, max(gtx.Dp(theme.SpaceM), (full-gtx.Dp(260))/2))
-		}
+		x, w, _ = LedgerColumn(gtx, full, gtx.Dp(env.Gutter))
 	}
-	w := max(0, min(full-2*sidePad, gtx.Dp(env.Width)))
 	cg := gtx
 	cg.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
 	m := op.Record(gtx.Ops)
@@ -961,10 +961,10 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	if env.Ledger {
 		qtop = gtx.Dp(theme.SpaceXS)
 	}
-	qoff := op.Offset(image.Pt((full-w)/2, qtop)).Push(gtx.Ops)
+	qoff := op.Offset(image.Pt(x, qtop)).Push(gtx.Ops)
 	qcall.Add(gtx.Ops)
 	qoff.Pop()
-	off := op.Offset(image.Pt((full-w)/2, top)).Push(gtx.Ops)
+	off := op.Offset(image.Pt(x, top)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	if t := c.popT.Get(gtx); c.menu || t > 0 {
 		c.popover(gtx, th, env, t)
@@ -977,7 +977,7 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	}
 	off.Pop()
 	if statusDims.Size.Y > 0 {
-		soff := op.Offset(image.Pt((full-w)/2, top+card.Size.Y+statusGap)).Push(gtx.Ops)
+		soff := op.Offset(image.Pt(x, top+card.Size.Y+statusGap)).Push(gtx.Ops)
 		statusCall.Add(gtx.Ops)
 		soff.Pop()
 	}

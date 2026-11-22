@@ -270,11 +270,7 @@ func TestAskStepsShots(t *testing.T) {
 					Constraints: layout.Exact(image.Pt(w, h)),
 					Now:         now,
 				}
-				cw := unit.Dp(760)
-				if ledger {
-					cw = LedgerWidth(snap.Provider)
-				}
-				env := chatin.Env{Chat: "c", Snap: snap, Width: cw, Ledger: ledger, Focus: false, Key: tr.Key, Answer: tr.Answer}
+				env := chatin.Env{Chat: "c", Snap: snap, Width: 760, Gutter: LedgerGutter(snap.Provider), Ledger: ledger, Focus: false, Key: tr.Key, Answer: tr.Answer}
 				layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return tr.Layout(gtx, th, snap, false) }),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return cmp.Layout(gtx, th, env) }),

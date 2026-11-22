@@ -12,6 +12,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -63,37 +64,48 @@ func TestLedgerGeometry(t *testing.T) {
 	var ops op.Ops
 	gtx := layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
 
-	// Wide window (3440 dp): text column stays capped at 768 dp and centered.
-	wide := ledgerMetrics(gtx, model.ProviderClaude, 3440)
-	if wide.textW != 768 {
-		t.Fatalf("wide textW = %d, want 768", wide.textW)
+	if got := ledgerMetrics(gtx, model.ProviderClaude, 3440).gutterW; got != 44+12+58+12 {
+		t.Fatalf("claude gutterW = %d, want 126", got)
 	}
-	if wide.x0 != (3440-wide.ledgerW)/2 {
-		t.Fatalf("wide x0 = %d, want %d", wide.x0, (3440-wide.ledgerW)/2)
+	agy, cl := ledgerMetrics(gtx, model.ProviderAntigravity, 3440), ledgerMetrics(gtx, model.ProviderClaude, 3440)
+	if agy.nameW <= cl.nameW || agy.textW != 768 {
+		t.Fatalf("agy nameW = %d (claude %d), textW = %d, want wider name and 768", agy.nameW, cl.nameW, agy.textW)
 	}
-	if wide.gutterW != 44+12+58+12 {
-		t.Fatalf("claude gutterW = %d, want 126", wide.gutterW)
+	for _, prov := range []model.Provider{model.ProviderClaude, model.ProviderAntigravity} {
+		for _, w := range []int{320, 560, 648, 760, 1000, 1280, 1600, 3440} {
+			g := ledgerMetrics(gtx, prov, w)
+			// The composer card's column: its left and right edges are the text's.
+			cx, cw, _ := chatin.LedgerColumn(gtx, w, int(LedgerGutter(prov)))
+			if g.textX != cx || g.textW != cw {
+				t.Fatalf("%s at %d: text %d+%d, composer %d+%d", prov, w, g.textX, g.textW, cx, cw)
+			}
+			if off := w - 2*g.textX - g.textW; g.textW > 768 || g.textW <= 0 || off != 0 && off != 1 {
+				t.Fatalf("%s at %d: text %d+%d not centered or out of 1..768", prov, w, g.textX, g.textW)
+			}
+			// Nothing clips: the gutter and the text stay in the pane.
+			if g.x0 < 0 || g.x0+g.ledgerW > w {
+				t.Fatalf("%s at %d: ledger %d+%d leaves the pane", prov, w, g.x0, g.ledgerW)
+			}
+			if g.outside {
+				if g.x0 != g.textX-g.gutterW || g.x0 < gtx.Dp(theme.SpaceXL) {
+					t.Fatalf("%s at %d: gutter at %d, text at %d", prov, w, g.x0, g.textX)
+				}
+			} else if g.x0 != g.textX || g.ledgerW != g.textW {
+				t.Fatalf("%s at %d: gutter above the text should share its span", prov, w)
+			}
+		}
 	}
-
-	// Antigravity gets a wider name column so "Antigravity" never clips, while textW stays 768.
-	agy := ledgerMetrics(gtx, model.ProviderAntigravity, 3440)
-	if agy.textW != 768 {
-		t.Fatalf("agy textW = %d, want 768", agy.textW)
-	}
-	if agy.nameW <= wide.nameW {
-		t.Fatalf("agy nameW = %d, want > %d", agy.nameW, wide.nameW)
-	}
-	if got := LedgerWidth(model.ProviderAntigravity); int(got) != agy.ledgerW {
-		t.Fatalf("LedgerWidth(agy) = %v, want %d", got, agy.ledgerW)
-	}
-
-	// Narrow pane (648 dp, i.e. 900 dp window minus 252 dp sidebar): fits with side padding.
-	narrow := ledgerMetrics(gtx, model.ProviderClaude, 648)
-	if narrow.x0 < 24 || narrow.ledgerW+2*narrow.x0 != 648 {
-		t.Fatalf("narrow not centered: x0=%d ledgerW=%d", narrow.x0, narrow.ledgerW)
-	}
-	if narrow.textW > 768 || narrow.textW <= 0 {
-		t.Fatalf("narrow textW = %d", narrow.textW)
+	// Wide panes cap the text at 768 dp with the gutter beside it; narrow
+	// ones move the gutter above the text.
+	for _, c := range []struct {
+		w       int
+		outside bool
+		textW   int
+	}{{3440, true, 768}, {1600, true, 768}, {1000, true, 1000 - 2*(28+126)}, {760, true, 760 - 2*(28+126)}, {700, false, 700 - 56}, {560, false, 560 - 56}} {
+		g := ledgerMetrics(gtx, model.ProviderClaude, c.w)
+		if g.outside != c.outside || g.textW != c.textW {
+			t.Fatalf("at %d: outside=%v textW=%d, want %v %d", c.w, g.outside, g.textW, c.outside, c.textW)
+		}
 	}
 }
 
@@ -124,15 +136,15 @@ func TestLedgerRowsAndToolVisibility(t *testing.T) {
 		if r.gutter {
 			gutters++
 		}
-		if r.tail == nil && r.res == nil && r.b.kind == blockPrompt && (r.gutter || r.inTurn) {
-			t.Fatalf("prompt row should not have gutter or inTurn: %+v", r)
+		if ledgerPromptRow(&r) && (!r.gutter || r.inTurn) {
+			t.Fatalf("prompt row should have a gutter and stay out of the turn: %+v", r)
 		}
 	}
 	if items != 4 || heads != 0 || turns != 0 {
 		t.Fatalf("ToolsAll: items=%d heads=%d turns=%d, want 4/0/0", items, heads, turns)
 	}
-	if gutters != 2 {
-		t.Fatalf("ToolsAll: gutters=%d, want 2 (one per agent turn)", gutters)
+	if gutters != 4 {
+		t.Fatalf("ToolsAll: gutters=%d, want 4 (one per prompt and per agent turn)", gutters)
 	}
 
 	// Failed: keeps only the failed Bash call (c3).

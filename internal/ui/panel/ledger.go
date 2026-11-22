@@ -16,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -27,11 +28,9 @@ const (
 )
 
 // Ledger layout geometry, ported from the Ledger direction mock and user
-// notes: a fixed time + agent gutter beside a text column capped at 768 dp,
-// centered in the pane at any window width.
+// notes: a text column capped at 768 dp and centered in the pane, as wide
+// as the composer card, with the time and agent gutter hanging left of it.
 const (
-	ledgerTextMax unit.Dp = 768
-	ledgerSidePad unit.Dp = theme.SpaceXL + theme.SpaceXS // 28 dp
 	ledgerTimeW   unit.Dp = 44
 	ledgerNameMin unit.Dp = 58
 	ledgerNameMax unit.Dp = 96
@@ -53,44 +52,48 @@ func ledgerNameDp(prov model.Provider) unit.Dp {
 	return min(ledgerNameMax, ledgerNameMin+unit.Dp((len(name)-7)*5))
 }
 
-// LedgerWidth is the Ledger conversation's widest total width in dp (gutter +
-// 768 dp text column), used by the composer so its card aligns with the
-// transcript's outer edges.
-func LedgerWidth(prov model.Provider) unit.Dp {
-	return ledgerTimeW + ledgerGap + ledgerNameDp(prov) + ledgerGap + ledgerTextMax
+// LedgerGutter is the width in dp of Ledger's time and name gutter for
+// prov's chats, which the composer's chatin.LedgerColumn takes so its card
+// lines up with the transcript's text.
+func LedgerGutter(prov model.Provider) unit.Dp {
+	return ledgerTimeW + ledgerGap + ledgerNameDp(prov) + ledgerGap
 }
 
 // ledgerGeom is one frame's resolved pixel widths for Ledger.
 type ledgerGeom struct {
 	timeW, nameW, gap int
-	gutterW           int
-	textW             int
-	ledgerW           int
-	x0                int
+	gutterW           int  // time, name and the gaps after each
+	textX, textW      int  // the text column, the composer card's too
+	outside           bool // the gutter hangs left of the text; else it sits above it
+	x0, ledgerW       int  // the gutter and the text together: dividers, the plan strip
 }
 
 func ledgerMetrics(gtx layout.Context, prov model.Provider, availW int) ledgerGeom {
-	side := gtx.Dp(ledgerSidePad)
-	if availW < gtx.Dp(400) {
-		side = min(side, max(gtx.Dp(theme.SpaceM), (availW-gtx.Dp(260))/2))
-	}
 	timeW := gtx.Dp(ledgerTimeW)
 	nameW := gtx.Dp(ledgerNameDp(prov))
 	gap := gtx.Dp(ledgerGap)
 	gutterW := timeW + gap + nameW + gap
-	maxW := gutterW + gtx.Dp(ledgerTextMax)
-	ledgerW := max(0, min(availW-2*side, maxW))
-	textW := max(0, ledgerW-gutterW)
-	x0 := (availW - ledgerW) / 2
-	return ledgerGeom{
-		timeW: timeW, nameW: nameW, gap: gap,
-		gutterW: gutterW, textW: textW, ledgerW: ledgerW, x0: x0,
+	textX, textW, outside := chatin.LedgerColumn(gtx, availW, gtx.Dp(LedgerGutter(prov)))
+	g := ledgerGeom{
+		timeW: timeW, nameW: nameW, gap: gap, gutterW: gutterW,
+		textX: textX, textW: textW, outside: outside,
+		x0: textX, ledgerW: textW,
 	}
+	if outside {
+		g.x0, g.ledgerW = textX-gutterW, textW+gutterW
+	}
+	return g
 }
 
-// buildLedgerRows lays out the transcript for Ledger: user prompts as
-// right-aligned bubbles, and each agent turn with a left gutter on its first
-// row and every visible tool call as its own row in the 768 dp text column.
+// ledgerHeadH is the height of the time and name line that sits above a
+// row's text when the gutter does not fit beside it.
+func (d *cdraw) ledgerHeadH(gtx layout.Context) int {
+	return gtx.Sp(d.th.Sp(theme.Body) * 1.6)
+}
+
+// buildLedgerRows lays out the transcript for Ledger: each user prompt and
+// each agent turn is a row with the time and name in the gutter on its
+// first line, and every visible tool call is its own row in the text column.
 func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 	t.rows = t.rows[:0]
 	running := runningTurns(d.s)
@@ -134,7 +137,11 @@ func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 		}
 		if b.kind != blockTurn {
 			if !quiet[b.lo] {
-				t.rows = append(t.rows, trow{b: b})
+				r := trow{b: b}
+				if b.kind == blockPrompt {
+					r.gutter, r.gutterAt, r.divider = true, ledgerItemTime(d.s, b.lo), len(t.rows) > 0
+				}
+				t.rows = append(t.rows, r)
 			}
 			lastTurnOpen = false
 			continue
@@ -241,17 +248,19 @@ func ledgerItemTime(s *session.Snapshot, i int) time.Time {
 	return parseTime(s.Content[i].UpdatedAt)
 }
 
+// ledgerPromptRow is whether r is a user prompt's row.
+func ledgerPromptRow(r *trow) bool { return r.tail == nil && r.res == nil && r.b.kind == blockPrompt }
+
 // ledgerRowGap is the space above row i in Ledger.
 func ledgerRowGap(rows []trow, i int) unit.Dp {
 	if i == 0 {
 		return 0
 	}
 	r, prev := &rows[i], &rows[i-1]
-	prompt := func(r *trow) bool { return r.tail == nil && r.res == nil && r.b.kind == blockPrompt }
 	switch {
 	case r.gutter:
 		return theme.SpaceM
-	case prompt(r):
+	case ledgerPromptRow(r):
 		return theme.SpaceL
 	case r.inTurn && prev.inTurn:
 		if r.seg == segItem && prev.seg == segItem && r.tail == nil && prev.tail == nil && r.res == nil && prev.res == nil {
@@ -275,12 +284,15 @@ func (t *Transcript) keepLayoutScroll(s *session.Snapshot) {
 	}
 }
 
-// ledgerGutter draws the left gutter for an agent turn: HH:MM in mono muted
-// and the agent's name in its color.
-func (d *cdraw) ledgerGutter(gtx layout.Context, when time.Time, rowHpx int) {
+// ledgerGutter draws the gutter for a row: HH:MM in mono muted, then the
+// agent's name in its color, or You for the user's own message.
+func (d *cdraw) ledgerGutter(gtx layout.Context, when time.Time, rowHpx int, you bool) {
 	th := d.th
 	name := d.agent()
 	col := th.Readable(sidebar.AgentColor(d.s.Provider, th.Fg), th.Bg)
+	if you {
+		name, col = "You", th.Fg
+	}
 	tm := ""
 	if !when.IsZero() {
 		tm = when.Local().Format("15:04")
@@ -302,61 +314,24 @@ func (d *cdraw) ledgerGutter(gtx layout.Context, when time.Time, rowHpx int) {
 	at(gtx, image.Pt(d.geom.timeW+d.geom.gap, onBase(base, nd)), func(gtx layout.Context) layout.Dimensions { nc.Add(gtx.Ops); return nd })
 }
 
-// ledgerPrompt draws the user's message on the right as a bubble (at most
-// 70% of the text column), with the time small and muted under it. No gutter.
+// ledgerPrompt draws the user's message as a ledger row's text: in the text
+// column like a reply, no bubble, with Copy, Edit and Rewind on hover at the
+// row's bottom right.
 func (d *cdraw) ledgerPrompt(gtx layout.Context, it *session.Item) layout.Dimensions {
-	th := d.th
-	w := d.geom.ledgerW
+	w := d.geom.textW
+	var dims layout.Dimensions
 	if slashCommand(it.Text) && len(it.Attachments) == 0 {
-		g := gtx
-		g.Constraints.Max.X = w
-		chip := d.commandChip(g, strings.TrimSpace(it.Text), true)
-		return d.withPromptTime(gtx, it, w, chip.Size.Y)
-	}
-	maxW := max(gtx.Dp(160), d.geom.textW*70/100)
-	px, py := gtx.Dp(14), gtx.Dp(10)
-	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, maxW-2*px), gtx.Constraints.Max.Y)}
-	call, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
-		return vstack(gtx, gtx.Dp(theme.SpaceS),
+		dims = d.commandChip(gtx, strings.TrimSpace(it.Text), false)
+	} else {
+		dims = vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions { return d.senderLine(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.attachments(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.pastes(gtx, it) },
 		)
-	})
-	bw, bh := dims.Size.X+2*px, dims.Size.Y+2*py
-	x := w - bw
-	r, small := gtx.Dp(theme.RadiusCard), gtx.Dp(theme.SpaceXS)
-	rr := clip.RRect{Rect: image.Rect(x, 0, x+bw, bh), NW: r, NE: r, SE: small, SW: r}
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
-	o := op.Offset(image.Pt(x+px, py)).Push(gtx.Ops)
-	call.Add(gtx.Ops)
-	o.Pop()
-	prevCol := d.col
-	d.col = w
-	d.promptTools(gtx, it, x, bh)
-	d.col = prevCol
-	return d.withPromptTime(gtx, it, w, bh)
-}
-
-func (d *cdraw) withPromptTime(gtx layout.Context, it *session.Item, w, bh int) layout.Dimensions {
-	when := parseTime(it.CreatedAt)
-	if when.IsZero() {
-		when = parseTime(it.UpdatedAt)
 	}
-	if when.IsZero() {
-		return layout.Dimensions{Size: image.Pt(w, bh)}
-	}
-	tc, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return d.lbl(gtx, d.th.MonoFont, d.th.Sp(theme.Caption), d.th.Muted, when.Local().Format("15:04"))
-	})
-	gap := gtx.Dp(theme.SpaceXS)
-	at(gtx, image.Pt(w-td.Size.X-gtx.Dp(theme.Space2XS), bh+gap), func(gtx layout.Context) layout.Dimensions {
-		tc.Add(gtx.Ops)
-		return td
-	})
-	return layout.Dimensions{Size: image.Pt(w, bh+gap+td.Size.Y)}
+	d.promptTools(gtx, it, w+gtx.Dp(theme.SpaceXS), dims.Size.Y)
+	return layout.Dimensions{Size: image.Pt(w, dims.Size.Y)}
 }
 
 // ledgerWorking is the quiet running-turn indicator in Ledger's text column.

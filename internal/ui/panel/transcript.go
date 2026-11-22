@@ -967,7 +967,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		d.ledger = true
 		d.geom = ledgerMetrics(gtx, s.Provider, size.X)
 		d.col, d.proseW = d.geom.textW, d.geom.textW
-		col, x0 = d.geom.ledgerW, d.geom.x0
+		col, x0 = d.geom.textW, d.geom.textX
 		planH = d.planStrip(gtx, size)
 	} else {
 		side := gtx.Dp(theme.SpaceXL)
@@ -1094,25 +1094,28 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		gap := gtx.Dp(r.gap)
 		topY := gap
 		if d.ledger && r.divider {
-			paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(x0, gap), Max: image.Pt(x0+d.geom.ledgerW, gap+max(1, gtx.Dp(1)))}.Op())
+			paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(d.geom.x0, gap), Max: image.Pt(d.geom.x0+d.geom.ledgerW, gap+max(1, gtx.Dp(1)))}.Op())
 			topY += gtx.Dp(theme.SpaceS + theme.Space2XS)
 		}
-		t.msg.dy = topY
 		rowX, rowW := x0, col
 		dx := 0
 		if d.ledger {
 			if r.gutter {
-				at(gtx, image.Pt(x0, topY), func(gtx layout.Context) layout.Dimensions {
-					d.ledgerGutter(gtx, r.gutterAt, d.ledgerRowFirstLineH(gtx, r))
+				gx, gh := x0-d.geom.gutterW, d.ledgerRowFirstLineH(gtx, r)
+				if !d.geom.outside { // too narrow beside the text: the time and name go above it
+					gx, gh = x0, d.ledgerHeadH(gtx)
+				}
+				at(gtx, image.Pt(gx, topY), func(gtx layout.Context) layout.Dimensions {
+					d.ledgerGutter(gtx, r.gutterAt, gh, ledgerPromptRow(r))
 					return layout.Dimensions{}
 				})
-			}
-			if r.inTurn {
-				rowX, rowW = x0+d.geom.gutterW, d.geom.textW
-				if !r.isTail() && r.res == nil && r.seg == segItem {
-					dx = gtx.Dp(rowPad - theme.Space2XS)
-					rowW += dx
+				if !d.geom.outside {
+					topY += gh + gtx.Dp(theme.SpaceXS)
 				}
+			}
+			if r.inTurn && !r.isTail() && r.res == nil && r.seg == segItem {
+				dx = gtx.Dp(rowPad - theme.Space2XS)
+				rowW += dx
 			}
 		} else if !r.isTail() && r.res == nil && (r.seg == segHead || r.seg == segItem) {
 			// A line of work starts at the prose's edge, as T3 Code's rows
@@ -1120,6 +1123,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			dx = gtx.Dp(rowPad - theme.Space2XS)
 			rowW += dx
 		}
+		t.msg.dy = topY
 		gtx.Constraints = layout.Constraints{Max: image.Pt(rowW, gtx.Constraints.Max.Y)}
 		off := op.Offset(image.Pt(rowX-dx, topY)).Push(gtx.Ops)
 		var dims layout.Dimensions

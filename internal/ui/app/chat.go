@@ -238,10 +238,7 @@ func (u *ui) chatEnv(st *model.State, id string, s *session.Snapshot, t *panel.T
 		width = 1 << 16
 	}
 	ledger := u.cfg.Chat.Layout == config.ChatLedger
-	if ledger {
-		width = panel.LedgerWidth(s.Provider)
-	}
-	env := chatin.Env{Chat: id, Snap: s, Width: width, Ledger: ledger,
+	env := chatin.Env{Chat: id, Snap: s, Width: width, Ledger: ledger, Gutter: panel.LedgerGutter(s.Provider),
 		Focus:  !u.keysHeld(st) && u.nav.peek == "" && u.find.pane == "",
 		Images: u.link().Level >= proto.ChatAttachLevel, ReadImage: readClipImage, Invalidate: u.invalidate,
 		Now: u.link().Level >= proto.ChatNowLevel, Queue: u.link().Level >= proto.QueueLevel,

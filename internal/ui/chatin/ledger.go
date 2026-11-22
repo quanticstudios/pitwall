@@ -22,9 +22,33 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// ledgerSidePad matches panel's ledgerSidePad (28 dp) so the docked card and
-// status line align with the Ledger conversation's edges.
-const ledgerSidePad unit.Dp = theme.SpaceXL + theme.SpaceXS
+// Ledger's text column: at most LedgerTextMax wide, 28 dp from the pane's
+// sides, and at least ledgerTextMin wide before the time and name gutter
+// moves from beside the text to above it.
+const (
+	LedgerTextMax unit.Dp = 768
+	ledgerTextMin unit.Dp = 420
+	ledgerSidePad unit.Dp = theme.SpaceXL + theme.SpaceXS
+)
+
+// LedgerColumn is Ledger's text column in a pane full px wide, centered:
+// its left edge x and width w, which the transcript's text and the
+// composer card share so their edges line up. gutter is the time and name
+// gutter's width in px. outside reports whether the gutter hangs left of
+// the column; when the pane is too narrow for that, the column takes the
+// pane less its sides and the gutter goes above each row's text.
+func LedgerColumn(gtx layout.Context, full, gutter int) (x, w int, outside bool) {
+	side := gtx.Dp(ledgerSidePad)
+	if full < gtx.Dp(400) {
+		side = min(side, max(gtx.Dp(theme.SpaceM), (full-gtx.Dp(260))/2))
+	}
+	maxW := gtx.Dp(LedgerTextMax)
+	if w := min(maxW, full-2*(side+gutter)); gutter > 0 && w >= gtx.Dp(ledgerTextMin) {
+		return (full - w) / 2, w, true
+	}
+	w = max(0, min(maxW, full-2*side))
+	return (full - w) / 2, w, false
+}
 
 // attachEvents runs the round + attach button and its popover menu.
 func (c *Composer) attachEvents(gtx layout.Context, env Env) {

@@ -25,6 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - The chat's / menu lists Claude Code's account-gated commands, such as `/remote-control` (`/rc`), `/teleport`, `/background` and `/diff`, so typing them no longer picks a skill instead.
+- Ledger chat layout: the text column is now exactly as wide as the composer card and shares its left and right edges, with the time and name gutter hanging to its left; on panes too narrow for that, the time and name sit above each row's text. Your own messages are ledger rows like the agent's (time, You, text) with no bubble, and Copy, Edit and Rewind show on hover at the row's bottom right.
 
 ## v0.3.3
 
