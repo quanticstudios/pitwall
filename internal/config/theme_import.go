@@ -779,10 +779,6 @@ func FindGhosttyTheme(name string) (string, error) {
 	wantSlug := ThemeSlug(name)
 	var ciMatch, slugMatch string
 	for _, dir := range GhosttyThemeDirs() {
-		exact := filepath.Join(dir, name)
-		if fi, err := os.Stat(exact); err == nil && fi.Mode().IsRegular() {
-			return exact, nil
-		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
@@ -792,11 +788,23 @@ func FindGhosttyTheme(name string) (string, error) {
 				continue
 			}
 			en := e.Name()
+			if en == name {
+				p := filepath.Join(dir, en)
+				if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+					return p, nil
+				}
+			}
 			if ciMatch == "" && strings.EqualFold(en, name) {
-				ciMatch = filepath.Join(dir, en)
+				p := filepath.Join(dir, en)
+				if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+					ciMatch = p
+				}
 			}
 			if slugMatch == "" && wantSlug != "" && ThemeSlug(en) == wantSlug {
-				slugMatch = filepath.Join(dir, en)
+				p := filepath.Join(dir, en)
+				if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+					slugMatch = p
+				}
 			}
 		}
 	}
