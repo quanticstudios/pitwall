@@ -391,7 +391,7 @@ func (d *Daemon) chatSubscribe(ctx context.Context, c *client, m proto.ChatSubsc
 // pane chat's.
 func (d *Daemon) chatUnsubscribe(id string, sink web.Sink) {
 	if ch, err := d.chat(id); err == nil {
-		ch.do(func() { delete(ch.subs, sink) })
+		ch.run(func() { delete(ch.subs, sink) }) // run, not do: an unsubscribe loads no log
 		return
 	}
 	d.paneUnsubscribe(id, sink)
@@ -467,6 +467,6 @@ func (d *Daemon) dropSubs(c *client) {
 		d.paneUnsubscribe(id, sink)
 	}
 	for _, ch := range chats {
-		ch.do(func() { delete(ch.subs, sink) })
+		ch.run(func() { delete(ch.subs, sink) }) // run, not do: an unsubscribe loads no log
 	}
 }
