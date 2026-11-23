@@ -94,7 +94,8 @@ func thumbsFrame(t *testing.T, s *session.Snapshot, chatLayout string) *image.RG
 		}
 		return true
 	}
-	for i := 0; i < 4 || !ready() && i < 400; i++ {
+	for i, done := 0, false; i < 4 || !done && i < 400; i++ {
+		done = ready() // checked before the frame, so the last frame drew the decoded pictures
 		ops.Reset()
 		now = now.Add(16 * time.Millisecond)
 		gtx := layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(w, h)), Now: now}
@@ -102,7 +103,7 @@ func thumbsFrame(t *testing.T, s *session.Snapshot, chatLayout string) *image.RG
 		if err := win.Frame(&ops); err != nil {
 			t.Fatal(err)
 		}
-		if i >= 3 && !ready() {
+		if i >= 3 && !done {
 			time.Sleep(5 * time.Millisecond)
 		}
 	}
