@@ -132,43 +132,75 @@ func (d *Daemon) phoneChanged() <-chan struct{} {
 	return d.phoneTick
 }
 
-// phoneChatEntries is chat's transcript as the phone shows it.
+// phoneChatEntries is chat's transcript as the phone shows it. An agy
+// pane's is its pane chat's, as the phone has no reader of agy's
+// transcript of its own.
 func (d *Daemon) phoneChatEntries(id string) ([]flow.Entry, string, bool) {
 	d.mu.Lock()
 	c := d.chats[id]
 	d.mu.Unlock()
 	if c == nil {
-		return nil, "", false
+		return d.paneChatEntries(id)
 	}
 	var es []flow.Entry
 	var mdl string
 	ok := c.run(func() {
 		c.open() // why: a chat restored after a restart has no snapshot until its log is read
-		mdl = c.cfg.Model
-		for i, it := range c.snap.Content {
-			e := flow.Entry{Seq: int64(i + 1), Text: it.Text}
-			switch it.Kind {
-			case session.KindUserPrompt:
-				e.Kind = flow.EntryUser
-			case session.KindAssistantText:
-				e.Kind = flow.EntryAssistant
-			case session.KindToolCall:
-				if it.Tool == nil {
-					continue
-				}
-				t := it.Tool
-				e.Kind, e.Text, e.Tool, e.Arg, e.Path = flow.EntryTool, "", t.ToolName, flow.ToolArg(*t), flow.ToolPath(*t)
-				e.Out, e.Done, e.Failed = cutOut(t.Output), t.Status != "running", t.Status == "failed"
-			default:
-				continue
-			}
-			if it.Model != nil && *it.Model != "" {
-				mdl = *it.Model
-			}
-			es = append(es, e)
-		}
+		es, mdl = phoneEntries(c.snap.Content, c.cfg.Model)
 	})
 	return es, mdl, ok
+}
+
+// paneChatEntries is an agy pane's chat as the phone shows it; false for
+// any other pane.
+func (d *Daemon) paneChatEntries(id string) ([]flow.Entry, string, bool) {
+	d.mu.Lock()
+	prov := d.paneProvider(id)
+	d.mu.Unlock()
+	if prov != model.ProviderAntigravity {
+		return nil, "", false
+	}
+	pc, l, ok := d.paneChatOf(id)
+	if !ok {
+		return nil, "", false
+	}
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	if err := pc.catchUp(l); err != nil && pc.off == 0 {
+		return nil, "", false
+	}
+	from, _ := paneWindow(pc.snap.Content, pc.at, pc.start)
+	es, mdl := phoneEntries(pc.snap.Content[from:], "")
+	return es, mdl, true
+}
+
+// phoneEntries is a chat's items as the phone's entries, and the model the
+// latest names, mdl when none does.
+func phoneEntries(items []session.Item, mdl string) ([]flow.Entry, string) {
+	var es []flow.Entry
+	for i, it := range items {
+		e := flow.Entry{Seq: int64(i + 1), Text: it.Text}
+		switch it.Kind {
+		case session.KindUserPrompt:
+			e.Kind = flow.EntryUser
+		case session.KindAssistantText:
+			e.Kind = flow.EntryAssistant
+		case session.KindToolCall:
+			if it.Tool == nil {
+				continue
+			}
+			t := it.Tool
+			e.Kind, e.Text, e.Tool, e.Arg, e.Path = flow.EntryTool, "", t.ToolName, flow.ToolArg(*t), flow.ToolPath(*t)
+			e.Out, e.Done, e.Failed = cutOut(t.Output), t.Status != "running", t.Status == "failed"
+		default:
+			continue
+		}
+		if it.Model != nil && *it.Model != "" {
+			mdl = *it.Model
+		}
+		es = append(es, e)
+	}
+	return es, mdl
 }
 
 func cutOut(s string) string {

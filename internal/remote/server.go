@@ -174,8 +174,9 @@ type Server struct {
 	Version string
 
 	// Tabs lists every tab for the chat page, and Changed is closed at the
-	// daemon's next change. ChatEntries is a chat tab's transcript, and the
-	// model its latest turn used; ok is false for no such chat.
+	// daemon's next change. ChatEntries is a chat tab's transcript, or an
+	// Antigravity pane's, and the model its latest turn used; ok is false
+	// for no such chat.
 	Tabs        func() []Tab
 	Changed     func() <-chan struct{}
 	ChatEntries func(chat string) (entries []flow.Entry, model string, ok bool)
