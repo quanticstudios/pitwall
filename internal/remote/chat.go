@@ -289,7 +289,7 @@ func (s *Server) chatEvents(v *chatView, tabs []Tab, pane string, send func(stri
 		return true
 	}
 	t := tabs[i]
-	if t.Chat {
+	if t.Chat || t.Provider == model.ProviderAntigravity { // why: flow.Log has no reader of agy's transcript; its pane chat has
 		return s.chatTabEvents(v, pane, send)
 	}
 	if t.Transcript == "" {

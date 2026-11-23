@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The phone shows an Antigravity pane's conversation. It read agy's transcript with a parser for another agent's format and found nothing, so the chat stayed empty; it now shows what the desktop chat shows.
+
 ## v0.3.4
 
 - The phone app lays out on the whole window again. v0.3.3 applied Android's window insets on top of a window Android already keeps clear of the bars and the keyboard, so the chat squeezed into a strip under the header with the keyboard up.

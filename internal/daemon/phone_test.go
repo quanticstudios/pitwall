@@ -1034,3 +1034,32 @@ func TestPhoneMessageToParkedAgent(t *testing.T) {
 		t.Error("the parked agent's message was dropped")
 	}
 }
+
+// An agy pane's transcript reaches the phone through its pane chat: the
+// prompt, the calls and the reply.
+func TestPhoneAgyPaneEntries(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	b, err := os.ReadFile("../session/antigravity/testdata/transcript_full.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	tr := filepath.Join(dir, "agy.jsonl")
+	if err := os.WriteFile(tr, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	d.st.Panes[2].Provider, d.st.Panes[2].Transcript, d.st.Panes[2].Env = model.ProviderAntigravity, tr, []string{"HOME=" + dir}
+	d.mu.Unlock()
+	es, _, ok := d.phoneChatEntries("c")
+	kinds := map[string]int{}
+	for _, e := range es {
+		kinds[e.Kind]++
+	}
+	if !ok || kinds[flow.EntryUser] == 0 || kinds[flow.EntryTool] == 0 || kinds[flow.EntryAssistant] == 0 {
+		t.Fatalf("agy pane on the phone: ok %v, kinds %v", ok, kinds)
+	}
+	if _, _, ok := d.phoneChatEntries("a"); ok {
+		t.Error("a Claude pane answered as a chat")
+	}
+}
