@@ -906,3 +906,37 @@ func TestGraphPlacedOnce(t *testing.T) {
 		t.Error("a new scale kept the old placement")
 	}
 }
+
+// TestPlain checks which texts draw as typed: plain lines, paragraphs,
+// paths, bare URLs and image tokens do; any markdown, and text the parse
+// would change, does not.
+func TestPlain(t *testing.T) {
+	for _, c := range []struct {
+		src  string
+		want bool
+	}{
+		{"just words", true},
+		{"two lines\nof text\n\nand a paragraph", true},
+		{"/home/u/foo_bar_baz.go:12 and C:\\path\\to\\file", true},
+		{"see https://example.com/x and a@b.co", true},
+		{"look at [Image #1] and [Image #2]", true},
+		{"a * b * c, #hashtag", true},
+		{"fix **this**", false},
+		{"run `go test`", false},
+		{"- one\n- two", false},
+		{"1) foo", false},
+		{"> quoted", false},
+		{"# title", false},
+		{"```\ncode\n```", false},
+		{"[the spec](https://example.com)", false},
+		{"x <b>y</b> z", false}, // the parse drops the tags
+		{"a \\*b\\*", true},     // goldmark keeps the backslashes
+	} {
+		if got := Plain(c.src, ParseChat([]byte(c.src))); got != c.want {
+			t.Errorf("Plain(%q) = %v, want %v", c.src, got, c.want)
+		}
+	}
+	if b := ParseChat([]byte("1) foo\n2) bar")); len(b) != 2 || b[0].Marker != "1)" || b[1].Marker != "2)" {
+		t.Errorf("1) list markers = %+v, want 1) and 2) as typed", b)
+	}
+}

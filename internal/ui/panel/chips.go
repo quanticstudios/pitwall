@@ -1,13 +1,14 @@
 package panel
 
 import (
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/widget"
+
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 )
 
 // nbsp pads a chip: a no-break space, so the chip never breaks across
@@ -39,42 +40,7 @@ type ctext struct {
 // name "Image #N" and trail spaces: the room a chip's icon and padding
 // take.
 func chipText(s string, lead, trail int) ctext {
-	refs := imageRefs(s)
-	if len(refs) == 0 {
-		return ctext{text: s}
-	}
-	var b strings.Builder
-	ct := ctext{orig: []rune(s)}
-	n, at := 0, 0 // runes written, and the typed rune where s[last:] starts
-	last := 0
-	put := func(str string, lo, hi int) {
-		for range str {
-			ct.lo, ct.hi = append(ct.lo, lo), append(ct.hi, hi)
-			n++
-		}
-		b.WriteString(str)
-	}
-	for _, r := range refs {
-		for _, c := range s[last:r.start] {
-			put(string(c), at, at+1)
-			at++
-		}
-		tok := len([]rune(s[r.start:r.end]))
-		name := "Image" + nbsp + "#" + strconv.Itoa(r.n)
-		put(strings.Repeat(nbsp, lead), at, at+tok)
-		start := n
-		put(name, at, at+tok)
-		ct.chips = append(ct.chips, chip{label: [2]int{start, n}, name: strings.ReplaceAll(name, nbsp, " ")})
-		put(strings.Repeat(nbsp, trail), at, at+tok)
-		at += tok
-		last = r.end
-	}
-	for _, c := range s[last:] {
-		put(string(c), at, at+1)
-		at++
-	}
-	ct.text = b.String()
-	return ct
+	return spansChips([]mdview.Span{{Text: s}}, nil, [2]int{lead, trail}).ct
 }
 
 // typed is the typed text that drawn runes [a, b) stand for.

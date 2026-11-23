@@ -39,8 +39,11 @@ type tstyle struct {
 }
 
 // prose is reply text: Large, Fg a little toward Bg so long light text
-// does not glare.
+// does not glare; the user's own message keeps the prompt's style.
 func (d *cdraw) prose() tstyle {
+	if d.own {
+		return d.promptStyle()
+	}
 	return tstyle{d.th.UIFont, d.th.Sp(theme.Large), theme.Mix(d.th.Fg, d.th.Bg, 0.10), 1.6}
 }
 
