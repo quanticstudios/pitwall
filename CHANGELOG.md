@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.5
 
 - Image chips in a message (`[Image #N]`) flow like words: the first one starts at the text's left edge, and a chip has the same one-space gap to the next chip as to the next word. Before, each chip had a few stray pixels in front of it, so a message started indented and two chips sat farther apart than a chip and its text.
 - A chat row's hover and pressed fill has rounded corners like the buttons around it, with a 2px gap at its sides: tool calls, thinking, the work log, subagent calls, the task list and the files in a changes card. The count cells in the Skillshare view round theirs too.
