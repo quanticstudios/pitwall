@@ -188,13 +188,15 @@ func (t *Transcript) selText() string { return t.selJoined("\n") }
 // selJoined is the selection as selText has it, its blocks sep apart.
 func (t *Transcript) selJoined(sep string) string {
 	type part struct {
-		o   int
-		txt string
+		o        int
+		key, txt string
 	}
 	var parts []part
+	whole := map[string]int{} // by markdown prompt, how many of its blocks are selected whole
 	for key, sl := range t.sels {
 		txt := sl.Text()
-		a, b, ok := t.span.rangeOf(key, utf8.RuneCountInString(txt))
+		n := utf8.RuneCountInString(txt)
+		a, b, ok := t.span.rangeOf(key, n)
 		if !ok {
 			continue
 		}
@@ -204,7 +206,30 @@ func (t *Transcript) selJoined(sep string) string {
 		} else if ct, ok := t.span.typed[key]; ok && ct.text == txt {
 			s = ct.typed(a, b)
 		}
-		parts = append(parts, part{t.span.ord[key], s})
+		if r := t.docs[itemOf(key)]; r != nil && r.typed != "" && (a == 0 && b == n || t.span.whole[sl]) {
+			whole[itemOf(key)]++
+		}
+		parts = append(parts, part{t.span.ord[key], key, s})
+	}
+	// A markdown prompt selected whole copies as typed, as a plain one does.
+	for id, k := range whole {
+		for key := range t.sels {
+			if itemOf(key) == id {
+				k--
+			}
+		}
+		if k != 0 {
+			continue
+		}
+		lo := -1
+		for i, p := range parts {
+			if itemOf(p.key) == id && (lo < 0 || p.o < parts[lo].o) {
+				lo = i
+			}
+		}
+		parts[lo].txt = t.docs[id].typed
+		keep := parts[lo].key
+		parts = slices.DeleteFunc(parts, func(p part) bool { return itemOf(p.key) == id && p.key != keep })
 	}
 	slices.SortFunc(parts, func(x, y part) int { return x.o - y.o })
 	out := make([]string, len(parts))

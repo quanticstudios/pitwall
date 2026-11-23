@@ -103,9 +103,10 @@ type entryRow struct {
 	click      widget.Clickable
 	open       bool             // a tool call shows its output
 	file       widget.Clickable // a file tool's Open
-	text       string           // the reply doc shows, parsed once
+	text       string           // the reply or prompt doc shows, parsed once
 	files      bool             // its paths are links
 	parsed     bool
+	flat       bool // a prompt with no markdown, drawn as typed
 	doc        mdview.Doc
 	toolArg    string
 	toolOut    string
@@ -588,7 +589,7 @@ func (c *chatView) newPill(gtx C, th *theme.Theme) D {
 func (c *chatView) entry(gtx C, th *theme.Theme, e flow.Entry) D {
 	switch e.Kind {
 	case flow.EntryUser:
-		return prompt(gtx, th, e.Text, 1)
+		return c.userEntry(gtx, th, c.row(e.Seq), e.Text)
 	case flow.EntryAssistant:
 		return c.reply(gtx, th, c.row(e.Seq), e.Text)
 	case flow.EntryError:
@@ -603,8 +604,34 @@ func (c *chatView) entry(gtx C, th *theme.Theme, e flow.Entry) D {
 	return D{}
 }
 
-// prompt is a message of the user's, on the right.
+// userEntry is a message of the user's, on the right: as markdown, as a
+// reply draws it, unless it has none, then as typed.
+func (c *chatView) userEntry(gtx C, th *theme.Theme, r *entryRow, src string) D {
+	if !r.parsed || r.text != src {
+		blocks := mdview.ParseChat([]byte(src))
+		r.flat = mdview.Plain(src, blocks)
+		r.doc.Set(blocks)
+		r.text, r.parsed = src, true
+		r.doc.Size, r.doc.Follow = promptSize, c.tap
+	}
+	if r.flat {
+		return prompt(gtx, th, src, 1)
+	}
+	return bubble(gtx, th, 1, func(gtx C) D { return r.doc.Layout(gtx, th) })
+}
+
+// promptSize is a prompt's text size, in the chat's real sp.
+const promptSize unit.Sp = 16
+
+// prompt is a message of the user's as typed, on the right.
 func prompt(gtx C, th *theme.Theme, s string, opacity float32) D {
+	return bubble(gtx, th, opacity, func(gtx C) D {
+		return widget.Label{WrapPolicy: text.WrapWords, LineHeight: 22.4, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.UIFont, promptSize, s, colorOp(gtx, th.Fg))
+	})
+}
+
+// bubble is a message of the user's drawn by w, on the right.
+func bubble(gtx C, th *theme.Theme, opacity float32, w layout.Widget) D {
 	maxW := gtx.Constraints.Max.X * 84 / 100
 	return layout.E.Layout(gtx, func(gtx C) D {
 		gtx.Constraints.Max.X = maxW
@@ -613,9 +640,7 @@ func prompt(gtx C, th *theme.Theme, s string, opacity float32) D {
 			defer paint.PushOpacity(gtx.Ops, opacity).Pop()
 		}
 		m := op.Record(gtx.Ops)
-		d := layout.Inset{Left: 14, Right: 14, Top: 10, Bottom: 10}.Layout(gtx, func(gtx C) D {
-			return widget.Label{WrapPolicy: text.WrapWords, LineHeight: 22.4, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.UIFont, 16, s, colorOp(gtx, th.Fg))
-		})
+		d := layout.Inset{Left: 14, Right: 14, Top: 10, Bottom: 10}.Layout(gtx, w)
 		call := m.Stop()
 		r, small := gtx.Dp(16), gtx.Dp(4)
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.RRect{Rect: image.Rectangle{Max: d.Size}, NW: r, NE: r, SW: r, SE: small}.Op(gtx.Ops))

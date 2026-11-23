@@ -36,7 +36,16 @@ type reply struct {
 	plain  string                      // the reply without its markdown, for Copy reply
 	wide   map[string]*mdview.Sideways // code blocks' sideways scroll, by key
 	code   map[string]*hlBlock         // code blocks' highlighting, by key
+	// A prompt's: pad is the no-break spaces around each image chip's
+	// name, {-1, -1} for none; flat says its text draws as typed, not as
+	// markdown; typed is what a selection of all of it copies.
+	pad   [2]int
+	flat  bool
+	typed string
 }
+
+// noChips is a reply's pad: its [Image #N] stay text.
+var noChips = [2]int{-1, -1}
 
 // para is a text block as one selectable string: its styled runs as rune
 // ranges, and the code and link runs drawn over it.
@@ -59,15 +68,36 @@ type srun struct {
 // first so a half-written bold or code span draws styled.
 func (t *Transcript) reply(it *session.Item, live bool) *reply {
 	r := t.docs[it.ID]
-	if r != nil && r.text == it.Text && r.live == live {
+	if r != nil && r.text == it.Text && r.live == live && r.pad == noChips {
 		return r
 	}
 	src := it.Text
 	if live {
 		src = mdview.Heal(src)
 	}
-	old := r
-	r = &reply{text: it.Text, live: live, blocks: mdview.ParseChat([]byte(src)), paras: map[int]para{}, tables: map[int]string{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
+	r = t.parse(it.Text, src, r, noChips)
+	r.live = live
+	t.docs[it.ID] = r
+	return r
+}
+
+// promptDoc is prompt id's text src parsed, each [Image #N] in it widened
+// by pad for its chip.
+func (t *Transcript) promptDoc(id, src string, pad [2]int) *reply {
+	r := t.docs[id]
+	if r != nil && r.text == src && r.pad == pad {
+		return r
+	}
+	r = t.parse(src, src, r, pad)
+	r.flat = mdview.Plain(src, r.blocks)
+	t.docs[id] = r
+	return r
+}
+
+// parse is text's doc, parsed from src; old's code blocks keep their
+// scroll and tokens.
+func (t *Transcript) parse(text, src string, old *reply, pad [2]int) *reply {
+	r := &reply{text: text, pad: pad, blocks: mdview.ParseChat([]byte(src)), paras: map[int]para{}, tables: map[int]string{}, wide: map[string]*mdview.Sideways{}, code: map[string]*hlBlock{}}
 	if old != nil {
 		r.wide, r.code = old.wide, old.code // a code block keeps its scroll and tokens as the reply grows
 	}
@@ -76,7 +106,7 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 	for i, b := range r.blocks {
 		switch b.Kind {
 		case mdview.Para, mdview.Heading:
-			p := spansPara(b.Spans, t.href)
+			p := spansChips(b.Spans, t.href, pad)
 			r.paras[i] = p
 			plain = append(plain, b.Marker+sp(b.Marker)+p.plain)
 		case mdview.Code, mdview.Mermaid:
@@ -92,7 +122,6 @@ func (t *Transcript) reply(it *session.Item, live bool) *reply {
 		}
 	}
 	r.plain = strings.Join(plain, "\n\n")
-	t.docs[it.ID] = r
 	return r
 }
 
@@ -168,29 +197,60 @@ var lineSuffix = regexp.MustCompile(`(:\d+)+$`)
 // code and links run. href, when not nil, is what a link or a path in
 // code opens.
 func spansPara(spans []mdview.Span, href func(link string, code bool) string) para {
+	return spansChips(spans, href, noChips)
+}
+
+// spansChips is spansPara with each [Image #N] outside code widened to
+// pad[0] no-break spaces, the name "Image #N" and pad[1] spaces, the room
+// its chip takes; a copy gives back the token. noChips leaves them text.
+func spansChips(spans []mdview.Span, href func(link string, code bool) string, pad [2]int) para {
 	var p para
 	var b, plain strings.Builder
 	n, at := 0, 0
-	put := func(str string, typed bool) {
+	// put writes str, each rune standing for typed runes [lo, hi).
+	put := func(str string, lo, hi int) {
 		for range str {
-			p.ct.lo, p.ct.hi = append(p.ct.lo, at), append(p.ct.hi, at)
-			if typed {
-				p.ct.hi[n]++
-				at++
-			}
+			p.ct.lo, p.ct.hi = append(p.ct.lo, lo), append(p.ct.hi, hi)
 			n++
 		}
 		b.WriteString(str)
 	}
+	text := func(str string) { // str as typed, rune for rune
+		for _, c := range str {
+			put(string(c), at, at+1)
+			at++
+		}
+	}
 	for i, s := range spans {
 		t := mdview.Detab(s.Text)
-		k := utf8.RuneCountInString(t)
 		if s.Mono {
-			put(nbsp, false) // room for the chip's padding, kept out of a copy
-			p.code = append(p.code, [2]int{n, n + k})
+			put(nbsp, at, at) // room for the chip's padding, kept out of a copy
+		}
+		lo := n
+		var refs []imageRef
+		if pad != noChips && !s.Mono {
+			refs = imageRefs(t)
+		}
+		last := 0
+		for _, r := range refs {
+			text(t[last:r.start])
+			tok := utf8.RuneCountInString(t[r.start:r.end])
+			name := "Image" + nbsp + "#" + strconv.Itoa(r.n)
+			put(strings.Repeat(nbsp, pad[0]), at, at+tok)
+			start := n
+			put(name, at, at+tok)
+			p.ct.chips = append(p.ct.chips, chip{label: [2]int{start, n}, name: strings.ReplaceAll(name, nbsp, " ")})
+			put(strings.Repeat(nbsp, pad[1]), at, at+tok)
+			at += tok
+			last = r.end
+		}
+		text(t[last:])
+		hi := n
+		if s.Mono {
+			p.code = append(p.code, [2]int{lo, hi})
 		}
 		if s.Bold || s.Italic || s.Mono || s.Strike {
-			p.runs = append(p.runs, srun{n, n + k, s})
+			p.runs = append(p.runs, srun{lo, hi, s})
 		}
 		link := ""
 		switch {
@@ -200,17 +260,16 @@ func spansPara(spans []mdview.Span, href func(link string, code bool) string) pa
 			link = href(t, true)
 		}
 		if s.Link != "" || link != "" {
-			p.links = append(p.links, [2]int{n, n + k})
+			p.links = append(p.links, [2]int{lo, hi})
 			p.hrefs = append(p.hrefs, link)
 		}
-		put(t, true)
 		if s.Mono && (i+1 == len(spans) || !strings.ContainsAny(spans[i+1].Text[:min(1, len(spans[i+1].Text))], ".,:;!?)")) {
-			put(nbsp, false)
+			put(nbsp, at, at)
 		}
 		plain.WriteString(t)
 	}
 	p.text, p.plain = b.String(), plain.String()
-	if len(p.code) > 0 {
+	if len(p.code) > 0 || len(p.ct.chips) > 0 {
 		p.ct.text, p.ct.orig = p.text, []rune(p.plain)
 	} else {
 		p.ct = ctext{text: p.text}
@@ -295,7 +354,7 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 	th := d.th
 	r.doc.Size = th.Sp(theme.Large)
 	r.doc.Code, r.doc.CodeFill = th.Fg, th.SurfaceSecondary
-	y, w := 0, gtx.Constraints.Max.X
+	y, w, right := 0, gtx.Constraints.Max.X, 0
 	shown, depth := d.shownBlocks(gtx, id, r)
 	var runs []int // where each quote level's open run started
 	for n, i := range shown {
@@ -325,15 +384,17 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 				gtx.Constraints.Max.X -= x
 				return d.codeBlock(gtx, r, key, b.Lang, b.Text)
 			})
+			dims.Size.X += x
 		case mdview.Rule:
 			paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(fx+x, y), Max: image.Pt(w, y+max(1, gtx.Dp(1)))}.Op())
-			dims.Size.Y = max(1, gtx.Dp(1))
+			dims.Size = image.Pt(w-fx, max(1, gtx.Dp(1)))
 		case mdview.Mermaid:
 			if b.Graph == nil {
 				dims = at(g, image.Pt(fx+x, y), func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Max.X -= x
 					return d.codeBlock(gtx, r, key, "mermaid", b.Text)
 				})
+				dims.Size.X += x
 				break
 			}
 			fallthrough
@@ -345,6 +406,7 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 			dims = at(g, image.Pt(fx, y), func(gtx layout.Context) layout.Dimensions { return r.doc.Block(gtx, th, i) })
 		}
 		y += dims.Size.Y
+		right = max(right, fx+dims.Size.X)
 		next := 0
 		if n+1 < len(shown) {
 			next = r.blocks[shown[n+1]].Quote
@@ -354,6 +416,9 @@ func (d *cdraw) markdown(gtx layout.Context, id string, r *reply) layout.Dimensi
 			d.quoteBar(gtx, fx+q*gtx.Dp(quoteIndent), runs[q], y)
 			runs = runs[:q]
 		}
+	}
+	if d.own { // the bubble fits the text
+		w = min(w, right)
 	}
 	return layout.Dimensions{Size: image.Pt(w, y)}
 }
@@ -452,6 +517,10 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 	call, td := measure(g, func(gtx layout.Context) layout.Dimensions { return d.selectable(gtx, sl, st, p.text) })
 	o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
 	em := gtx.Sp(st.size)
+	pill := th.SurfaceSecondary
+	if d.own && !d.ledger { // on the prompt's bubble, as its code blocks
+		pill = th.Surface
+	}
 	var rg []widget.Region
 	for _, r := range p.code {
 		rg = sl.Regions(r[0], r[1], rg[:0])
@@ -459,7 +528,7 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 			base := g.Bounds.Max.Y - g.Baseline
 			px, py := gtx.Dp(theme.SpaceXS), gtx.Dp(theme.Space2XS)
 			box := image.Rect(g.Bounds.Min.X-px, base-em*78/100-py, g.Bounds.Max.X+px, base+em*22/100+py)
-			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(box, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, pill, clip.UniformRRect(box, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 		}
 	}
 	call.Add(gtx.Ops)
@@ -496,6 +565,11 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 				gtx.Constraints = layout.Exact(g.Bounds.Size())
 				return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} })
 			})
+		}
+	}
+	for _, c := range p.ct.chips {
+		if rg = sl.Regions(c.label[0], c.label[1], rg[:0]); len(rg) > 0 {
+			d.imageChip(gtx, rg[0], c, st)
 		}
 	}
 	o.Pop()

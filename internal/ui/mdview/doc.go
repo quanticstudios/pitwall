@@ -46,7 +46,7 @@ type Block struct {
 	Level int // a heading's level
 	// Indent is the list depth, Quote the block quote depth.
 	Indent, Quote int
-	// Marker is a list item's "•" or "3.", on its first block only.
+	// Marker is a list item's "•", "3." or "3)", on its first block only.
 	Marker string
 	// Task is a task list item's box: 0 none, 1 open, 2 done.
 	Task int
@@ -159,7 +159,7 @@ func (p *parser) block(n ast.Node, indent, quote int) {
 		for item := n.FirstChild(); item != nil; item = item.NextSibling() {
 			p.marker = "•"
 			if n.IsOrdered() {
-				p.marker = strconv.Itoa(i) + "."
+				p.marker = strconv.Itoa(i) + string(n.Marker) // "1)" stays as typed
 				i++
 			}
 			p.blocks(item, indent+1, quote)
@@ -453,6 +453,29 @@ func (p *parser) slug(s string) string {
 }
 
 // plain is spans' text.
+// Plain reports whether blocks, parsed from src, are src's text as typed:
+// paragraphs alone, outside lists and quotes, with no style and no link
+// but a bare URL, and no character of src lost or added but whitespace.
+func Plain(src string, blocks []Block) bool {
+	var b strings.Builder
+	for _, bl := range blocks {
+		if bl.Kind != Para || bl.Indent > 0 || bl.Quote > 0 || bl.Marker != "" || bl.Task != 0 || bl.Fold > 0 || bl.Summary {
+			return false
+		}
+		for _, s := range bl.Spans {
+			if s.Bold || s.Italic || s.Mono || s.Strike || s.Link != "" && s.Link != s.Text && s.Link != "mailto:"+s.Text {
+				return false
+			}
+			b.WriteString(s.Text)
+		}
+	}
+	return unspaced(b.String()) == unspaced(src)
+}
+
+func unspaced(s string) string {
+	return strings.Join(strings.Fields(s), "")
+}
+
 func plain(spans []Span) string {
 	var b strings.Builder
 	for _, s := range spans {

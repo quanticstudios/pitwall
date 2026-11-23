@@ -31,6 +31,7 @@ type cdraw struct {
 	sec         float64                         // seconds since the transcript opened, for spinners
 	col, proseW int                             // the column's width, and reply prose's
 	ledger      bool                            // drawing Ledger layout
+	own         bool                            // drawing the user's own message as markdown
 	geom        ledgerGeom                      // Ledger column widths
 	syn         *[syntax.Header + 1]color.NRGBA // code's token colors, for synFor
 	synFor      *theme.Theme
@@ -372,7 +373,8 @@ func (d *cdraw) senderLine(gtx layout.Context, it *session.Item) layout.Dimensio
 	)
 }
 
-// promptText is a prompt's selectable text. Each [Image #N] token draws
+// promptText is a prompt's selectable text, as markdown as a reply's
+// unless it has none, in the prompt's color. Each [Image #N] token draws
 // as a chip: the text widens the token to make room for the chip's icon
 // and padding, and a copy gives back the token as typed.
 func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensions {
@@ -384,6 +386,12 @@ func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensio
 	}
 	st := d.promptStyle()
 	lead, trail := d.chipPad(gtx, st)
+	if r := d.t.promptDoc(it.ID, rest, [2]int{lead, trail}); !r.flat {
+		r.typed = strings.TrimPrefix(s.line+"\n", "\n") + rest
+		d.own = true
+		defer func() { d.own = false }()
+		return d.markdown(gtx, it.ID, r)
+	}
 	ct := chipText(txt, lead, trail)
 	ct.head = s.line
 	sl := d.t.sel(it.ID)
