@@ -3,14 +3,19 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
 // TestStatuslinePassthrough: the wrapped command gets Claude Code's JSON
@@ -23,6 +28,7 @@ func TestStatuslinePassthrough(t *testing.T) {
 	}
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("PITWALL_PANE", "") // never report to a live daemon
 	in := `{"model":{"display_name":"Opus"},"rate_limits":{"five_hour":{"used_percentage":91,"resets_at":1800003600}}}`
 	var out, errOut bytes.Buffer
 	code := runStatusline([]string{`cat; printf '\033[1m it'"'"'s\377 \n\n  end'; exit 3`}, strings.NewReader(in), &out, &errOut)
@@ -103,3 +109,112 @@ func TestHooksStatusline(t *testing.T) {
 }
 
 func quoteJSON(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+const statuslineJSON = `{"session_id":"s1","model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"effort":{"level":"high"},` +
+	`"context_window":{"context_window_size":1000000,"current_usage":{"input_tokens":1,"cache_read_input_tokens":99}},"cost":{"total_cost_usd":1.5}}`
+
+// statuslineDaemon is a socket for pitwall statusline: each connection's
+// events go to the channel, and with hang set it never answers or closes.
+func statuslineDaemon(t *testing.T, hang bool) <-chan any {
+	t.Helper()
+	setHome(t, t.TempDir())
+	path := sockPath(t, "sl.sock")
+	t.Setenv("PITWALL_SOCKET", path)
+	t.Setenv("PITWALL_PANE", "p1")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan any, 8)
+	var conns []net.Conn
+	var mu sync.Mutex
+	t.Cleanup(func() {
+		ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			c.Close()
+		}
+		mu.Unlock()
+	})
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, nc)
+			mu.Unlock()
+			if hang {
+				continue
+			}
+			go func() {
+				defer nc.Close()
+				nc.SetDeadline(time.Now().Add(5 * time.Second))
+				c := proto.NewConn(nc)
+				for {
+					m, err := c.Recv()
+					if err != nil {
+						return
+					}
+					if ev, ok := m.(proto.AgentEvent); ok {
+						got <- ev
+					}
+				}
+			}()
+		}
+	}()
+	return got
+}
+
+func TestStatuslineReportsToDaemon(t *testing.T) {
+	got := statuslineDaemon(t, false)
+	var out bytes.Buffer
+	if code := runStatusline([]string{"cat"}, strings.NewReader(statuslineJSON), &out, io.Discard); code != 0 || out.String() != statuslineJSON {
+		t.Fatalf("code %d, out %q", code, out.String())
+	}
+	select {
+	case m := <-got:
+		ev := m.(proto.AgentEvent)
+		st, ok := agent.DecodeStatusline(ev.Payload)
+		want := agent.StatuslineState{SessionID: "s1", Model: "claude-opus-5-5", ModelName: "Opus 5.5", Effort: "high", ContextUsed: 100, ContextSize: 1_000_000, CostUSD: 1.5}
+		if ev.Pane != "p1" || ev.Provider != "report" || !ok || st != want {
+			t.Fatalf("event %+v, state %+v %v", ev, st, ok)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the daemon heard nothing")
+	}
+}
+
+// A daemon that accepts and never answers, or no daemon at all, must not
+// hold the status line, and the user's command output stays as it is.
+func TestStatuslineNeverBlocks(t *testing.T) {
+	for _, name := range []string{"hung", "gone"} {
+		t.Run(name, func(t *testing.T) {
+			statuslineDaemon(t, name == "hung")
+			if name == "gone" {
+				t.Setenv("PITWALL_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+			}
+			var out bytes.Buffer
+			start := time.Now()
+			code := runStatusline([]string{"printf 'my line'; exit 4"}, strings.NewReader(statuslineJSON), &out, io.Discard)
+			if code != 4 || out.String() != "my line" {
+				t.Fatalf("code %d, out %q", code, out.String())
+			}
+			if d := time.Since(start); d > statuslineWait+time.Second {
+				t.Fatalf("took %v", d)
+			}
+		})
+	}
+}
+
+func TestStatuslineOutsidePaneSendsNothing(t *testing.T) {
+	got := statuslineDaemon(t, false)
+	t.Setenv("PITWALL_PANE", "")
+	runStatusline(nil, strings.NewReader(statuslineJSON), io.Discard, io.Discard)
+	select {
+	case m := <-got:
+		t.Fatalf("sent %+v", m)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

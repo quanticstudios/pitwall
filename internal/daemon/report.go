@@ -8,6 +8,7 @@ func (d *Daemon) clearReported(p *model.Pane) {
 	p.Provider, p.SessionID, p.AgentMode, p.Prompt, p.Transcript = "", "", "", "", ""
 	p.ResumeCmd = nil
 	delete(d.phoneSettings, p.ID)
+	delete(d.statuslines, p.ID)
 	delete(d.live.fg, p.ID)
 	delete(d.live.hookAt, p.ID)
 	d.dropActivity(p.ID)

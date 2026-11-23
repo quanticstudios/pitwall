@@ -13,7 +13,9 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
+	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
 // runStatusline is Claude Code's statusLine command once `pitwall hooks
@@ -33,6 +35,14 @@ func runStatusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 			_ = saveState(flow.ClaudeLimitsPath(stateDir(), l.Profile), data)
 		}
 	}
+	// why: the daemon hears it while the user's command runs, so the status
+	// line waits for it only when the socket is slow, and never past statuslineWait.
+	sent := make(chan struct{})
+	go func() {
+		defer close(sent)
+		reportStatusline(in)
+	}()
+	defer func() { <-sent }()
 	if len(args) == 0 {
 		return 0
 	}
@@ -48,6 +58,29 @@ func runStatusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 		return 1
 	}
 	return 0
+}
+
+// statuslineWait bounds the report to the daemon, well under what a status
+// line shows as lag.
+const statuslineWait = 150 * time.Millisecond
+
+// reportStatusline tells the daemon of this pane the model, context window,
+// cost and transcript in Claude Code's JSON. Outside a pitwall pane, with no
+// daemon or a slow one, it does nothing.
+func reportStatusline(in []byte) {
+	pane := os.Getenv("PITWALL_PANE")
+	st, ok := agent.ParseStatusline(in)
+	if pane == "" || !ok {
+		return
+	}
+	path := os.Getenv("PITWALL_SOCKET")
+	if path == "" {
+		var err error
+		if path, err = proto.SocketPath(); err != nil {
+			return
+		}
+	}
+	sendHookWithin(path, pane, model.Provider("report"), agent.EncodeStatusline(st), statuslineWait)
 }
 
 // saveState writes data to path in pitwall's state directory through a
