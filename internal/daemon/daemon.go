@@ -301,6 +301,7 @@ type Daemon struct {
 	radar         radar                  // see radar.go
 	queue         taskQueue              // see task.go
 	phoneSettings map[string]phoneSettings
+	statuslines   map[string]statuslineRec // pane: its Claude Code statusline's last report
 	// paneChats are the pane chats a window read, by pane id (panechat.go).
 	paneChats map[string]*paneChat
 	// paneChatSeq is the highest seq a replaced or dropped pane chat reached,
@@ -1916,6 +1917,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.replies, id)
 	delete(d.turnCount, id)
 	delete(d.phoneSettings, id)
+	delete(d.statuslines, id)
 	delete(d.reviews, id)
 	if t := d.mail.wake[id]; t != nil {
 		t.Stop()
@@ -1979,6 +1981,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return nil // the parked agent's last hooks, such as its SessionEnd
 	}
 	if m.Provider == "report" {
+		if st, ok := agent.DecodeStatusline(m.Payload); ok {
+			d.keepStatusline(p.ID, st)
+			d.mu.Unlock()
+			return nil
+		}
 		if pp, ok := programHook(m.Payload); ok {
 			d.mu.Unlock()
 			d.programFromHook(m.Pane, pp)
@@ -2222,6 +2229,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			p.AgentMode = "" // a permission mode belongs to the agent that reported it
 		}
 		delete(d.phoneSettings, p.ID)
+		delete(d.statuslines, p.ID)
 		p.Provider, changed = m.Provider, true
 	}
 	prevMode := p.AgentMode
@@ -2232,6 +2240,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	forkSource := sid != "" && sid == store.ForkSource(*p)
 	if !subagent && sid != "" && sid != p.SessionID && !forkSource {
 		delete(d.phoneSettings, p.ID)
+		delete(d.statuslines, p.ID)
 		p.SessionID, p.Prompt, p.Transcript, changed = sid, "", "", true // a new session reports its own file
 		if !keepMode {
 			p.AgentMode = "" // and its own mode
@@ -2904,6 +2913,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
 		sp.ResumeCmd = nil
 		delete(d.phoneSettings, id)
+		delete(d.statuslines, id)
 		err := d.startVT(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID), sp.Env, newVT)
 		if err == nil {
 			if history.history != nil {

@@ -72,6 +72,7 @@ type paneChat struct {
 	recentSize int
 	footer     bool          // the TUI's footer gave the mode at least once
 	tui        phoneSettings // the TUI's model and effort as last put in the snapshot
+	slWin      int64         // the context window its statusline reported, 0 for none
 	conf       *string       // the effort in Claude Code's user settings, read once
 	ctx        int64         // tokens in context at the last assistant or compact_boundary line, 0 when unknown
 	ctxReset   bool          // a compaction without postTokens cleared ctx until the next assistant usage
@@ -207,7 +208,8 @@ type paneLive struct {
 	cwd  string
 	mode string         // the permission mode its hooks reported (Pane.AgentMode)
 	act  model.Activity // zero State when the pane has none
-	tui  phoneSettings  // the model and effort its screen showed (keepClaudeSettings)
+	tui  phoneSettings  // the model and effort its statusline or screen showed (settingsOf)
+	sl   statuslineRec  // its statusline's report while good (liveStatusline); zero for none
 	conf string         // Claude Code's config dir for it
 	home string         // agy's HOME for it
 	prov model.Provider // the agent its hooks named
@@ -247,10 +249,11 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 		return nil, paneLive{}, false
 	}
 	p := d.st.Panes[i]
-	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode, tui: d.phoneSettings[id], conf: claudeConfigDir(p), prov: p.Provider}
+	l := paneLive{p: d.panes[id], path: p.Transcript, cwd: p.Cwd, mode: p.AgentMode, tui: d.settingsOf(id), conf: claudeConfigDir(p), prov: p.Provider}
 	if ai := d.activityIndex(id); ai >= 0 {
 		l.act = d.st.Activities[ai]
 	}
+	l.sl, _ = d.liveStatusline(id)
 	l.queued, l.held, l.reason = d.chatQueued(id)
 	pc := d.paneChats[id]
 	if p.Provider != model.ProviderClaude {
@@ -600,10 +603,10 @@ func (pc *paneChat) lines(b []byte, tui string) int {
 			if es[i].Type == session.EventUsage {
 				switch {
 				case pc.ctx > 0:
-					ctx, w := pc.ctx, contextWindow(pc.model, tui, pc.ctx)
+					ctx, w := pc.ctx, pc.window(tui, pc.ctx)
 					es[i].ContextTokens, es[i].MaxTokens = &ctx, &w
 				case pc.ctxReset:
-					w := contextWindow(pc.model, tui, 0)
+					w := pc.window(tui, 0)
 					es[i].ContextTokens, es[i].MaxTokens = nil, &w
 				}
 			}
@@ -841,15 +844,20 @@ func (pc *paneChat) settings(l paneLive) {
 		set["effort"] = eff
 	}
 	pc.tui = l.tui
+	pc.slWin = l.sl.ContextSize
 	if len(set) > 0 {
 		b, _ := json.Marshal(set)
 		pc.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: b}}, session.Stamp(time.Now()))
 	}
-	if pc.ctx == 0 {
+	ctxNow := pc.ctx
+	if ctxNow == 0 && !pc.ctxReset { // no transcript line yet: the statusline's count stands in
+		ctxNow = l.sl.ContextUsed
+	}
+	if ctxNow == 0 {
 		if pc.ctxReset {
 			if u := pc.snap.Usage; u != nil && u.ContextTokens != nil {
-				w := contextWindow(pc.model, l.tui.model, 0)
-				if u.MaxTokens != nil && *u.MaxTokens > 0 {
+				w := pc.window(l.tui.model, 0)
+				if u.MaxTokens != nil && *u.MaxTokens > 0 && pc.slWin == 0 {
 					w = *u.MaxTokens
 				}
 				pc.reduce([]session.Event{{Type: session.EventUsage, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
@@ -858,15 +866,24 @@ func (pc *paneChat) settings(l paneLive) {
 		}
 		return
 	}
-	w := contextWindow(pc.model, l.tui.model, pc.ctx)
-	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != pc.ctx || u.MaxTokens == nil || *u.MaxTokens != w {
-		ctx := pc.ctx
+	w := pc.window(l.tui.model, ctxNow)
+	if u := pc.snap.Usage; u == nil || u.ContextTokens == nil || *u.ContextTokens != ctxNow || u.MaxTokens == nil || *u.MaxTokens != w {
+		ctx := ctxNow
 		e := session.Event{Type: session.EventUsage, ContextTokens: &ctx, MaxTokens: &w}
 		if u != nil {
 			e.InputTokens, e.OutputTokens, e.CachedInputTokens = u.InputTokens, u.OutputTokens, u.CachedInputTokens
 		}
 		pc.reduce([]session.Event{e})
 	}
+}
+
+// window is the context window of the chat's model: the one its statusline
+// reported, else contextWindow's estimate. Callers hold pc.mu.
+func (pc *paneChat) window(tui string, used int64) int64 {
+	if pc.slWin > 0 {
+		return pc.slWin
+	}
+	return contextWindow(pc.model, tui, used)
 }
 
 // compactContext reports a main-thread Claude compaction boundary line and

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -44,8 +45,11 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 		} else if t.Provider == model.ProviderClaude || t.Provider == model.ProviderCodex || t.Provider == model.ProviderAntigravity {
 			panes[i] = d.panes[t.Pane]
 		}
-		if settings, ok := d.phoneSettings[t.Pane]; ok && !t.Chat {
-			tabs[i].Model, tabs[i].Effort = settings.model, settings.effort
+		if _, screen := d.phoneSettings[t.Pane]; !t.Chat {
+			if _, live := d.liveStatusline(t.Pane); screen || live {
+				set := d.settingsOf(t.Pane)
+				tabs[i].Model, tabs[i].Effort = set.model, set.effort
+			}
 		}
 		if ai := d.activityIndex(t.Pane); ai >= 0 {
 			asked[i] = d.askedOf(d.st.Activities[ai])
@@ -83,12 +87,17 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 			m, e := agent.ClaudeSettings(g)
 			d.mu.Lock()
 			d.keepClaudeSettings(tabs[i].Pane, p, m, e)
+			_, hasSL := d.liveStatusline(tabs[i].Pane)
+			set := d.settingsOf(tabs[i].Pane)
 			d.mu.Unlock()
 			if m != "" {
 				tabs[i].Model = m
 			}
 			if e != "" {
 				tabs[i].Effort = e
+			}
+			if hasSL { // the statusline's own words beat the screen's
+				tabs[i].Model, tabs[i].Effort = cmp.Or(set.model, tabs[i].Model), cmp.Or(set.effort, tabs[i].Effort)
 			}
 		}
 	}

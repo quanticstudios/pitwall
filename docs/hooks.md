@@ -136,6 +136,15 @@ keeps it as an argument: `pitwall statusline '<your command>'`. Each time
 Claude Code redraws the status line, pitwall saves the `rate_limits` from
 its input to `claude-limits.json` in pitwall's state directory, then runs
 your command on the same input and passes its output and exit code through
-unchanged. Saving never fails the status line. `pitwall hooks uninstall`
+unchanged. Saving never fails the status line.
+
+Inside a pitwall pane it also sends the daemon the session's model id and
+name, effort, context window size and use, cost and transcript path from
+that input, while your command runs, and gives up after 150 ms. The chat's
+model chip and context meter and the phone tab use these in place of the
+screen read and the window estimate. They stop counting when the report is
+for another session, or the pane's agent has sent hooks for 15 minutes with
+no new report, as when the statusline is no longer installed.
+`pitwall hooks uninstall`
 puts your command back, or removes the `statusLine` pitwall added. Codex
 logs its limits in its session files, so it needs nothing.

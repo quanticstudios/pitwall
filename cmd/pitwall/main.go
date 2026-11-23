@@ -557,11 +557,16 @@ func lookupHookPane(path, pane string) (tabAddr, tabName, sessName string) {
 // Version were served refuses one after an upgrade it was not restarted
 // for; the event goes again at the Version it names.
 func sendHook(path, pane string, provider model.Provider, payload []byte) {
-	ev := proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload}
 	wait := hookWait
 	if agent.Prompt(provider, payload) != "" {
 		wait = promptWait // the daemon checkpoints the files first
 	}
+	sendHookWithin(path, pane, provider, payload, wait)
+}
+
+// sendHookWithin is sendHook with its own bound on the whole exchange.
+func sendHookWithin(path, pane string, provider model.Provider, payload []byte, wait time.Duration) {
+	ev := proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload}
 	deadline := time.Now().Add(wait)
 	v, refused, reset := hookOnce(path, proto.Version, &ev, deadline)
 	if reset {
