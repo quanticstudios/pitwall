@@ -303,6 +303,9 @@ func TestPaneChatFolders(t *testing.T) {
 		"run":  {path: "/h/brain/run/logs/t.jsonl"},
 	}}
 	want := []string{"/h/.claude/projects/p", "/h/.claude/projects/p/s/subagents", "/h/brain/run/logs"}
+	for i := range want {
+		want[i] = filepath.FromSlash(want[i]) // why: folders() goes through filepath, so Windows gets backslashes
+	}
 	if got := pc.folders(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("folders %v, want %v", got, want)
 	}
