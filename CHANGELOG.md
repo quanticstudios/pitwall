@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Closing a window no longer makes the daemon open every chat's log and keep them open until it stops. It came with v0.3.5.
+
 ## v0.3.6
 
 - Closing the window no longer loads every chat's log. Since v0.3.5 the daemon read each chat's transcript from disk when a window went, only to drop the window from that chat's subscribers, so 200 restored chats meant 200 logs read and held open until shutdown. A chat that shuts down no longer reopens its log either.
