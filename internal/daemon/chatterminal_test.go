@@ -132,6 +132,7 @@ func TestAgentChatTerminal(t *testing.T) {
 	codexHome, home := t.TempDir(), t.TempDir()
 	t.Setenv("CODEX_HOME", codexHome)
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv("PITWALL_CODEX_COMMAND", "/opt/stub/codex")
 	const thread = "01a2092d-8bc0-7a13-b2e5-c23146f61ac2"
 	rollout := filepath.Join(codexHome, "sessions", "2026", "11", "23", "rollout-2026-11-23T17-11-50-"+thread+".jsonl")
