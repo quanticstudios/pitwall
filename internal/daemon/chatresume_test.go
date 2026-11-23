@@ -242,10 +242,11 @@ func TestChatBootLoadsNothing(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, "config.json"), b, 0o600)
 	}
 	spy := &spyProvider{}
-	sock, stop := runWith(t, f, func(o *Options) {
+	d, sock, stopNow := runDaemon(t, f, func(o *Options) {
 		o.Chats = root
 		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: spy}
 	})
+	stop := sync.OnceFunc(stopNow)
 	defer stop()
 	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
 	st := waitChat(gui, "chats back", func(s model.State) bool { return len(s.Chats) == n })
@@ -275,6 +276,16 @@ func TestChatBootLoadsNothing(t *testing.T) {
 		_, err := eventlog.ReadConfig(filepath.Join(root, "archive", "chat-7"))
 		return err == nil
 	})
+	// A window going, and an unsubscribe, load no chat either.
+	d.dropSubs(&client{})
+	d.chatUnsubscribe("chat-9", guiSink{&client{}})
+	if got := opened(); len(got) != 0 {
+		t.Fatalf("dropping subscribers opened the logs of %v", got)
+	}
+	stop()
+	if got := opened(); len(got) != 0 {
+		t.Fatalf("shutdown opened the logs of %v", got)
+	}
 }
 
 func TestRecap(t *testing.T) {

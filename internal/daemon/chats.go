@@ -983,6 +983,7 @@ func (c *chat) close() {
 				c.log.Close()
 				c.log = nil
 			}
+			c.loaded = true // why: a do queued behind this cleanup must not reopen the log
 			for s := range c.subs {
 				s.Removed(c.id)
 			}
