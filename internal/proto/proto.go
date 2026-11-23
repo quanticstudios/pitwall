@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 101 added Codex and Antigravity chats to ChatTerminal
+// (ChatTerminalAgentsLevel).
 // Level 100 added ChatSubscribe and ChatDeltas.Push (SubscribeLevel): the
 // daemon pushes a chat's deltas to the window instead of the window
 // polling ChatRead.
@@ -269,11 +271,16 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 100
+const Level = 101
 
 // SubscribeLevel added ChatSubscribe and ChatDeltas.Push. Below it a
 // window polls ChatRead.
 const SubscribeLevel = 100
+
+// ChatTerminalAgentsLevel is the first daemon whose ChatTerminal flips
+// Codex and Antigravity chats too; a window offers their terminal view
+// only from it.
+const ChatTerminalAgentsLevel = 101
 
 // JoinLevel added ChatSend.Join. Below it a window steers the draft alone
 // and leaves the queue for the turn's end.
@@ -1497,9 +1504,11 @@ type ChatSend struct {
 type ChatInterrupt struct{ Chat string }
 
 // ChatTerminal flips a Claude chat's tab between the chat and Claude's own
-// TUI on the same conversation: On interrupts a running turn, closes the
-// driver and runs claude --resume in a pane of the tab; off quits that
-// claude and resumes the driver. One process holds the session at a time.
+// TUI on the same conversation, and from ChatTerminalAgentsLevel a Codex or
+// Antigravity chat's too: On interrupts a running turn, closes the driver
+// and resumes the session in the TUI in a pane of the tab; off quits that
+// TUI, adds the turns it ran to the chat and resumes the driver. One
+// process holds the session at a time.
 type ChatTerminal struct {
 	Chat string
 	On   bool

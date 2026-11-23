@@ -1256,13 +1256,22 @@ assistant text, one line per tool call, approvals with their ids.
   (terminal)". `pitwall new` and `pitwall worktree new` run the TUI, since
   `send`, `read` and `wait` do not reach chats.
 - The terminal view (`proto.ChatTerminal`, `chat_terminal`, Alt+T): the
-  daemon interrupts a running turn, closes the driver and runs `claude
-  --resume <Resume>` (`--session-id` before the first turn) in a pane of
-  the chat's tab; `Chat.Terminal` names that pane. Back sends two Ctrl+C,
-  closes the pane after 3 s, and resumes the driver; the pane exiting or
-  closing does the same. Commands that need the driver answer `busy`
-  meanwhile. Saved state leaves the pane out. Turns taken in the TUI reach
-  the driver on resume but not the transcript.
+  daemon interrupts a running turn, closes the driver and runs the agent's
+  TUI on the session in a pane of the chat's tab: `claude --resume
+  <Resume>` (`--session-id` before the first turn), `codex resume <Resume>
+  --no-daemon` with the driver's approval policy and sandbox, or `agy
+  --conversation <Resume>` (the ACP session id) with the chat's mode, its
+  Default as `--settings {"agentMode":""}`. Codex and agy refuse before
+  the first turn, which writes their session's file. `Chat.Terminal` names
+  that pane. Back sends Ctrl+C twice (Esc first for Codex and agy), closes
+  the pane after 3 s, and resumes the driver; the pane exiting or closing
+  does the same. Commands that need the driver answer `busy` meanwhile.
+  Saved state leaves the pane out. For Codex and agy the daemon notes the
+  transcript's size on the way in (the rollout, agy's
+  `transcript_full.jsonl`) and on the way back reduces what the TUI added,
+  from its first turn on, with the pane chat's reader. Claude's TUI turns
+  reach the driver on resume but not the transcript. A window offers the
+  view for Codex and agy from `ChatTerminalAgentsLevel`.
 
 <a id="web"></a>
 ## Web protocol constraints

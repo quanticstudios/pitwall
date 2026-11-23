@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -13,13 +15,15 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/acp"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
+	"github.com/quanticstudios/pitwall/internal/session/codex"
 	"github.com/quanticstudios/pitwall/internal/session/fake"
 )
 
 // configuredProviders reads once at daemon startup, keeping a provider id's
 // executable stable for the lifetime of its chats. No agent is spawned here.
-// Antigravity chats run `agy acp` with pitwall's ACP driver when agy is on
-// PATH. PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for
+// Codex chats run `codex app-server` when codex (or PITWALL_CODEX_COMMAND)
+// is on PATH, and Antigravity chats `agy acp` with pitwall's ACP driver
+// when agy is. PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for
 // aide's e2e.
 func configuredProviders() map[model.Provider]session.Provider {
 	s, problems := config.Load()
@@ -28,6 +32,9 @@ func configuredProviders() map[model.Provider]session.Provider {
 	}
 	real := acpProviders(s.ACPAgents)
 	real[model.ProviderClaude] = claude.Provider{} // [chat] claude starts Claude Code on it
+	if _, err := exec.LookPath(cmp.Or(os.Getenv("PITWALL_CODEX_COMMAND"), "codex")); err == nil {
+		real[model.ProviderCodex] = codex.Provider{}
+	}
 	if path, err := exec.LookPath("agy"); err == nil {
 		real[model.ProviderAntigravity] = agyACP{acp.Provider{Command: path, Args: []string{"acp"}}}
 	}

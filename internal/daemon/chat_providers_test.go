@@ -14,6 +14,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session/acp"
 	"github.com/quanticstudios/pitwall/internal/session/claude"
+	"github.com/quanticstudios/pitwall/internal/session/codex"
 )
 
 func TestConfiguredACPProviders(t *testing.T) {
@@ -83,6 +84,15 @@ func TestConfiguredFakeProviders(t *testing.T) {
 	}
 	if got := configuredProviders()[model.ProviderAntigravity]; !reflect.DeepEqual(got, agyACP{acp.Provider{Command: agy, Args: []string{"acp"}}}) {
 		t.Fatalf("agy on PATH: %#v", got)
+	}
+	// Codex's chats run codex app-server, found on PATH or named by
+	// PITWALL_CODEX_COMMAND.
+	if got := configuredProviders()[model.ProviderCodex]; got != nil {
+		t.Fatalf("no codex on PATH: %#v", got)
+	}
+	t.Setenv("PITWALL_CODEX_COMMAND", agy)
+	if got := configuredProviders()[model.ProviderCodex]; got != (codex.Provider{}) {
+		t.Fatalf("PITWALL_CODEX_COMMAND: %#v", got)
 	}
 	t.Setenv("PITWALL_FAKE_PROVIDERS", "1")
 	got := configuredProviders()
