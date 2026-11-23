@@ -34,6 +34,38 @@ draw, such as `/config`, `/login` and plugin menus, then press Alt+T to go
 back. Claude Code's own Alt+T toggle never reaches its TUI while pitwall
 holds the key; rebind `chat_terminal` in [keys](keys.md) to give it back.
 
+### A New task chat's terminal
+
+A chat New task started runs its agent headless, so its tab has no TUI to
+flip to. Terminal in the chat's header, or Alt+T, opens one on the same
+conversation: Claude Code's chats, Codex's and Antigravity CLI's.
+
+- Going to the terminal stops a running turn first (the window asks), closes
+  the chat's agent, and starts the TUI on the conversation in the tab:
+  `claude --resume`, `codex resume <thread> --no-daemon` or
+  `agy --conversation <id>`. The TUI keeps the chat's model, effort and
+  mode. agy's TUI starts in Auto unless told otherwise, so a chat in agy's
+  Default mode passes `--settings '{"agentMode":""}'`.
+- Back to chat (or Alt+T again) quits the TUI: two Ctrl+C for Claude Code,
+  Esc and two Ctrl+C for Codex and agy, and a closed pane after 3 seconds
+  if it is still running. Quitting the TUI yourself does the same.
+- Coming back, the chat adds the turns you ran in the TUI, read from the
+  agent's own log (Codex's rollout, agy's transcript), and the agent picks
+  the conversation up again, those turns included. A Claude chat does not
+  show its TUI turns yet, though Claude still remembers them.
+- One process holds the conversation at a time. The chat refuses messages
+  while the terminal is open.
+- Codex and agy write a conversation to disk with its first turn, so their
+  terminal opens once the chat has one. A chat you rewound or forked waits
+  for its next turn too.
+
+Codex's TUI runs its turns in a background server it shares across every
+Codex window by default, and that server keeps the conversation locked
+after the TUI quits, so the chat could not take it back. `--no-daemon`
+keeps the turns in the TUI's own process, which ends with it. agy 1.5.15's
+TUI flags a conversation `agy acp` started with "Invalid Project"; the
+turns still go to the same conversation, and the chat picks them up.
+
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
@@ -263,7 +295,9 @@ with Allow and Deny (agy offers no Always over ACP), images go with the
 prompt, Esc stops the turn, and the chat resumes its conversation after a
 restart. agy asks its
 questions as a message there, so answer one by replying. "Antigravity
-(terminal)" in New task starts the TUI instead.
+(terminal)" in New task starts the TUI instead, and Terminal in the chat's
+header opens it on the chat's conversation
+([A New task chat's terminal](#a-new-task-chats-terminal)).
 
 A pane running agy's TUI shows as the chat too, as soon as pitwall sees agy
 in it. The chat stays empty until agy's hooks name its conversation

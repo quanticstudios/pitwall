@@ -123,10 +123,13 @@ type chat struct {
 	resuming bool
 	sent     *session.Message
 	recap    string
-	// term is the pane running Claude Code's TUI on the session while the
+	// term is the pane running the agent's TUI on the session while the
 	// tab shows it (proto.ChatTerminal), "" in the chat; the driver stays
-	// closed meanwhile.
-	term string
+	// closed meanwhile. termLog is the session's transcript, which the TUI
+	// writes from termOff on.
+	term    string
+	termLog string
+	termOff int64
 	// quoted goes after the next message once the chat switched provider
 	// (chatSwitch). shortcut: kept in memory, as recap is, so a restart
 	// before that message drops it; persist it in the config if that bites.

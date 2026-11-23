@@ -68,6 +68,41 @@ func TestChatTerminalToggle(t *testing.T) {
 	}
 }
 
+// TestAgentChatTerminalToggle: Codex and agy chats flip to their TUI on a
+// daemon that runs theirs, the dialog naming the agent mid-turn; on an
+// older daemon, and for other agents, nothing goes.
+func TestAgentChatTerminalToggle(t *testing.T) {
+	b, u := chatTab(t, session.StateRunning)
+	st := b.State()
+	ws := st.Workspace("wc")
+	st.Chats[0].Provider = model.ProviderCodex
+	u.toggleChatTerminal(&st, ws)
+	if u.modal.kind != modalChatTerminal || u.modal.then != (proto.ChatTerminal{Chat: "c1", On: true}) || !slices.Equal(u.modal.agents, []string{"Codex"}) {
+		t.Fatalf("codex mid-turn: modal %d then %#v agents %q", u.modal.kind, u.modal.then, u.modal.agents)
+	}
+	u.modal.close()
+	st.Chats[0].Provider, st.Chats[0].State = model.ProviderAntigravity, session.StateReady
+	n := len(b.Sent())
+	u.toggleChatTerminal(&st, ws)
+	if sent := b.Sent(); len(sent) != n+1 || sent[n] != (proto.ChatTerminal{Chat: "c1", On: true}) {
+		t.Fatalf("agy idle: sent %#v", sent[n:])
+	}
+
+	old := &levelBackend{FakeBackend: b.FakeBackend, level: proto.ChatTerminalAgentsLevel - 1}
+	u.b = old
+	for _, p := range []model.Provider{model.ProviderCodex, model.ProviderAntigravity, "acp:grok"} {
+		st.Chats[0].Provider = p
+		n := len(b.Sent())
+		if u.toggleChatTerminal(&st, ws); len(b.Sent()) != n || u.modal.kind != modalNone {
+			t.Fatalf("%s on an older daemon: sent %#v, modal %d", p, b.Sent()[n:], u.modal.kind)
+		}
+	}
+	st.Chats[0].Provider = model.ProviderClaude
+	if u.toggleChatTerminal(&st, ws); len(b.Sent()) != n+2 {
+		t.Fatal("claude on an older daemon: nothing sent")
+	}
+}
+
 // TestChatTerminalKey: the window takes chat_terminal only on a chat tab;
 // elsewhere Alt+T reaches the pane.
 func TestChatTerminalKey(t *testing.T) {
@@ -115,8 +150,14 @@ func TestChatHeadViews(t *testing.T) {
 	if u.panes["tp"] == nil {
 		t.Fatal("terminal view drew no pane")
 	}
-	if got := terminalLine([]string{"/opt/claude", "--resume", "7f3c2a10-0000", "--model", "opus"}); got != "claude --resume 7f3c… --model opus" {
-		t.Fatalf("bar says %q", got)
+	for cmd, want := range map[string]string{
+		"/opt/claude --resume 7f3c2a10-0000 --model opus":           "claude --resume 7f3c… --model opus",
+		"/opt/codex resume 01a2092d-8bc0 --no-daemon -a on-request": "codex resume 01a2… --no-daemon -a on-request",
+		"/opt/agy --conversation 71b21408-ec1c --mode plan":         "agy --conversation 71b2… --mode plan",
+	} {
+		if got := terminalLine(strings.Fields(cmd)); got != want {
+			t.Errorf("bar says %q, want %q", got, want)
+		}
 	}
 }
 

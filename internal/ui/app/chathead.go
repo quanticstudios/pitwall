@@ -3,6 +3,7 @@ package app
 import (
 	"image"
 	"image/color"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -103,17 +104,29 @@ func chatBusy(state string) bool {
 	return state == session.StateRunning || state == session.StateWaiting
 }
 
-// toggleChatTerminal flips chat tab ws between the chat and Claude Code's
+// terminalAgent reports whether a chat of agent p has a terminal view:
+// Claude's, and Codex's and agy's on a daemon that runs theirs.
+func (u *ui) terminalAgent(p model.Provider) bool {
+	switch p {
+	case model.ProviderClaude:
+		return true
+	case model.ProviderCodex, model.ProviderAntigravity:
+		return linkLevel(u.b) >= proto.ChatTerminalAgentsLevel
+	}
+	return false
+}
+
+// toggleChatTerminal flips chat tab ws between the chat and its agent's
 // TUI, asking first when that stops a turn.
 func (u *ui) toggleChatTerminal(st *model.State, ws *model.Workspace) {
 	c := findChat(st, ws.Chat)
-	if c == nil || c.Provider != model.ProviderClaude {
+	if c == nil || !u.terminalAgent(c.Provider) {
 		return
 	}
 	msg := proto.ChatTerminal{Chat: c.ID, On: c.Terminal == ""}
 	if msg.On && chatBusy(c.State) {
 		u.modal.open(modalChatTerminal, ws.ID)
-		u.modal.then = msg
+		u.modal.then, u.modal.agents = msg, []string{sidebar.AgentName(c.Provider)}
 		return
 	}
 	u.chatHead.setMenu(false, time.Now())
@@ -131,7 +144,11 @@ func (u *ui) chatTerminalBody(gtx gl.Context) gl.Dimensions {
 		}),
 		gl.Rigid(gl.Spacer{Height: theme.SpaceM}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Claude is mid-turn. The terminal runs the same conversation, so this turn stops first.")
+			agent := "Claude"
+			if len(u.modal.agents) > 0 {
+				agent = u.modal.agents[0]
+			}
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, agent+" is mid-turn. The terminal runs the same conversation, so this turn stops first.")
 		}),
 		gl.Rigid(gl.Spacer{Height: theme.SpaceXL}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "Cancel", "Stop and open", kit.Primary) }),
@@ -210,8 +227,9 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 	}
 	aide := curHost() == "" && findAide() != nil
 	title := tabTitle(*ws)
-	// A pane chat's agent runs in its pane: Codex's has a terminal too.
-	claude := c != nil && (c.Provider == model.ProviderClaude || ws.Chat == "")
+	// A pane chat's agent runs in its pane, so it has a terminal whatever
+	// the agent.
+	term := c != nil && (ws.Chat == "" || u.terminalAgent(c.Provider))
 	prov := model.ProviderClaude
 	if c != nil {
 		prov = c.Provider
@@ -350,7 +368,7 @@ func (u *ui) chatStrip(gtx gl.Context, h *chatHead, ws *model.Workspace, c *mode
 			})
 		})
 	}), after(gl.Spacer{Width: theme.SpaceS}.Layout))
-	if claude {
+	if term {
 		kids = append(kids, after(func(gtx gl.Context) gl.Dimensions {
 			return u.tipped(gtx, h, &h.term, withKey("Raw terminal", u.keyOf("chat_terminal")), func(gtx gl.Context) gl.Dimensions {
 				return ghostIconButton(gtx, th, &h.term, "terminal", "Terminal")
@@ -455,10 +473,10 @@ func terminalLine(cmd []string) string {
 	if len(cmd) == 0 {
 		return ""
 	}
-	out := []string{"claude"}
+	out := []string{strings.TrimSuffix(filepath.Base(cmd[0]), ".exe")}
 	for i := 1; i < len(cmd); i++ {
 		a := cmd[i]
-		if (cmd[i-1] == "--resume" || cmd[i-1] == "--session-id") && len(a) > 4 {
+		if (cmd[i-1] == "--resume" || cmd[i-1] == "--session-id" || cmd[i-1] == "--conversation" || cmd[i-1] == "resume") && len(a) > 4 {
 			a = a[:4] + "…"
 		}
 		out = append(out, a)
