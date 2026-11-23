@@ -85,6 +85,7 @@
   {"file": "claude-ask-3q-review.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-preview.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-ask-preview-opt2.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
+  {"file": "claude-ask-preview-tall.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "codex-ask-3q-step1.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
   {"file": "codex-ask-3q-step2.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
   {"file": "codex-ask-3q-step3.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},

@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Chat tabs                      ┌──────────────────────────────────────────────────────────┐
+                                  │ Codex chat tabs don't exist on a real daemon: configure… │
+Which providers get a chat tab?   │                                                          │
+                                  │ Claude and agy panes open as chats; Codex stays a        │
+❯ 1. Claude and agy               │ terminal until the daemon registers it.                  │
+  2. Every provider               └──────────────────────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel
