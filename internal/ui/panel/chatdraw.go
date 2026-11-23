@@ -317,7 +317,7 @@ func (d *cdraw) block(gtx layout.Context, b block) layout.Dimensions {
 	return layout.Dimensions{} // a turn draws as its rows, see buildRows
 }
 
-// prompt is a user prompt's bubble on the right, its images under the
+// prompt is a user prompt's bubble on the right, its images above the
 // text.
 func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	th := d.th
@@ -331,8 +331,8 @@ func (d *cdraw) prompt(gtx layout.Context, it *session.Item) layout.Dimensions {
 	call, dims := measure(g, func(gtx layout.Context) layout.Dimensions {
 		return vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions { return d.senderLine(gtx, it) },
-			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.attachments(gtx, it) },
+			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.pastes(gtx, it) },
 		)
 	})
@@ -455,7 +455,7 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 		if a.Kind == "image" {
 			n++
 			no := imageNo(refs, n)
-			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.thumbnail(gtx, it.ID, a, no) })
+			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return d.thumbnail(gtx, it, a, no) })
 			continue
 		}
 		name := a.Name
@@ -467,24 +467,28 @@ func (d *cdraw) attachments(gtx layout.Context, it *session.Item) layout.Dimensi
 	return hrow(gtx, gtx.Dp(theme.SpaceS), ws...)
 }
 
-// thumbnail is image attachment a, 96 dp tall, with its number; a click
-// shows it large.
-func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment, n int) layout.Dimensions {
-	if a.Data == "" { // a snapshot's copy, until the item comes whole (Transcript.Full)
-		return d.fileChip(gtx, "image", a.Name)
+// thumbnail is image attachment a of prompt it, 96 dp tall, with its
+// number; a click shows it large. Its face waits empty while the data is
+// on its way (it.Cut: the item read whole brings it), and a chip says why
+// when the picture is gone.
+func (d *cdraw) thumbnail(gtx layout.Context, it *session.Item, a *session.Attachment, n int) layout.Dimensions {
+	h, w := gtx.Dp(96), gtx.Dp(72)
+	if a.Data == "" {
+		if it.Cut {
+			return d.thumbFace(gtx, thumb{}, w, h, n, false)
+		}
+		return d.goneChip(gtx, it.ID+"/"+a.ID, a.Name, "The agent's transcript no longer holds this picture")
 	}
-	tb := d.t.thumbs.snapshot(d.t.thumbs.get(item+"/"+a.ID, a, d.t.Invalidate))
+	k := it.ID + "/" + a.ID
+	tb := d.t.thumbs.snapshot(d.t.thumbs.get(k, a, d.t.Invalidate))
 	if tb.ready && tb.size == (image.Point{}) {
-		return d.fileChip(gtx, "image", a.Name)
+		return d.goneChip(gtx, k, a.Name, "Pitwall could not read this picture")
 	}
-	h := gtx.Dp(96)
-	w := gtx.Dp(72)
 	if tb.ready {
 		w = min(max(h*tb.size.X/tb.size.Y, gtx.Dp(48)), gtx.Dp(180))
 	} else if d.t.Invalidate == nil {
 		d.t.live = true
 	}
-	k := item + "/" + a.ID
 	ck := d.t.click("img:" + k)
 	for ck.Clicked(gtx) {
 		d.t.tool.zoom = zoomed{key: k, a: *a}
@@ -493,6 +497,15 @@ func (d *cdraw) thumbnail(gtx layout.Context, item string, a *session.Attachment
 	return clickable(gtx, ck, func(gtx layout.Context) layout.Dimensions {
 		return d.thumbFace(gtx, tb, w, h, n, ck.Hovered())
 	})
+}
+
+// goneChip is a picture that cannot show as its file chip, with why on
+// hover; it opens nothing, so it keeps the arrow.
+func (d *cdraw) goneChip(gtx layout.Context, key, name, why string) layout.Dimensions {
+	ck := d.t.click("gone:" + key)
+	dims := ck.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return d.fileChip(gtx, "image", name) })
+	d.tip(gtx, ck, dims.Size, why)
+	return dims
 }
 
 // thumbFace draws a prompt's thumbnail tb, w by h, with its number n;

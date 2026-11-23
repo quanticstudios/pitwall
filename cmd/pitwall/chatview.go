@@ -247,6 +247,26 @@ func (c *chatCache) stamp(item string) string {
 	return ""
 }
 
+// gone takes item's cut copy for whole once the daemon no longer has the
+// item: what the copy lacks, its images' data among it, is gone, and the
+// window says so instead of waiting. b.mu is held.
+func (c *chatCache) gone(item string) {
+	if c.snap == nil {
+		return
+	}
+	for _, items := range [][]session.Item{c.snap.Content, c.older} {
+		if i := slices.IndexFunc(items, func(it session.Item) bool { return it.ID == item }); i >= 0 {
+			it := items[i]
+			it.Cut = false
+			if c.full == nil {
+				c.full = map[string]session.Item{}
+			}
+			c.full[item], c.view = it, nil
+			return
+		}
+	}
+}
+
 // merged is snap with the pages before it and the items read whole, made
 // again only after a change. b.mu is held.
 func (c *chatCache) merged() *session.Snapshot {

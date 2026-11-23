@@ -325,8 +325,8 @@ func (d *cdraw) ledgerPrompt(gtx layout.Context, it *session.Item) layout.Dimens
 	} else {
 		dims = vstack(gtx, gtx.Dp(theme.SpaceS),
 			func(gtx layout.Context) layout.Dimensions { return d.senderLine(gtx, it) },
-			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.attachments(gtx, it) },
+			func(gtx layout.Context) layout.Dimensions { return d.promptText(gtx, it) },
 			func(gtx layout.Context) layout.Dimensions { return d.pastes(gtx, it) },
 		)
 	}

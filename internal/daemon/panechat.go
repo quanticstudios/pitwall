@@ -560,10 +560,23 @@ func (pc *paneChat) readOn(f *os.File, tui string) error {
 			return err
 		}
 		s := pc.snap
+		pages := pc.pages
+		if pc.off > 0 && end >= pc.off { // the file grew: what was read stays where it was, for an item read whole later
+			if pages == nil {
+				pages = map[string][2]int64{}
+			}
+			for _, it := range s.Content {
+				if _, ok := pages[it.ID]; !ok {
+					pages[it.ID] = [2]int64{pc.start, pc.off}
+				}
+			}
+		} else {
+			pages = nil
+		}
 		pc.tr, pc.snap = pc.transcript(), session.Snapshot{SessionID: s.SessionID, PaneID: s.PaneID, WorkspaceID: s.WorkspaceID,
 			Provider: s.Provider, SessionState: session.StateReady, Running: true, PermissionMode: s.PermissionMode,
 			InteractionMode: "build", Revision: s.Revision}
-		pc.start, pc.off, pc.pages, pc.agents, pc.at, pc.lineAt, pc.tip = start, start, nil, nil, nil, nil, ""
+		pc.start, pc.off, pc.pages, pc.agents, pc.at, pc.lineAt, pc.tip = start, start, pages, nil, nil, nil, ""
 		pc.ctx, pc.model, pc.ctxReset = 0, "", false
 		pc.tui = phoneSettings{}                             // the new snapshot lacks the TUI's model until settings puts it back
 		defer func() { pc.recent, pc.recentSize = nil, 0 }() // no reader holds what this replays: each gets a snapshot
