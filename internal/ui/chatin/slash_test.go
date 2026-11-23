@@ -131,7 +131,80 @@ func TestSlashMenu(t *testing.T) {
 	h.c.SetText("")
 	h.typ("look at /co")
 	if h.c.slash.open() {
-		t.Fatal("a / inside the draft opened the menu")
+		t.Fatal("built-ins opened the menu inside the draft")
+	}
+}
+
+var midCommands = append(slices.Clone(testCommands),
+	session.Command{Name: "ux-review", Description: "Review the UI", Source: "user"},
+	session.Command{Name: "ship", Description: "Ship it", Source: "project"},
+	session.Command{Name: "pdf", Description: "Read a PDF", Source: "plugin"},
+	session.Command{Name: "term", Source: "user", Terminal: true})
+
+// Mid-prompt only skills and custom commands are listed.
+func TestMidCommands(t *testing.T) {
+	if got := names(MidCommands(midCommands)); !slices.Equal(got, []string{"ux-review", "ship", "pdf"}) {
+		t.Fatalf("MidCommands = %q", got)
+	}
+}
+
+// A /word inside the draft opens the menu with skills only, and a pick
+// replaces that word and nothing else, leaving the caret after it.
+func TestSlashMidDraft(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Commands = midCommands
+	h.typ("please run /ux")
+	if got := names(h.c.slash.rows); !slices.Equal(got, []string{"ux-review"}) {
+		t.Fatalf("mid-draft rows %q", got)
+	}
+	if m := h.press(key.NameTab, 0); len(m) != 0 || h.c.Text() != "please run /ux-review " {
+		t.Fatalf("pick at the end: sent %+v, text %q", m, h.c.Text())
+	}
+
+	h.c.SetText("fix /sh and then test")
+	h.c.ed.SetCaret(7, 7)
+	h.frame()
+	h.press(key.NameReturn, 0)
+	if got, _ := h.c.ed.Selection(); h.c.Text() != "fix /ship and then test" || got != 10 {
+		t.Fatalf("pick in the middle: %q, caret %d", h.c.Text(), got)
+	}
+
+	h.c.SetText("")
+	h.typ("see /tmp/x")
+	if h.c.slash.open() {
+		t.Fatal("a path opened the menu")
+	}
+	h.c.SetText("")
+	h.typ("and/or")
+	if h.c.slash.open() {
+		t.Fatal("and/or opened the menu")
+	}
+
+	h.c.SetText("")
+	h.typ("use /co")
+	if h.c.slash.open() || h.c.slash.note != noMatchNote {
+		t.Fatalf("a built-in's name mid-draft: open %v, note %q", h.c.slash.open(), h.c.slash.note)
+	}
+	h.press(key.NameEscape, 0)
+	h.c.SetText("")
+	h.typ("use /sh")
+	h.press(key.NameEscape, 0)
+	if h.c.slash.shown() {
+		t.Fatal("Esc left the mid-draft menu up")
+	}
+
+	h.snap.Provider = "codex"
+	h.c.SetText("")
+	h.typ("use /sh")
+	if h.c.slash.shown() {
+		t.Fatal("codex got a mid-draft menu")
+	}
+	h.snap.Provider = "claude"
+
+	h.c.SetText("")
+	h.c.SetText("use /ship now")
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).Text != "use /ship now" {
+		t.Fatalf("a mid-draft /skill sent %+v", m)
 	}
 }
 
