@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.6
 
 - The chat's / menu opens for a /word anywhere in the draft, not only at its start. Mid-draft it lists skills and custom commands for Claude chats; a pick replaces only that word.
 - A message's pictures show above its text, as thumbnails lined up with the text's left edge, in Ledger and Column alike. In a Claude Code pane, a pasted picture no longer turns into a grey `image-1.png` chip for good once the transcript grows: after the pane chat re-read its transcript's tail, the daemon had forgotten where older messages were and answered "gone" when the window asked for the picture. While a picture loads, its thumbnail shows an empty frame with its number. The chip now shows only when the picture really is gone, and its tooltip says why.
