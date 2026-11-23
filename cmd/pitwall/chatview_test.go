@@ -469,3 +469,28 @@ func TestChatSubscribe(t *testing.T) {
 		t.Fatalf("after the resync the text is %q, want new!", got.Content[0].Text)
 	}
 }
+
+// TestChatItemGone: an item read whole that the daemon answers not-found
+// for stands as its cut copy, no longer cut, so the window says its image
+// is gone instead of waiting; the subscription stays.
+func TestChatItemGone(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+	b.link.Level = proto.Level
+	b.Chat("c")
+	b.chatRead("c")
+	s, _ := json.Marshal(session.Snapshot{SessionID: "c", Content: []session.Item{{ID: "p", Kind: session.KindUserPrompt, Cut: true, UpdatedAt: "1",
+		Attachments: []session.Attachment{{ID: "image-1", Kind: "image", Name: "image-1.png"}}}}})
+	b.mu.Lock()
+	b.chatReply("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: s, Seq: 1})
+	b.mu.Unlock()
+	b.ChatItem("c", "p")
+	b.mu.Lock()
+	b.chatAnswered(proto.ChatResult{Chat: "c", Code: "not-found", Message: "item p is gone from the chat"})
+	sub := b.chats["c"].sub
+	b.mu.Unlock()
+	got, _ := b.Chat("c")
+	if got.Content[0].Cut || !sub || len(b.ChatResults("c")) != 0 {
+		t.Fatalf("after not-found: cut %v, subscribed %v", got.Content[0].Cut, sub)
+	}
+}

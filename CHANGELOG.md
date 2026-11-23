@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A message's pictures show above its text, as thumbnails lined up with the text's left edge, in Ledger and Column alike. In a Claude Code pane, a pasted picture no longer turns into a grey `image-1.png` chip for good once the transcript grows: after the pane chat re-read its transcript's tail, the daemon had forgotten where older messages were and answered "gone" when the window asked for the picture. While a picture loads, its thumbnail shows an empty frame with its number. The chip now shows only when the picture really is gone, and its tooltip says why.
+
 ## v0.3.5
 
 - Image chips in a message (`[Image #N]`) flow like words: the first one starts at the text's left edge, and a chip has the same one-space gap to the next chip as to the next word. Before, each chip had a few stray pixels in front of it, so a message started indented and two chips sat farther apart than a chip and its text.

@@ -565,9 +565,6 @@ func (b *backend) recvLoop() {
 		case proto.MonitorSample:
 			b.mon, b.monAt = m, time.Now()
 		case proto.ChatResult:
-			if c := b.chats[m.Chat]; c != nil && m.Code == "not-found" {
-				c.out, c.sub = false, false
-			}
 			b.chatAnswered(m)
 		case proto.ChatRewindFiles:
 			if b.rewinds == nil {
@@ -751,10 +748,20 @@ func chatOf(msg any) (string, bool) {
 	return "", false
 }
 
-// chatAnswered keeps a ChatResult for the window when it answers a
+// chatAnswered marks an item read whole that the daemon no longer has as
+// gone (chatCache.gone), and keeps a ChatResult for the window when it answers a
 // ChatSend or a ChatRewind, or refuses any request. b.mu is held.
 func (b *backend) chatAnswered(m proto.ChatResult) {
 	req := b.chatReply(m.Chat)
+	if r, ok := req.(proto.ChatRead); ok && r.Item != "" && m.Code == "not-found" {
+		if c := b.chats[m.Chat]; c != nil {
+			c.gone(r.Item)
+		}
+		return
+	}
+	if c := b.chats[m.Chat]; c != nil && m.Code == "not-found" {
+		c.out, c.sub = false, false
+	}
 	if s, ok := req.(proto.ChatSubscribe); ok {
 		req = proto.ChatRead{Chat: s.Chat, After: s.After}
 		if c := b.chats[m.Chat]; c != nil {
