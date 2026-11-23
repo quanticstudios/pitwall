@@ -16,10 +16,10 @@ import (
 const nbsp = " "
 
 // chip is an [Image #N] token as the prompt draws it: label is the rune
-// range of its name in the drawn text.
+// range of its name in the drawn text, slot that and its padding.
 type chip struct {
-	label [2]int
-	name  string
+	label, slot [2]int
+	name        string
 }
 
 // ctext is a prompt with its tokens widened for chips, and the way back

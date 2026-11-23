@@ -236,11 +236,13 @@ func spansChips(spans []mdview.Span, href func(link string, code bool) string, p
 			text(t[last:r.start])
 			tok := utf8.RuneCountInString(t[r.start:r.end])
 			name := "Image" + nbsp + "#" + strconv.Itoa(r.n)
+			slot := n
 			put(strings.Repeat(nbsp, pad[0]), at, at+tok)
 			start := n
 			put(name, at, at+tok)
-			p.ct.chips = append(p.ct.chips, chip{label: [2]int{start, n}, name: strings.ReplaceAll(name, nbsp, " ")})
+			label := [2]int{start, n}
 			put(strings.Repeat(nbsp, pad[1]), at, at+tok)
+			p.ct.chips = append(p.ct.chips, chip{label: label, slot: [2]int{slot, n}, name: strings.ReplaceAll(name, nbsp, " ")})
 			at += tok
 			last = r.end
 		}
@@ -567,11 +569,7 @@ func (d *cdraw) para(gtx layout.Context, key string, b *mdview.Block, p para) la
 			})
 		}
 	}
-	for _, c := range p.ct.chips {
-		if rg = sl.Regions(c.label[0], c.label[1], rg[:0]); len(rg) > 0 {
-			d.imageChip(gtx, rg[0], c, st)
-		}
-	}
+	d.imageChips(gtx, sl, p.ct.chips, st)
 	o.Pop()
 	if b.Marker != "" || b.Task != 0 {
 		d.marker(gtx, b, x, st, td)
