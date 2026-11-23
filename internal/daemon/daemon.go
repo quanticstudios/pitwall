@@ -308,6 +308,9 @@ type Daemon struct {
 	// so a new session in the same pane (/clear, /resume, restart) always
 	// sends a fresh snapshot rather than matching a client's old seq.
 	paneChatSeq map[string]int64
+	// paneStreams are the pane chats with subscribers, by pane id
+	// (panestream.go).
+	paneStreams map[string]*paneStream
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
@@ -935,15 +938,20 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	done := make(chan struct{})
 	defer close(done)
 	go d.writeLoop(c, done)
-	// ChatReads run in order off the loop: one that reads a big transcript
-	// must not hold up the keys sent after it.
-	reads := make(chan proto.ChatRead, 64)
+	// ChatReads and ChatSubscribes run in order off the loop: one that
+	// reads a big transcript must not hold up the keys sent after it.
+	reads := make(chan any, 64)
 	defer close(reads)
 	go func() {
 		for r := range reads {
+			if s, ok := r.(proto.ChatSubscribe); ok {
+				d.chatSubscribe(ctx, c, s)
+				continue
+			}
 			reply, _ := d.chatRequest(ctx, r)
 			c.queue(reply)
 		}
+		d.dropSubs(c) // after the last subscribe, so none outlives the client
 	}()
 
 	if hello.Kind == "gui" {
@@ -1127,6 +1135,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if r, ok := m.(proto.ChatRead); ok {
 			reads <- r // a reply to this client alone
+			continue
+		}
+		if r, ok := m.(proto.ChatSubscribe); ok {
+			reads <- r
 			continue
 		}
 		if r, ok := m.(proto.ChatRewindCheck); ok {
@@ -1966,6 +1978,7 @@ const slowClose = 3 * time.Second
 // agentEvent applies one hook event.
 func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	d.mu.Lock()
+	d.pokePane(m.Pane)
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
 	if pi < 0 {
 		chat := d.isChat(m.Pane)
@@ -2702,6 +2715,7 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 		d.mu.Unlock()
 		return "", false
 	}
+	d.pokePane(id) // the screen runs ahead of the transcript (panelive.go)
 	if d.phoneTick != nil {
 		close(d.phoneTick) // phoneTabs reads settings outside the frame lock.
 		d.phoneTick = nil
@@ -3004,6 +3018,7 @@ func (d *Daemon) changed() {
 	d.retitle()
 	d.fixOrders()
 	d.st.Version++
+	d.pokePanes() // hooks, queue edits and the like change what a pane chat shows
 	select {
 	case d.pushWake <- struct{}{}:
 	default:

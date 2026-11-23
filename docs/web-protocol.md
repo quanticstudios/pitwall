@@ -293,6 +293,15 @@ does on the socket:
 Subscribing to a chat already subscribed on that
 connection is a [resync](#resync), not a second stream.
 
+A `sessionId` that names no chat but a pane running Claude Code, Codex or
+Antigravity subscribes to that pane's chat, the one the desktop window
+shows. Its text passes through the daemon's secret redaction on the way
+out, snapshot and deltas alike. The daemon reads the pane's transcript
+again when its hooks, its screen or a file in the transcript's folder
+change, and pushes what changed. When the pane starts a new session, as
+after `/clear`, the next push is a `deltas` frame with no deltas and a
+later `seq`; the server answers it as a gap, with a snapshot.
+
 When a subscribed chat is archived or deleted, the server sends `removed`
 and the subscription ends. This is aide's `removed` event:
 

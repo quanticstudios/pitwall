@@ -98,6 +98,7 @@ func (d *Daemon) programReport(id string, r progstatus.Report, seq uint64, group
 		return
 	}
 	pp.seq = seq
+	d.pokePane(id)
 	if pp.store.ApplyFrom(r, time.Now().UnixNano(), group) {
 		d.syncProgram(id)
 	}

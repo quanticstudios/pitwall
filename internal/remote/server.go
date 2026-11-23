@@ -174,12 +174,15 @@ type Server struct {
 	Version string
 
 	// Tabs lists every tab for the chat page, and Changed is closed at the
-	// daemon's next change. ChatEntries is a chat tab's transcript, or an
-	// Antigravity pane's, and the model its latest turn used; ok is false
-	// for no such chat.
+	// daemon's next change. ChatEntries is a chat tab's transcript, or a
+	// live agent pane's, and the model its latest turn used; ok is false
+	// for no such chat. Watch has wake get a value at each change of that
+	// chat until stop; a nil wake for none, whose transcript the page reads
+	// itself (flow.Log) as it polls.
 	Tabs        func() []Tab
 	Changed     func() <-chan struct{}
 	ChatEntries func(chat string) (entries []flow.Entry, model string, ok bool)
+	Watch       func(chat string) (wake <-chan struct{}, stop func())
 	// Send types text into pane's agent once it sits at its input box,
 	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.

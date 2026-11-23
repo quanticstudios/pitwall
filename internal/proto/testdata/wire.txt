@@ -1,4 +1,4 @@
-18.99
+18.100
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -52,7 +52,7 @@ proto.ChatApprove{Chat string; Request string; Decision string; Reason string}
 proto.ChatArchive{Chat string; Delete bool}
 proto.ChatAside{Chat string; ID string; Question string}
 proto.ChatAsideResult{Chat string; ID string; Answer string; Err string}
-proto.ChatDeltas{Chat string; Snapshot []uint8; Seq int64; Deltas [][]uint8; Older int64; Page int64; Item []uint8}
+proto.ChatDeltas{Chat string; Snapshot []uint8; Seq int64; Deltas [][]uint8; Older int64; Page int64; Item []uint8; Push bool}
 proto.ChatFind{Chat string; Query string}
 proto.ChatFindResult{Chat string; Query string; Hits []session.FindHit; More bool; Err string}
 proto.ChatFork{Chat string; Turn string; Worktree string}
@@ -71,6 +71,7 @@ proto.ChatRewindCheck{Chat string; Turn string}
 proto.ChatRewindFiles{Chat string; Turn string; Files []proto.RewindFile; Unsaved []proto.RewindFile; Refused string}
 proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill; How string; Join bool}
 proto.ChatSet{Chat string; Model string; Effort string; Mode string; Provider model.Provider}
+proto.ChatSubscribe{Chat string; After int64; Off bool}
 proto.ChatSuggest{Chat string; Turn string}
 proto.ChatSuggestResult{Chat string; Turn string; Text string; Code string; Err string}
 proto.ChatTerminal{Chat string; On bool}

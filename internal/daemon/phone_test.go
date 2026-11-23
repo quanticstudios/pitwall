@@ -1059,7 +1059,10 @@ func TestPhoneAgyPaneEntries(t *testing.T) {
 	if !ok || kinds[flow.EntryUser] == 0 || kinds[flow.EntryTool] == 0 || kinds[flow.EntryAssistant] == 0 {
 		t.Fatalf("agy pane on the phone: ok %v, kinds %v", ok, kinds)
 	}
+	d.mu.Lock()
+	d.st.Panes[0].Exited = true
+	d.mu.Unlock()
 	if _, _, ok := d.phoneChatEntries("a"); ok {
-		t.Error("a Claude pane answered as a chat")
+		t.Error("an exited Claude pane answered as a chat; the phone reads its transcript itself")
 	}
 }

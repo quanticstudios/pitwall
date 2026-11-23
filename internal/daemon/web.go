@@ -106,7 +106,12 @@ func usageReader() func(since time.Time) web.Usage {
 // pushes its deltas to its subscribers, and changed tells the list's.
 type chatHub struct{ d *Daemon }
 
+// Subscribe subscribes s to chat tab id, else to the pane chat of pane
+// id, whose text goes through logs.Redact on its way to the browser.
 func (h chatHub) Subscribe(id string, s web.Sink) error {
+	if _, err := h.d.chat(id); err != nil {
+		return h.d.paneSubscribe(id, s, true)
+	}
 	return h.on(id, func(c *chat) {
 		if c.subs == nil {
 			c.subs = map[web.Sink]bool{}
@@ -116,12 +121,20 @@ func (h chatHub) Subscribe(id string, s web.Sink) error {
 }
 
 func (h chatHub) Unsubscribe(id string, s web.Sink) {
-	h.on(id, func(c *chat) { delete(c.subs, s) })
+	h.d.chatUnsubscribe(id, s)
 }
 
-// Read reads a live chat on its loop, else an archived one from its
-// folder, which always answers with its snapshot.
+// Read reads a live chat on its loop, else a pane chat, redacted, else an
+// archived chat from its folder, which always answers with its snapshot.
 func (h chatHub) Read(id string, after int64) (out proto.ChatDeltas, err error) {
+	if _, err := h.d.chat(id); err != nil {
+		if r, ok := h.d.paneChatRequest(context.Background(), proto.ChatRead{Chat: id, After: after}); ok {
+			if res, failed := r.(proto.ChatResult); failed {
+				return out, chatError{res.Code, res.Message}
+			}
+			return redactDeltas(r.(proto.ChatDeltas)), nil
+		}
+	}
 	var rerr error
 	err = h.on(id, func(c *chat) { out, rerr = c.read(proto.ChatRead{Chat: id, After: after}) })
 	if err == nil {

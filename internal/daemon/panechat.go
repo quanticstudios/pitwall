@@ -293,27 +293,8 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 // paneChatRequest handles a Chat* message for a pane chat; false when m is
 // not one or names no pane chat.
 func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
-	var id string
-	switch m := m.(type) {
-	case proto.ChatRead:
-		id = m.Chat
-	case proto.ChatSend:
-		id = m.Chat
-	case proto.ChatInterrupt:
-		id = m.Chat
-	case proto.ChatApprove:
-		id = m.Chat
-	case proto.ChatAnswer:
-		id = m.Chat
-	case proto.ChatSet:
-		id = m.Chat
-	case proto.ChatTerminal:
-		id = m.Chat
-	case proto.ChatQueue:
-		id = m.Chat
-	case proto.ChatRewind:
-		id = m.Chat
-	default:
+	id := chatID(m)
+	if id == "" {
 		return nil, false
 	}
 	pc, l, ok := d.paneChatOf(id)
@@ -369,6 +350,32 @@ func (d *Daemon) paneChatRequest(ctx context.Context, m any) (any, bool) {
 		note, err = d.paneRewind(pc, m)
 	}
 	return chatResult(id, "", note, err), true
+}
+
+// chatID is the chat a Chat* message a pane chat takes names; "" for any
+// other message.
+func chatID(m any) string {
+	switch m := m.(type) {
+	case proto.ChatRead:
+		return m.Chat
+	case proto.ChatSend:
+		return m.Chat
+	case proto.ChatInterrupt:
+		return m.Chat
+	case proto.ChatApprove:
+		return m.Chat
+	case proto.ChatAnswer:
+		return m.Chat
+	case proto.ChatSet:
+		return m.Chat
+	case proto.ChatTerminal:
+		return m.Chat
+	case proto.ChatQueue:
+		return m.Chat
+	case proto.ChatRewind:
+		return m.Chat
+	}
+	return ""
 }
 
 // busy reports whether an agent in state is mid-turn.
@@ -1208,6 +1215,9 @@ func (d *Daemon) unechoPane(pane string) {
 		pc.mu.Lock()
 		pc.unecho()
 		pc.mu.Unlock()
+		d.mu.Lock()
+		d.pokePane(pane)
+		d.mu.Unlock()
 	}
 }
 
