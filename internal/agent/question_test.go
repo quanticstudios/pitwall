@@ -191,3 +191,24 @@ func TestQuestionTranscriptIsNotAForm(t *testing.T) {
 		}
 	}
 }
+
+// TestClaudeQuestionTallPreview: a preview box taller than the options
+// starts on the question's header row, beside the prompt. The prompt is
+// the question alone: its box rows once made the drive stop with
+// `Claude Code is on "│ Codex chat tabs don't exist…"`.
+func TestClaudeQuestionTallPreview(t *testing.T) {
+	q := ReadQuestion(model.ProviderClaude, screenFixture(t, "claude-ask-preview-tall.txt"))
+	if q == nil {
+		t.Fatal("no question")
+	}
+	const want = "Which providers get a chat tab?"
+	if q.Prompt != want || q.StepPrompt != want {
+		t.Errorf("prompt %q, step prompt %q, want %q", q.Prompt, q.StepPrompt, want)
+	}
+	if len(q.Tabs) != 1 || q.Tabs[0].Label != "Chat tabs" {
+		t.Errorf("tabs %+v", q.Tabs)
+	}
+	if len(q.Options) != 2 || q.Options[0].Label != "Claude and agy" || q.Options[1].Label != "Every provider" || q.Cursor != 0 {
+		t.Errorf("options %+v, cursor %d", q.Options, q.Cursor)
+	}
+}

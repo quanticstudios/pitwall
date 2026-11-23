@@ -91,7 +91,9 @@ func readClaudeQuestion(g vt.Grid) *Question {
 		return nil
 	}
 	q := &Question{Cursor: -1, OtherIndex: -1, SubmitIndex: -1}
-	headerLine := rows[header]
+	// A preview box taller than the options starts on the header row, so
+	// the header and prompt rows lose it as the option rows do.
+	headerLine := previewColumn.ReplaceAllString(rows[header], "")
 	q.Tabs = parseClaudeTabs(headerLine)
 	if len(q.Tabs) > 0 {
 		q.Total = len(q.Tabs)
@@ -112,7 +114,11 @@ func readClaudeQuestion(g vt.Grid) *Question {
 		}
 	}
 	first := header + 1 + opts[0].row
-	q.Prompt = strings.TrimSpace(strings.Join(rows[header+1:first], "\n"))
+	above := make([]string, 0, first-header-1)
+	for _, l := range rows[header+1 : first] {
+		above = append(above, previewColumn.ReplaceAllString(l, ""))
+	}
+	q.Prompt = strings.TrimSpace(strings.Join(above, "\n"))
 	if q.Prompt == "" {
 		return nil
 	}
@@ -121,7 +127,7 @@ func readClaudeQuestion(g vt.Grid) *Question {
 		q.Review = true
 		q.Index = q.Total
 		q.CanNext = false
-		q.ReviewAns = parseClaudeReview(rows[header+1 : first])
+		q.ReviewAns = parseClaudeReview(above)
 	}
 	footer := ""
 	if end < len(rows) {
