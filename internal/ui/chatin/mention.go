@@ -84,7 +84,7 @@ func (c *Composer) mentionUpdate(gtx layout.Context, env Env) {
 	txt := c.Text()
 	_, caret := c.ed.Selection()
 	start, query, ok := Mention(txt, caret)
-	if _, slash := Slash(txt, caret); !ok || slash || env.Mentions == nil || txt == m.shut || c.menu {
+	if _, _, slash := Slash(txt, caret); !ok || slash || env.Mentions == nil || txt == m.shut || c.menu {
 		m.rows = nil
 		if txt != m.shut {
 			m.shut = ""

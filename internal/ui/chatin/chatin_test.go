@@ -185,14 +185,35 @@ func TestPlaceholderAndSlash(t *testing.T) {
 	if p := Placeholder(&session.Snapshot{SessionState: session.StateWaiting, PendingApprovals: []session.Approval{{ID: "a"}}}); p != "Answer above, or type to queue" {
 		t.Errorf("pending: %q", p)
 	}
-	if w, ok := Slash("/co", 3); !ok || w != "/co" {
-		t.Errorf("slash %q %v", w, ok)
-	}
-	if _, ok := Slash("/compact now", 9); ok {
-		t.Error("slash past the first word")
-	}
-	if _, ok := Slash("hi /x", 5); ok {
-		t.Error("slash not at the start")
+}
+
+func TestSlashWord(t *testing.T) {
+	for _, c := range []struct {
+		text  string
+		caret int
+		start int
+		word  string
+		ok    bool
+	}{
+		{"/co", 3, 0, "/co", true},
+		{"/compact now", 9, 0, "", false},
+		{"/compact now", 3, 0, "/compact", true},
+		{"fix /sk", 7, 4, "/sk", true},
+		{"fix /sk now", 6, 4, "/sk", true},
+		{"fix\n/sk", 7, 4, "/sk", true},
+		{"fix /sk now", 4, 0, "", false}, // caret before the /
+		{"fix /sk now", 11, 0, "", false},
+		{"/tmp/x", 4, 0, "/tmp/x", true}, // the menu itself closes a path
+		{"a/b", 3, 0, "", false},
+		{"and/or", 6, 0, "", false},
+		{"see https://x.io/a", 18, 0, "", false},
+		{"é /ü", 4, 2, "/ü", true},
+		{"", 0, 0, "", false},
+	} {
+		c.text = strings.ReplaceAll(c.text, "\\n", "\n")
+		if s, w, ok := Slash(c.text, c.caret); ok != c.ok || (ok && (s != c.start || w != c.word)) {
+			t.Errorf("Slash(%q, %d) = %d %q %v, want %d %q %v", c.text, c.caret, s, w, ok, c.start, c.word, c.ok)
+		}
 	}
 }
 

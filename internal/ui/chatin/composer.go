@@ -250,9 +250,9 @@ func (c *Composer) Images() []Image { return c.draft.Ordered(c.Text()) }
 // token order.
 func (c *Composer) Parts() []Part { return c.draft.ordered(c.Text()) }
 
-// Slash is the command word the draft starts with while the caret is in
-// it, which the / menu completes.
-func (c *Composer) Slash() (string, bool) {
+// Slash is the /word the caret is in, which the / menu completes, and
+// its rune index.
+func (c *Composer) Slash() (int, string, bool) {
 	_, end := c.ed.Selection()
 	return Slash(c.Text(), end)
 }

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/remote"
@@ -299,18 +300,25 @@ func Placeholder(s *session.Snapshot) string {
 	return "Reply to " + name
 }
 
-// Slash is the command the text starts with while the caret (in runes)
-// is in its first word, for the slash-command menu; ok false otherwise.
-func Slash(text string, caret int) (word string, ok bool) {
-	if !strings.HasPrefix(text, "/") {
-		return "", false
+// Slash is the /word the caret (in runes) is in, for the slash-command
+// menu: the rune index of its / and the whole word. The / starts the
+// text or follows whitespace, so and/or and a URL are none; ok false
+// otherwise.
+func Slash(text string, caret int) (start int, word string, ok bool) {
+	r := []rune(text)
+	if caret < 1 || caret > len(r) {
+		return 0, "", false
 	}
-	word = text
-	if i := strings.IndexAny(text, " \t\n"); i >= 0 {
-		word = text[:i]
+	start = caret
+	for start > 0 && !unicode.IsSpace(r[start-1]) {
+		start--
 	}
-	if caret < 1 || caret > len([]rune(word)) {
-		return "", false
+	if start == caret || r[start] != '/' {
+		return 0, "", false
 	}
-	return word, true
+	end := caret
+	for end < len(r) && !unicode.IsSpace(r[end]) {
+		end++
+	}
+	return start, string(r[start:end]), true
 }

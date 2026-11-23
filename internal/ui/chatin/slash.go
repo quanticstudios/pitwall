@@ -15,6 +15,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -28,6 +29,7 @@ type slashState struct {
 	sel    int    // the highlighted row
 	picked string // its name, which keeps the highlight when the list is read again
 	query  string
+	start  int    // the word's rune index in the draft
 	note   string // shown in place of rows when there are none; it takes no keys but Esc
 	shut   string // the text Esc closed the menu on; it stays shut until the text changes
 	anchor image.Rectangle
@@ -140,7 +142,7 @@ var slashUsed = map[string]int{}
 func (c *Composer) slashUpdate(env Env) {
 	s := &c.slash
 	txt := c.Text()
-	word, ok := c.Slash()
+	start, word, ok := c.Slash()
 	if !ok || env.Snap == nil || txt == s.shut || c.menu {
 		s.rows, s.note = nil, ""
 		if txt != s.shut {
@@ -153,7 +155,16 @@ func (c *Composer) slashUpdate(env Env) {
 		s.rows, s.note = nil, ""
 		return
 	}
-	s.rows, s.note = SlashMatches(env.Snap.Commands, q, slashUsed), ""
+	cmds := env.Snap.Commands
+	if start > 0 {
+		if !midPrompt(env.Snap.Provider) { // why: only Claude Code is known to read a skill named after the prompt's first word
+			s.rows, s.note = nil, ""
+			return
+		}
+		cmds = MidCommands(cmds)
+	}
+	s.start = start
+	s.rows, s.note = SlashMatches(cmds, q, slashUsed), ""
 	switch {
 	case q != s.query:
 		s.sel = 0
@@ -172,11 +183,23 @@ func (c *Composer) slashUpdate(env Env) {
 	case s.open():
 	case !env.Commands:
 		s.note = oldNote
-	case len(env.Snap.Commands) == 0:
+	case len(cmds) == 0:
 		s.note = noListNote
 	default:
 		s.note = noMatchNote
 	}
+}
+
+// midPrompt reports whether provider p reads a /skill that is not the
+// prompt's first word.
+func midPrompt(p model.Provider) bool { return p == "" || p == "claude" }
+
+// MidCommands is the commands a provider reads in the middle of a
+// prompt: skills and custom commands, never a built-in.
+func MidCommands(cmds []session.Command) []session.Command {
+	return slices.DeleteFunc(slices.Clone(cmds), func(c session.Command) bool {
+		return c.Terminal || (c.Source != "user" && c.Source != "project" && c.Source != "plugin")
+	})
 }
 
 // slashKey runs key e on the open menu: Up and Down move the highlight,
@@ -198,17 +221,18 @@ func (c *Composer) slashKey(gtx layout.Context, e key.Event) {
 	s.picked = s.rows[s.sel].Name
 }
 
-// pickSlash puts /name and a space in place of the draft's first word.
+// pickSlash puts /name and a space in place of the /word at the caret.
 func (c *Composer) pickSlash(gtx layout.Context, name string) {
 	r := []rune(c.Text())
-	end := 0
+	start := min(c.slash.start, len(r))
+	end := start
 	for end < len(r) && !unicode.IsSpace(r[end]) {
 		end++
 	}
 	if end < len(r) && r[end] == ' ' {
 		end++ // the space after the word, which the pick puts back
 	}
-	c.ed.SetCaret(0, end)
+	c.ed.SetCaret(start, end)
 	c.ed.Insert("/" + name + " ")
 	c.slash.rows, c.slash.note = nil, ""
 	gtx.Execute(key.FocusCmd{Tag: &c.ed})
@@ -230,7 +254,7 @@ func (c *Composer) slashAnchor(off image.Point) {
 	if !c.slash.shown() {
 		return
 	}
-	if rs := c.ed.Regions(0, 1, nil); len(rs) > 0 {
+	if rs := c.ed.Regions(c.slash.start, c.slash.start+1, nil); len(rs) > 0 {
 		c.slash.anchor = rs[0].Bounds.Add(off)
 	}
 }
