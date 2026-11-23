@@ -614,7 +614,7 @@ func (u *ui) ssCounts(v skillshare.View, scope string) ssW {
 			c := s.click("count:" + string(k))
 			kit.Clickable(g, c, func(gtx gl.Context) gl.Dimensions {
 				if c.Hovered() {
-					paint.FillShape(gtx.Ops, th.Hover, clip.Rect{Min: image.Pt(1, 1), Max: image.Pt(cw-1, h-1)}.Op())
+					paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(1, 1, cw-1, h-1), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 				}
 				nc, nsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), col, n)
 				lc, lsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, k.Label())

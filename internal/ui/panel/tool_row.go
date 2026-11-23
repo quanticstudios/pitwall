@@ -672,12 +672,16 @@ func newText(lines []diffLine) string {
 }
 
 // rowFill is a clickable row's Hover fill under the pointer, Pressed while
-// held.
+// held: rounded like a control's, and inset a little so its corners show
+// against a card's border.
 func rowFill(gtx layout.Context, th *theme.Theme, c *widget.Clickable, size image.Point) {
+	fill := th.Hover
 	switch {
 	case c.Pressed():
-		paint.FillShape(gtx.Ops, th.Pressed, clip.Rect{Max: size}.Op())
-	case c.Hovered():
-		paint.FillShape(gtx.Ops, th.Hover, clip.Rect{Max: size}.Op())
+		fill = th.Pressed
+	case !c.Hovered():
+		return
 	}
+	in := gtx.Dp(theme.Space2XS)
+	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(in, 0, size.X-in, size.Y), gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
 }

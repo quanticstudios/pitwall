@@ -397,30 +397,38 @@ func (d *cdraw) promptText(gtx layout.Context, it *session.Item) layout.Dimensio
 	sl := d.t.sel(it.ID)
 	d.copyAs(sl, ct)
 	dims := d.selectable(gtx, sl, st, ct.text)
-	var rg []widget.Region
-	for _, c := range ct.chips {
-		rg = sl.Regions(c.label[0], c.label[1], rg[:0])
-		if len(rg) == 0 {
-			continue
-		}
-		d.imageChip(gtx, rg[0], c, st)
-	}
+	d.imageChips(gtx, sl, ct.chips, st)
 	return dims
 }
 
-// imageChip draws an image token's chip around its label's region r: the
-// blue chip colors, a 1 em image icon in the room the padding left, and
+// imageChips draws each chip over its slot in sl's text, so a chip takes
+// the room of a word: no gap but the typed spaces around it.
+func (d *cdraw) imageChips(gtx layout.Context, sl *widget.Selectable, chips []chip, st tstyle) {
+	var rg []widget.Region
+	for _, c := range chips {
+		if rg = sl.Regions(c.slot[0], c.slot[1], rg[:0]); len(rg) != 1 {
+			continue // shortcut: a slot is no-break text, so it splits only if one word overflows the line
+		}
+		slot := rg[0].Bounds
+		if rg = sl.Regions(c.label[0], c.label[1], rg[:0]); len(rg) > 0 {
+			d.imageChip(gtx, slot, rg[0], c, st)
+		}
+	}
+}
+
+// imageChip draws an image token's chip over its slot: the blue chip
+// colors, a 1 em image icon in the room left of its label's region r, and
 // the label redrawn in blue on the line's baseline.
-func (d *cdraw) imageChip(gtx layout.Context, r widget.Region, c chip, st tstyle) {
+func (d *cdraw) imageChip(gtx layout.Context, slot image.Rectangle, r widget.Region, c chip, st tstyle) {
 	th := d.th
 	bg, fg := th.Chip(th.Blue, th.SurfaceSecondary)
 	em := gtx.Sp(st.size)
 	base := r.Bounds.Max.Y - r.Baseline
-	lead := gtx.Dp(6) + em + gtx.Dp(4)
-	box := image.Rect(r.Bounds.Min.X-lead, base-em*78/100-gtx.Dp(2), r.Bounds.Max.X+gtx.Dp(6), base+em*22/100+gtx.Dp(2))
+	box := image.Rect(slot.Min.X, base-em*78/100-gtx.Dp(2), slot.Max.X, base+em*22/100+gtx.Dp(2))
 	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
 	xh := em / 2
-	at(gtx, image.Pt(box.Min.X+gtx.Dp(6), base-xh/2-em/2), func(gtx layout.Context) layout.Dimensions {
+	ix := box.Min.X + (r.Bounds.Min.X-box.Min.X-em)*6/10 // the slot's slack split 6:4 like its 6 dp and 4 dp pads
+	at(gtx, image.Pt(ix, base-xh/2-em/2), func(gtx layout.Context) layout.Dimensions {
 		return sidebar.Icon(gtx, "image", em, fg)
 	})
 	call, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
