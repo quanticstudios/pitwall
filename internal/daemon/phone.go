@@ -141,9 +141,8 @@ func (d *Daemon) phoneChanged() <-chan struct{} {
 	return d.phoneTick
 }
 
-// phoneChatEntries is chat's transcript as the phone shows it. An agy
-// pane's is its pane chat's, as the phone has no reader of agy's
-// transcript of its own.
+// phoneChatEntries is chat's transcript as the phone shows it: a chat
+// tab's, or a live agent pane's pane chat's, which the window reads too.
 func (d *Daemon) phoneChatEntries(id string) ([]flow.Entry, string, bool) {
 	d.mu.Lock()
 	c := d.chats[id]
@@ -160,23 +159,24 @@ func (d *Daemon) phoneChatEntries(id string) ([]flow.Entry, string, bool) {
 	return es, mdl, ok
 }
 
-// paneChatEntries is an agy pane's chat as the phone shows it; false for
-// any other pane.
+// paneChatEntries is a live Claude Code, Codex or agy pane's chat as the
+// phone shows it, the same chat the window reads; false for any other
+// pane. A chat with subscribers is kept current by its stream, so this
+// reads it again only when it never read its transcript.
 func (d *Daemon) paneChatEntries(id string) ([]flow.Entry, string, bool) {
-	d.mu.Lock()
-	prov := d.paneProvider(id)
-	d.mu.Unlock()
-	if prov != model.ProviderAntigravity {
-		return nil, "", false
-	}
 	pc, l, ok := d.paneChatOf(id)
 	if !ok {
 		return nil, "", false
 	}
+	d.mu.Lock()
+	streamed := d.paneStreaming(id)
+	d.mu.Unlock()
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
-	if err := pc.catchUp(l); err != nil && pc.off == 0 {
-		return nil, "", false
+	if !streamed || pc.off == 0 {
+		if err := pc.catchUp(l); err != nil && pc.off == 0 {
+			return nil, "", false
+		}
 	}
 	from, _ := paneWindow(pc.snap.Content, pc.at, pc.start)
 	es, mdl := phoneEntries(pc.snap.Content[from:], "")
@@ -210,6 +210,37 @@ func phoneEntries(items []session.Item, mdl string) ([]flow.Entry, string) {
 		es = append(es, e)
 	}
 	return es, mdl
+}
+
+// phoneSink wakes a phone's stream at each push to the chat it shows; the
+// stream reads the entries itself.
+type phoneSink chan struct{}
+
+func (p phoneSink) Deltas(proto.ChatDeltas) { p.Removed("") }
+func (p phoneSink) Removed(string) {
+	select {
+	case p <- struct{}{}:
+	default:
+	}
+}
+func (phoneSink) ListChanged() {}
+
+// phoneWatch subscribes a phone's stream to pane's chat, a chat tab's or a
+// pane chat's: the channel gets a value at each change, and stop ends it.
+// A nil channel for a pane with no chat, whose transcript the phone reads
+// itself.
+func (d *Daemon) phoneWatch(pane string) (<-chan struct{}, func()) {
+	s := make(phoneSink, 1)
+	var err error
+	if _, cerr := d.chat(pane); cerr == nil {
+		err = chatHub{d}.Subscribe(pane, s)
+	} else {
+		err = d.paneSubscribe(pane, s, false) // nothing of the chat goes through it
+	}
+	if err != nil {
+		return nil, nil
+	}
+	return s, func() { d.chatUnsubscribe(pane, s) }
 }
 
 func cutOut(s string) string {

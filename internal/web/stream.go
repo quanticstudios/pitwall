@@ -394,7 +394,7 @@ func (s *Server) writer(c *conn, done <-chan struct{}) error {
 }
 
 // batch is the frame for pushed deltas, less those the client has, or nil.
-// A gap (it never happens) gets a base. Callers hold c.mu.
+// A gap, as a pane chat's new session pushes, gets a base. Callers hold c.mu.
 func (c *conn) batch(d proto.ChatDeltas) []byte {
 	su := c.subs[d.Chat]
 	if su == nil || su.pending {

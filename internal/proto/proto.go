@@ -48,6 +48,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 100 added ChatSubscribe and ChatDeltas.Push (SubscribeLevel): the
+// daemon pushes a chat's deltas to the window instead of the window
+// polling ChatRead.
 // Level 99 added ChatSend.Join (JoinLevel): the chat's queued messages go
 // with the sent one, ahead of it, as one message.
 // Level 98 added ChatAnswer.Step and Target (QuestionStepLevel): step-by-step
@@ -266,7 +269,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 99
+const Level = 100
+
+// SubscribeLevel added ChatSubscribe and ChatDeltas.Push. Below it a
+// window polls ChatRead.
+const SubscribeLevel = 100
 
 // JoinLevel added ChatSend.Join. Below it a window steers the draft alone
 // and leaves the queue for the turn's end.
@@ -595,6 +602,8 @@ func Since(msg any) int {
 		return ServersLevel
 	case ChatSuggest, ChatSuggestResult:
 		return SuggestLevel
+	case ChatSubscribe:
+		return SubscribeLevel
 	case ChatTerminal:
 		return ChatTerminalLevel
 	case ChatUnarchive:
@@ -1441,6 +1450,7 @@ var Messages = []any{
 	ChatTerminal{},
 	ChatRewindCheck{}, ChatRewindFiles{},
 	ChatFind{}, ChatFindResult{},
+	ChatSubscribe{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -1680,6 +1690,19 @@ type ChatDeltas struct {
 	Older int64
 	Page  int64  // the ChatRead Before this answers; Snapshot is that page
 	Item  []byte // the JSON session.Item a ChatRead Item asked for
+	// Push marks deltas a ChatSubscribe pushed, which answer no request.
+	// One with no Snapshot and no Deltas whose Seq is past the client's
+	// says it missed some: it reads a snapshot again.
+	Push bool
+}
+
+// ChatSubscribe has the daemon push the chat's deltas as they happen, as
+// ChatDeltas with Push, until Off or the connection closes. Its answer is
+// what ChatRead After would answer; Off has none.
+type ChatSubscribe struct {
+	Chat  string
+	After int64
+	Off   bool
 }
 
 // ChatProviders lists the managed providers available to every client.

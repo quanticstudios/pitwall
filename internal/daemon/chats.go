@@ -178,6 +178,9 @@ func chatResult(id, turn, note string, err error) proto.ChatResult {
 // alone; false for any other message.
 func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	if r, ok := d.paneChatRequest(ctx, m); ok {
+		d.mu.Lock()
+		d.pokePane(chatID(m)) // what it changed goes to the subscribers
+		d.mu.Unlock()
 		return r, true
 	}
 	var id string

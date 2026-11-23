@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/app"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 )
+
+// The chat view's timers stay off in tests, which read the backend
+// unlocked and call chatRead themselves.
+func init() { chatAfter = func(time.Duration, func()) {} }
 
 // TestChatCache: a read's snapshot and the deltas after it build the
 // transcript; another chat's reply, an empty one and a gap change
@@ -143,13 +148,13 @@ func TestChatCachePages(t *testing.T) {
 	}
 }
 
-// TestChatReadPace: a chat whose turn runs is read again chatStream
-// after the last read, an idle one only after app.ChatPoll; no read goes
-// out while one is out, for another chat, or once the window stopped
-// asking for it.
+// TestChatReadPace: against a daemon that pushes no deltas, a chat whose
+// turn runs is read again chatStream after the last read, an idle one
+// only after app.ChatPoll; no read goes out while one is out, for another
+// chat, or once the window stopped asking for it.
 func TestChatReadPace(t *testing.T) {
 	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}, outWake: make(chan struct{}, 1)}
-	b.link.Level = proto.Level
+	b.link.Level = proto.SubscribeLevel - 1
 	reads := func() int {
 		n := 0
 		for _, m := range b.out {
@@ -214,36 +219,54 @@ func TestChatReadPace(t *testing.T) {
 }
 
 // TestChatCacheSideBySide: two chats drawn in one frame, as two pane
-// chats of a split, each keep their transcript and read a snapshot once;
-// a chat new to the window drops the ones no longer shown.
+// chats of a split, each keep their transcript and read a snapshot once,
+// by subscribing or, from an older daemon, by ChatRead; a chat new to the
+// window drops the ones no longer shown, and their subscriptions.
 func TestChatCacheSideBySide(t *testing.T) {
-	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
-	b.link.Level = proto.Level
-	snaps := 0
-	for range 3 {
-		b.Chat("a")
-		b.Chat("b")
-		for _, m := range b.out {
-			if r, ok := m.(proto.ChatRead); ok && r.After == 0 {
-				snaps++
-				s, _ := json.Marshal(session.Snapshot{SessionID: r.Chat, Content: []session.Item{{ID: r.Chat + "1"}}})
-				b.chatTook(proto.ChatDeltas{Chat: r.Chat, Snapshot: s, Seq: 1})
+	for _, level := range []int{proto.SubscribeLevel - 1, proto.Level} {
+		b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}}
+		b.link.Level = level
+		snaps := 0
+		for range 3 {
+			b.Chat("a")
+			b.Chat("b")
+			for _, m := range b.out {
+				id := ""
+				switch r := m.(type) {
+				case proto.ChatRead:
+					if r.After == 0 {
+						id = r.Chat
+					}
+				case proto.ChatSubscribe:
+					id = r.Chat
+				}
+				if id != "" {
+					snaps++
+					s, _ := json.Marshal(session.Snapshot{SessionID: id, Content: []session.Item{{ID: id + "1"}}})
+					b.chatReply(id)
+					b.chatTook(proto.ChatDeltas{Chat: id, Snapshot: s, Seq: 1})
+				}
+			}
+			b.out = nil
+		}
+		for _, id := range []string{"a", "b"} {
+			if s, ok := b.Chat(id); !ok || len(s.Content) != 1 || s.Content[0].ID != id+"1" {
+				t.Fatalf("level %d, chat %s: %v %+v", level, id, ok, s.Content)
 			}
 		}
-		b.out = nil
-	}
-	for _, id := range []string{"a", "b"} {
-		if s, ok := b.Chat(id); !ok || len(s.Content) != 1 || s.Content[0].ID != id+"1" {
-			t.Fatalf("chat %s: %v %+v", id, ok, s.Content)
+		if snaps != 2 {
+			t.Fatalf("level %d: %d snapshot reads, want one per chat", level, snaps)
 		}
-	}
-	if snaps != 2 {
-		t.Fatalf("%d snapshot reads, want one per chat", snaps)
-	}
-	b.chats["b"].shown = time.Now().Add(-2 * chatShown)
-	b.Chat("c")
-	if _, kept := b.chats["b"]; kept || b.chats["a"] == nil {
-		t.Fatalf("kept %v", b.chats)
+		b.out = nil
+		b.chats["b"].shown = time.Now().Add(-2 * chatShown)
+		b.Chat("c")
+		if _, kept := b.chats["b"]; kept || b.chats["a"] == nil {
+			t.Fatalf("level %d: kept %v", level, b.chats)
+		}
+		off := slices.ContainsFunc(b.out, func(m any) bool { s, ok := m.(proto.ChatSubscribe); return ok && s.Chat == "b" && s.Off })
+		if want := level >= proto.SubscribeLevel; off != want {
+			t.Fatalf("level %d: unsubscribed b %v, want %v (%v)", level, off, want, b.out)
+		}
 	}
 }
 
@@ -367,5 +390,82 @@ func TestChatSnapshotKeepsPages(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, []string{"a", "b", "c", "d", "e"}) || b.ChatOlder("c") {
 		t.Fatalf("after the snapshot: %v, more %d", got, b.chats["c"].more)
+	}
+}
+
+// TestChatSubscribe: a daemon at proto.SubscribeLevel gets one
+// ChatSubscribe and no polling reads; its base and pushes build the
+// transcript, a push the base already holds is skipped, and a push past
+// it, as a gap or a new session, reads a snapshot again once.
+func TestChatSubscribe(t *testing.T) {
+	b := &backend{chatReq: map[string][]any{}, chatOut: map[string][]chatin.Result{}, outWake: make(chan struct{}, 1)}
+	b.link.Level = proto.Level
+	sent := func() (subs, reads int) {
+		for _, m := range b.out {
+			switch m.(type) {
+			case proto.ChatSubscribe:
+				subs++
+			case proto.ChatRead:
+				reads++
+			}
+		}
+		b.out = nil
+		return subs, reads
+	}
+	delta := func(seq int64, text string) []byte {
+		raw, _ := json.Marshal(session.Delta{Version: session.DeltaVersion, Type: session.DeltaItemTextAppend, SessionID: "c", ItemID: "r", Seq: seq, Text: text})
+		return raw
+	}
+	b.Chat("c")
+	if subs, reads := sent(); subs != 1 || reads != 0 {
+		t.Fatalf("first draw: %d subscribes, %d reads", subs, reads)
+	}
+	s, _ := json.Marshal(session.Snapshot{SessionID: "c", Content: []session.Item{{ID: "r", Kind: session.KindAssistantText, Text: "a"}}})
+	b.chatReply("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: s, Seq: 4})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 3, Push: true, Deltas: [][]byte{delta(4, "old"), delta(5, "b")}})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 5, Push: true, Deltas: [][]byte{delta(6, "c")}})
+	if got, _ := b.Chat("c"); got.Content[0].Text != "abc" {
+		t.Fatalf("pushed text %q, want abc", got.Content[0].Text)
+	}
+	for range 3 {
+		b.chats["c"].at = time.Time{}
+		b.Chat("c")
+	}
+	if subs, reads := sent(); subs != 0 || reads != 0 {
+		t.Fatalf("subscribed: %d subscribes, %d reads", subs, reads)
+	}
+	if after, ok := b.chats["c"].again("c", true); ok {
+		t.Fatalf("subscribed chat polls again in %v", after)
+	}
+
+	// A push past the transcript: it waits for a snapshot and reads one.
+	b.chats["c"].at = time.Now() // the read the gap schedules goes from here
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 9, Push: true})
+	if _, ok := b.chats["c"].again("c", false); !ok {
+		t.Fatal("a gap schedules no read")
+	}
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 9, Push: true, Deltas: [][]byte{delta(10, "x")}})
+	if got := b.chats["c"].merged(); got.Content[0].Text != "abc" {
+		t.Fatalf("after a gap the text is %q, want abc until the snapshot", got.Content[0].Text)
+	}
+	b.chats["c"].at = time.Time{}
+	b.chatRead("c")
+	var read proto.ChatRead
+	for _, m := range b.out {
+		if r, ok := m.(proto.ChatRead); ok {
+			read = r
+		}
+	}
+	b.out = nil
+	if read.Chat != "c" || read.After != 0 {
+		t.Fatalf("resync read %+v, want a snapshot of c", read)
+	}
+	s, _ = json.Marshal(session.Snapshot{SessionID: "c", Content: []session.Item{{ID: "r", Kind: session.KindAssistantText, Text: "new"}}})
+	b.chatReply("c")
+	b.chatTook(proto.ChatDeltas{Chat: "c", Snapshot: s, Seq: 10})
+	b.chatTook(proto.ChatDeltas{Chat: "c", Seq: 10, Push: true, Deltas: [][]byte{delta(11, "!")}})
+	if got, _ := b.Chat("c"); got.Content[0].Text != "new!" {
+		t.Fatalf("after the resync the text is %q, want new!", got.Content[0].Text)
 	}
 }

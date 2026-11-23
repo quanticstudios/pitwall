@@ -1151,8 +1151,7 @@ type ChatRead struct {
 	After int64 // 0: a snapshot; else the deltas after seq After, or a snapshot when they are gone
 }
 
-type ChatSubscribe struct{ Chat string; After int64 } // ChatRead, then every new delta as ChatDeltas
-type ChatUnsubscribe struct{ Chat string }
+type ChatSubscribe struct{ Chat string; After int64; Off bool } // proto.SubscribeLevel (100): ChatRead's answer, then every new delta as ChatDeltas with Push; Off ends it
 
 type ChatFork struct{ Chat, Turn, Worktree string } // ChatFork and ChatRewind are at proto.ChatForkLevel (40)
 type ChatRewind struct{ Chat, Turn string }
@@ -1235,9 +1234,14 @@ assistant text, one line per tool call, approvals with their ids.
 - ENG-2684 adds a placeholder in place of the transcript ("Chat: read it
   with pitwall chat read <id>"), so a GUI at `ChatLevel` handles a chat tab
   before ENG-2689 lands.
-- As built in ENG-2689: no `ChatSubscribe` exists yet, so the window reads
-  the chat on screen with `ChatRead` after its last seq every 150 ms while
-  the chat is connecting, running or waiting, and on any State change
+- Since `proto.SubscribeLevel` (100) the window sends one `ChatSubscribe`
+  for each chat it draws, a chat tab's or a pane chat's, and the daemon
+  pushes its deltas; the window drops the subscription a second after it
+  stops drawing the chat. A push with no deltas and a `Seq` past the
+  window's, or one that does not apply, has it read a snapshot with
+  `ChatRead`. Against an older daemon, as built in ENG-2689, the window
+  reads the chat on screen with `ChatRead` after its last seq every 150 ms
+  while the chat is connecting, running or waiting, and on any State change
   otherwise. It keeps only that chat's snapshot. An approval has Allow,
   Allow for session and Deny (`ChatApprove` with `By` "gui"); an input
   request shows the `pitwall chat answer` command instead, and there is no

@@ -555,7 +555,9 @@ func (b *backend) recvLoop() {
 			b.imgs.put(m.Image, b.keepImages)
 			pane = m.Pane
 		case proto.ChatDeltas:
-			b.chatReply(m.Chat) // a ChatRead's
+			if !m.Push {
+				b.chatReply(m.Chat) // a ChatRead's or ChatSubscribe's
+			}
 			if !b.chatTook(m) {
 				b.mu.Unlock()
 				continue
@@ -564,7 +566,7 @@ func (b *backend) recvLoop() {
 			b.mon, b.monAt = m, time.Now()
 		case proto.ChatResult:
 			if c := b.chats[m.Chat]; c != nil && m.Code == "not-found" {
-				c.out = false
+				c.out, c.sub = false, false
 			}
 			b.chatAnswered(m)
 		case proto.ChatRewindFiles:
@@ -723,6 +725,8 @@ func chatOf(msg any) (string, bool) {
 		return m.Chat, true
 	case proto.ChatRead:
 		return m.Chat, true
+	case proto.ChatSubscribe:
+		return m.Chat, !m.Off
 	case proto.ChatInterrupt:
 		return m.Chat, true
 	case proto.ChatApprove:
@@ -751,6 +755,12 @@ func chatOf(msg any) (string, bool) {
 // ChatSend or a ChatRewind, or refuses any request. b.mu is held.
 func (b *backend) chatAnswered(m proto.ChatResult) {
 	req := b.chatReply(m.Chat)
+	if s, ok := req.(proto.ChatSubscribe); ok {
+		req = proto.ChatRead{Chat: s.Chat, After: s.After}
+		if c := b.chats[m.Chat]; c != nil {
+			c.sub = false
+		}
+	}
 	if r, ok := req.(proto.ChatRead); ok && m.Code != "" && m.Code != "not-found" {
 		if c := b.chats[m.Chat]; c != nil {
 			c.refused(r, m.Message)

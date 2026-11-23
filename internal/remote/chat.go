@@ -201,7 +201,9 @@ type chatView struct {
 
 // stream serves the page's event stream: "hello" once, "tabs" whenever the
 // list changes, and for the tab ?pane= names, "reset" with its latest
-// entries, then "entries" as they are added or change.
+// entries, then "entries" as they are added or change. A chat the daemon
+// pushes (Watch) is read when it changes; a transcript the page reads
+// itself, at each poll.
 //
 // why: Server-Sent Events over fetch, not a WebSocket: the phone only
 // listens here, since it sends with the POSTs the page already has, and
@@ -235,8 +237,21 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 	defer poll.Stop()
 	ping := time.NewTicker(pingEvery)
 	defer ping.Stop()
+	var wake <-chan struct{}
+	var unwatch func()
+	watch := func() {
+		if pane != "" && wake == nil && s.Watch != nil {
+			wake, unwatch = s.Watch(pane)
+		}
+	}
+	defer func() {
+		if unwatch != nil {
+			unwatch()
+		}
+	}()
+	watch()
 	var tabs []Tab
-	fresh := true
+	fresh, chat := true, true
 	for {
 		// why: revoking a device or removing a Tailscale allow rule stops its stream at once.
 		if !s.deviceLive(d) {
@@ -247,17 +262,17 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 			tabs = s.Tabs()
 			b, _ := json.Marshal(tabs)
 			if !bytes.Equal(b, lastTabs) {
-				lastTabs = b
+				lastTabs, chat = b, true // a tab that exited or moved to another transcript
 				if _, err := fmt.Fprintf(w, "event: tabs\ndata: %s\n\n", b); err != nil {
 					return
 				}
 				fl.Flush()
 			}
 		}
-		if pane != "" && !s.chatEvents(&view, tabs, pane, send) {
+		if pane != "" && chat && !s.chatEvents(&view, tabs, pane, send) {
 			return
 		}
-		fresh = false
+		fresh, chat = false, false
 		select {
 		case <-r.Context().Done():
 			return
@@ -265,8 +280,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 			// why: a turn changes the state in bursts; one list for each burst.
 			time.Sleep(tabsSettle)
 			fresh = true
+			watch() // a pane whose agent named its transcript since
+		case <-wake:
+			chat = true
 		case <-poll.C:
 			fresh = true // question pages can change without another activity hook
+			chat = wake == nil || view.log != nil
 		case <-ping.C:
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
@@ -289,8 +308,17 @@ func (s *Server) chatEvents(v *chatView, tabs []Tab, pane string, send func(stri
 		return true
 	}
 	t := tabs[i]
-	if t.Chat || t.Provider == model.ProviderAntigravity { // why: flow.Log has no reader of agy's transcript; its pane chat has
-		return s.chatTabEvents(v, pane, send)
+	// A chat tab's, or a live agent pane's, as the window reads it.
+	if s.ChatEntries != nil {
+		if es, model, ok := s.ChatEntries(pane); ok {
+			if v.log != nil {
+				v.log, v.sent = nil, nil
+			}
+			return s.entryEvents(v, es, model, send)
+		}
+	}
+	if t.Chat || t.Provider == model.ProviderAntigravity { // why: flow.Log has no reader of agy's transcript
+		return true
 	}
 	if t.Transcript == "" {
 		v.log = nil
@@ -322,16 +350,9 @@ func (s *Server) chatEvents(v *chatView, tabs []Tab, pane string, send func(stri
 	return send(event, map[string]any{"entries": redacted(es), "model": model, "more": more})
 }
 
-// chatTabEvents sends a chat tab's entries that are new or changed since
+// entryEvents sends a chat's entries es that are new or changed since
 // v.sent, or all of the latest when the chat started over.
-func (s *Server) chatTabEvents(v *chatView, pane string, send func(string, any) bool) bool {
-	if s.ChatEntries == nil {
-		return true
-	}
-	es, model, ok := s.ChatEntries(pane)
-	if !ok {
-		return true
-	}
+func (s *Server) entryEvents(v *chatView, es []flow.Entry, model string, send func(string, any) bool) bool {
 	hashes := make(map[int64]uint64, len(es))
 	for _, e := range es {
 		b, _ := json.Marshal(e)
@@ -367,21 +388,23 @@ func (s *Server) older(w http.ResponseWriter, r *http.Request, _ Device) {
 	}
 	var es []flow.Entry
 	more := false
-	s.lmu.Lock()
-	pl := s.logs[pane]
-	if pl != nil {
-		es = pl.log.Before(before, pageSize)
-		more = len(es) > 0 && len(pl.log.Before(es[0].Seq, 1)) > 0
+	all, _, chat := []flow.Entry(nil), "", false
+	if s.ChatEntries != nil {
+		all, _, chat = s.ChatEntries(pane)
 	}
-	s.lmu.Unlock()
-	if pl == nil && s.ChatEntries != nil {
-		if all, _, ok := s.ChatEntries(pane); ok {
-			end := slices.IndexFunc(all, func(e flow.Entry) bool { return e.Seq >= before })
-			if end < 0 {
-				end = len(all)
-			}
-			es, more = slices.Clone(all[max(0, end-pageSize):end]), end > pageSize
+	if chat {
+		end := slices.IndexFunc(all, func(e flow.Entry) bool { return e.Seq >= before })
+		if end < 0 {
+			end = len(all)
 		}
+		es, more = slices.Clone(all[max(0, end-pageSize):end]), end > pageSize
+	} else {
+		s.lmu.Lock()
+		if pl := s.logs[pane]; pl != nil {
+			es = pl.log.Before(before, pageSize)
+			more = len(es) > 0 && len(pl.log.Before(es[0].Seq, 1)) > 0
+		}
+		s.lmu.Unlock()
 	}
 	writeJSON200(w, map[string]any{"entries": redacted(es), "more": more})
 }
