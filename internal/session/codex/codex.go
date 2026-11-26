@@ -254,6 +254,7 @@ func (d *driver) open(ctx context.Context, p *proc, from session.Origin) error {
 	d.thread, d.model = r.Thread.ID, r.Model
 	d.mu.Unlock()
 	d.post(session.Event{Type: session.EventResumeID, ResumeID: r.Thread.ID, Version: version(init.UserAgent)})
+	d.skills(ctx, p, false)
 	d.post(session.Event{Type: session.EventState, State: session.StateReady})
 	return nil
 }

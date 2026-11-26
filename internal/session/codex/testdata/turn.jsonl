@@ -3,10 +3,12 @@
 {"in":{"method":"initialized"}}
 {"in":{"id":2,"method":"thread/start","params":{"approvalPolicy":"on-request","sandbox":"workspace-write","cwd":"$CWD","model":"gpt-6.1-sol"}}}
 {"out":{"id":2,"result":{"thread":{"id":"thr_1"},"model":"gpt-6.1-sol","modelProvider":"openai","approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"$CWD","sandbox":{"type":"workspaceWrite"}}}}
+{"in":{"id":3,"method":"skills/list","params":{"cwds":["$CWD"]}}}
+{"out":{"id":3,"result":{"data":[{"cwd":"$CWD","skills":[],"errors":[]}]}}}
 {"out":{"method":"thread/started","params":{"thread":{"id":"thr_1"}}}}
 {"out":{"method":"mcpServer/startupStatus/updated","params":{}}}
-{"in":{"id":3,"method":"turn/start","params":{"threadId":"thr_1","input":[{"type":"text","text":"List the files"},{"type":"image","url":"data:image/png;base64,cG5n"}],"clientUserMessageId":"u1","effort":"high"}}}
-{"out":{"id":3,"result":{"turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}
+{"in":{"id":4,"method":"turn/start","params":{"threadId":"thr_1","input":[{"type":"text","text":"List the files"},{"type":"image","url":"data:image/png;base64,cG5n"}],"clientUserMessageId":"u1","effort":"high"}}}
+{"out":{"id":4,"result":{"turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}
 {"await":"go"}
 {"out":{"method":"thread/status/changed","params":{"threadId":"thr_1","status":{"type":"active","activeFlags":[]}}}}
 {"out":{"method":"turn/started","params":{"threadId":"thr_1","turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}

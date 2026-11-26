@@ -25,7 +25,7 @@ import (
 // agy pane's activity where agy's hooks say nothing.
 func TestAgyProgram(t *testing.T) {
 	fakeGroups(t)
-	d, _, id := openLive(t, 900)
+	d, _, id := openLive(t, 0) // why: with no foreground group the liveness poll skips the pane, so only the reports set its activity
 	d.mu.Lock()
 	d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })].Provider = model.ProviderAntigravity
 	d.mu.Unlock()

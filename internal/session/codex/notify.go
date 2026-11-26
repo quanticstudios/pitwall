@@ -34,6 +34,8 @@ func (d *driver) notify(method string, params json.RawMessage) {
 		return
 	}
 	switch method {
+	case "skills/changed":
+		go d.relist() // why: the reply comes through this goroutine, which must not wait for it
 	case "thread/status/changed":
 		var n struct {
 			Status struct {

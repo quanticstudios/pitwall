@@ -1,0 +1,11 @@
+{"in":{"id":1,"method":"initialize","params":{"clientInfo":{"name":"pitwall","title":"pitwall","version":"0"},"capabilities":{"experimentalApi":true}}}}
+{"out":{"id":1,"result":{"userAgent":"codex_cli_rs/0.172.0","codexHome":"/home/user/.codex","platformFamily":"unix","platformOs":"linux"}}}
+{"in":{"method":"initialized"}}
+{"in":{"id":2,"method":"thread/start","params":{"approvalPolicy":"on-request","sandbox":"workspace-write","cwd":"$CWD"}}}
+{"out":{"id":2,"result":{"thread":{"id":"thr_1"},"model":"gpt-6.2-sol","modelProvider":"openai","cwd":"$CWD","sandbox":{"type":"workspaceWrite"}}}}
+{"in":{"id":3,"method":"skills/list","params":{"cwds":["$CWD"]}}}
+{"out":{"id":3,"result":{"data":[{"cwd":"$CWD","skills":[{"name":"release","description":"Cut a release","path":"$CWD/.agents/skills/release/SKILL.md","scope":"repo","enabled":true,"pluginId":null},{"name":"off","description":"Turned off","path":"/home/user/.codex/skills/off/SKILL.md","scope":"user","enabled":false,"pluginId":null},{"name":"pages:write-page","description":"Write a page","path":"/home/user/.codex/plugins/cache/m/pages/1/skills/write-page/SKILL.md","scope":"user","enabled":true,"pluginId":"pages@m"},{"name":"imagegen","description":"A long description","interface":{"shortDescription":"Generate images"},"path":"/home/user/.codex/skills/.system/imagegen/SKILL.md","scope":"system","enabled":true,"pluginId":null},{"name":"release","description":"Listed twice","path":"/home/user/.agents/skills/release/SKILL.md","scope":"user","enabled":true,"pluginId":null}],"errors":[]}]}}}
+{"await":"changed"}
+{"out":{"method":"skills/changed","params":{}}}
+{"in":{"id":4,"method":"skills/list","params":{"cwds":["$CWD"],"forceReload":true}}}
+{"out":{"id":4,"result":{"data":[{"cwd":"$CWD","skills":[{"name":"added","description":"Added later","path":"/home/user/.codex/skills/added/SKILL.md","scope":"user","enabled":true,"pluginId":null}],"errors":[]}]}}}

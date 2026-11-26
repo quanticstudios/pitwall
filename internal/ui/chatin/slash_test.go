@@ -421,3 +421,68 @@ func TestSlashEnterAlias(t *testing.T) {
 		t.Fatalf("used %v", slashUsed)
 	}
 }
+
+// Codex takes a skill as $name anywhere in the prompt, and reads /name
+// as text past the first word: a $word opens the menu with its skills
+// alone, mid-draft or first, a /word does only first, with its built-ins
+// too, and a skill picked either way goes in as $name. A $ word that
+// matches no skill, as $HOME, shows no menu or note. A draft with a
+// $skill is sent as typed.
+func TestCodexSkillMenu(t *testing.T) {
+	h := newHarness(t)
+	h.snap.Provider = "codex"
+	h.snap.Commands = append(slices.Clone(codex.Builtins),
+		session.Command{Name: "release", Description: "Cut a release", Source: "project"},
+		session.Command{Name: "pages:write-page", Source: "plugin"},
+		session.Command{Name: "imagegen", Source: "system"})
+
+	h.typ("please $rel")
+	if got := names(h.c.slash.rows); !slices.Equal(got, []string{"release"}) {
+		t.Fatalf("mid-draft $ rows %q", got)
+	}
+	if m := h.press(key.NameTab, 0); len(m) != 0 || h.c.Text() != "please $release " {
+		t.Fatalf("pick: sent %+v, text %q", m, h.c.Text())
+	}
+
+	h.c.SetText("")
+	h.typ("$")
+	if got := names(h.c.slash.rows); !slices.Equal(got, []string{"release", "pages:write-page", "imagegen"}) {
+		t.Fatalf("$ alone rows %q", got)
+	}
+	h.press(key.NameEscape, 0)
+
+	h.c.SetText("")
+	h.typ("echo $HOME")
+	if h.c.slash.shown() {
+		t.Fatalf("$HOME showed the menu: note %q", h.c.slash.note)
+	}
+
+	h.c.SetText("")
+	h.typ("then /rel")
+	if h.c.slash.shown() {
+		t.Fatal("a mid-draft /word opened Codex's menu")
+	}
+
+	h.c.SetText("")
+	h.typ("/re")
+	got := names(h.c.slash.rows)
+	if !slices.Contains(got, "review") || !slices.Contains(got, "release") {
+		t.Fatalf("first /word rows %q, want built-ins and skills", got)
+	}
+	h.c.slash.sel = slices.Index(got, "release")
+	h.press(key.NameReturn, 0)
+	if h.c.Text() != "$release " {
+		t.Fatalf("a skill picked from / wrote %q", h.c.Text())
+	}
+	h.c.SetText("")
+	h.typ("/revi")
+	h.press(key.NameTab, 0)
+	if h.c.Text() != "/review " {
+		t.Fatalf("a built-in picked wrote %q", h.c.Text())
+	}
+
+	h.c.SetText("use $release now")
+	if m := h.press(key.NameReturn, 0); len(m) != 1 || m[0].(proto.ChatSend).Text != "use $release now" || m[0].(proto.ChatSend).Skill != nil {
+		t.Fatalf("a draft with a $skill sent %+v", m)
+	}
+}

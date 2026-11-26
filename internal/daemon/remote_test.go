@@ -1244,3 +1244,21 @@ func TestPressEnterAgain(t *testing.T) {
 		})
 	}
 }
+
+// A line that ends in a $skill opens Codex's skill menu, which an Enter
+// would pick from; one mid-line, $ alone or none does not.
+func TestCodexSkillEnd(t *testing.T) {
+	for text, want := range map[string]bool{
+		"use $release":         true,
+		"$release":             true,
+		"use $release now":     false,
+		"costs $":              false,
+		"plain":                false,
+		"":                     false,
+		"two lines\nend $ship": true,
+	} {
+		if got := codexSkillEnd(text); got != want {
+			t.Errorf("codexSkillEnd(%q) = %v, want %v", text, got, want)
+		}
+	}
+}

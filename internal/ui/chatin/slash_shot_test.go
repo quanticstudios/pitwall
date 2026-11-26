@@ -82,7 +82,7 @@ func shootComposer(t *testing.T, path string, th *theme.Theme, cmds []session.Co
 	var r input.Router
 	var ops op.Ops
 	var c Composer
-	snap := session.Snapshot{SessionID: "c1", SessionState: session.StateReady, Provider: "claude", Commands: cmds}
+	snap := session.Snapshot{SessionID: "c1", SessionState: session.StateReady, Provider: shotProvider, Commands: cmds}
 	now := time.Date(2026, 11, 21, 14, 0, 0, 0, time.UTC)
 	frame := func() {
 		ops.Reset()

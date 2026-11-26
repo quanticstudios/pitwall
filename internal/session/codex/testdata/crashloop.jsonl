@@ -3,6 +3,8 @@
 {"in":{"method":"initialized"}}
 {"in":{"id":2,"method":"thread/start","params":{"approvalPolicy":"on-request","sandbox":"workspace-write","cwd":"$CWD"}}}
 {"out":{"id":2,"result":{"thread":{"id":"thr_1"},"model":"gpt-6.1-sol"}}}
+{"in":{"id":3,"method":"skills/list","params":{"cwds":["$CWD"]}}}
+{"out":{"id":3,"result":{"data":[{"cwd":"$CWD","skills":[],"errors":[]}]}}}
 {"exit":1}
 {"exit":1}
 {"exit":1}

@@ -305,6 +305,11 @@ func Placeholder(s *session.Snapshot) string {
 // text or follows whitespace, so and/or and a URL are none; ok false
 // otherwise.
 func Slash(text string, caret int) (start int, word string, ok bool) {
+	return marked(text, caret, '/')
+}
+
+// marked is Slash for a word that starts with mark, as Codex's $skill.
+func marked(text string, caret int, mark rune) (start int, word string, ok bool) {
 	r := []rune(text)
 	if caret < 1 || caret > len(r) {
 		return 0, "", false
@@ -313,7 +318,7 @@ func Slash(text string, caret int) (start int, word string, ok bool) {
 	for start > 0 && !unicode.IsSpace(r[start-1]) {
 		start--
 	}
-	if start == caret || r[start] != '/' {
+	if start == caret || r[start] != mark {
 		return 0, "", false
 	}
 	end := caret
