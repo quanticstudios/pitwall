@@ -199,6 +199,10 @@ function event(block) {
       if (v.model) model = v.model;
       add(v.entries || []);
       break;
+    case 'commands':
+      commands = v.commands || [];
+      slashUpdate();
+      break;
   }
 }
 
@@ -272,6 +276,7 @@ function openChat(p, push) {
   asks.replaceChildren();
   more.textContent = '';
   model = '';
+  commands = null;
   first = 0;
   hasMore = false;
   stick = true;
@@ -873,14 +878,199 @@ function request(chatID, r, done, failed) {
 
 // ---- Sending: a message shows as queued, then sent, until the transcript has it.
 
+// grow runs at each change of the box's text, so the / menu follows it.
 function grow() {
   text.style.height = 'auto';
   text.style.height = Math.min(text.scrollHeight + 2, 160) + 'px';
+  slashUpdate();
 }
 text.addEventListener('input', grow);
+text.addEventListener('click', () => slashUpdate());
+text.addEventListener('keyup', (e) => { if (!['ArrowUp', 'ArrowDown'].includes(e.key) || !slash.rows.length) slashUpdate(); });
 text.addEventListener('keydown', (e) => {
+  if (slashKey(e)) return;
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); composer.requestSubmit(); }
 });
+
+// ---- The / menu: the chat's commands that match the /word at the caret,
+// as the window's composer lists them. The functions down to slashPick port
+// internal/ui/chatin's Slash, SlashMatches, MidCommands and SlashMenu's
+// update, mark and pick; chatin's TestWebSlashPort runs them against the Go.
+// As in the Android app, Codex gets no menu past the draft's first word.
+
+let commands = null;          // the open chat's, from its "commands" event; an older daemon sends none, and no menu opens
+const slashUsed = new Map();  // the commands picked here, by name, which rank first
+const slash = { rows: [], start: 0, sel: 0, query: '', picked: '', shut: '' };
+const slashEl = $('slash');
+
+// slashWord is the /word the caret is in: its index and the whole word. The
+// / starts the text or follows whitespace, so and/or and a URL are none.
+function slashWord(s, caret) {
+  if (caret < 1 || caret > s.length) return null;
+  let start = caret;
+  while (start > 0 && !/\s/.test(s[start - 1])) start--;
+  if (start === caret || s[start] !== '/') return null;
+  let end = caret;
+  while (end < s.length && !/\s/.test(s[end])) end++;
+  return { start, word: s.slice(start, end) };
+}
+
+const utf8Len = (s) => new TextEncoder().encode(s).length; // Go's len, which the three-letter rules count
+
+function subsequence(s, q) {
+  for (const ch of q) {
+    const i = s.indexOf(ch);
+    if (i < 0) return false;
+    s = s.slice(i + ch.length);
+  }
+  return true;
+}
+
+// slashTier is how well c matches q, best 0, -1 for not: the name or an alias
+// that is q, starts with it, has a word (after - _ : or a space) that does,
+// has it inside, the name with its letters in order, then the description.
+function slashTier(c, q) {
+  let best = -1;
+  [c.name, ...(c.aliases || [])].forEach((n, i) => {
+    n = n.toLowerCase();
+    let t = -1;
+    if (n === q) t = 0;
+    else if (n.startsWith(q)) t = 1;
+    else if (n.split(/[-_: ]/).some((w) => w !== '' && w.startsWith(q))) t = 2;
+    else if (n.includes(q)) t = 3;
+    else if (i === 0 && utf8Len(q) >= 3 && subsequence(n, q)) t = 4;
+    if (t >= 0 && (best < 0 || t < best)) best = t;
+  });
+  if (best < 0 && utf8Len(q) >= 3 && (c.description || '').toLowerCase().includes(q)) best = 5;
+  return best;
+}
+
+// slashMatches is cmds that match query, best first; within a tier the more
+// used first, then the list's order.
+function slashMatches(cmds, query, used) {
+  const q = query.toLowerCase();
+  return cmds.map((c) => ({ c, t: slashTier(c, q) })).filter((m) => m.t >= 0)
+    .sort((a, b) => a.t - b.t || (used.get(b.c.name) || 0) - (used.get(a.c.name) || 0))
+    .map((m) => m.c);
+}
+
+// midPrompt is whether provider p reads a /skill past the prompt's first word.
+function midPrompt(p) { return !p || p === 'claude' || p === 'antigravity'; }
+
+// midCommands is the skills and custom commands, never a built-in.
+function midCommands(cmds) { return cmds.filter((c) => !c.terminal && ['user', 'project', 'plugin', 'system'].includes(c.source)); }
+
+// slashRows is the menu for text with the caret at caret in a chat of
+// provider p: the word's index and its rows, none for a path.
+function slashRows(text, caret, p, cmds, used) {
+  const w = slashWord(text, caret);
+  const q = w ? w.word.slice(1) : '';
+  if (!w || /[/\\]/.test(q)) return { start: 0, rows: [] };
+  if (w.start > 0) {
+    if (!midPrompt(p)) return { start: 0, rows: [] };
+    cmds = midCommands(cmds);
+  }
+  return { start: w.start, rows: slashMatches(cmds, q, used) };
+}
+
+// slashMark is what a pick of c writes before its name in a chat of
+// provider p: $ for a Codex skill, which is how Codex reads one, else /.
+function slashMark(c, p) { return p === 'codex' && c.source ? '$' : '/'; }
+
+// slashPick is text with the word at start, and the one space after it, as
+// mark, name and a space, and the caret after that space.
+function slashPick(text, start, name, mark = '/') {
+  start = Math.min(start, text.length);
+  let end = start;
+  while (end < text.length && !/\s/.test(text[end])) end++;
+  if (text[end] === ' ') end++;
+  const put = mark + name + ' ';
+  return { text: text.slice(0, start) + put + text.slice(end), caret: start + put.length };
+}
+
+// slashNote is the quiet note at a row's right, as chatin.RowNote.
+function slashNote(c) {
+  if (c.terminal) return 'opens in the terminal';
+  return { user: 'Personal', project: 'Project', plugin: 'Plugin', system: 'System' }[c.source] || '';
+}
+
+// slashUpdate opens, narrows or closes the menu for the box's /word. A new
+// query highlights the first row; the same one keeps its row.
+function slashUpdate() {
+  const t = text.value;
+  if (t !== slash.shut) slash.shut = '';
+  let r = { start: 0, rows: [] };
+  if (commands && !slash.shut && pane && text.selectionStart === text.selectionEnd) {
+    r = slashRows(t, text.selectionEnd, slashAgent(), commands, slashUsed);
+  }
+  const w = slashWord(t, text.selectionEnd);
+  const q = w ? w.word.slice(1) : '';
+  slash.start = r.start;
+  slash.rows = r.rows;
+  if (q !== slash.query) slash.sel = 0;
+  else if (slash.picked) slash.sel = Math.max(0, r.rows.findIndex((c) => c.name === slash.picked));
+  slash.query = q;
+  slash.sel = Math.min(slash.sel, Math.max(0, r.rows.length - 1));
+  slash.picked = r.rows.length ? r.rows[slash.sel].name : '';
+  slashDraw();
+}
+
+function slashDraw() {
+  slashEl.hidden = !slash.rows.length;
+  text.setAttribute('aria-expanded', String(!!slash.rows.length));
+  slashEl.replaceChildren(...slash.rows.map((c, i) => {
+    const b = el('button', 'srow' + (i === slash.sel ? ' on' : ''));
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.setAttribute('aria-selected', String(i === slash.sel));
+    const name = el('span', 'sname', slashMark(c, slashAgent()) + c.name);
+    if (c.hint) name.append(el('span', 'shint', c.hint));
+    const words = el('span', 'stext');
+    words.append(name);
+    if (c.description) words.append(el('span', 'sdesc', c.description));
+    b.append(words);
+    const note = slashNote(c);
+    if (note) b.append(el('span', 'snote', note));
+    b.addEventListener('mousedown', (e) => e.preventDefault()); // why: the box keeps the focus, so the keyboard stays up
+    b.onclick = () => slashChoose(c);
+    return b;
+  }));
+  const on = slashEl.children[slash.sel];
+  if (on) on.scrollIntoView({ block: 'nearest' });
+}
+
+function slashAgent() { const t = tabOf(pane); return t ? t.agent : ''; }
+
+function slashChoose(c) {
+  const r = slashPick(text.value, slash.start, c.name, slashMark(c, slashAgent()));
+  slashUsed.set(c.name, (slashUsed.get(c.name) || 0) + 1);
+  text.value = r.text;
+  text.focus();
+  text.setSelectionRange(r.caret, r.caret);
+  grow();
+}
+
+// slashKey runs a key on the open menu: Up and Down move the highlight,
+// Enter or Tab fills the command in, Esc closes it until the text changes.
+function slashKey(e) {
+  const n = slash.rows.length;
+  if (!n || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return false;
+  switch (e.key) {
+    case 'ArrowUp': slash.sel = (slash.sel + n - 1) % n; break;
+    case 'ArrowDown': slash.sel = (slash.sel + 1) % n; break;
+    case 'Escape': slash.shut = text.value; slash.rows = []; break;
+    case 'Enter': case 'Tab':
+      if (e.shiftKey) return false;
+      e.preventDefault();
+      slashChoose(slash.rows[slash.sel]);
+      return true;
+    default: return false;
+  }
+  e.preventDefault();
+  slash.picked = n && slash.rows.length ? slash.rows[slash.sel].name : '';
+  slashDraw();
+  return true;
+}
 
 composer.onsubmit = (e) => {
   e.preventDefault();

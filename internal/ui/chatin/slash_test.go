@@ -321,8 +321,8 @@ func TestRowNote(t *testing.T) {
 		{Name: "demo:skill", Source: "plugin"}:           "Plugin",
 		{Name: "compact"}:                                "",
 	} {
-		if got := rowNote(*c); got != want {
-			t.Errorf("rowNote(%+v) = %q, want %q", *c, got, want)
+		if got := RowNote(*c); got != want {
+			t.Errorf("RowNote(%+v) = %q, want %q", *c, got, want)
 		}
 	}
 }

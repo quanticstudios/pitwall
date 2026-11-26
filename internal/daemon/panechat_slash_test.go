@@ -122,3 +122,36 @@ func TestPaneChatCommands(t *testing.T) {
 		t.Fatalf("agy skills %q of %d", got, len(ag.Commands))
 	}
 }
+
+// The phone gets a pane chat's / menu after reading its entries, the
+// list the window's composer gets; none for a pane that is no chat.
+func TestPhoneChatMenu(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "conf")
+	if err := os.MkdirAll(filepath.Join(conf, "skills", "ship"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(dir, "s.jsonl")
+	for p, s := range map[string]string{
+		filepath.Join(conf, "skills", "ship", "SKILL.md"): "---\ndescription: Ship the branch\n---\n",
+		transcript: `{"type":"user","uuid":"p1","timestamp":"2026-11-18T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n",
+	} {
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.mu.Lock()
+	d.st.Panes[0].Transcript, d.st.Panes[0].Cwd, d.st.Panes[0].Env = transcript, dir, []string{"CLAUDE_CONFIG_DIR=" + conf}
+	d.mu.Unlock()
+	if _, _, ok := d.phoneChatEntries("a"); !ok {
+		t.Fatal("pane a is no chat")
+	}
+	cmds := d.phoneChatMenu("a")
+	if len(cmds) != 1+len(claude.Builtins) || cmds[0].Name != "ship" || cmds[0].Source != "user" {
+		t.Fatalf("phone commands %+v", cmds)
+	}
+	if cmds := d.phoneChatMenu("nope"); cmds != nil {
+		t.Fatalf("no chat: %+v", cmds)
+	}
+}

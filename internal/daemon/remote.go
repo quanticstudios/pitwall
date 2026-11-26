@@ -188,6 +188,7 @@ func (d *Daemon) remoteServer() *remote.Server {
 		Tabs:        d.phoneTabs,
 		Changed:     d.phoneChanged,
 		ChatEntries: d.phoneChatEntries,
+		ChatMenu:    d.phoneChatMenu,
 		Watch:       d.phoneWatch,
 		Send:        d.phoneSend,
 		Command:     d.phoneCommand,

@@ -183,6 +183,9 @@ type Server struct {
 	Changed     func() <-chan struct{}
 	ChatEntries func(chat string) (entries []flow.Entry, model string, ok bool)
 	Watch       func(chat string) (wake <-chan struct{}, stop func())
+	// ChatMenu is the / menu of a chat ChatEntries reads, as the
+	// window's composer lists it; the stream sends it as "commands".
+	ChatMenu func(chat string) []session.Command
 	// Send types text into pane's agent once it sits at its input box,
 	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.

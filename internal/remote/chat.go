@@ -16,6 +16,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // Tab is one tab as the page's list shows it, in the sidebar's order. It
@@ -197,6 +198,8 @@ type chatView struct {
 	rev  int64
 	sent map[int64]uint64 // a chat tab's entries by seq, as hashes
 	none bool             // said that the tab has no transcript
+	cmds []session.Command
+	told bool // sent cmds
 }
 
 // stream serves the page's event stream: "hello" once, "tabs" whenever the
@@ -314,7 +317,7 @@ func (s *Server) chatEvents(v *chatView, tabs []Tab, pane string, send func(stri
 			if v.log != nil {
 				v.log, v.sent = nil, nil
 			}
-			return s.entryEvents(v, es, model, send)
+			return s.entryEvents(v, es, model, send) && s.commandsEvent(v, pane, send)
 		}
 	}
 	if t.Chat || t.Provider == model.ProviderAntigravity { // why: flow.Log has no reader of agy's transcript
@@ -376,6 +379,23 @@ func (s *Server) entryEvents(v *chatView, es []flow.Entry, model string, send fu
 		return true
 	}
 	return send("entries", map[string]any{"entries": redacted(changed), "model": model})
+}
+
+// commandsEvent sends pane's / menu as "commands" when it changed since
+// v told it.
+func (s *Server) commandsEvent(v *chatView, pane string, send func(string, any) bool) bool {
+	if s.ChatMenu == nil {
+		return true
+	}
+	cmds := s.ChatMenu(pane)
+	if v.told && slices.EqualFunc(cmds, v.cmds, session.Command.Equal) {
+		return true
+	}
+	v.cmds, v.told = cmds, true
+	if cmds == nil {
+		cmds = []session.Command{}
+	}
+	return send("commands", map[string]any{"commands": cmds})
 }
 
 // older serves ?pane='s entries before ?before=, a page at a time.

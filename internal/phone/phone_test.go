@@ -638,3 +638,17 @@ func TestExitedTabState(t *testing.T) {
 		t.Fatalf("panes: %#v", st.Panes)
 	}
 }
+
+// TestDecodeCommands reads a "commands" event's / menu, an empty one too.
+func TestDecodeCommands(t *testing.T) {
+	e, ok := decodeEvent("commands", []byte(`{"commands":[{"name":"ship","description":"Ship it","source":"user"}]}`))
+	if !ok || e.Name != "commands" || len(e.Commands) != 1 || e.Commands[0].Name != "ship" || e.Commands[0].Source != "user" {
+		t.Fatalf("commands %+v %v", e, ok)
+	}
+	if e, ok := decodeEvent("commands", []byte(`{"commands":[]}`)); !ok || len(e.Commands) != 0 {
+		t.Fatalf("empty commands %+v %v", e, ok)
+	}
+	if _, ok := decodeEvent("commands", []byte(`{`)); ok {
+		t.Fatal("bad JSON decoded")
+	}
+}

@@ -319,7 +319,11 @@ func TestBinaryHook(t *testing.T) {
 	runHook(p.ID, permission, timeout)
 	waitActivity(t, gui, p.ID, model.StatePendingApproval)
 	before := snapshot(t)
-	runHook("", stop, time.Second)
+	quick := time.Second // a hook outside a pane must not wait on the daemon
+	if runtime.GOOS == "windows" {
+		quick = 15 * time.Second // why: a Windows runner can take over a second just to start the binary
+	}
+	runHook("", stop, quick)
 	after := snapshot(t)
 	// Git stats can independently update the state version.
 	before.Stats, after.Stats = nil, nil

@@ -163,6 +163,23 @@ A chat tab (one pitwall drives with `pitwall chat` rather than in a
 terminal) shows its transcript the same way, and a message starts a turn or
 queues behind the running one.
 
+Both the page and the Android app have the window's / menu. A /word at
+the start of the draft lists the chat's commands that match it, ranked as
+in the window; a /word later in the draft lists only skills and custom
+commands, in Claude Code and Antigravity chats, since Codex names a skill
+with `$`. A tap on a row puts `/name` and a space in place of that word and
+leaves the rest of the draft alone; in a Codex chat a skill goes in as
+`$name`, which is how Codex reads one. The phone opens no menu for a
+`$word`, as the window does in Codex chats. A path such as `/tmp/x`, and a / inside
+a word such as and/or or a URL, open nothing. The menu sits right above
+the box, so the keyboard never covers it. Rows are 56 px tall on the page
+and 56 dp in the app.
+On the page, Up, Down, Enter, Tab and Esc work as in the window; in the
+app, Back closes the menu until the draft changes. It lists what the
+window's composer lists for that chat. A tab with no live agent has none,
+and neither does any tab of a daemon of v0.3.7 or older, which sends no
+commands.
+
 ## Model and effort
 
 A Claude Code tab has a button in its header with the model its latest

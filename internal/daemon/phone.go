@@ -159,6 +159,27 @@ func (d *Daemon) phoneChatEntries(id string) ([]flow.Entry, string, bool) {
 	return es, mdl, ok
 }
 
+// phoneChatMenu is chat's / menu as the window's composer lists it:
+// a chat tab's, or a live agent pane's pane chat's, which ChatEntries
+// read just before.
+func (d *Daemon) phoneChatMenu(id string) []session.Command {
+	d.mu.Lock()
+	c := d.chats[id]
+	d.mu.Unlock()
+	if c == nil {
+		pc, _, ok := d.paneChatOf(id)
+		if !ok {
+			return nil
+		}
+		pc.mu.Lock()
+		defer pc.mu.Unlock()
+		return slices.Clone(pc.snap.Commands)
+	}
+	var cmds []session.Command
+	c.run(func() { cmds = slices.Clone(c.snap.Commands) })
+	return cmds
+}
+
 // paneChatEntries is a live Claude Code, Codex or agy pane's chat as the
 // phone shows it, the same chat the window reads; false for any other
 // pane. A chat with subscribers is kept current by its stream, so this

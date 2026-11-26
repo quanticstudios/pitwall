@@ -96,6 +96,7 @@ type chatView struct {
 	backBtn, newBtn, retry widget.Clickable
 	card                   cardState
 	cmp                    composer
+	slashes                slashMenu
 }
 
 // entryRow is an entry's widgets, kept across frames by seq.
@@ -151,10 +152,14 @@ func (c *chatView) update(t remote.Tab, now time.Time) {
 // there was none, so Back goes to the sidebar. A focused field is not a
 // reason to stay: Android's keyboard takes the first Back itself to hide.
 func (c *chatView) handleBack(gtx C) bool {
-	if c.cmp.menu == "" {
+	switch {
+	case c.cmp.menu != "":
+		c.cmp.menu = ""
+	case len(c.slashes.Rows()) > 0:
+		c.slashes.Close(c.cmp.ed.Text())
+	default:
 		return false
 	}
-	c.cmp.menu = ""
 	return true
 }
 
@@ -226,6 +231,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 		}),
 	)
 	c.menus(gtx, th, env, top)
+	c.slash(gtx, th, env, top)
 	if l := c.tapped; l != "" {
 		c.tapped = ""
 		c.follow(gtx, env, l)
