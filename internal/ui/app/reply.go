@@ -9,6 +9,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
 
@@ -41,6 +42,31 @@ func (u *ui) reply(st *model.State, e sidebar.Reply) {
 	if u.invalidate != nil {
 		u.invalidate()
 	}
+}
+
+// replyCommands is the / menu of the agent a reply on tab ws goes to,
+// pane's or the tab's: its pane chat's commands, which the window reads
+// while the reply sheet is open. None for a pane on another machine, or
+// one the daemon serves no chat for.
+func (u *ui) replyCommands(st *model.State, ws, pane string) ([]session.Command, model.Provider) {
+	ch, ok := u.b.(Chatter)
+	if !ok || linkLevel(u.b) < proto.SlashLevel {
+		return nil, ""
+	}
+	if pane == "" {
+		if p := agentPane(st, findWorkspace(st, ws)); p != nil {
+			pane = p.ID
+		}
+	}
+	c := paneChatOf(st, pane)
+	if c == nil || curHost() != "" || u.hostOf(pane) != "" || !u.paneChatServed(st, pane) {
+		return nil, ""
+	}
+	s, ok := ch.Chat(pane)
+	if !ok {
+		return nil, ""
+	}
+	return s.Commands, c.Provider
 }
 
 // queueReply queues a reply for p, the agent's pane, and says how it went

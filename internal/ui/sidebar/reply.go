@@ -29,6 +29,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -41,6 +42,17 @@ type Reply struct {
 	WorkspaceID, PaneID string
 	Text                string
 	Images              []string
+}
+
+// SlashMenu is a / menu over an editor, as chatin.SlashMenu is, which
+// the app hands the sidebar (chatin draws with this package, so this
+// package cannot import it). Events runs before the editor reads its
+// keys, Update after, Layout draws the menu over the editor laid out at
+// the origin with size sz, bounds being the room it may take.
+type SlashMenu interface {
+	Events(gtx layout.Context, ed *widget.Editor)
+	Update(gtx layout.Context, ed *widget.Editor, cmds []session.Command, p model.Provider)
+	Layout(gtx layout.Context, th *theme.Theme, ed *widget.Editor, sz image.Point, bounds image.Rectangle)
 }
 
 // AttachImage asks the app for the image on the clipboard, saved where
@@ -355,6 +367,9 @@ func (s *Sidebar) replyEvents(gtx layout.Context) {
 			s.events = append(s.events, AttachImage{WorkspaceID: r.ws, PaneID: r.pane})
 		}
 	}
+	if s.Slash != nil { // before the keys below: the menu's Up, Enter and Esc are its own
+		s.Slash.Events(gtx, ed)
+	}
 	// Up on the first line and Down on the last go through the history;
 	// Backspace after a block takes all of it. Each filter is asked only
 	// when it acts, so the editor gets the key otherwise.
@@ -418,6 +433,14 @@ func (s *Sidebar) replyEvents(gtx layout.Context) {
 	}
 	for r.send.Clicked(gtx) {
 		s.sendReply()
+	}
+	if s.Slash != nil && r.ws != "" {
+		var cmds []session.Command
+		var p model.Provider
+		if s.SlashCommands != nil && strings.ContainsRune(ed.Text(), '/') { // why: the app reads the agent's chat for them
+			cmds, p = s.SlashCommands(r.ws, r.pane)
+		}
+		s.Slash.Update(gtx, ed, cmds, p)
 	}
 	if !r.focus && !gtx.Focused(ed) {
 		s.closeReply()
@@ -528,6 +551,11 @@ func (s *Sidebar) replySheet(gtx layout.Context, v *view, ws model.Workspace, a 
 		}})
 	}
 	edCall.Add(gtx.Ops)
+	if s.Slash != nil {
+		// The sheet's origin is at in the row's, whose own is anchor.Min in the sidebar.
+		org := anchor.Min.Add(at).Add(field.Min).Add(image.Pt(fieldPad, fieldPad))
+		s.Slash.Layout(gtx, th, &r.ed, image.Pt(inner-2*fieldPad, fieldH-2*fieldPad), s.bounds().Sub(org))
+	}
 	off.Pop()
 	y += fieldH
 	if nH > 0 {
