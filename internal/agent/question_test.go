@@ -212,3 +212,21 @@ func TestClaudeQuestionTallPreview(t *testing.T) {
 		t.Errorf("options %+v, cursor %d", q.Options, q.Cursor)
 	}
 }
+
+// TestClaudeQuestionQuoteBar: Claude Code 2.1.332 draws a │ bar down the
+// left of the question's text. The prompt leaves it out, so answering
+// from the card matches the hook's question: with it, the drive stopped
+// with `Claude Code is on "│ The brief wants…"`.
+func TestClaudeQuestionQuoteBar(t *testing.T) {
+	q := ReadQuestion(model.ProviderClaude, screenFixture(t, "claude-ask-quote-bar.txt"))
+	if q == nil {
+		t.Fatal("no question")
+	}
+	const want = "The brief wants a real Codex run under a temp CODEX_HOME to see where it loads skills and\nwhether a mention picks one. How should I run Codex?"
+	if q.Prompt != want || q.StepPrompt != want {
+		t.Errorf("prompt %q, step prompt %q", q.Prompt, q.StepPrompt)
+	}
+	if len(q.Options) != 3 || q.Options[1].Label != "Only via temp pitwall daemon" || q.Cursor != 0 {
+		t.Errorf("options %+v, cursor %d", q.Options, q.Cursor)
+	}
+}

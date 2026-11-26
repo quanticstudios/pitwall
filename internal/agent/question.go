@@ -115,10 +115,14 @@ func readClaudeQuestion(g vt.Grid) *Question {
 	}
 	first := header + 1 + opts[0].row
 	above := make([]string, 0, first-header-1)
+	prompt := make([]string, 0, first-header-1)
 	for _, l := range rows[header+1 : first] {
-		above = append(above, previewColumn.ReplaceAllString(l, ""))
+		l = previewColumn.ReplaceAllString(l, "")
+		above = append(above, l)
+		// why: Claude Code 2.1.332 draws a │ bar down the left of a question's text.
+		prompt = append(prompt, strings.TrimPrefix(strings.TrimLeft(l, " "), "│ "))
 	}
-	q.Prompt = strings.TrimSpace(strings.Join(above, "\n"))
+	q.Prompt = strings.TrimSpace(strings.Join(prompt, "\n"))
 	if q.Prompt == "" {
 		return nil
 	}

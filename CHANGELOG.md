@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Answering a Claude question from its card works again when Claude Code 2.1.332 draws a bar down the left of the question. pitwall read the bar as part of the question and stopped with "Claude Code is on ..., not ...".
 - A message with only an image goes in an Antigravity terminal pane. agy ignores Enter with no text, so pitwall types "(image)" after the picture.
 - In Antigravity chats the / menu opens for a /word in the middle of the draft too, as in Claude chats: agy reads a skill named there.
 
