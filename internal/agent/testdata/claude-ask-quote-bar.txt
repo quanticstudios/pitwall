@@ -1,0 +1,17 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Codex run
+
+│ The brief wants a real Codex run under a temp CODEX_HOME to see where it loads skills and
+│ whether a mention picks one. How should I run Codex?
+
+❯ 1. Run from a script file
+     Put the calls in a script and run that.
+  2. Only via temp pitwall daemon
+     Let pitwall spawn Codex, as the product does.
+  3. No live run
+     Use the docs only.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
