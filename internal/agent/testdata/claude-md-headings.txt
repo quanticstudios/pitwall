@@ -1,0 +1,30 @@
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mbare link https://example.org/x, a paragraph that ends with [0m[38;2;177;185;249m[48;2;55;55;55mcode[0m[38;2;255;255;255m[48;2;55;55;55m at the very end of about 30 [0m[48;2;55;55;55m     [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mwords, and a nested bulleted list three levels deep.[0m[48;2;55;55;55m                                              [0m
+
+[0m[38;2;255;255;255m●[0m [0m[1mThird[0m
+
+  This sentence sits under the third-level heading.
+
+  [0m[1mFourth[0m
+
+  [0m[1mBold line[0m
+
+  [0m[1mNote:[0m text after
+
+  ~~struck~~ word
+
+  ]8;;https://example.org/x\https://example.org/x]8;;\
+
+  This paragraph is written to run for roughly thirty words, so that you can check how wrapping
+  behaves when the very last item on the final line is [0m[38;2;177;185;249mcode[0m
+
+  - Level one
+    - Level two
+      - Level three
+
+[0m[38;2;153;153;153m✻[0m [0m[38;2;153;153;153mChurned for 1s · done 10:25 PM[0m
+
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+❯ 
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+  [0m[38;2;153;153;153m⏸ manual mode on · ? for shortcuts[0m

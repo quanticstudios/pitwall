@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A terminal tab's chat draws the reply it streams as markdown from the start: headings, bold, italic, inline code, lists, code blocks, tables, links and quotes, read back from how Claude Code, Codex and agy style them on screen, with the lines they wrapped joined. It used to show the screen's plain text until the transcript's message landed, then jump to the markdown. A bold line stays bold, since the screen cannot tell it from a `##` heading. A Claude Code reply with a link in its first lines no longer shows twice for a moment once it lands.
+
 ## v0.3.8
 
 - Answering a Claude question from its card works again when Claude Code 2.1.332 draws a bar down the left of the question. pitwall read the bar as part of the question and stopped with "Claude Code is on ..., not ...".

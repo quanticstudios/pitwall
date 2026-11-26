@@ -1,0 +1,30 @@
+  5.5. Switch with [0m[38;2;177;185;249m/model[0m.
+  [0m[38;2;153;153;153m1 more notice hidden[0m [0m[38;2;153;153;153m(ctrl+o to expand)[0m
+
+[0m[38;2;153;153;153m[48;2;55;55;55m❯ [0m[38;2;255;255;255m[48;2;55;55;55mReply with only this markdown, no tools, nothing else: one short sentence; a fenced go code block[0m[48;2;55;55;55m [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mof 4 lines with an indented line; a markdown table of 3 columns and 2 data rows; one more short [0m[48;2;55;55;55m  [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55msentence.[0m[48;2;55;55;55m                                                                                         [0m
+
+[0m[38;2;255;255;255m●[0m Here is the requested sample, a short Go snippet followed by a small table.
+
+  [0m[38;5;12mpackage[0m main
+  [0m[38;5;12mfunc[0m[38;5;3m [0mmain() {
+      [0m[38;5;6mprintln[0m([0m[38;5;1m"hello"[0m)
+  }
+
+  ┌─────────┬──────────┬─────────────────────┐
+  │  Name   │   Type   │       Purpose       │
+  ├─────────┼──────────┼─────────────────────┤
+  │ [0m[38;2;177;185;249mmain[0m    │ function │ Program entry point │
+  ├─────────┼──────────┼─────────────────────┤
+  │ [0m[38;2;177;185;249mprintln[0m │ built-in │ Prints a line       │
+  └─────────┴──────────┴─────────────────────┘
+
+  That completes the sample.
+
+[0m[38;2;153;153;153m✻[0m [0m[38;2;153;153;153mChurned for 1s · done 10:25 PM[0m
+
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+❯ 
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+  [0m[38;2;153;153;153m⏸ manual mode on · ? for shortcuts[0m

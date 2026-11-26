@@ -1,0 +1,30 @@
+
+[0m[38;5;7m▸ Thought for 16s, 1.6k tokens[0m
+
+  [0m[1m Title[0m
+
+  [0m[1m[4mSection[0m
+
+  Building reliable software requires [0m[1mcareful planning[0m, [0m[3mconsistent testing[0m, and clear conventions
+  across every module in a shared repository. Teams often automate repetitive validation checks
+  using [0m[38;5;12mnpm test[0m before merging pull requests into the main branch so subtle regressions are
+  caught early. Whenever contributors need guidance on architecture decisions, configuration
+  options, or deployment workflows, they can review the official ]8;;https://example.com/docs\[0m[1mdocs]8;;\[0m ]8;;https://example.com/docs\[0m[4mhttps://example.com/docs]8;;\[0m to
+  stay aligned and ship dependable updates during every release cycle.
+
+  • First bullet item
+      • Nested sub-item under the first bullet
+  • Second bullet item
+
+  1. First numbered item
+  2. Second numbered item
+      • Nested sub-item under the second numbered item
+
+
+  │ Clear structure makes technical documentation effortless to scan and maintain.
+
+[0m[38;5;8m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;5;12m>[0m
+[0m[38;5;8m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;5;8m? for shortcuts[0m                                                          [0m[38;5;3mauto[0m[2m · Gemini 4 Neon · high[0m
+

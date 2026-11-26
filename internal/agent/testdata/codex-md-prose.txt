@@ -1,0 +1,30 @@
+[0m[1m[2m[48;2;47;48;50m› [0m[48;2;47;48;50mReply with only this markdown, no tools, nothing else: a "# Title" heading; a "## Section" headi… [0m
+[0m[2m• [0m[38;2;166;227;161m[work · markdown-example][0m
+
+  [0m[1m[4m[38;2;243;139;168m# Title[0m
+
+  [0m[1m[38;2;250;179;135m## Section[0m
+
+  Before publishing a guide, check that [0m[1m[38;2;243;139;168meach step[0m tells the reader what to do and where to do it.
+  Use [0m[3m[38;2;243;139;168mitalics[0m for a term the reader will see again, and put a command such as [0m[38;2;166;227;161mgit status[0m in inline
+  code. Read the draft from top to bottom to check that the steps follow the order in which the
+  reader will perform them. Verify any command examples against the ]8;;https://example.com/docs\[0m[4m[38;2;137;180;250mdocs]8;;\[0m (]8;;https://example.com/docs\[0m[4m[38;2;137;180;250mhttps://example.com/docs]8;;\[0m).
+
+  [0m[38;2;148;226;213m• [0mReview the headings.
+  [0m[38;2;148;226;213m    • [0mCheck that each heading describes its content.
+
+  [0m[38;2;148;226;213m• [0mRead the paragraph aloud.
+
+  [0m[38;5;12m1. [0mCheck the commands.
+
+  [0m[38;5;12m2. [0mReview the links.
+  [0m[38;2;148;226;213m    • [0mOpen each link and confirm its destination.
+
+[0m[38;2;245;194;231m  > A clear example gives the reader a starting point.[0m
+
+[0m[48;2;37;38;41m                                                                                                    [0m
+[0m[1m[48;2;37;38;41m›[0m[48;2;37;38;41m [0m[2m[48;2;37;38;41mAsk Codex to do anything[0m[48;2;37;38;41m                                                                          [0m
+[0m[48;2;37;38;41m                                                                                                    [0m
+  [0m[38;2;246;226;183mGPT-6.2-Sol low[0m[38;2;149;150;152m · [0m[38;2;171;223;167m~/work[0m
+  [0m[38;2;171;223;167m[0m[38;2;149;150;152m · [0m[38;2;180;190;254mFormat a markdown response[0m
+  [0m[1m[38;2;244;244;246m←[0m[38;2;149;150;152m for agents · [0m[1m[38;2;244;244;246m?[0m[38;2;149;150;152m for shortcuts[0m

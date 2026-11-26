@@ -1,0 +1,30 @@
+[0m[1m[2m[48;2;47;48;50m› [0m[48;2;47;48;50mReply with only this markdown, no tools, nothing else: "### Third" heading, a sentence, "#### Fo… [0m
+[0m[2m• [0m[38;2;166;227;161m[pitwall · live-md · markdown-format][0m
+
+  [0m[1m[3m[38;2;249;226;175m### Third[0m
+
+  The trail follows the river.
+
+  [0m[3m[38;2;249;226;175m#### Fourth[0m
+
+  [0m[1m[38;2;243;139;168mBold line[0m
+
+  [0m[1m[38;2;243;139;168mNote:[0m text after
+
+  [0m[9mstruck[0m
+
+  ]8;;https://example.org/x\[0m[4m[38;2;137;180;250mhttps://example.org/x]8;;\[0m
+
+  The trail crosses a wooden bridge and climbs through a stand of pines. At the fork, a small sign
+  marks the route with a single letter [0m[38;2;166;227;161mcode[0m
+
+  [0m[38;2;148;226;213m• [0mMain trail
+  [0m[38;2;148;226;213m    • [0mRiver path
+
+[0m[48;2;37;38;41m                                                                                                    [0m
+[0m[1m[48;2;37;38;41m›[0m[48;2;37;38;41m [0m[2m[48;2;37;38;41mAsk Codex to do anything[0m[48;2;37;38;41m                                                                          [0m
+[0m[48;2;37;38;41m                                                                                                    [0m
+  [0m[38;2;246;226;183mGPT-6.2-Sol low[0m[38;2;149;150;152m · [0m[38;2;171;223;167m~/work[0m
+  [0m[38;2;171;223;167m[0m[38;2;149;150;152m · [0m[38;2;243;139;168mReply with only this markdown, no tools, nothing[0m
+  [0m[38;2;243;139;168melse: "###…[0m
+  [0m[1m[38;2;244;244;246m←[0m[38;2;149;150;152m for agents · [0m[1m[38;2;244;244;246m?[0m[38;2;149;150;152m for shortcuts[0m

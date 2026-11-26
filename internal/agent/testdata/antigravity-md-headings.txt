@@ -1,0 +1,30 @@
+[0m[1m[38;5;4m  about 30 words, and a nested bulleted list three levels deep.[0m
+
+[0m[38;5;7m▸ Thought for 12s, 1.3k tokens[0m
+
+  [0m[1mThird[0m
+
+  Here is a simple sentence under the third heading.
+
+  [0m[1m[3mFourth[0m
+
+  [0m[1mBold line[0m
+
+  [0m[1mNote:[0m text after
+
+  Here is a [0m[9mstruck[0m word alongside a bare link ]8;;https://example.org/x\[0m[4mhttps://example.org/x]8;;\[0m in plain text.
+
+  This single paragraph is written specifically to contain roughly thirty words in total so that
+  it wraps across lines naturally while demonstrating inline formatting that concludes right here
+  with [0m[38;5;12mcode[0m
+
+  • First level item
+      • Second level item
+          • Third level item
+
+
+
+[0m[38;5;8m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;5;12m>[0m
+[0m[38;5;8m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;5;8m? for shortcuts[0m                                                          [0m[38;5;3mauto[0m[2m · Gemini 4 Neon · high[0m
