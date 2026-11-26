@@ -725,7 +725,14 @@ func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string, q
 		}
 	}
 	if len(images) > 0 && remote.Clean(text) == "" && len(quoted) == 0 {
-		return d.pressEnter(pane, p, "")
+		if prov != model.ProviderAntigravity {
+			return d.pressEnter(pane, p, "")
+		}
+		// why: agy 1.5.18's TUI ignores Enter with media attached and no text, even a space.
+		text = "(image)"
+		if len(images) > 1 {
+			text = "(images)"
+		}
 	}
 	return d.typeLine(pane, p, text, "the message is empty", quoted...)
 }

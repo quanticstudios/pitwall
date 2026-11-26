@@ -152,6 +152,8 @@ turns still go to the same conversation, and the chat picks them up.
   message takes 8 attachments, images and pasted texts together, and 8 MiB
   of pasted text.
 - **/** lists the slash commands, with the ones that need the TUI marked.
+  In Claude and Antigravity chats it opens for a /word in the middle of
+  the draft too, with skills and custom commands only.
 - **1**, **2** and **3** answer an approval card; a question's options take
   their number keys and Enter.
 - **Ctrl+Backspace** deletes a word, or a whole chip.

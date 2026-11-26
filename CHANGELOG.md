@@ -22,6 +22,11 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A message with only an image goes in an Antigravity terminal pane. agy ignores Enter with no text, so pitwall types "(image)" after the picture.
+- In Antigravity chats the / menu opens for a /word in the middle of the draft too, as in Claude chats: agy reads a skill named there.
+
 ## v0.3.7
 
 - Closing a window no longer makes the daemon open every chat's log and keep them open until it stops. It came with v0.3.5.

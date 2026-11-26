@@ -199,6 +199,13 @@ func TestSlashMidDraft(t *testing.T) {
 	if h.c.slash.shown() {
 		t.Fatal("codex got a mid-draft menu")
 	}
+	h.snap.Provider = "antigravity"
+	h.c.SetText("")
+	h.typ("then /shi")
+	if got := names(h.c.slash.rows); !slices.Equal(got, []string{"ship"}) {
+		t.Fatalf("antigravity mid-draft rows %q", got)
+	}
+	h.press(key.NameEscape, 0)
 	h.snap.Provider = "claude"
 
 	h.c.SetText("")
