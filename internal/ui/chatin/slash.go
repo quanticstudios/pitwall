@@ -21,10 +21,12 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// slashState is the / menu: the chat's commands that match the draft's
-// first word and the highlighted one, or a note when none shows. It
-// opens and narrows on each keystroke, so it has no fade.
-type slashState struct {
+// SlashMenu is the / menu of a prompt's editor: the agent's commands
+// that match the /word at the caret and the highlighted one, or a note
+// when none shows. It opens and narrows on each keystroke, so it has no
+// fade. The chat composer has one; another editor that writes a prompt
+// for an agent calls Events, Update and Layout.
+type SlashMenu struct {
 	rows   []session.Command
 	sel    int    // the highlighted row
 	picked string // its name, which keeps the highlight when the list is read again
@@ -38,7 +40,8 @@ type slashState struct {
 	// frame's: the pointer moving onto a row highlights it, a pointer
 	// resting on one leaves the keys' highlight alone.
 	hovered, was string
-	full         string // the highlighted row's description when the row cuts it, shown whole above the menu
+	full         string                       // the highlighted row's description when the row cuts it, shown whole above the menu
+	items        map[string]*widget.Clickable // the rows' buttons, by command name
 }
 
 // The menu's notes: a command that runs in the agent's terminal, and
@@ -51,10 +54,16 @@ const (
 )
 
 // open reports whether the menu shows rows, which take the keys.
-func (s *slashState) open() bool { return len(s.rows) > 0 }
+func (s *SlashMenu) open() bool { return len(s.rows) > 0 }
 
 // shown reports whether the menu shows at all: rows or a note.
-func (s *slashState) shown() bool { return s.open() || s.note != "" }
+func (s *SlashMenu) shown() bool { return s.open() || s.note != "" }
+
+// Shown reports whether the menu shows, rows or a note.
+func (s *SlashMenu) Shown() bool { return s.shown() }
+
+// Rows is the commands the menu lists.
+func (s *SlashMenu) Rows() []session.Command { return s.rows }
 
 // SlashMatches is cmds that match query, ignoring case, best first: a
 // name or alias that is the query, then one that starts with it, then
@@ -137,13 +146,24 @@ func subsequence(s, q string) bool {
 var slashUsed = map[string]int{}
 
 // slashUpdate opens, narrows or closes the menu for the draft's /word.
-// A new query highlights the first row; the same query keeps the row it
-// highlighted when the chat's list is read again.
 func (c *Composer) slashUpdate(env Env) {
-	s := &c.slash
-	txt := c.Text()
-	start, word, ok := c.Slash()
-	if !ok || env.Snap == nil || txt == s.shut || c.menu {
+	_, caret := c.ed.Selection()
+	var cmds []session.Command
+	var p model.Provider
+	if env.Snap != nil {
+		cmds, p = env.Snap.Commands, env.Snap.Provider
+	}
+	c.slash.update(c.Text(), caret, cmds, p, env.Commands, env.Snap == nil || c.menu)
+}
+
+// update opens, narrows or closes the menu for the /word at rune caret
+// of txt, listing cmds of an agent of provider p; known is whether the
+// daemon sends the commands, off keeps the menu closed. A new query
+// highlights the first row; the same query keeps the row it highlighted
+// when the list is read again.
+func (s *SlashMenu) update(txt string, caret int, cmds []session.Command, p model.Provider, known, off bool) {
+	start, word, ok := Slash(txt, caret)
+	if !ok || off || txt == s.shut {
 		s.rows, s.note = nil, ""
 		if txt != s.shut {
 			s.shut = ""
@@ -155,9 +175,8 @@ func (c *Composer) slashUpdate(env Env) {
 		s.rows, s.note = nil, ""
 		return
 	}
-	cmds := env.Snap.Commands
 	if start > 0 {
-		if !midPrompt(env.Snap.Provider) { // why: Codex names a skill with $, so a /word past the first is text to it
+		if !midPrompt(p) { // why: Codex names a skill with $, so a /word past the first is text to it
 			s.rows, s.note = nil, ""
 			return
 		}
@@ -181,7 +200,7 @@ func (c *Composer) slashUpdate(env Env) {
 	}
 	switch {
 	case s.open():
-	case !env.Commands:
+	case !known:
 		s.note = oldNote
 	case len(cmds) == 0:
 		s.note = noListNote
@@ -204,29 +223,30 @@ func MidCommands(cmds []session.Command) []session.Command {
 	})
 }
 
-// slashKey runs key e on the open menu: Up and Down move the highlight,
-// Enter or Tab fills the command in, Esc closes the menu.
-func (c *Composer) slashKey(gtx layout.Context, e key.Event) {
-	s := &c.slash
+// key runs key e on the open menu of ed, whose text is txt: Up and
+// Down move the highlight, Enter or Tab fills the command in, Esc closes
+// the menu.
+func (s *SlashMenu) key(gtx layout.Context, ed *widget.Editor, txt string, e key.Event) {
 	switch e.Name {
 	case key.NameUpArrow:
 		s.sel = (s.sel + len(s.rows) - 1) % len(s.rows)
 	case key.NameDownArrow:
 		s.sel = (s.sel + 1) % len(s.rows)
 	case key.NameEscape:
-		s.shut, s.rows, s.note = c.Text(), nil, ""
+		s.shut, s.rows, s.note = txt, nil, ""
 		return
 	default:
-		c.pickSlash(gtx, s.rows[s.sel].Name)
+		s.pick(gtx, ed, txt, s.rows[s.sel].Name)
 		return
 	}
 	s.picked = s.rows[s.sel].Name
 }
 
-// pickSlash puts /name and a space in place of the /word at the caret.
-func (c *Composer) pickSlash(gtx layout.Context, name string) {
-	r := []rune(c.Text())
-	start := min(c.slash.start, len(r))
+// pick puts /name and a space in place of the /word at ed's caret; txt
+// is ed's text.
+func (s *SlashMenu) pick(gtx layout.Context, ed *widget.Editor, txt, name string) {
+	r := []rune(txt)
+	start := min(s.start, len(r))
 	end := start
 	for end < len(r) && !unicode.IsSpace(r[end]) {
 		end++
@@ -234,46 +254,104 @@ func (c *Composer) pickSlash(gtx layout.Context, name string) {
 	if end < len(r) && r[end] == ' ' {
 		end++ // the space after the word, which the pick puts back
 	}
-	c.ed.SetCaret(start, end)
-	c.ed.Insert("/" + name + " ")
-	c.slash.rows, c.slash.note = nil, ""
-	gtx.Execute(key.FocusCmd{Tag: &c.ed})
+	ed.SetCaret(start, end)
+	ed.Insert("/" + name + " ")
+	s.rows, s.note = nil, ""
+	gtx.Execute(key.FocusCmd{Tag: ed})
 }
 
-// slashClicks picks a row the pointer clicked.
-func (c *Composer) slashClicks(gtx layout.Context) {
-	for _, cmd := range c.slash.rows {
-		if c.click("slash:" + cmd.Name).Clicked(gtx) {
-			c.pickSlash(gtx, cmd.Name)
+// click is the button of the row of command name.
+func (s *SlashMenu) click(name string) *widget.Clickable {
+	if s.items == nil {
+		s.items = map[string]*widget.Clickable{}
+	}
+	b := s.items[name]
+	if b == nil {
+		b = new(widget.Clickable)
+		s.items[name] = b
+	}
+	return b
+}
+
+// clicks picks a row the pointer clicked, into ed, whose text is txt.
+func (s *SlashMenu) clicks(gtx layout.Context, ed *widget.Editor, txt string) {
+	for _, cmd := range s.rows {
+		if s.click(cmd.Name).Clicked(gtx) {
+			s.pick(gtx, ed, txt, cmd.Name)
 			return
 		}
 	}
 }
 
-// slashAnchor notes where the draft's / sits in the card, from the
-// editor laid out at off in it.
-func (c *Composer) slashAnchor(off image.Point) {
-	if !c.slash.shown() {
+// anchorAt notes where the /word's / sits, from ed laid out at off.
+func (s *SlashMenu) anchorAt(ed *widget.Editor, off image.Point) {
+	if !s.shown() {
 		return
 	}
-	if rs := c.ed.Regions(c.slash.start, c.slash.start+1, nil); len(rs) > 0 {
-		c.slash.anchor = rs[0].Bounds.Add(off)
+	if rs := ed.Regions(s.start, s.start+1, nil); len(rs) > 0 {
+		s.anchor = rs[0].Bounds.Add(off)
 	}
 }
 
-// slashPop is the menu above the draft's first line, in the card's
-// coordinates, placed as the @ popover is. Its width stays the same
-// whatever it lists, so narrowing it moves no column.
-func (c *Composer) slashPop(gtx layout.Context, th *theme.Theme) {
-	s := &c.slash
+// Events picks a row the pointer clicked and runs the keys the shown
+// menu takes from ed: Up, Down, Tab, Enter and Esc. Call it before
+// anything else reads ed's keys, ed.Update included, so Enter picks
+// rather than sends or adds a line and Esc closes only the menu.
+func (s *SlashMenu) Events(gtx layout.Context, ed *widget.Editor) {
+	s.clicks(gtx, ed, ed.Text())
+	for s.shown() {
+		fs := []event.Filter{key.Filter{Focus: ed, Name: key.NameEscape}}
+		if s.open() {
+			for _, n := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameTab, key.NameReturn, key.NameEnter} {
+				fs = append(fs, key.Filter{Focus: ed, Name: n})
+			}
+		}
+		ev, ok := gtx.Event(fs...)
+		if !ok {
+			return
+		}
+		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+			if s.open() {
+				s.key(gtx, ed, ed.Text(), e)
+			} else {
+				s.shut, s.note = ed.Text(), ""
+			}
+		}
+	}
+}
+
+// Update opens, narrows or closes the menu for the /word at ed's caret,
+// listing cmds of an agent of provider p. No commands, or ed without key
+// focus, closes it. Call it once ed took this frame's keys.
+func (s *SlashMenu) Update(gtx layout.Context, ed *widget.Editor, cmds []session.Command, p model.Provider) {
+	_, caret := ed.Selection()
+	s.update(ed.Text(), caret, cmds, p, true, len(cmds) == 0 || !gtx.Focused(ed))
+}
+
+// Layout draws the shown menu over ed, which is laid out at the origin
+// with size sz, as wide as ed: above it, or below it when bounds, the
+// room it may take in the same coordinates, has none above.
+func (s *SlashMenu) Layout(gtx layout.Context, th *theme.Theme, ed *widget.Editor, sz image.Point, bounds image.Rectangle) {
+	if !s.shown() {
+		return
+	}
+	s.anchorAt(ed, image.Point{})
+	bounds.Min.X, bounds.Max.X = 0, sz.X
+	s.pop(gtx, th, image.Rectangle{Max: sz}, bounds)
+}
+
+// pop is the menu above area, or below it when bounds has no room
+// above, placed as the @ popover is. Its width stays the same whatever
+// it lists, so narrowing it moves no column.
+func (s *SlashMenu) pop(gtx layout.Context, th *theme.Theme, area, bounds image.Rectangle) {
 	rec := op.Record(gtx.Ops)
-	pw := min(gtx.Dp(560), c.cardSize.X)
+	pw := min(gtx.Dp(560), area.Dx())
 	pg := gtx
 	pg.Constraints = layout.Constraints{Min: image.Pt(pw, 0), Max: image.Pt(pw, gtx.Constraints.Max.Y)}
 	body := op.Record(gtx.Ops)
 	d := layout.UniformInset(theme.SpaceXS).Layout(pg, func(gtx layout.Context) layout.Dimensions {
 		if !s.open() {
-			return c.slashNote(gtx, th)
+			return s.noteLine(gtx, th)
 		}
 		first := max(0, min(s.sel-mentionRows+1, len(s.rows)-mentionRows))
 		if s.sel < first {
@@ -284,15 +362,19 @@ func (c *Composer) slashPop(gtx layout.Context, th *theme.Theme) {
 		var kids []layout.FlexChild
 		for i, cmd := range shown {
 			kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return c.slashRow(gtx, th, cmd, first+i == s.sel)
+				return s.row(gtx, th, cmd, first+i == s.sel)
 			}))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 	})
 	call := body.Stop()
-	bounds := image.Rectangle{Min: image.Pt(0, -1<<20), Max: c.cardSize}
-	at := kit.Place(s.anchor, d.Size, bounds, kit.AboveStart, gtx.Dp(theme.SpaceXS), 0)
-	o := op.Offset(image.Pt(at.X, -d.Size.Y-gtx.Dp(theme.SpaceXS))).Push(gtx.Ops)
+	gap := gtx.Dp(theme.SpaceXS)
+	at := kit.Place(s.anchor, d.Size, bounds, kit.AboveStart, gap, 0)
+	y, below := area.Min.Y-d.Size.Y-gap, false
+	if y < bounds.Min.Y {
+		y, below = area.Max.Y+gap, true
+	}
+	o := op.Offset(image.Pt(at.X, y)).Push(gtx.Ops)
 	rect := image.Rectangle{Max: d.Size}
 	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
 	cl := clip.UniformRRect(rect, gtx.Dp(theme.RadiusPopover)).Push(gtx.Ops)
@@ -300,7 +382,7 @@ func (c *Composer) slashPop(gtx layout.Context, th *theme.Theme) {
 	call.Add(gtx.Ops)
 	cl.Pop()
 	if s.full != "" {
-		c.slashFull(gtx, th, d.Size.X)
+		s.fullCard(gtx, th, d.Size.X, d.Size.Y, below)
 	}
 	o.Pop()
 	op.Defer(gtx.Ops, rec.Stop())
@@ -312,7 +394,7 @@ func (c *Composer) slashPop(gtx layout.Context, th *theme.Theme) {
 // hover moves the highlight to the row the pointer moved onto this
 // frame, and reports whether it did; a pointer that rests where it was
 // leaves the keys' highlight alone.
-func (s *slashState) hover() bool {
+func (s *SlashMenu) hover() bool {
 	if s.hovered == s.was {
 		return false
 	}
@@ -325,33 +407,38 @@ func (s *slashState) hover() bool {
 	return true
 }
 
-// slashFull is the highlighted command's whole description, wrapped,
-// in a card of the menu's width w right above it, as T3 Code's tooltip
-// on a cut description. The menu's rows do not move for it.
-func (c *Composer) slashFull(gtx layout.Context, th *theme.Theme, w int) {
+// fullCard is the highlighted command's whole description, wrapped,
+// in a card of the menu's width w right above it, or under it, h high,
+// when it opened below its editor, as T3 Code's tooltip on a cut
+// description. The menu's rows do not move for it.
+func (s *SlashMenu) fullCard(gtx layout.Context, th *theme.Theme, w, h int, below bool) {
 	g := gtx
 	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
 	m := op.Record(gtx.Ops)
 	d := layout.UniformInset(theme.SpaceS).Layout(g, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
-		return widget.Label{MaxLines: 4}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Small), c.slash.full, colorOp(gtx, th.Fg))
+		return widget.Label{MaxLines: 4}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Small), s.full, colorOp(gtx, th.Fg))
 	})
 	call := m.Stop()
-	o := op.Offset(image.Pt(0, -d.Size.Y-gtx.Dp(theme.SpaceXS))).Push(gtx.Ops)
+	y := -d.Size.Y - gtx.Dp(theme.SpaceXS)
+	if below {
+		y = h + gtx.Dp(theme.SpaceXS)
+	}
+	o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 	rect := image.Rectangle{Max: image.Pt(w, d.Size.Y)}
 	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
 	call.Add(gtx.Ops)
 	o.Pop()
 }
 
-// slashNote is the menu's one muted line when it lists no command.
-func (c *Composer) slashNote(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+// noteLine is the menu's one muted line when it lists no command.
+func (s *SlashMenu) noteLine(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	h, w := gtx.Dp(28), gtx.Constraints.Max.X
 	pad := gtx.Dp(theme.SpaceS)
 	g := gtx
 	g.Constraints.Max.X = max(0, w-2*pad)
 	m := op.Record(gtx.Ops)
-	d := text(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, c.slash.note)
+	d := text(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, s.note)
 	call := m.Stop()
 	o := op.Offset(image.Pt(pad, (h-d.Size.Y)/2)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
@@ -359,16 +446,16 @@ func (c *Composer) slashNote(gtx layout.Context, th *theme.Theme) layout.Dimensi
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// slashRow is one command: /name in mono with its argument hint muted,
+// row is one command: /name in mono with its argument hint muted,
 // taking at most nameShare of the row, then its description muted in
 // what is left, and the terminal note at the right on one that opens
 // there. Each part is one line, cut with an ellipsis.
-func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Command, on bool) layout.Dimensions {
-	b := c.click("slash:" + cmd.Name)
+func (s *SlashMenu) row(gtx layout.Context, th *theme.Theme, cmd session.Command, on bool) layout.Dimensions {
+	b := s.click(cmd.Name)
 	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp("/" + cmd.Name).Add(gtx.Ops)
 		if b.Hovered() {
-			c.slash.hovered = cmd.Name
+			s.hovered = cmd.Name
 		}
 		h, w := gtx.Dp(28), gtx.Constraints.Max.X
 		rect := image.Rectangle{Max: image.Pt(w, h)}
@@ -420,7 +507,7 @@ func (c *Composer) slashRow(gtx layout.Context, th *theme.Theme, cmd session.Com
 					g.Constraints.Max.X = 1 << 20
 					m := op.Record(gtx.Ops)
 					if text(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, cmd.Description).Size.X > gtx.Constraints.Max.X {
-						c.slash.full = cmd.Description
+						s.full = cmd.Description
 					}
 					m.Stop()
 				}

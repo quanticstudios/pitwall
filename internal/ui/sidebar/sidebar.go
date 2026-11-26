@@ -21,6 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -29,6 +30,12 @@ import (
 const Width unit.Dp = 288
 
 type Sidebar struct {
+	// Slash is the reply field's / menu, nil for none, and SlashCommands
+	// the commands of the agent a reply on tab ws goes to, pane's ("" for
+	// the tab's agent), and its provider.
+	Slash         SlashMenu
+	SlashCommands func(ws, pane string) ([]session.Command, model.Provider)
+
 	DevProxyPort int // zero keeps direct port URLs
 	// Forks is whether the daemon supports terminal forks.
 	CloseDoneWorkers bool

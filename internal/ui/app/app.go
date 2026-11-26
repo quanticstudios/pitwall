@@ -35,6 +35,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/board"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
@@ -731,12 +732,16 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
 	u.sidebar.CloseDoneWorkers = u.link().Level >= proto.CloseDoneWorkersLevel
 	u.sidebar.Forks = u.link().Level >= proto.ForkLevel
+	if u.sidebar.Slash == nil {
+		u.sidebar.Slash = new(chatin.SlashMenu)
+	}
 	// why: before drawing; the board's cards read it while the sidebar is hidden.
 	u.sidebar.Answers = u.canAnswer()
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
 	u.syncSidebarRev(&st)
 	u.sidebar.DevProxyPort = st.DevProxyPort
+	u.sidebar.SlashCommands = func(ws, pane string) ([]session.Command, model.Provider) { return u.replyCommands(&st, ws, pane) }
 	for _, p := range u.panes {
 		p.rect = image.Rectangle{}
 	}

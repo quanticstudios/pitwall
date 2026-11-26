@@ -31,6 +31,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		}
 	}
 	start, queue := false, false
+	t.slash.Events(gtx, &t.prompt) // before the dialog's keys, so Esc and Enter go to the menu
 	eds := []*widget.Editor{&t.prompt, &t.name, &t.base, &t.branch, &t.issue, &t.at, &t.every}
 	for i := range t.models {
 		if t.picked[i] {
@@ -83,6 +84,8 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	}
 	t.syncName()
 	t.profile.update(gtx)
+	cmds, prov := t.slashCommands(u.cfg)
+	t.slash.Update(gtx, &t.prompt, cmds, prov)
 	grow := func(cs []widget.Clickable, n int) []widget.Clickable {
 		if len(cs) < n {
 			return make([]widget.Clickable, n)
@@ -354,7 +357,12 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 		}
 	}
 	kids = append(kids, gap(14), label("Prompt"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-		return u.field(gtx, &t.prompt, th.UIFont, gtx.Dp(132), "What should the agent do?")
+		d := u.field(gtx, &t.prompt, th.UIFont, gtx.Dp(132), "What should the agent do?")
+		pad := image.Pt(gtx.Dp(12), gtx.Dp(8)) // where field lays out a field of lines
+		o := op.Offset(pad).Push(gtx.Ops)
+		t.slash.Layout(gtx, th, &t.prompt, d.Size.Sub(pad.Mul(2)), image.Rect(-pad.X, -1<<20, d.Size.X-pad.X, d.Size.Y))
+		o.Pop()
+		return d
 	}))
 	if t.scheduled {
 		kids = append(kids, gap(14), label("Start at"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {

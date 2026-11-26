@@ -61,7 +61,7 @@ type Composer struct {
 	meterBtn          widget.Clickable // the context meter, for its hover card
 	q                 queueState
 	mention           mentionState
-	slash             slashState
+	slash             SlashMenu
 	branch            branchChip
 	rm                map[int]*widget.Clickable // per image, its remove x
 	parts             map[string]*partUI        // per part's token, its card's controls
@@ -727,7 +727,7 @@ func (c *Composer) keyEvents(gtx layout.Context, env Env) {
 			continue
 		}
 		if c.slash.open() && e.Modifiers == 0 && e.Name != key.NameDeleteBackward {
-			c.slashKey(gtx, e)
+			c.slash.key(gtx, &c.ed, c.Text(), e)
 			continue
 		}
 		if c.slash.note != "" && e.Modifiers == 0 && e.Name == key.NameEscape {
@@ -847,7 +847,7 @@ func (c *Composer) others(gtx layout.Context, env Env) {
 	}
 	c.mentionClicks(gtx)
 	c.mentionUpdate(gtx, env)
-	c.slashClicks(gtx)
+	c.slash.clicks(gtx, &c.ed, c.Text())
 	c.slashUpdate(env)
 	c.branchEvents(gtx, env)
 	c.partEvents(gtx, env)
@@ -1024,7 +1024,7 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 		c.mentionPop(gtx, th)
 	}
 	if c.slash.shown() {
-		c.slashPop(gtx, th)
+		c.slash.pop(gtx, th, image.Rectangle{Max: c.cardSize}, image.Rectangle{Min: image.Pt(0, -1<<20), Max: c.cardSize})
 	}
 	off.Pop()
 	if statusDims.Size.Y > 0 {
@@ -1206,7 +1206,7 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 		c.partTokens(gtx, th)
 		c.mentionChips(gtx, th)
 		c.mentionAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
-		c.slashAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
+		c.slash.anchorAt(&c.ed, image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
 		return d
 	})
 }

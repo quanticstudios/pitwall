@@ -114,7 +114,7 @@ func TestSlashMenu(t *testing.T) {
 		t.Fatal("typing after Esc did not open the menu again")
 	}
 
-	h.c.click("slash:context").Click()
+	h.c.slash.click("context").Click()
 	h.frame()
 	if h.c.Text() != "/context " || h.c.slash.open() {
 		t.Fatalf("click: %q, open %v", h.c.Text(), h.c.slash.open())
@@ -279,7 +279,7 @@ func TestSlashMenuKeepsHighlight(t *testing.T) {
 // The pointer moving onto a row highlights it; Down then moves on from
 // there, and the pointer resting on its row does not pull it back.
 func TestSlashHover(t *testing.T) {
-	s := slashState{rows: testCommands}
+	s := SlashMenu{rows: testCommands}
 	s.hovered = "config"
 	if !s.hover() || s.sel != 2 || s.picked != "config" {
 		t.Fatalf("moving onto config: sel %d, picked %q", s.sel, s.picked)

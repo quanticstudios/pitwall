@@ -23,6 +23,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/antigravity"
+	"github.com/quanticstudios/pitwall/internal/session/claude"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 )
 
 // taskDialog is the New task dialog: agents and their prompt, each
@@ -51,6 +55,9 @@ type taskDialog struct {
 	refs                              proto.WorktreeInfo // the project's branches, for the base and branch fields
 	issues                            taskIssues
 	focus                             bool // move key focus to the prompt this frame
+	slash                             chatin.SlashMenu
+	slashFor                          string // what slashCmds were read for: agent, folder and config dir
+	slashCmds                         []session.Command
 
 	projectBtn, agentBtn []widget.Clickable
 	modeBtn              [][]widget.Clickable // per agent
@@ -359,6 +366,43 @@ func (t *taskDialog) pickProject(i int, invalidate func()) {
 			}
 		}()
 	}
+}
+
+// slashCommands is the / menu for the prompt: that of the first picked
+// agent, Claude Code or agy, in the picked folder, with the account
+// profile's and preset's config dir, read again when any of them
+// changes. None for another agent, or for a host's folder, which this
+// window cannot read.
+// shortcut: several picked agents get the first one's menu; a mixed
+// pick would need the commands all of them read.
+func (t *taskDialog) slashCommands(cfg config.Settings) ([]session.Command, model.Provider) {
+	i := slices.Index(t.picked, true)
+	if i < 0 || t.projects[t.project].host != "" {
+		return nil, ""
+	}
+	a, dir := t.agents[i], t.projects[t.project].dir
+	env, _ := cfg.ProfileEnv(t.profile.name(), a.vars)
+	var p model.Provider
+	var conf string
+	var list func(conf, cwd string) []session.Command
+	switch a.cmd {
+	case "claude":
+		p, conf, list = model.ProviderClaude, claude.ConfigDir(env, dir), claude.Commands
+	case "agy":
+		p, list = model.ProviderAntigravity, antigravity.Commands
+		conf, _ = os.UserHomeDir()
+		for _, e := range env {
+			if h, ok := strings.CutPrefix(e, "HOME="); ok {
+				conf = h
+			}
+		}
+	default:
+		return nil, ""
+	}
+	if key := a.cmd + "\x00" + dir + "\x00" + conf; key != t.slashFor {
+		t.slashFor, t.slashCmds = key, list(conf, dir)
+	}
+	return t.slashCmds, p
 }
 
 // issueList is the project's open issues, none until they are fetched.
