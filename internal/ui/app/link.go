@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"strings"
 	"time"
 
 	"gioui.org/io/event"
@@ -16,6 +17,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -46,6 +48,8 @@ type Link struct {
 	Retry time.Time
 	// Since is when the last connection was lost, zero before any was.
 	Since time.Time
+	// Login is set while down because ssh waits on a person.
+	Login *sidebar.Login
 }
 
 // Linker is optionally implemented by a Backend whose daemon connection can
@@ -112,6 +116,11 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 			lk.Restart()
 		}
 	}
+	for u.linkLogin.Clicked(gtx) {
+		if l.Login != nil {
+			openLink(l.Login.URL)
+		}
+	}
 	for u.linkLater.Clicked(gtx) {
 		u.quit = true
 	}
@@ -146,14 +155,36 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
 		}),
 	}
+	note, login := l.Note, l.Login
+	if l.State != LinkDown {
+		login = nil
+	}
+	if login != nil && strings.HasPrefix(note, login.Reason) {
+		note = login.Reason + ". Run in a shell:" // the command goes on its own line
+	}
+	add := func(w gl.Widget) {
+		kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(w))
+	}
 	for _, line := range []struct {
 		text string
 		c    color.NRGBA
-	}{{body, th.Muted}, {l.Note, th.Muted}} {
+	}{{body, th.Muted}, {note, th.Muted}} {
 		if line.text != "" {
-			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			add(func(gtx gl.Context) gl.Dimensions {
 				return para(gtx, th, th.UIFont, th.Sp(theme.Large), line.c, line.text)
-			}))
+			})
+		}
+	}
+	if login != nil {
+		add(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, th.MonoFont, th.Sp(theme.Body), th.Fg, login.Command)
+		})
+		if login.URL != "" {
+			add(func(gtx gl.Context) gl.Dimensions {
+				return kit.Clickable(gtx, &u.linkLogin, func(gtx gl.Context) gl.Dimensions {
+					return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Readable(th.Blue, th.SurfaceElevated), login.URL)
+				})
+			})
 		}
 	}
 	kids = append(kids, gl.Rigid(gl.Spacer{Height: 20}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {

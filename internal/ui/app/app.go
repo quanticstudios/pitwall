@@ -387,7 +387,7 @@ type ui struct {
 	// The connection dialog, see layoutLink. epoch is the Link.Epoch the
 	// panes' sizes were sent for; quit is Later: close, leaving the daemon.
 	epoch                        int
-	linkOK, linkLater            widget.Clickable
+	linkOK, linkLater, linkLogin widget.Clickable
 	linkBackdrop                 int
 	relaunchTried, quit, offline bool
 
@@ -1083,6 +1083,10 @@ func hostsSig(hs []sidebar.HostInfo) uint64 {
 		h.Write(b[:])
 		h.Write([]byte(hi.Note))
 		h.Write([]byte{0})
+		if hi.Login != nil {
+			h.Write([]byte(hi.Login.URL))
+			h.Write([]byte{1})
+		}
 		h.Write([]byte(hi.Color))
 		h.Write([]byte{0})
 		for _, s := range hi.Sessions {
@@ -1252,6 +1256,12 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		}
 	case sidebar.Reply:
 		u.reply(st, e)
+	case sidebar.OpenLogin:
+		openLink(e.URL)
+	case sidebar.RetryHosts:
+		if l, ok := u.b.(Linker); ok {
+			l.Reconnect()
+		}
 	case sidebar.ToggleBoard:
 		u.toggleBoard()
 	case sidebar.ToggleMonitor:

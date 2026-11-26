@@ -134,6 +134,16 @@ down covers the window, and only while it shows one of its sessions. A host
 whose daemon runs another major version stays down: open `pitwall --host
 box` once to restart it there.
 
+When ssh to a host waits on you, for a Tailscale SSH check, a password, key
+or code, or a host key, the sidebar shows what for under the host's name,
+with the check's link, the `pitwall host login` command to run and **Retry
+now**. It does so even with sessions hidden. The window does not keep
+retrying into the prompt. On Linux and macOS it looks for the shared
+connection every 2 seconds, without reaching the host, and connects once
+`pitwall host login` has opened it. Otherwise it tries again after 5
+minutes, or on **Retry now**. A `pitwall --host` window shows the link in
+its disconnected dialog.
+
 [The monitor](usage.md#the-monitor) of a host's tab, or its Monitor tab, shows that host, sampled
 by its own daemon over the same connection, and dims with "No data since"
 while the host is down.

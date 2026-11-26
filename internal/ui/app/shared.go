@@ -203,6 +203,9 @@ func (u *ui) drawOffline(gtx gl.Context, p *paneUI, host string, frame image.Rec
 	if !h.Since.IsZero() {
 		dim = "Screen from " + h.Since.Format("15:04") + "."
 	}
+	if h.Login != nil {
+		dim = h.Login.Reason + "."
+	}
 	dimc, ds := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, dim)
 	m := op.Record(gtx.Ops)
 	bd := kit.Button(gtx, th, &p.retry, kit.Secondary, kit.Small, "Retry now")

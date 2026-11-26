@@ -27,6 +27,7 @@ takes `--dry-run`.
 - Answering a Claude question from its card works again when Claude Code 2.1.332 draws a bar down the left of the question. pitwall read the bar as part of the question and stopped with "Claude Code is on ..., not ...".
 - A message with only an image goes in an Antigravity terminal pane. agy ignores Enter with no text, so pitwall types "(image)" after the picture.
 - In Antigravity chats the / menu opens for a /word in the middle of the draft too, as in Claude chats: agy reads a skill named there.
+- When ssh to a `[[hosts]]` machine waits on you, for a Tailscale SSH check, a password or code, or a host key, the window says so under the machine's name with the check's link, `pitwall host login <name>` and **Retry now**, instead of only "timed out". It stops retrying every 30 seconds into the prompt: it connects once `pitwall host login` opens the shared connection, or tries again after 5 minutes. `pitwall --host` and `--host` commands print what ssh said and the same fix.
 
 ## v0.3.7
 

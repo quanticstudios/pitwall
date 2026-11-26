@@ -224,10 +224,14 @@ func agentHost(name string, hosts []config.Host) error {
 	return fmt.Errorf("in a pitwall pane, --host takes only a [[hosts]] name; add [[hosts]] name = %q to %s", name, config.Path())
 }
 
+// startTimeout bounds one remote-start, ssh's connect included. A var so
+// tests wait out a shorter one.
+var startTimeout = 30 * time.Second
+
 // start runs remote-start on the host and returns the daemon's socket
 // there, or why this pitwall cannot use it.
 func (r *sshHost) start(restart bool) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, r.ssh, r.sshArgs(nil, startCommand(restart))...)
 	nowindow.Set(cmd)
@@ -237,9 +241,21 @@ func (r *sshHost) start(restart bool) (string, error) {
 	// detaches it from the pipes, but a wait must never depend on that.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
+	timedOut := ctx.Err() != nil
+	var exit *exec.ExitError
+	if timedOut || errors.As(err, &exit) && exit.ExitCode() == 255 {
+		var after time.Duration
+		if timedOut {
+			after = startTimeout
+		}
+		if e := r.needsLogin(stderr.String(), err, after); e != nil {
+			return "", e
+		}
+	}
 	switch {
-	case ctx.Err() != nil:
-		return "", fmt.Errorf("ssh to %s timed out", r.name)
+	case timedOut:
+		// why: one line, since the window shows an error's first line only.
+		return "", errors.New(strings.ReplaceAll(r.timeoutError(stderr.String(), startTimeout), "\n", " "))
 	case err != nil && !errors.Is(err, exec.ErrWaitDelay):
 		return "", r.sshError(stderr.String(), err)
 	}

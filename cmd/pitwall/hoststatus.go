@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -147,13 +148,10 @@ func (r *sshHost) parseStatus(out, stderr string, err error, timedOut bool) host
 	var exit *exec.ExitError
 	switch {
 	case timedOut:
-		st.Error, st.Fix = fmt.Sprintf("ssh to %s timed out after %s", r.name, statusTimeout), login
-		if tail := sshTail(stderr); tail != "" {
-			st.Error += "; ssh said:\n" + tail
-		}
+		st.Error, st.Fix = r.timeoutError(stderr, statusTimeout), login
 		return st
 	case err != nil && errors.As(err, &exit) && exit.ExitCode() == 255:
-		st.Error, st.Fix = "unreachable: "+cmp.Or(sshTail(stderr), err.Error()), login
+		st.Error, st.Fix = unreachableError(stderr, err), login
 		return st
 	case err != nil && errors.As(err, &exit) && exit.ExitCode() == 2 && strings.Contains(stderr, "usage:"):
 		st.Reachable = true
@@ -209,6 +207,72 @@ func (r *sshHost) parseStatus(out, stderr string, err error, timedOut bool) host
 	}
 	st.OK = true
 	return st
+}
+
+// timeoutError is a run of ssh killed after timeout, with what it printed.
+func (r *sshHost) timeoutError(stderr string, timeout time.Duration) string {
+	msg := fmt.Sprintf("ssh to %s timed out after %s", r.name, timeout)
+	if tail := sshTail(stderr); tail != "" {
+		msg += "; ssh said:\n" + tail
+	}
+	return msg
+}
+
+// unreachableError is a run ssh itself failed, exit status 255.
+func unreachableError(stderr string, err error) string {
+	return "unreachable: " + cmp.Or(sshTail(stderr), err.Error())
+}
+
+// loginError is an ssh failure that waits on a person: a Tailscale check,
+// a password or code, or a host key. pitwall host login is where they
+// answer it.
+type loginError struct {
+	reason string // one line
+	url    string // the Tailscale check's page, else ""
+	detail string // as pitwall host status words it, with what ssh printed
+	fix    string
+	// open reports whether the shared connection is up, as it is after
+	// pitwall host login; nil where ssh shares none.
+	open func() bool
+}
+
+func (e *loginError) Error() string { return e.detail + "\nfix: " + e.fix }
+
+var (
+	checkURL = regexp.MustCompile(`To authenticate, visit:\s*(https://[^\s\x00-\x1f\x7f]+)`)
+	// A prompt ssh printed and still waits on ends the output.
+	promptLine = regexp.MustCompile(`(?i)(password|passphrase|verification code)[^\n]*:\s*$`)
+)
+
+// needsLogin is the loginError for a run of ssh that timed out after
+// timeout (0: it exited 255 on its own) having printed stderr, or nil when
+// stderr asks nothing of a person.
+func (r *sshHost) needsLogin(stderr string, err error, timeout time.Duration) *loginError {
+	clean := logs.Redact(stderr)
+	e := &loginError{fix: hostLoginCommand(r.name)}
+	switch {
+	case strings.Contains(clean, "Tailscale SSH requires an additional check") && !strings.Contains(clean, "Authentication checked with Tailscale SSH"):
+		e.reason = "Tailscale SSH wants an approval"
+		// why: a check URL is new on every try; the last one is current.
+		if m := checkURL.FindAllStringSubmatch(clean, -1); m != nil {
+			e.url = m[len(m)-1][1]
+		}
+	case strings.Contains(clean, "Host key verification failed"), strings.Contains(clean, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
+		e.reason = "ssh does not trust the host key"
+	case strings.Contains(clean, "Permission denied ("), strings.Contains(clean, "Too many authentication failures"):
+		e.reason = "ssh needs a password, key or code"
+	case timeout > 0 && promptLine.MatchString(strings.TrimSpace(clean)):
+		e.reason = "ssh is asking for a password or code"
+	default:
+		return nil
+	}
+	if timeout > 0 {
+		e.detail = r.timeoutError(stderr, timeout)
+	} else {
+		e.detail = unreachableError(stderr, err)
+	}
+	e.open = r.sharedCheck()
+	return e
 }
 
 // sshTail is the last lines ssh printed, where it says why it failed: a
