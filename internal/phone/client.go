@@ -21,6 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/repoicon"
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // ErrUnpaired is a refused device token: pitwall revoked this phone.
@@ -305,15 +306,16 @@ type Entries struct {
 	Gone    bool         `json:"gone"` // reset: the tab closed
 }
 
-// Event is one event of the stream: Name is hello, tabs, reset or entries,
-// and the field of that name holds it. Pane is the chat the stream was
-// opened for.
+// Event is one event of the stream: Name is hello, tabs, reset, entries
+// or commands, and the field of that name holds it. Pane is the chat the
+// stream was opened for. An older daemon sends no commands.
 type Event struct {
-	Name    string
-	Pane    string
-	Hello   Hello
-	Tabs    []remote.Tab
-	Entries Entries
+	Name     string
+	Pane     string
+	Hello    Hello
+	Tabs     []remote.Tab
+	Entries  Entries
+	Commands []session.Command // the chat's / menu
 }
 
 // streamIdle drops a stream that sent nothing, not even the server's ping
@@ -387,6 +389,13 @@ func decodeEvent(name string, data []byte) (Event, bool) {
 		v = &e.Tabs
 	case "reset", "entries":
 		v = &e.Entries
+	case "commands":
+		var c struct {
+			Commands []session.Command `json:"commands"`
+		}
+		ok := json.Unmarshal(data, &c) == nil
+		e.Commands = c.Commands
+		return e, ok
 	default:
 		return e, false
 	}

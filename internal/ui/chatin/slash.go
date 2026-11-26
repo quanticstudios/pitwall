@@ -66,6 +66,20 @@ func (s *SlashMenu) Shown() bool { return s.shown() }
 // Rows is the commands the menu lists.
 func (s *SlashMenu) Rows() []session.Command { return s.rows }
 
+// Selected is the highlighted row's index in Rows.
+func (s *SlashMenu) Selected() int { return s.sel }
+
+// Button is the button of the row of command name, which Events picks
+// once clicked; a phone draws its own rows with it.
+func (s *SlashMenu) Button(name string) *widget.Clickable { return s.click(name) }
+
+// Mark is what a pick of cmd writes before its name: $ for a Codex
+// skill, else /.
+func (s *SlashMenu) Mark(cmd session.Command) string { return s.mark(cmd) }
+
+// Close shuts the menu on txt until the text changes, as Esc does.
+func (s *SlashMenu) Close(txt string) { s.shut, s.rows, s.note = txt, nil, "" }
+
 // SlashMatches is cmds that match query, ignoring case, best first: a
 // name or alias that is the query, then one that starts with it, then
 // one with a word (after - _ : or a space) that does, then one that has
@@ -497,7 +511,7 @@ func (s *SlashMenu) row(gtx layout.Context, th *theme.Theme, cmd session.Command
 		pad, gap := gtx.Dp(theme.SpaceS), gtx.Dp(theme.SpaceM)
 		inner := w - 2*pad
 		noteW := 0
-		if note := rowNote(cmd); note != "" {
+		if note := RowNote(cmd); note != "" {
 			m := op.Record(gtx.Ops)
 			nd := text(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
 			note := m.Stop()
@@ -543,10 +557,10 @@ func (s *SlashMenu) row(gtx layout.Context, th *theme.Theme, cmd session.Command
 	})
 }
 
-// rowNote is the quiet note at a row's right: that the command opens
+// RowNote is the quiet note at a row's right: that the command opens
 // the agent's terminal, else where it comes from, as T3 Code's source
 // badge says; "" for a built-in.
-func rowNote(c session.Command) string {
+func RowNote(c session.Command) string {
 	switch {
 	case c.Terminal:
 		return terminalNote

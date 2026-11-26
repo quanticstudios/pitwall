@@ -146,6 +146,27 @@ footer.compose {
 .card .opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .card .opts .btn { flex: 1 1 auto; }
 .card .request + .request { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+/* The / menu floats over the log's bottom, right above the composer, so the keyboard never hides it. */
+footer.compose .wrap { position: relative; }
+.slash {
+  position: absolute; left: 0; right: 0; bottom: calc(100% + 14px); z-index: 3;
+  max-height: min(45vh, 348px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px; border-radius: 12px; border: 1px solid var(--raised); background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.slash[hidden] { display: none; }
+.srow {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 6px 12px;
+  border: 0; border-radius: 8px; background: transparent; text-align: left;
+}
+.srow.on { background: color-mix(in srgb, var(--surface), var(--primary) 15%); }
+.srow:active { background: var(--raised); }
+.srow .stext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.srow .sname, .srow .sdesc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .sname { font: 15px/1.35 var(--mono); }
+.srow .shint { font-size: 13px; color: var(--muted); margin-left: 6px; }
+.srow .sdesc, .srow .snote { font-size: 13px; color: var(--muted); }
+.srow .snote { flex: none; }
 .composer { display: flex; gap: 8px; align-items: flex-end; }
 .composer .field { max-height: 160px; }
 .composer .btn { flex: none; }

@@ -795,8 +795,8 @@ func TestPhoneRoutesNeedAuth(t *testing.T) {
 	}
 }
 
-// The stream sends the tab list, then a tab's transcript, and its new
-// entries as the file grows.
+// The stream sends the tab list, then a tab's transcript and its / menu,
+// and its new entries as the file grows.
 func TestPhoneStream(t *testing.T) {
 	d, _, _ := phoneDaemon(t)
 	path := filepath.Join(t.TempDir(), "s.jsonl")
@@ -854,6 +854,7 @@ func TestPhoneStream(t *testing.T) {
 	want("hello", `"models":["default"`)
 	want("tabs", `"pane":"a"`)
 	want("reset", `"text":"first"`)
+	want("commands", `"name":"compact"`)
 	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	fh.WriteString(`{"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}` + "\n")
 	fh.Close()

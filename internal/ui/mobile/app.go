@@ -21,6 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -358,6 +359,10 @@ func (a *App) event(f *phone.Fleet, l *link, e phone.Event) {
 	case "entries":
 		if e.Pane == a.chat.pane && a.chat.pane != "" && a.chatM == l.m.ID {
 			a.chat.add(e.Entries)
+		}
+	case "commands":
+		if e.Pane == a.chat.pane && a.chat.pane != "" && a.chatM == l.m.ID {
+			a.chat.slashes.cmds = append([]session.Command{}, e.Commands...) // never nil: the daemon sends them
 		}
 	}
 }

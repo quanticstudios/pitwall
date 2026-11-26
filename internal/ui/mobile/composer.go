@@ -240,6 +240,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 			})
 		})
 	}
+	c.slashes.Events(gtx, &k.ed) // before the field takes its keys, so Enter picks a row
 	if why, text := takeNotSent(&c.data, k.ed.Text()); why != "" {
 		k.notSent = why
 		setDraft(&k.ed, text)
