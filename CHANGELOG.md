@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.9
 
 - A terminal tab's chat draws the reply it streams as markdown from the start: headings, bold, italic, inline code, lists, code blocks, tables, links and quotes, read back from how Claude Code, Codex and agy style them on screen, with the lines they wrapped joined. It used to show the screen's plain text until the transcript's message landed, then jump to the markdown. A bold line stays bold, since the screen cannot tell it from a `##` heading. A Claude Code reply with a link in its first lines no longer shows twice for a moment once it lands.
 
