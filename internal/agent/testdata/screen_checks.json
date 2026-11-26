@@ -95,5 +95,17 @@
   {"file": "agy-ask-3q-step2-multi.txt", "provider": "antigravity", "state": "awaiting-input"},
   {"file": "agy-ask-3q-step2-multi-checked.txt", "provider": "antigravity", "state": "awaiting-input"},
   {"file": "agy-ask-3q-step3.txt", "provider": "antigravity", "state": "awaiting-input"},
-  {"file": "agy-ask-3q-step3-other.txt", "provider": "antigravity", "state": "awaiting-input"}
+  {"file": "agy-ask-3q-step3-other.txt", "provider": "antigravity", "state": "awaiting-input"},
+  {"file": "claude-md-prose.txt", "provider": "claude", "screen": 0, "state": ""},
+  {"file": "claude-md-blocks.txt", "provider": "claude", "screen": 0, "state": ""},
+  {"file": "claude-md-headings.txt", "provider": "claude", "screen": 0, "state": ""},
+  {"file": "claude-md-streaming.txt", "provider": "claude", "screen": 1, "state": "working"},
+  {"file": "codex-md-prose.txt", "provider": "codex", "screen": 0, "state": ""},
+  {"file": "codex-md-blocks.txt", "provider": "codex", "screen": 0, "state": ""},
+  {"file": "codex-md-headings.txt", "provider": "codex", "screen": 0, "state": ""},
+  {"file": "codex-md-streaming.txt", "provider": "codex", "screen": 0, "state": ""},
+  {"file": "antigravity-md-prose.txt", "provider": "antigravity", "state": ""},
+  {"file": "antigravity-md-blocks.txt", "provider": "antigravity", "state": ""},
+  {"file": "antigravity-md-headings.txt", "provider": "antigravity", "state": ""},
+  {"file": "antigravity-md-streaming.txt", "provider": "antigravity", "state": "working"}
 ]

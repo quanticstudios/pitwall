@@ -1,0 +1,30 @@
+
+  [0m[1m[38;5;12mAntigravity CLI 1.5.18[0m
+  [0m[38;5;8myou@example.com (Google AI Ultra)[0m
+  [0m[38;5;8mGemini 4 Neon (High)[0m
+  [0m[38;5;8m~/work[0m
+
+[0m[38;5;8m────────────────────────────────────────────────────────────[0m
+[0m[1m[38;5;4m> Reply with only this markdown, no tools, nothing else: a "# Title" heading; a "## Section"[0m
+[0m[1m[38;5;4m  heading; one paragraph of about 70 words that uses **bold**, *italic*, `inline code` and a link[0m
+[0m[1m[38;5;4m  [docs](https://example.com/docs); a bulleted list of 2 items where the first has a nested[0m
+[0m[1m[38;5;4m  sub-item; a numbered list of 2 items where the second has a nested sub-item; a quote line[0m
+[0m[1m[38;5;4m  starting with >.[0m
+
+[0m[38;5;7m▸ Thought for 16s[0m
+
+  [0m[1m Title[0m
+
+  [0m[1m[4mSection[0m
+
+  Building reliable software requires [0m[1mcareful planning[0m, [0m[3mconsistent testing[0m, and clear conventions
+  across every module in a shared repository. Teams often automate repetitive validation checks
+  using [0m[38;5;12mnpm test[0m before merging pull requests into the main branch so subtle regressions are
+  caught early. Whenever contributors need guidance on architecture decisions, configuration
+  options, or deployment workflows, they can rev
+⣟  [0m[38;5;8mManual word counting yields 72 tokens initially, threatening constra[0m[38;5;12mint f[0m[38;5;8mailure. Recalcula... 12s[0m
+[0m[38;5;8m└ Tip: Use @ to mention files and give the model more context.[0m
+[0m[38;5;8m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;5;12m>[0m
+[0m[38;5;8m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;5;8mesc to cancel[0m                                                            [0m[38;5;3mauto[0m[2m · Gemini 4 Neon · high[0m

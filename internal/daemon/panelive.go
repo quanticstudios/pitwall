@@ -8,6 +8,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // An agent writes a message to its transcript only once the message is
@@ -48,6 +49,7 @@ type liveState struct {
 	turn  string         // the turn rows are of
 	ended time.Time      // when turn ended, zero while it runs
 	rows  []string       // the reply block from its first row, as last read
+	cells [][]vt.Cell    // rows' cells
 	items []session.Item // the screen's part of Live, as last read
 	echo  *session.Item  // the prompt sent, until the transcript has it
 	after string         // the transcript's last prompt when echo was sent
@@ -63,7 +65,7 @@ func (pc *paneChat) live(l paneLive) {
 	switch {
 	case turn != "" && pc.tr.Running():
 		if turn != pc.lv.turn {
-			pc.lv.rows = nil
+			pc.lv.rows, pc.lv.cells = nil, nil
 		}
 		pc.lv.turn, pc.lv.ended = turn, time.Time{}
 	case pc.lv.turn != "" && len(pc.lv.rows) > 0:
@@ -81,12 +83,12 @@ func (pc *paneChat) live(l paneLive) {
 	}
 	if turn != "" && l.p != nil {
 		// why: Codex can draw its reply's last rows over again from further up; the rows read so far stay until the screen catches up.
-		if rows := stitch(pc.lv.rows, lv); rows != nil {
-			pc.lv.rows = rows
+		if rows, cells := stitch(pc.lv.rows, pc.lv.cells, lv); rows != nil {
+			pc.lv.rows, pc.lv.cells = rows, cells
 		}
 		pc.lv.items = pc.liveItems(turn, lv)
 	} else {
-		pc.lv.rows, pc.lv.turn = nil, ""
+		pc.lv.rows, pc.lv.cells, pc.lv.turn = nil, nil, ""
 	}
 	// why: a compaction writes nothing to the transcript until it ends, and a /compact runs no turn; the TUI's spinner row is the only sign.
 	if st, _, _ := strings.Cut(lv.Status, " ("); strings.HasPrefix(st, "Compacting") {
@@ -108,7 +110,9 @@ func (pc *paneChat) liveItems(turn string, lv agent.Live) []session.Item {
 		p := pc.prov
 		out = append(out, session.Item{ID: id, Kind: kind, Text: text, Tool: tool, TurnID: &turn, Provider: &p})
 	}
-	if text := agent.Unwrap(pc.lv.rows, lv.Width); text != "" && !pc.landed(session.KindAssistantText, text) {
+	// The reply's markdown, read back off the screen, draws as the
+	// transcript's will and folds as it does for landed.
+	if text := agent.LiveMarkdown(pc.prov, pc.lv.cells, lv.Width); text != "" && !pc.landed(session.KindAssistantText, text) {
 		add(liveReply, session.KindAssistantText, text, nil)
 	}
 	if c := lv.Command; c != "" && !pc.called(turn, c) {
@@ -151,19 +155,20 @@ func (pc *paneChat) called(turn, command string) bool {
 	return it.Tool != nil && it.Tool.Command == command && it.TurnID != nil && *it.TurnID == turn
 }
 
-// stitch is the reply block lv shows, from its first row: lv's rows when
-// they start there, else rows, the block as read before, up to where
-// lv's rows overlap it by two text rows or more, then lv's. Blank rows
+// stitch is the reply block lv shows, from its first row, as rows and
+// their cells: lv's when they start there, else rows and cells, the block
+// as read before, up to where lv's rows overlap it by two text rows or
+// more, then lv's. Blank rows
 // do not count toward the overlap: Codex draws the blank row between two
 // paragraphs only once the second has rows of its own. It is nil for a
 // screen with no block and for one whose block starts off the screen and
 // overlaps nothing read before, which the chat cannot place.
-func stitch(rows []string, lv agent.Live) []string {
+func stitch(rows []string, cells [][]vt.Cell, lv agent.Live) ([]string, [][]vt.Cell) {
 	if lv.Top || len(lv.Rows) == 0 {
-		return lv.Rows
+		return lv.Rows, lv.Cells
 	}
 	if len(rows) == 0 {
-		return nil
+		return nil, nil
 	}
 	known, seen := texts(rows), texts(lv.Rows)
 	same := func(a, b int) bool {
@@ -178,10 +183,10 @@ func stitch(rows []string, lv agent.Live) []string {
 			continue
 		}
 		if slices.EqualFunc(known[i:], seen[:n], same) {
-			return append(slices.Clone(rows[:known[i]]), lv.Rows[seen[0]:]...)
+			return append(slices.Clone(rows[:known[i]]), lv.Rows[seen[0]:]...), append(slices.Clone(cells[:known[i]]), lv.Cells[seen[0]:]...)
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // texts are the indexes of rows that are not blank.

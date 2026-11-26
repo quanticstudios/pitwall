@@ -107,27 +107,69 @@ func TestPaneChatLive(t *testing.T) {
 }
 
 // A block whose first row scrolled off the screen joins the rows read
-// before where they overlap; one that overlaps nothing is not placed.
+// before where they overlap, its cells with it; one that overlaps nothing
+// is not placed.
 func TestStitch(t *testing.T) {
-	before := []string{"a one", "b two", "", "c three", "d fo"}
-	got := stitch(before, agent.Live{Rows: []string{"", "c three", "d four", "e five"}})
-	if want := []string{"a one", "b two", "", "c three", "d four", "e five"}; !slices.Equal(got, want) {
-		t.Errorf("stitch: %q, want %q", got, want)
+	live := func(top bool, rows ...string) agent.Live {
+		lv := agent.Live{Top: top, Rows: rows}
+		for _, r := range rows {
+			lv.Cells = append(lv.Cells, []vt.Cell{{Content: r}})
+		}
+		return lv
 	}
-	if got := stitch(before, agent.Live{Rows: []string{"x", "y"}}); got != nil {
-		t.Errorf("no overlap: %q", got)
+	check := func(name string, rows []string, cells [][]vt.Cell, want []string) {
+		t.Helper()
+		if !slices.Equal(rows, want) || len(cells) != len(rows) {
+			t.Errorf("%s: %q, %d cells, want %q", name, rows, len(cells), want)
+		}
+		for i := range min(len(rows), len(cells)) {
+			if cells[i][0].Content != rows[i] {
+				t.Errorf("%s: row %d is %q, its cells %q", name, i, rows[i], cells[i][0].Content)
+			}
+		}
 	}
-	if got := stitch(before, agent.Live{Rows: []string{"", ""}}); got != nil {
-		t.Errorf("an overlap of blank rows: %q", got)
+	b := live(false, "a one", "b two", "", "c three", "d fo")
+	rows, cells := stitch(b.Rows, b.Cells, live(false, "", "c three", "d four", "e five"))
+	check("stitch", rows, cells, []string{"a one", "b two", "", "c three", "d four", "e five"})
+	if rows, _ := stitch(b.Rows, b.Cells, live(false, "x", "y")); rows != nil {
+		t.Errorf("no overlap: %q", rows)
+	}
+	if rows, _ := stitch(b.Rows, b.Cells, live(false, "", "")); rows != nil {
+		t.Errorf("an overlap of blank rows: %q", rows)
 	}
 	// Codex adds the blank row between paragraphs late.
-	codex := []string{"p1 a", "p1 b", "p2 a", "p2 b", "p2 c"}
-	got = stitch(codex, agent.Live{Rows: []string{"p1 b", "", "p2 a", "p2 b", "p2 c", "p2 d"}})
-	if want := []string{"p1 a", "p1 b", "", "p2 a", "p2 b", "p2 c", "p2 d"}; !slices.Equal(got, want) {
-		t.Errorf("a blank row added: %q, want %q", got, want)
+	c := live(false, "p1 a", "p1 b", "p2 a", "p2 b", "p2 c")
+	rows, cells = stitch(c.Rows, c.Cells, live(false, "p1 b", "", "p2 a", "p2 b", "p2 c", "p2 d"))
+	check("a blank row added", rows, cells, []string{"p1 a", "p1 b", "", "p2 a", "p2 b", "p2 c", "p2 d"})
+	rows, cells = stitch(b.Rows, b.Cells, live(true, "new"))
+	check("a new block", rows, cells, []string{"new"})
+}
+
+// The reply shows as the markdown Claude Code draws, and that markdown,
+// its link's text a guess at one word, finds the transcript's message.
+func TestPaneChatLiveMarkdown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	prompt := `{"type":"user","uuid":"p1","timestamp":"2026-11-19T10:00:00Z","message":{"role":"user","content":"docs?"}}` + "\n"
+	if err := os.WriteFile(path, []byte(prompt), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if got := stitch(before, agent.Live{Top: true, Rows: []string{"new"}}); !slices.Equal(got, []string{"new"}) {
-		t.Errorf("a new block: %q", got)
+	const b, x, code = "\x1b[1m", "\x1b[0m", "\x1b[38;2;177;185;249m"
+	link := "\x1b]8;;https://example.com/docs\x1b\\https://example.com/docs\x1b]8;;\x1b\\"
+	pane := &gridPane{rows: claudeScreen("docs?", "● Read the setup docs ("+link+") and run "+code+"make"+x+" "+b+"now"+x+".", "", "  - one", "  - two")}
+	l := paneLive{p: pane}
+	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
+	pc.catchUp(l)
+	want := "Read the setup [docs](https://example.com/docs) and run `make` **now**.\n\n- one\n- two"
+	if len(pc.snap.Live) != 1 || pc.snap.Live[0].Text != want {
+		t.Fatalf("live %+v, want %q", pc.snap.Live, want)
+	}
+	reply := `{"type":"assistant","uuid":"a1","parentUuid":"p1","timestamp":"2026-11-19T10:00:05Z","message":{"id":"m1","content":[{"type":"text","text":"Read the [setup docs](https://example.com/docs) and run ` + "`make`" + ` **now**.\n\n- one\n- two"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(prompt+reply), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pc.catchUp(l)
+	if len(pc.snap.Live) != 0 {
+		t.Errorf("once the message landed: live %+v", pc.snap.Live)
 	}
 }
 
@@ -189,8 +231,8 @@ func TestStitchRecorded(t *testing.T) {
 		return agent.LiveScreen(model.ProviderClaude, (&gridPane{rows: strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")}).Snapshot())
 	}
 	a, b := frame("claude-scrolled"), frame("claude-scrolled-next")
-	got := stitch(a.Rows, b)
-	if len(got) <= len(a.Rows) || got[0] != a.Rows[0] || !slices.Equal(got[len(got)-len(b.Rows):], b.Rows) {
+	got, cells := stitch(a.Rows, a.Cells, b)
+	if len(got) <= len(a.Rows) || len(cells) != len(got) || got[0] != a.Rows[0] || !slices.Equal(got[len(got)-len(b.Rows):], b.Rows) {
 		t.Errorf("stitch: %d rows from %d and %d: %q", len(got), len(a.Rows), len(b.Rows), got)
 	}
 }

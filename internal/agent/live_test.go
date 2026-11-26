@@ -48,7 +48,7 @@ func TestLiveScreen(t *testing.T) {
 		{name: "antigravity-running", p: agy, command: "ls", thinking: "I will list the files in the current directory. Next, the content of `READ"},
 	} {
 		lv := LiveScreen(tc.p, liveGrid(t, tc.name))
-		got := Unwrap(lv.Rows, lv.Width)
+		got := LiveMarkdown(tc.p, lv.Cells, lv.Width)
 		if lv.Top != tc.top || tc.text != "" && got != tc.text || tc.text == "" && tc.firstRow == "" && len(lv.Rows) > 0 {
 			t.Errorf("%s: top %v, text %q", tc.name, lv.Top, got)
 		}
@@ -61,7 +61,21 @@ func TestLiveScreen(t *testing.T) {
 	}
 }
 
-func TestUnwrap(t *testing.T) {
+// cellsOf is rows, drawn at 80 columns, as a Live's Cells.
+func cellsOf(rows ...string) [][]vt.Cell {
+	e := vt.New(80, len(rows), nil)
+	e.Write([]byte(strings.Join(rows, "\r\n")))
+	g := e.Snapshot()
+	out := make([][]vt.Cell, len(rows))
+	for y := range out {
+		out[y] = rowCellsFrom(g, y, 0)
+	}
+	return out
+}
+
+// Rows the TUI wrapped join back into lines; a list item and a row whose
+// first word would have fitted on the row above start their own.
+func TestLiveMarkdownWraps(t *testing.T) {
 	rows := []string{
 		"Loss is the main signal that the network is congested. If three duplicate",
 		"acknowledgments arrive, the sender assumes a single packet was dropped.",
@@ -75,8 +89,8 @@ func TestUnwrap(t *testing.T) {
 	}
 	want := "Loss is the main signal that the network is congested. If three duplicate acknowledgments arrive, the sender assumes a single packet was dropped.\n\n" +
 		"Steps:\n- slow start doubles the window each round trip until it reaches the slow start threshold\n- congestion avoidance\n1. one\ndone"
-	if got := Unwrap(rows, 78); got != want {
-		t.Errorf("Unwrap:\n%s\nwant\n%s", got, want)
+	if got := LiveMarkdown(model.ProviderClaude, cellsOf(rows...), 78); got != want {
+		t.Errorf("LiveMarkdown:\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -102,7 +116,7 @@ func BenchmarkLiveScreen(b *testing.B) {
 	g := e.Snapshot()
 	for b.Loop() {
 		lv := LiveScreen(model.ProviderClaude, g)
-		Fold(Unwrap(lv.Rows, lv.Width), 60)
+		Fold(LiveMarkdown(model.ProviderClaude, lv.Cells, lv.Width), 60)
 	}
 }
 
@@ -122,7 +136,7 @@ func TestLiveScreenClaudeSpinner(t *testing.T) {
 			"❯ go on", "", "● The fix is in.", "", "· Lollygagging… (6m 52s · ↓ 36.4k tokens)", "  ⎿  Tip: Share Claude Code", "● full  $11.78  last $2.35  24m 15s", "", rule, "❯ ", rule}},
 	} {
 		lv := LiveScreen(model.ProviderClaude, gridOf(tc.rows...))
-		if got := Unwrap(lv.Rows, lv.Width); got != tc.text || lv.Status != tc.status {
+		if got := LiveMarkdown(model.ProviderClaude, lv.Cells, lv.Width); got != tc.text || lv.Status != tc.status {
 			t.Errorf("%s: text %q status %q, want %q and %q", tc.name, got, lv.Status, tc.text, tc.status)
 		}
 	}

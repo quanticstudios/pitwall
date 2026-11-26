@@ -1,0 +1,30 @@
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55m[docs](https://example.com/docs); a bulleted list of 2 items where the first has a nested [0m[48;2;55;55;55m        [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55msub-item; a numbered list of 2 items where the second has a nested sub-item; a quote line [0m[48;2;55;55;55m        [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mstarting with >.[0m[48;2;55;55;55m                                                                                  [0m
+
+[0m[38;2;255;255;255m●[0m [0m[1m[3m[4mTitle[0m
+
+  [0m[1mSection[0m
+
+  This paragraph shows several kinds of [0m[1mbold text[0m alongside some [0m[3mitalic emphasis[0m, so you can check
+  how each style renders. It also includes a bit of [0m[38;2;177;185;249minline code[0m for technical terms, and a link to
+  the docs (]8;;https://example.com/docs\https://example.com/docs]8;;\) for further reading. Together, these elements give a quick
+  sample of common Markdown formatting in a single compact block of text that is easy to scan and
+  review.
+
+  - First bullet item
+    - Nested sub-item
+  - Second bullet item
+
+  1. First numbered item
+  2. Second numbered item
+     a. Nested sub-item
+
+  [0m[2m▎[0m [0m[3mThis is a quote line.[0m
+
+[0m[38;2;153;153;153m✻[0m [0m[38;2;153;153;153mCogitated for 2s · done 10:24 PM[0m
+
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+❯ 
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+  [0m[38;2;153;153;153m⏸ manual mode on · ? for shortcuts[0m

@@ -19,6 +19,9 @@ type Live struct {
 	// row; else the block's top has scrolled off the screen.
 	Rows []string
 	Top  bool
+	// Cells are Rows' cells, row for row, cut the same way: what
+	// LiveMarkdown reads the reply's markdown back from.
+	Cells [][]vt.Cell
 	// Width is the columns a row of the block's text wraps at.
 	Width    int
 	Thinking string
@@ -114,9 +117,10 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 		}
 	}
 	var block []string
+	var ys []int // the screen row of each of block's
 	switch {
 	case at >= 0 && onAnchor:
-		block = append(block, "  "+cutCols(rows[at], 2))
+		block, ys = append(block, "  "+cutCols(rows[at], 2)), append(ys, at)
 		at, lv.Top = at+1, true
 	case at >= 0:
 		at, lv.Top = at+1, true
@@ -125,20 +129,23 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 	default:
 		at = start // the block's top scrolled off
 	}
-	for _, r := range rows[at:] {
+	for i, r := range rows[at:] {
 		if c, _ := utf8.DecodeRuneInString(r); r != "" && c != ' ' {
 			break
 		}
 		if tool(r) {
 			return Live{Thinking: lv.Thinking, Command: lv.Command, Status: lv.Status} // a tool call
 		}
-		block = append(block, r)
+		block, ys = append(block, r), append(ys, at+i)
 	}
 	for len(block) > 0 && blank(block[0]) {
-		block = block[1:]
+		block, ys = block[1:], ys[1:]
 	}
-	for len(block) > 0 && blank(block[len(block)-1]) {
-		block = block[:len(block)-1]
+	// why: Claude Code 2.1.332 draws a notice such as "Fast mode is now available" far right under the reply while its spinner blinks off,
+	// and Codex 0.172 its "Worked for 5s" under a turn that ended.
+	for len(block) > 0 && (blank(block[len(block)-1]) || p == model.ProviderClaude && isNotice(rowCellsFrom(g, ys[len(ys)-1], 0)) ||
+		p == model.ProviderCodex && strings.HasPrefix(strings.TrimSpace(block[len(block)-1]), "Worked for ")) {
+		block, ys = block[:len(block)-1], ys[:len(ys)-1]
 	}
 	// why: Claude Code 2.1.330 draws a call that runs as a bulleted "Running 1 shell command…" row.
 	if p == model.ProviderClaude && len(block) == 1 && (strings.HasSuffix(block[0], "…") || strings.Contains(block[0], "(ctrl+o to expand)")) {
@@ -148,11 +155,47 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 		lv.Top = false
 		return lv
 	}
+	lv.Cells = make([][]vt.Cell, len(block))
 	for i, r := range block {
-		block[i] = cutCols(r, 2)
+		block[i], lv.Cells[i] = cutCols(r, 2), rowCellsFrom(g, ys[i], 2)
 	}
 	lv.Rows, lv.Width = block, g.Cols-2
 	return lv
+}
+
+// isNotice reports whether row is a notice of Claude Code's, not its
+// reply's: one color all through, far right of where the reply's text,
+// two columns in, or a list's or code block's a few more, starts.
+func isNotice(row []vt.Cell) bool {
+	in := 0
+	for in < len(row) && row[in].Content == " " {
+		in++
+	}
+	return in >= 24 && in < len(row) && rowColor(row[in:]) != 0
+}
+
+// rowCellsFrom is row y of g's cells but its first n, the trailing half
+// of a wide character and the blank cells at the end left out, so it
+// lines up rune for rune with rowText.
+func rowCellsFrom(g vt.Grid, y, n int) []vt.Cell {
+	var out []vt.Cell
+	for x := range g.Cols {
+		c := g.At(x, y)
+		switch {
+		case c.Width == 0:
+			continue
+		case n > 0:
+			n--
+			continue
+		case c.Content == "":
+			c.Content = " "
+		}
+		out = append(out, c)
+	}
+	for len(out) > 0 && out[len(out)-1].Content == " " {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // agyRun is an Antigravity call row while its command runs.
@@ -203,44 +246,20 @@ func cutCols(row string, n int) string {
 	return row
 }
 
-// Unwrap joins rows a TUI wrapped at width columns back into lines: a row
-// whose first word would have fitted on the row above starts a line of
-// its own, as does a list item, and a blank row stays a paragraph break.
-// shortcut: widths are runes, so wide characters join early; count cells if CJK replies wrap wrong.
-func Unwrap(rows []string, width int) string {
-	var b strings.Builder
-	prev := ""
-	for i, r := range rows {
-		r = strings.TrimRight(r, " ")
-		body := strings.TrimLeft(r, " ")
-		word, _, _ := strings.Cut(body, " ")
-		// why: a TUI keeps a margin or two at the right edge, so a row that wrapped can end short of width.
-		wrapped := i > 0 && body != "" && prev != "" && !listItem.MatchString(body) &&
-			utf8.RuneCountInString(prev)+1+utf8.RuneCountInString(word) > width-4
-		switch {
-		case i == 0:
-		case wrapped:
-			b.WriteByte(' ')
-			r = body
-		default:
-			b.WriteByte('\n')
-		}
-		b.WriteString(r)
-		prev = r
-	}
-	return b.String()
-}
-
-// listItem is a row that opens a list item or a quote.
-var listItem = regexp.MustCompile(`^(?:[-*•◦>|]|\d+[.)])\s`)
-
 // Fold is s cut to letters and digits, lower case, up to n bytes of
 // them: a screen's text and the markdown it was drawn from fold alike,
 // whatever the TUI made of its marks, wrapping and spacing. A link's
-// target, which a TUI does not draw, is cut too.
+// target and a code fence's language, which a TUI does not draw, are
+// cut too.
 func Fold(s string, n int) string {
 	var b strings.Builder
 	for i := 0; i < len(s) && b.Len() < n; {
+		if strings.HasPrefix(s[i:], "```") {
+			if j := strings.IndexByte(s[i:], '\n'); j >= 0 {
+				i += j + 1
+				continue
+			}
+		}
 		if strings.HasPrefix(s[i:], "](") {
 			if j := strings.IndexByte(s[i:], ')'); j >= 0 {
 				i += j + 1

@@ -1,0 +1,30 @@
+
+[0m[38;2;215;119;87m ▐[0m[38;2;215;119;87m[48;2;0;0;0m▛███▛█[0m   [0m[1mClaude Code[0m [0m[38;2;153;153;153mv2.1.332[0m
+[0m[38;2;215;119;87m▝▜[0m[38;2;215;119;87m[48;2;0;0;0m█████[0m[38;2;215;119;87m█▀[0m  [0m[38;2;153;153;153mSonnet 5.5 with low effort · Claude Ultra[0m
+[0m[38;2;215;119;87m ▝▝   ▝▝ [0m  [0m[38;2;153;153;153m~/work[0m
+
+  Fable 5.2 is here for your longest and toughest coding tasks. It draws down usage faster than Opus
+  5.5. Switch with [0m[38;2;177;185;249m/model[0m.
+  [0m[38;2;153;153;153m1 more notice hidden[0m [0m[38;2;153;153;153m(ctrl+o to expand)[0m
+
+[0m[38;2;153;153;153m[48;2;55;55;55m❯ [0m[38;2;255;255;255m[48;2;55;55;55mReply with only this markdown, no tools, nothing else: a "# Title" heading; a "## Section" [0m[48;2;55;55;55m       [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mheading; one paragraph of about 70 words that uses [0m[1m[38;2;255;255;255m[48;2;55;55;55mbold[0m[38;2;255;255;255m[48;2;55;55;55m, [0m[3m[38;2;255;255;255m[48;2;55;55;55mitalic[0m[38;2;255;255;255m[48;2;55;55;55m, [0m[38;2;177;185;249m[48;2;55;55;55minline code[0m[38;2;255;255;255m[48;2;55;55;55m and a link [0m[48;2;55;55;55m          [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55m[docs](https://example.com/docs); a bulleted list of 2 items where the first has a nested [0m[48;2;55;55;55m        [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55msub-item; a numbered list of 2 items where the second has a nested sub-item; a quote line [0m[48;2;55;55;55m        [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mstarting with >.[0m[48;2;55;55;55m                                                                                  [0m
+
+[0m[38;2;255;255;255m●[0m [0m[1m[3m[4mTitle[0m
+
+  [0m[1mSection[0m
+
+  This paragraph shows several kinds of [0m[1mbold text[0m alongside some [0m[3mitalic emphasis[0m, so you can check
+  how each style renders. It also includes a bit of [0m[38;2;177;185;249minline code[0m for technical terms, and a link to
+
+
+
+
+                                                     [0m[38;2;255;120;20mFast mode is now available · /fast to turn on[0m
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[38;2;153;153;153m❯ [0m
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+  [0m[38;2;153;153;153m⏸ manual mode on · esc to interrupt · ← for agents[0m
