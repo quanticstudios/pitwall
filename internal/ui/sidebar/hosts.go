@@ -37,6 +37,7 @@ type HostInfo struct {
 	Retry    time.Time // while it is down, the next try; zero when none is due
 	Since    time.Time // while it is down, when it went down
 	Color    string    // a theme.ProjectColor id
+	Login    *Login    // while it is down because ssh waits on a person
 }
 
 // ShowSession is a click on a session in the host list.
@@ -159,7 +160,10 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 	blocked, head := s.waiting(st, sessionOf)
 	// A shared session: one with a tab on another host.
 	shared := slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.session && s.hostOf(w.ID) != "" })
-	if s.HideSessions && len(blocked) == 0 {
+	// A machine that waits on a person to log in shows even with sessions
+	// hidden: nothing else says what to do.
+	asks := slices.ContainsFunc(s.Hosts, func(h HostInfo) bool { return h.Login != nil })
+	if s.HideSessions && len(blocked) == 0 && !asks {
 		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
@@ -247,9 +251,9 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 	}
 	y += gtx.Dp(6)
 	over := ""
-	if !s.HideSessions {
+	if !s.HideSessions || asks {
 		for _, h := range s.Hosts {
-			if shared && len(h.Sessions) == 0 {
+			if h.Login == nil && (s.HideSessions || shared && len(h.Sessions) == 0) {
 				continue // all its tabs are in this session; the tree's machine line shows the host
 			}
 			note, c := "", th.Muted
@@ -259,7 +263,18 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 					note, c = cmp.Or(note, "Disconnected"), th.Muted
 				}
 			}
+			if h.Login != nil {
+				note, c = "needs login", th.Readable(th.Yellow, th.Sidebar)
+			}
 			heading(hostName(h.Name), note, c)
+			if h.Login != nil {
+				o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+				y += s.loginBlock(gtx, th, *h.Login, btn("u:"+h.Name), btn("r:"+h.Name))
+				o.Pop()
+			}
+			if s.HideSessions {
+				continue
+			}
 			for _, id := range h.Sessions {
 				ss := st.Session(id)
 				if ss == nil {
@@ -488,6 +503,8 @@ func healthNote(hi HostInfo, now time.Time) string {
 	switch {
 	case hi.Name == "":
 		return ""
+	case !hi.Up && hi.Login != nil:
+		return "needs login"
 	case !hi.Up && !hi.Retry.IsZero():
 		return fmt.Sprintf("offline, retry in %ds", max(1, int(hi.Retry.Sub(now).Round(time.Second).Seconds())))
 	case !hi.Up:

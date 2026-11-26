@@ -1212,6 +1212,9 @@ func (m *multi) Hosts() []sidebar.HostInfo {
 	for _, h := range m.hosts {
 		l := h.b.Link()
 		hi := sidebar.HostInfo{Name: h.name, Up: up(h), Note: l.Note, SSH: h.ssh, Latency: l.RTT, Retry: l.Retry, Since: l.Since}
+		if l.State == app.LinkDown {
+			hi.Login = l.Login
+		}
 		switch l.State {
 		case app.LinkRestart, app.LinkStale:
 			hi.Note = "Runs another pitwall version; open it with pitwall --host " + h.name + " to restart it."

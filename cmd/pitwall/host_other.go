@@ -23,3 +23,13 @@ func (r *sshHost) control(op, sock string) error {
 	}
 	return nil
 }
+
+// sharedCheck reports whether the shared connection is up. It asks the
+// local ssh alone, so it never prompts and never reaches the host.
+func (r *sshHost) sharedCheck() func() bool {
+	return func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return exec.CommandContext(ctx, r.ssh, r.sshArgs([]string{"-O", "check"})...).Run() == nil
+	}
+}

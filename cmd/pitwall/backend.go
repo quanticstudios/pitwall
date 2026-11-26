@@ -17,6 +17,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -324,6 +325,7 @@ func (b *backend) startDialing(restart bool) {
 // replaces a daemon of another Version.
 func (b *backend) dial(restart bool) {
 	wait := retryMin
+	wasOpen := false // the shared connection, when waitRetry last looked
 	for {
 		conn, initial, err := b.redial(b.sessionName(), restart)
 		restart = false
@@ -338,7 +340,7 @@ func (b *backend) dial(restart bool) {
 			b.dialing = false
 			// A newer daemon means a newer pitwall restarted it: this window
 			// reopens on the binary installed now.
-			b.link.State, b.link.Note = app.LinkRestart, ""
+			b.link.State, b.link.Note, b.link.Login = app.LinkRestart, "", nil
 			if refused.version > proto.Version && b.link.Epoch > 0 {
 				b.link.State = app.LinkStale
 			}
@@ -346,20 +348,61 @@ func (b *backend) dial(restart bool) {
 			b.notify()
 			return
 		}
-		log.Printf("reconnect: %q; next try in %v", err, wait)
-		b.mu.Lock()
-		b.link.Retry = time.Now().Add(wait)
-		b.mu.Unlock()
-		b.setLink(app.LinkDown, fmt.Sprintf("%s. Trying again in %v.", err, wait.Round(time.Second/10)))
-		select {
-		case <-time.After(wait):
-		case <-b.retry:
+		delay, note := wait, fmt.Sprintf("%s. Trying again in %v.", err, wait.Round(time.Second/10))
+		var ask *sidebar.Login
+		var open func() bool
+		var login *loginError
+		if errors.As(err, &login) {
+			// why: another try now would only print the same question; the
+			// next comes when pitwall host login opens the shared
+			// connection, on Retry now, or after loginWait.
+			delay, open = loginWait, login.open
+			note = fmt.Sprintf("%s. Run %s", login.reason, login.fix)
+			ask = &sidebar.Login{Reason: login.reason, Command: login.fix, URL: login.url}
+		} else {
+			wait = min(2*wait, retryMax)
 		}
+		log.Printf("reconnect: %q; next try in %v", err, delay)
+		b.mu.Lock()
+		b.link.Retry, b.link.Login = time.Now().Add(delay), ask
+		b.mu.Unlock()
+		b.setLink(app.LinkDown, note)
+		b.waitRetry(delay, open, &wasOpen)
 		b.mu.Lock()
 		b.link.Retry = time.Time{}
 		b.mu.Unlock()
 		b.setLink(app.LinkDown, "Reconnecting…")
-		wait = min(2*wait, retryMax)
+	}
+}
+
+// loginWait is the wait between tries while ssh waits on a person, and
+// loginPoll how often the shared connection is looked for meanwhile. Vars
+// so tests do not wait them out.
+var loginWait, loginPoll = 5 * time.Minute, 2 * time.Second
+
+// waitRetry returns after delay, on Reconnect, or when open, if set, goes
+// from false to true. why the change alone: a connection that stays up
+// while tries still fail must not retry every poll.
+func (b *backend) waitRetry(delay time.Duration, open func() bool, wasOpen *bool) {
+	end := time.After(delay)
+	var poll <-chan time.Time
+	if open != nil {
+		t := time.NewTicker(loginPoll)
+		defer t.Stop()
+		poll = t.C
+	}
+	for {
+		select {
+		case <-end:
+			return
+		case <-b.retry:
+			return
+		case <-poll:
+			was := *wasOpen
+			if *wasOpen = open(); *wasOpen && !was {
+				return
+			}
+		}
 	}
 }
 

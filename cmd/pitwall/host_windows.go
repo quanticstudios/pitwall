@@ -30,6 +30,9 @@ func (r *sshHost) control(op, sock string) error {
 	return fmt.Errorf("control %q", op)
 }
 
+// sharedCheck is nil: Windows' ssh shares no connection to watch for.
+func (r *sshHost) sharedCheck() func() bool { return nil }
+
 // forwardStart runs ssh -N -L r.local:sock and returns once the forwarded
 // port answers a TCP connect, or ssh exits. An earlier forward process of
 // this sshHost, live or dead, is stopped first.
