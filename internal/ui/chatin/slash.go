@@ -157,7 +157,7 @@ func (c *Composer) slashUpdate(env Env) {
 	}
 	cmds := env.Snap.Commands
 	if start > 0 {
-		if !midPrompt(env.Snap.Provider) { // why: only Claude Code is known to read a skill named after the prompt's first word
+		if !midPrompt(env.Snap.Provider) { // why: Codex names a skill with $, so a /word past the first is text to it
 			s.rows, s.note = nil, ""
 			return
 		}
@@ -192,7 +192,9 @@ func (c *Composer) slashUpdate(env Env) {
 
 // midPrompt reports whether provider p reads a /skill that is not the
 // prompt's first word.
-func midPrompt(p model.Provider) bool { return p == "" || p == "claude" }
+func midPrompt(p model.Provider) bool {
+	return p == "" || p == model.ProviderClaude || p == model.ProviderAntigravity
+}
 
 // MidCommands is the commands a provider reads in the middle of a
 // prompt: skills and custom commands, never a built-in.

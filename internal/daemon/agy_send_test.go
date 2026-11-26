@@ -266,3 +266,16 @@ func TestNonChatSendFailureSetsNotice(t *testing.T) {
 		return strings.HasPrefix(d.st.Notice, "Message not sent: ")
 	})
 }
+
+// Antigravity's TUI ignores Enter on an image with no text, so an
+// image-only send types "(image)" after the path to go.
+func TestAgyTypeLetterImageOnly(t *testing.T) {
+	d, p := agyPaneDaemon(t, model.StateCompleted, agyScreenFixture(t, "antigravity-idle.txt"))
+	if err := d.typeLetter("a", p, []string{"/tmp/a.png"}, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "'/tmp/a.png'(image)\r"
+	if got := gotAfter(t, p, 0, len(want)); got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+}
