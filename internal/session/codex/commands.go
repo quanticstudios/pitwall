@@ -1,10 +1,22 @@
 package codex
 
-import "github.com/quanticstudios/pitwall/internal/session"
+import (
+	"cmp"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/skillshare"
+)
 
 // Builtins are the commands Codex 0.171.0's / menu lists for a ChatGPT
 // login, in its order and words, read from its binary and its menu. It
-// lists nothing else: neither $CODEX_HOME/prompts nor skills show there.
+// lists nothing else: neither $CODEX_HOME/prompts nor skills show there;
+// Codex takes a skill as $name, anywhere in the prompt.
 // Aliases are the names its menu also takes. /apps is in only for an
 // account with apps; left out are /debug-config, which the menu never
 // lists, the Desktop app's command (macOS and Windows), Windows' sandbox
@@ -70,4 +82,138 @@ var Builtins = []session.Command{
 	{Name: "stop", Description: "stop all background terminals"},
 	{Name: "clear", Description: "clear the terminal and start a new chat"},
 	{Name: "subagents", Description: "switch between this session's subagents", Terminal: true},
+}
+
+// Commands is a Codex TUI's / menu for a session in cwd, with codexHome
+// as CODEX_HOME and home as HOME: Builtins, then Skills.
+func Commands(codexHome, home, cwd string) []session.Command {
+	return append(slices.Clone(Builtins), Skills(codexHome, home, cwd)...)
+}
+
+// Skills is what Codex 0.172.0's skills/list says for a session in cwd:
+// the project's, the user's with the plugins', then Codex's own, each by
+// name, a name listed twice kept the first time. It does not read
+// config.toml, so a skill or plugin turned off there still shows.
+func Skills(codexHome, home, cwd string) []session.Command {
+	files := skillFiles(codexHome, home, cwd)
+	out := make([]session.Command, 0, len(files))
+	seen := map[string]bool{}
+	for _, f := range files {
+		if c, ok := f.read(); ok && !seen[c.Name] {
+			seen[c.Name] = true
+			out = append(out, c)
+		}
+	}
+	rank := map[string]int{"project": 0, "user": 1, "plugin": 1, "system": 2}
+	slices.SortStableFunc(out, func(a, b session.Command) int {
+		return cmp.Or(rank[a.Source]-rank[b.Source], strings.Compare(a.Name, b.Name))
+	})
+	return out
+}
+
+// CommandsStamp changes when a skill Skills reads is added, removed or
+// written. It stats the files and reads none.
+func CommandsStamp(codexHome, home, cwd string) string {
+	var b strings.Builder
+	for _, f := range skillFiles(codexHome, home, cwd) {
+		fmt.Fprintf(&b, "%s %d %d\n", f.path, f.mod, f.size)
+	}
+	return b.String()
+}
+
+type skillFile struct {
+	path, prefix, source string // prefix names a plugin's skill plugin:name
+	mod, size            int64
+}
+
+// skillFiles are the SKILL.md files Codex 0.172.0 loads, as measured
+// against its skills/list: .agents/skills and .codex/skills in each
+// folder from the repo root down to cwd (only cwd outside a repo),
+// ~/.agents/skills, $CODEX_HOME/skills, the plugins' in its cache, and
+// its own in $CODEX_HOME/skills/.system. It looks in every folder below a
+// root, a skill's own included, but none whose name starts with a dot.
+func skillFiles(codexHome, home, cwd string) []skillFile {
+	type root struct{ dir, prefix, source string }
+	var roots []root
+	if cwd != "" {
+		var dirs []string
+		for d := filepath.Clean(cwd); ; d = filepath.Dir(d) {
+			dirs = append(dirs, d)
+			if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+				break
+			}
+			if filepath.Dir(d) == d {
+				dirs = dirs[:1]
+				break
+			}
+		}
+		for _, d := range slices.Backward(dirs) {
+			roots = append(roots, root{filepath.Join(d, ".agents", "skills"), "", "project"}, root{filepath.Join(d, ".codex", "skills"), "", "project"})
+		}
+	}
+	if home != "" {
+		roots = append(roots, root{filepath.Join(home, ".agents", "skills"), "", "user"})
+	}
+	if codexHome != "" {
+		roots = append(roots, root{filepath.Join(codexHome, "skills"), "", "user"})
+		markets, _ := filepath.Glob(filepath.Join(codexHome, "plugins", "cache", "*", "*"))
+		for _, p := range markets {
+			if v := newest(p); v != "" {
+				roots = append(roots, root{filepath.Join(v, "skills"), filepath.Base(p) + ":", "plugin"})
+			}
+		}
+		roots = append(roots, root{filepath.Join(codexHome, "skills", ".system"), "", "system"})
+	}
+	var out []skillFile
+	for _, r := range roots {
+		filepath.WalkDir(r.dir, func(p string, e fs.DirEntry, err error) error {
+			switch {
+			case err != nil:
+				return nil
+			case e.IsDir() && p != r.dir && strings.HasPrefix(e.Name(), "."):
+				return filepath.SkipDir
+			case e.Name() != "SKILL.md" || !e.Type().IsRegular():
+				return nil
+			}
+			if fi, err := e.Info(); err == nil {
+				out = append(out, skillFile{path: p, prefix: r.prefix, source: r.source, mod: fi.ModTime().UnixNano(), size: fi.Size()})
+			}
+			return nil
+		})
+	}
+	return out
+}
+
+// newest is the version folder of a cached plugin written last, "" for none.
+func newest(plugin string) string {
+	ents, _ := os.ReadDir(plugin)
+	var best string
+	var at int64
+	for _, e := range ents {
+		if fi, err := e.Info(); err == nil && e.IsDir() && fi.ModTime().UnixNano() > at {
+			best, at = filepath.Join(plugin, e.Name()), fi.ModTime().UnixNano()
+		}
+	}
+	return best
+}
+
+// read is f's skill: named by its frontmatter, else its folder; false
+// for one it cannot read.
+func (f skillFile) read() (session.Command, bool) {
+	b, err := os.ReadFile(f.path)
+	if err != nil {
+		return session.Command{}, false
+	}
+	meta, _ := skillshare.SplitFrontmatter(string(b))
+	c := session.Command{Name: filepath.Base(filepath.Dir(f.path)), Source: f.source}
+	for _, kv := range meta {
+		switch v := strings.TrimSpace(kv.Value); kv.Key {
+		case "name":
+			c.Name = cmp.Or(v, c.Name)
+		case "description":
+			c.Description = v
+		}
+	}
+	c.Name = f.prefix + c.Name
+	return c, true
 }

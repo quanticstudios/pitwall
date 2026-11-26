@@ -113,7 +113,8 @@ const slashEvery = 2 * time.Second
 // commands puts the agent's / menu in the snapshot when it changed:
 // Claude Code's from its config dir and the pane's project, agy's from
 // its HOME and the project, each read again once their files or the
-// folders change; Codex's built-ins, which are all its menu lists.
+// folders change; Codex's built-ins and its skills from CODEX_HOME,
+// HOME and the project, the same way.
 // Callers hold pc.mu.
 func (pc *paneChat) commands(l paneLive, now time.Time) {
 	s := &pc.slash
@@ -124,7 +125,9 @@ func (pc *paneChat) commands(l paneLive, now time.Time) {
 	case model.ProviderClaude:
 		list, stamp, dir = claude.Commands, claude.CommandsStamp, l.conf
 	case model.ProviderCodex:
-		s.cmds = codex.Builtins
+		list = func(dir, cwd string) []session.Command { return codex.Commands(dir, l.home, cwd) }
+		stamp = func(dir, cwd string) string { return codex.CommandsStamp(dir, l.home, cwd) }
+		dir = l.codex
 	case model.ProviderAntigravity:
 		list, stamp, dir = antigravity.Commands, antigravity.CommandsStamp, l.home
 	}
@@ -203,16 +206,17 @@ type agentFile struct {
 
 // paneLive is what a pane chat's catch-up reads of its pane under d.mu.
 type paneLive struct {
-	p    Pane
-	path string
-	cwd  string
-	mode string         // the permission mode its hooks reported (Pane.AgentMode)
-	act  model.Activity // zero State when the pane has none
-	tui  phoneSettings  // the model and effort its statusline or screen showed (settingsOf)
-	sl   statuslineRec  // its statusline's report while good (liveStatusline); zero for none
-	conf string         // Claude Code's config dir for it
-	home string         // agy's HOME for it
-	prov model.Provider // the agent its hooks named
+	p     Pane
+	path  string
+	cwd   string
+	mode  string         // the permission mode its hooks reported (Pane.AgentMode)
+	act   model.Activity // zero State when the pane has none
+	tui   phoneSettings  // the model and effort its statusline or screen showed (settingsOf)
+	sl    statuslineRec  // its statusline's report while good (liveStatusline); zero for none
+	conf  string         // Claude Code's config dir for it
+	codex string         // Codex's CODEX_HOME for it
+	home  string         // agy's or Codex's HOME for it
+	prov  model.Provider // the agent its hooks named
 	// queued is what the chat queued mid-turn (chatQueue), held whether
 	// it waits for the user's Resume or Send, reason why it waits.
 	queued []session.QueuedInput
@@ -259,7 +263,10 @@ func (d *Daemon) paneChatOf(id string) (*paneChat, paneLive, bool) {
 	if p.Provider != model.ProviderClaude {
 		l.conf = ""
 	}
-	if p.Provider == model.ProviderAntigravity {
+	switch p.Provider {
+	case model.ProviderCodex:
+		l.codex, l.home = codexHome(p.Env), homeOf(p.Env)
+	case model.ProviderAntigravity:
 		l.home = homeOf(p.Env)
 	}
 	if pc == nil || pc.path != l.path || pc.prov != p.Provider { // a new session (claude again, /clear, /resume) starts over

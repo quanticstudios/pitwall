@@ -34,6 +34,7 @@ type SlashMenu struct {
 	start  int    // the word's rune index in the draft
 	note   string // shown in place of rows when there are none; it takes no keys but Esc
 	shut   string // the text Esc closed the menu on; it stays shut until the text changes
+	codex  bool   // the chat is Codex's, which takes a skill as $name
 	anchor image.Rectangle
 	tag    int // the menu's own press target
 	// hovered is the row under the pointer this frame, and was last
@@ -163,6 +164,10 @@ func (c *Composer) slashUpdate(env Env) {
 // when the list is read again.
 func (s *SlashMenu) update(txt string, caret int, cmds []session.Command, p model.Provider, known, off bool) {
 	start, word, ok := Slash(txt, caret)
+	s.codex = p == model.ProviderCodex
+	if !ok && s.codex {
+		start, word, ok = marked(txt, caret, '$')
+	}
 	if !ok || off || txt == s.shut {
 		s.rows, s.note = nil, ""
 		if txt != s.shut {
@@ -170,13 +175,16 @@ func (s *SlashMenu) update(txt string, caret int, cmds []session.Command, p mode
 		}
 		return
 	}
-	q := strings.TrimPrefix(word, "/")
+	q := word[1:]
 	if strings.ContainsAny(q, "/\\") { // why: a second slash makes the word a path, as /tmp/x (T3 Code's isPathWord)
 		s.rows, s.note = nil, ""
 		return
 	}
-	if start > 0 {
-		if !midPrompt(p) { // why: Codex names a skill with $, so a /word past the first is text to it
+	switch {
+	case word[0] == '$':
+		cmds = MidCommands(cmds) // Codex reads a $skill anywhere in the prompt
+	case start > 0:
+		if !midPrompt(p) { // why: Codex 0.172.0 reads /skill as text, at the start too; it takes $skill
 			s.rows, s.note = nil, ""
 			return
 		}
@@ -184,6 +192,10 @@ func (s *SlashMenu) update(txt string, caret int, cmds []session.Command, p mode
 	}
 	s.start = start
 	s.rows, s.note = SlashMatches(cmds, q, slashUsed), ""
+	if word[0] == '$' && !s.open() { // why: $HOME or $5 in prose is no skill, so no note either
+		s.rows = nil
+		return
+	}
 	switch {
 	case q != s.query:
 		s.sel = 0
@@ -219,7 +231,7 @@ func midPrompt(p model.Provider) bool {
 // prompt: skills and custom commands, never a built-in.
 func MidCommands(cmds []session.Command) []session.Command {
 	return slices.DeleteFunc(slices.Clone(cmds), func(c session.Command) bool {
-		return c.Terminal || (c.Source != "user" && c.Source != "project" && c.Source != "plugin")
+		return c.Terminal || (c.Source != "user" && c.Source != "project" && c.Source != "plugin" && c.Source != "system")
 	})
 }
 
@@ -242,8 +254,17 @@ func (s *SlashMenu) key(gtx layout.Context, ed *widget.Editor, txt string, e key
 	s.picked = s.rows[s.sel].Name
 }
 
-// pick puts /name and a space in place of the /word at ed's caret; txt
-// is ed's text.
+// mark is what names cmd in the draft: $ for a Codex skill, which is
+// how Codex reads one, else /.
+func (s *SlashMenu) mark(cmd session.Command) string {
+	if s.codex && cmd.Source != "" {
+		return "$"
+	}
+	return "/"
+}
+
+// pick puts /name, or $name for a Codex skill, and a space in place of
+// the word at ed's caret; txt is ed's text.
 func (s *SlashMenu) pick(gtx layout.Context, ed *widget.Editor, txt, name string) {
 	r := []rune(txt)
 	start := min(s.start, len(r))
@@ -254,8 +275,12 @@ func (s *SlashMenu) pick(gtx layout.Context, ed *widget.Editor, txt, name string
 	if end < len(r) && r[end] == ' ' {
 		end++ // the space after the word, which the pick puts back
 	}
+	mark := "/"
+	if i := slices.IndexFunc(s.rows, func(r session.Command) bool { return r.Name == name }); i >= 0 {
+		mark = s.mark(s.rows[i])
+	}
 	ed.SetCaret(start, end)
-	ed.Insert("/" + name + " ")
+	ed.Insert(mark + name + " ")
 	s.rows, s.note = nil, ""
 	gtx.Execute(key.FocusCmd{Tag: ed})
 }
@@ -453,7 +478,7 @@ func (s *SlashMenu) noteLine(gtx layout.Context, th *theme.Theme) layout.Dimensi
 func (s *SlashMenu) row(gtx layout.Context, th *theme.Theme, cmd session.Command, on bool) layout.Dimensions {
 	b := s.click(cmd.Name)
 	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
-		semantic.LabelOp("/" + cmd.Name).Add(gtx.Ops)
+		semantic.LabelOp(s.mark(cmd) + cmd.Name).Add(gtx.Ops)
 		if b.Hovered() {
 			s.hovered = cmd.Name
 		}
@@ -487,7 +512,7 @@ func (s *SlashMenu) row(gtx layout.Context, th *theme.Theme, cmd session.Command
 		row(g, gap, h,
 			func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, int(nameShare*float32(inner)))
-				name := text(gtx, th, th.MonoFont, th.Sp(theme.Body), th.Fg, "/"+cmd.Name)
+				name := text(gtx, th, th.MonoFont, th.Sp(theme.Body), th.Fg, s.mark(cmd)+cmd.Name)
 				if cmd.Hint == "" || name.Size.X+gap >= gtx.Constraints.Max.X {
 					return name
 				}
@@ -531,6 +556,8 @@ func rowNote(c session.Command) string {
 		return "Project"
 	case c.Source == "plugin":
 		return "Plugin"
+	case c.Source == "system":
+		return "System"
 	}
 	return ""
 }

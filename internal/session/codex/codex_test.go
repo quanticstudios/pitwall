@@ -481,3 +481,39 @@ func foldOn(t *testing.T, s session.Snapshot, e session.Event) session.Snapshot 
 	}
 	return s
 }
+
+// TestSkillsList: the chat's / menu is app-server's skills/list for its
+// folder, without a turned-off skill or a name twice, a plugin's and
+// Codex's own marked so, and is read again on skills/changed.
+func TestSkillsList(t *testing.T) {
+	d, rec, runs := start(t, "skills.jsonl", session.Config{})
+	lists := func() [][]session.Command {
+		var out [][]session.Command
+		for _, e := range rec.all() {
+			if e.Type == session.EventCommands {
+				out = append(out, e.Commands)
+			}
+		}
+		return out
+	}
+	wait := func(n int) [][]session.Command {
+		for deadline := time.Now().Add(10 * time.Second); len(lists()) < n && time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		}
+		return lists()
+	}
+	want := []session.Command{
+		{Name: "release", Description: "Cut a release", Source: "project"},
+		{Name: "pages:write-page", Description: "Write a page", Source: "plugin"},
+		{Name: "imagegen", Description: "Generate images", Source: "system"},
+	}
+	if l := wait(1); len(l) != 1 || !slices.EqualFunc(l[0], want, session.Command.Equal) {
+		t.Fatalf("first list %+v", l)
+	}
+	os.WriteFile(filepath.Join(runs, "changed"), nil, 0o600)
+	if l := wait(2); len(l) != 2 || len(l[1]) != 1 || l[1][0].Name != "added" {
+		t.Fatalf("after skills/changed %+v", l)
+	}
+	if err := d.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

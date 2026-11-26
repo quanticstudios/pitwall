@@ -154,6 +154,10 @@ turns still go to the same conversation, and the chat picks them up.
 - **/** lists the slash commands, with the ones that need the TUI marked.
   In Claude and Antigravity chats it opens for a /word in the middle of
   the draft too, with skills and custom commands only.
+- **$** in a Codex chat lists Codex's skills, anywhere in the draft, and a
+  pick writes `$name`, which Codex reads as the skill. Codex reads a
+  /word as text, so / opens only at the draft's start, where it lists the
+  built-ins and the skills, and a skill picked there goes in as `$name` too.
 - **1**, **2** and **3** answer an approval card; a question's options take
   their number keys and Enter.
 - **Ctrl+Backspace** deletes a word, or a whole chip.

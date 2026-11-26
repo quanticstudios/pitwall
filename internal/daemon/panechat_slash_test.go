@@ -17,7 +17,7 @@ import (
 // A pane chat's snapshot carries the agent's / menu: Claude Code's
 // skills and commands from the pane's config dir and project ahead of its
 // built-ins, again once a command is added or the pane moves to another
-// folder; Codex's built-ins.
+// folder; Codex's built-ins and skills; agy's.
 func TestPaneChatCommands(t *testing.T) {
 	d, _, _ := remoteDaemon(t)
 	dir := t.TempDir()
@@ -91,9 +91,17 @@ func TestPaneChatCommands(t *testing.T) {
 		t.Fatalf("after cd: %q", got)
 	}
 
+	// Codex's: its built-ins, then the skills under the pane's CODEX_HOME,
+	// HOME and project.
+	cx := filepath.Join(dir, "cxhome")
+	write(filepath.Join(cx, ".codex", "skills", "pr-review", "SKILL.md"), "---\nname: pr-review\ndescription: Review a PR\n---\n")
+	write(filepath.Join(other, ".agents", "skills", "bisect", "SKILL.md"), "---\nname: bisect\ndescription: Find the commit\n---\n")
+	d.mu.Lock()
+	d.st.Panes[1].Cwd, d.st.Panes[1].Env = other, []string{"HOME=" + cx, "CODEX_HOME=" + filepath.Join(cx, ".codex")}
+	d.mu.Unlock()
 	cs, _ := paneRead(t, d, "b", session.Snapshot{}, 0)
-	if !slices.EqualFunc(cs.Commands, codex.Builtins, session.Command.Equal) {
-		t.Fatalf("codex commands: %d, want its %d built-ins", len(cs.Commands), len(codex.Builtins))
+	if got := names(cs.Commands); !slices.Equal(got, []string{"bisect", "pr-review"}) || !slices.EqualFunc(cs.Commands[:len(codex.Builtins)], codex.Builtins, session.Command.Equal) {
+		t.Fatalf("codex skills %q of %d", got, len(cs.Commands))
 	}
 
 	// agy's: its built-ins and the skills under the pane's HOME and project.

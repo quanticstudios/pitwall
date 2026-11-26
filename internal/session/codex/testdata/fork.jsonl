@@ -3,7 +3,9 @@
 {"in":{"method":"initialized"}}
 {"in":{"id":2,"method":"thread/fork","params":{"threadId":"thr_1","lastTurnId":"turn_1","approvalPolicy":"on-request","sandbox":"workspace-write","cwd":"$CWD"}}}
 {"out":{"id":2,"result":{"thread":{"id":"thr_2"},"model":"gpt-6.1-sol","modelProvider":"openai","approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"$CWD","sandbox":{"type":"workspaceWrite"}}}}
-{"in":{"id":3,"method":"turn/start","params":{"threadId":"thr_2","input":[{"type":"text","text":"Again"}],"clientUserMessageId":"u2"}}}
-{"out":{"id":3,"result":{"turn":{"id":"turn_3","items":[],"status":"inProgress"}}}}
+{"in":{"id":3,"method":"skills/list","params":{"cwds":["$CWD"]}}}
+{"out":{"id":3,"result":{"data":[{"cwd":"$CWD","skills":[],"errors":[]}]}}}
+{"in":{"id":4,"method":"turn/start","params":{"threadId":"thr_2","input":[{"type":"text","text":"Again"}],"clientUserMessageId":"u2"}}}
+{"out":{"id":4,"result":{"turn":{"id":"turn_3","items":[],"status":"inProgress"}}}}
 {"out":{"method":"turn/started","params":{"threadId":"thr_2","turn":{"id":"turn_3","items":[],"status":"inProgress"}}}}
 {"out":{"method":"turn/completed","params":{"threadId":"thr_2","turn":{"id":"turn_3","items":[],"status":"completed"}}}}

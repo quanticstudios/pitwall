@@ -488,6 +488,9 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string, quoted ...str
 		// why: agy's slash menu draws as a command is typed, and an Enter after it drew picks its highlighted row; one in the same write takes the line as typed (agyCommand).
 		return d.typeAndEnter(pane, p, append(input.Text(text), press(key.NameReturn, m)...))
 	}
+	if prov == model.ProviderCodex && len(quotes) == 0 && codexSkillEnd(text) {
+		text += " " // why: Codex 0.172.0's $skill menu stays up on a line that ends in one, and an Enter picks its row rather than send
+	}
 	var data []byte
 	if text != "" {
 		data = input.Paste(text, m)
@@ -659,6 +662,13 @@ func (d *Daemon) stillInBox(p Pane, prov model.Provider) bool {
 // command, which agy's menu would take over.
 func agySlashLine(text string) bool {
 	return strings.HasPrefix(text, "/") && !strings.ContainsAny(text, "\r\n")
+}
+
+// codexSkillEnd reports whether text, trimmed, ends in a $skill, which
+// opens Codex's skill menu.
+func codexSkillEnd(text string) bool {
+	f := strings.Fields(text)
+	return len(f) > 0 && len(f[len(f)-1]) > 1 && f[len(f)-1][0] == '$'
 }
 
 // typeAndEnter writes data, a line and its Enter, into pane p as one

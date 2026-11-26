@@ -101,3 +101,37 @@ func TestAgySlashLine(t *testing.T) {
 		}
 	}
 }
+
+// A pane chat's message with a Codex $skill goes in as typed, a normal
+// prompt; one that ends in the skill gets a space after it, so Codex's
+// skill menu, which opens on the word, closes before Enter instead of
+// taking it.
+func TestPaneChatCodexSkillSend(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	b, err := os.ReadFile("../session/codex/testdata/rollout.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(t.TempDir(), "rollout.jsonl")
+	os.WriteFile(rollout, b, 0o600)
+	d.mu.Lock()
+	d.st.Panes[1].Transcript = rollout
+	d.st.Activities[d.activityIndex("b")].State = model.StateCompleted
+	d.mu.Unlock()
+	f.pane(1).mu.Lock()
+	f.pane(1).screen = []string{"› "}
+	f.pane(1).mu.Unlock()
+	for text, want := range map[string]string{
+		"use $release now": "use $release now\r",
+		"then $release":    "then $release \r",
+	} {
+		paneRead(t, d, "b", session.Snapshot{}, 0)
+		before := len(f.pane(1).got())
+		if r, _ := d.chatRequest(context.Background(), proto.ChatSend{Chat: "b", Text: text}); r.(proto.ChatResult).Code != "" {
+			t.Fatalf("send %q: %+v", text, r)
+		}
+		if got := gotAfter(t, f.pane(1), before, len(want)); !strings.HasSuffix(got, want) {
+			t.Errorf("typed %q, want it to end %q", got, want)
+		}
+	}
+}
