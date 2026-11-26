@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.8
 
 - Answering a Claude question from its card works again when Claude Code 2.1.332 draws a bar down the left of the question. pitwall read the bar as part of the question and stopped with "Claude Code is on ..., not ...".
 - A message with only an image goes in an Antigravity terminal pane. agy ignores Enter with no text, so pitwall types "(image)" after the picture.
