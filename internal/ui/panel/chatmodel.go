@@ -175,8 +175,9 @@ func imageNo(refs []imageRef, n int) int {
 	return n
 }
 
-// proseChars is about where reply prose stops, in characters.
-const proseChars = 96
+// proseChars is about where reply prose stops, in characters: the 65 to
+// 75 of a comfortable measure.
+const proseChars = 72
 
 // proseCap is how wide reply prose draws in a column col wide, for text
 // whose average character is avg wide.

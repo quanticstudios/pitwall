@@ -38,13 +38,21 @@ type tstyle struct {
 	lh   float32
 }
 
-// prose is reply text: Large, Fg a little toward Bg so long light text
-// does not glare; the user's own message keeps the prompt's style.
+// readStep is the agent's reply at reading size, a step over the work
+// rows' Body and the prompt's Large.
+const readStep theme.Step = 15
+
+// prose is reply text: reading size, Fg a touch toward Bg so long light
+// text does not glare; the user's own message keeps the prompt's style,
+// and the agent's narration between calls draws a step down, muted.
 func (d *cdraw) prose() tstyle {
-	if d.own {
+	switch {
+	case d.own:
 		return d.promptStyle()
+	case d.narration:
+		return tstyle{d.th.UIFont, d.th.Sp(theme.Large), d.th.Muted, 1.55}
 	}
-	return tstyle{d.th.UIFont, d.th.Sp(theme.Large), theme.Mix(d.th.Fg, d.th.Bg, 0.10), 1.6}
+	return tstyle{d.th.UIFont, d.th.Sp(readStep), theme.Mix(d.th.Fg, d.th.Bg, 0.05), 1.6}
 }
 
 // promptStyle is a user prompt in its bubble.

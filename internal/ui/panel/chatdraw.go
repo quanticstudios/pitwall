@@ -33,15 +33,16 @@ type cdraw struct {
 	col, proseW int                             // the column's width, and reply prose's
 	ledger      bool                            // drawing Ledger layout
 	own         bool                            // drawing the user's own message as markdown
+	narration   bool                            // drawing the agent's short words between calls
 	geom        ledgerGeom                      // Ledger column widths
 	syn         *[syntax.Header + 1]color.NRGBA // code's token colors, for synFor
 	synFor      *theme.Theme
 }
 
-// avgChar is the width per character that puts reply prose at about 96
-// characters: 680 dp at 14 sp, scaling with the UI size.
+// avgChar is the width of an average character of reply prose: 0.47 of
+// its size, as measured on English replies in the UI font.
 func (d *cdraw) avgChar(gtx layout.Context) int {
-	return gtx.Sp(d.th.Sp(theme.Large)) * 680 / (14 * proseChars)
+	return gtx.Sp(d.th.Sp(readStep)) * 47 / 100
 }
 
 // --- small pieces ---

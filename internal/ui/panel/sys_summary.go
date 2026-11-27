@@ -23,7 +23,7 @@ func (d *cdraw) proseRow(gtx layout.Context, i int) layout.Dimensions {
 	it := &d.s.Content[i]
 	switch {
 	case it.Kind == session.KindAssistantText:
-		return d.markdown(gtx, it.ID, d.t.reply(it, false))
+		return d.between(gtx, it)
 	case it.Kind == session.KindSystem:
 		return d.sysItem(gtx, it, false)
 	}

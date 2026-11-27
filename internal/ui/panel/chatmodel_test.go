@@ -180,13 +180,13 @@ func TestPromptThumbZoom(t *testing.T) {
 	}
 }
 
-// TestProseCap: prose stops near 96 characters in a wide column, and at
+// TestProseCap: prose stops near 72 characters in a wide column, and at
 // the column in a narrow one.
 func TestProseCap(t *testing.T) {
-	if got := proseCap(960, 7); got != 96*7 {
+	if got := proseCap(960, 7); got != 72*7 {
 		t.Fatalf("wide column: %d", got)
 	}
-	if got := proseCap(500, 7); got != 500 {
+	if got := proseCap(400, 7); got != 400 {
 		t.Fatalf("narrow column: %d", got)
 	}
 	if got := proseCap(800, 0); got != 800 {

@@ -972,7 +972,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	if t.isLedger() {
 		d.ledger = true
 		d.geom = ledgerMetrics(gtx, s.Provider, size.X)
-		d.col, d.proseW = d.geom.textW, d.geom.textW
+		d.col, d.proseW = d.geom.textW, proseCap(d.geom.textW, d.avgChar(gtx))
 		col, x0 = d.geom.textW, d.geom.textX
 		planH = d.planStrip(gtx, size)
 	} else {
