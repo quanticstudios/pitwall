@@ -7,7 +7,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// TestStateMark: the dot always takes the state's color, rings for
+// TestStateMark: the dot takes the state's color, or rings in Muted for
 // Background and Watching, pulses for Working and Connecting; the word is
 // colored only for Working, Connecting and the three that need the user.
 func TestStateMark(t *testing.T) {
@@ -39,6 +39,9 @@ func TestStateMark(t *testing.T) {
 		want := StateColor(th, c.a.State)
 		if c.a.State == model.StatePROpen {
 			want = th.Purple
+		}
+		if c.ring {
+			want = th.Muted
 		}
 		if m.dot != want {
 			t.Errorf("%s: dot %v, want %v", c.a.State, m.dot, want)

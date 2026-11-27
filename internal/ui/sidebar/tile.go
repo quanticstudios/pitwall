@@ -71,7 +71,7 @@ func titleStyle(th *theme.Theme, a *model.Activity) (color.NRGBA, bool) {
 // stateMark is what the right column's line 2 says of an activity.
 type stateMark struct {
 	word   string      // the state, or the program a shell runs
-	dot    color.NRGBA // always the state's color
+	dot    color.NRGBA // the state's color; Muted for a ring
 	loud   bool        // the word takes the dot's color; else Muted
 	ring   bool        // the dot is a ring: Background, Watching
 	pulses bool        // the dot pulses: Working, Connecting
@@ -90,6 +90,9 @@ func markOf(th *theme.Theme, a model.Activity) stateMark {
 		m.loud = true
 	case model.StateWatching:
 		m.ring = true
+	}
+	if m.ring {
+		m.dot = th.Muted // why: blue means mid-turn; a ring's tab waits at its prompt while something it started runs
 	}
 	return m
 }

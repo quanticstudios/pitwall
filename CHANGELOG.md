@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- A sidebar tab whose agent is back at its prompt while something it started still runs (Background), or that watches its workers (Watching), draws its ring in gray, not in Working's blue. Blue now means an agent mid-turn.
+
 ## v0.3.11
 
 - While a turn runs in a terminal tab, the line under the chat's composer shows the agent's own spinner row in place of "Working…", such as "Flibbertigibbeting… 11s · ↓ 789 tokens · thinking" for Claude Code, "Working… 5s" for Codex or "Running command… 12s" for Antigravity. That line no longer lists the Esc stop, / commands and @ files hints. An Antigravity thought no longer ends in "... 12s" in its Thinking row. A compaction's row in the transcript now shows its time and tokens too, as "Compacting conversation… 7s · ↓ 122 tokens". The Android app's chat shows the same row in place of its "Working:" line, and falls back to that line with an older daemon.
