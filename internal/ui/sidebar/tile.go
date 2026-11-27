@@ -141,14 +141,16 @@ func stateWord(gtx layout.Context, th *theme.Theme, m stateMark, base color.NRGB
 // then its ring.
 func drawTile(gtx layout.Context, th *theme.Theme, rect image.Rectangle, fill, ring color.NRGBA) {
 	rr := gtx.Dp(8)
-	if fill != th.Sidebar {
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+	if ring.A == 0 {
+		if fill != th.Sidebar {
+			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+		}
+		return
 	}
-	if ring.A > 0 {
-		lw := max(gtx.Dp(1), 1)
-		half := lw / 2
-		paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: clip.UniformRRect(rect.Inset(half), rr-half).Path(gtx.Ops), Width: float32(lw)}.Op())
-	}
+	// why: a stroke centred on the edge straddles two pixels at half strength and the row's clip cuts its outer half; a band inside the tile stays on whole pixels.
+	lw := max(gtx.Dp(1), 1)
+	paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect.Inset(lw), max(rr-lw, 0)).Op(gtx.Ops))
 }
 
 // subsTop and subsBottom are the space a tile keeps above its sub-rows,
