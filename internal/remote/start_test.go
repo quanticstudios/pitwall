@@ -84,6 +84,7 @@ func TestNewTabEndpoint(t *testing.T) {
 	}
 	h := s.Handler()
 	token := pairDevice(t, s, h, "phone")
+	q := func(v string) string { b, _ := json.Marshal(v); return string(b) } // why: a Windows path has backslashes
 	if st, body := call(t, h, "GET", "/api/new?session=main", token, ""); st != 200 || !strings.Contains(body, `"id":"terminal"`) || !strings.Contains(body, `"git":true`) || strings.Contains(body, "Program") {
 		t.Fatalf("options: %d %s", st, body)
 	}
@@ -91,32 +92,32 @@ func TestNewTabEndpoint(t *testing.T) {
 	file := filepath.Join(dir, "f")
 	os.WriteFile(file, nil, 0o644)
 	bad := []struct{ body, want string }{
-		{`{"dir":"` + dir + `","agent":"sh -c evil"}`, "pick an agent"},
+		{`{"dir":` + q(dir) + `,"agent":"sh -c evil"}`, "pick an agent"},
 		{`{"dir":"relative","agent":"terminal"}`, "full path"},
-		{`{"dir":"` + filepath.Join(dir, "none") + `","agent":"terminal"}`, "no folder"},
-		{`{"dir":"` + file + `","agent":"terminal"}`, "no folder"},
-		{`{"dir":"` + dir + `","agent":"claude","worktree":true,"branch":"  "}`, "branch"},
-		{`{"dir":"` + dir + `","agent":"terminal","brief":"hi"}`, "no first message"},
-		{`{"dir":"` + dir + `","agent":"claude","brief":"--dangerously-skip-permissions"}`, "dash"},
+		{`{"dir":` + q(filepath.Join(dir, "none")) + `,"agent":"terminal"}`, "no folder"},
+		{`{"dir":` + q(file) + `,"agent":"terminal"}`, "no folder"},
+		{`{"dir":` + q(dir) + `,"agent":"claude","worktree":true,"branch":"  "}`, "branch"},
+		{`{"dir":` + q(dir) + `,"agent":"terminal","brief":"hi"}`, "no first message"},
+		{`{"dir":` + q(dir) + `,"agent":"claude","brief":"--dangerously-skip-permissions"}`, "dash"},
 	}
 	for _, b := range bad {
 		if st, body := call(t, h, "POST", "/api/new", token, b.body); st != 400 || !strings.Contains(body, b.want) {
 			t.Errorf("%s: %d %s, want 400 %q", b.body, st, body, b.want)
 		}
 	}
-	if st, body := call(t, h, "POST", "/api/new", token, `{"dir":"`+filepath.Join(dir, "busy")+`","agent":"terminal"}`); st != 409 || !strings.Contains(body, "guard") {
+	if st, body := call(t, h, "POST", "/api/new", token, `{"dir":`+q(filepath.Join(dir, "busy"))+`,"agent":"terminal"}`); st != 409 || !strings.Contains(body, "guard") {
 		t.Errorf("refused start: %d %s", st, body)
 	}
 	if len(started) != 0 {
 		t.Fatalf("started %v from bad requests", started)
 	}
-	st, body := call(t, h, "POST", "/api/new", token, `{"session":"main","dir":" `+dir+`/ ","agent":"terminal","branch":"ignored"}`)
+	st, body := call(t, h, "POST", "/api/new", token, `{"session":"main","dir":`+q(" "+dir+"/ ")+`,"agent":"terminal","branch":"ignored"}`)
 	var out struct{ Tab, Pane string }
 	json.Unmarshal([]byte(body), &out)
 	if st != 200 || out.Tab != "tab1" || out.Pane != "pane1" {
 		t.Fatalf("plain: %d %s", st, body)
 	}
-	if st, body := call(t, h, "POST", "/api/new", token, `{"session":"main","dir":"`+dir+`","agent":"claude","worktree":true,"branch":" fix-login ","brief":"go"}`); st != 200 {
+	if st, body := call(t, h, "POST", "/api/new", token, `{"session":"main","dir":`+q(dir)+`,"agent":"claude","worktree":true,"branch":" fix-login ","brief":"go"}`); st != 200 {
 		t.Fatalf("worktree: %d %s", st, body)
 	}
 	want := []NewTab{
