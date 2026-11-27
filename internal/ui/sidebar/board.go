@@ -631,7 +631,7 @@ func (s *Sidebar) chip(gtx layout.Context, th *theme.Theme, c *widget.Clickable,
 			paint.FillShape(gtx.Ops, th.Surface, rr.Op(gtx.Ops))
 		}
 		if out {
-			paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+			kit.Border(gtx, image.Rectangle{Max: size}, h/2, gtx.Dp(1), th.BorderStrong)
 		}
 		defer op.Offset(image.Pt(px, 0)).Push(gtx.Ops).Pop()
 		call.Add(gtx.Ops)
@@ -1051,8 +1051,7 @@ func kbd(gtx layout.Context, th *theme.Theme, keys string) layout.Dimensions {
 	call := m.Stop()
 	px := gtx.Dp(5)
 	size := image.Pt(d.Size.X+2*px, d.Size.Y+gtx.Dp(2))
-	rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(4))
-	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	kit.Border(gtx, image.Rectangle{Max: size}, gtx.Dp(4), gtx.Dp(1), th.BorderStrong)
 	o := op.Offset(image.Pt(px, gtx.Dp(1))).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	o.Pop()
@@ -1134,7 +1133,7 @@ func (s *Sidebar) boardBanner(gtx layout.Context, th *theme.Theme, r image.Recta
 	size := r.Size()
 	red := th.Readable(th.Red, th.Bg)
 	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Red, 0.08), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Red, 0.35), clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: size}.Inset(1), gtx.Dp(8)-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	kit.Border(gtx, image.Rectangle{Max: size}, gtx.Dp(8), gtx.Dp(1), theme.Mix(th.Bg, th.Red, 0.35))
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(size.X-gtx.Dp(24), size.Y))
 	o := op.Offset(image.Pt(gtx.Dp(12), 0)).Push(gtx.Ops)

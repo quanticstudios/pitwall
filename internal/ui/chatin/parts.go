@@ -395,7 +395,7 @@ func (c *Composer) partCard(gtx layout.Context, th *theme.Theme, p Part) layout.
 	if c.editing == tok {
 		ring = theme.Mix(th.Surface, th.Primary, 0.5)
 	}
-	paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: shape.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	kit.Border(gtx, rect, r, gtx.Dp(1), ring)
 	cl := shape.Push(gtx.Ops)
 	u.hov.Add(gtx.Ops)
 	cl.Pop()
@@ -554,9 +554,9 @@ func (c *Composer) commentRow(gtx layout.Context, th *theme.Theme) layout.Dimens
 	return layout.Inset{Top: theme.SpaceS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(32)
 		size := image.Pt(gtx.Constraints.Max.X, h)
-		rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl))
-		paint.FillShape(gtx.Ops, th.Bg, rr.Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Primary, 0.5), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+		box, rad := image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)
+		paint.FillShape(gtx.Ops, th.Bg, clip.UniformRRect(box, rad).Op(gtx.Ops))
+		kit.Border(gtx, box, rad, gtx.Dp(1), theme.Mix(th.Surface, th.Primary, 0.5))
 		pad := gtx.Dp(theme.SpaceS)
 		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
 		defer o.Pop()

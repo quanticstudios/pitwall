@@ -582,10 +582,9 @@ func statePill(gtx layout.Context, th *theme.Theme, t float64, a model.Activity,
 	off.Pop()
 	call := m.Stop()
 	size := image.Pt(d.Size.X+gtx.Dp(14), h)
-	rr := clip.UniformRRect(image.Rectangle{Max: size}, h/2)
-	paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, h/2).Op(gtx.Ops))
 	if watching {
-		paint.FillShape(gtx.Ops, theme.Mix(base, col, 0.45), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+		kit.Border(gtx, image.Rectangle{Max: size}, h/2, gtx.Dp(1), theme.Mix(base, col, 0.45))
 	}
 	call.Add(gtx.Ops)
 	return layout.Dimensions{Size: size}
@@ -609,7 +608,7 @@ func (s *Sidebar) renameField(gtx layout.Context, th *theme.Theme) layout.Dimens
 	w := gtx.Constraints.Max.X
 	rect := image.Rect(0, 0, w, h)
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect, gtx.Dp(4)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Primary, 0.6), clip.Stroke{Path: clip.UniformRRect(rect, gtx.Dp(4)).Path(gtx.Ops), Width: 1}.Op())
+	kit.Border(gtx, rect, gtx.Dp(4), 1, theme.Mix(th.SurfaceSecondary, th.Primary, 0.6))
 	gtx.Constraints = layout.Exact(image.Pt(w-gtx.Dp(8), h))
 	off := op.Offset(image.Pt(gtx.Dp(4), 0)).Push(gtx.Ops)
 	centered(gtx, image.Pt(w-gtx.Dp(8), h), func(gtx layout.Context) layout.Dimensions {

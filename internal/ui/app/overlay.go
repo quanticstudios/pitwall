@@ -157,9 +157,7 @@ func (u *ui) highlight(gtx gl.Context, r image.Rectangle, ring bool) {
 		return
 	}
 	// The keyboard's focus: kit.FocusRing's color, inside the row.
-	w := gtx.Dp(2)
-	p := clip.UniformRRect(r.Inset(w/2), gtx.Dp(8)-w/2).Path(gtx.Ops)
-	paint.FillShape(gtx.Ops, theme.Mix(th.Primary, th.Bg, 0.3), clip.Stroke{Path: p, Width: float32(w)}.Op())
+	kit.Border(gtx, r, gtx.Dp(8), gtx.Dp(2), theme.Mix(th.Primary, th.Bg, 0.3))
 }
 
 // filterField draws a filter holding text, with a caret blinking since

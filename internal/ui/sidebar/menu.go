@@ -465,7 +465,7 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, v *view, p model.Project, a
 			case selected:
 				bg := th.SelectedBg
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
-				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Primary, 0.5), clip.Stroke{Path: clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops), Width: 1}.Op())
+				kit.Border(gtx, r, gtx.Dp(8), 1, theme.Mix(bg, th.Primary, 0.5))
 				fg = th.Primary
 			case c.Hovered():
 				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))

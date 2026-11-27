@@ -403,7 +403,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 			d := u.field(gtx, &m.path, th.MonoFont, gtx.Dp(36), "")
 			if m.pathErr != "" {
 				r := gtx.Dp(8)
-				paint.FillShape(gtx.Ops, th.Red, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: d.Size}, r).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+				kit.Border(gtx, image.Rectangle{Max: d.Size}, r, gtx.Dp(1), th.Red)
 			}
 			return d
 		}),
