@@ -104,7 +104,8 @@ func demoEntries() []flow.Entry {
 func demoTab() remote.Tab {
 	return remote.Tab{Item: remote.Item{Pane: "p1", At: 1, Tab: "Fix the checkout race", Session: "demo", Agent: "claude",
 		State: "working", Label: "Working", Detail: "Bash " + demoRun},
-		ID: "ws1", Branch: "fix/checkout-race", Send: true, Picker: true, Modes: remote.ModesOf("claude", "default"), Mode: "default"}
+		ID: "ws1", Branch: "fix/checkout-race", Send: true, Picker: true, Modes: remote.ModesOf("claude", "default"), Mode: "default",
+		Spinner: "Flibbertigibbeting… 11s · ↓ 789 tokens · thinking"}
 }
 
 // demoChat is the chat and its env in state, and whether its field takes

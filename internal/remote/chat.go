@@ -20,7 +20,8 @@ import (
 )
 
 // Tab is one tab as the page's list shows it, in the sidebar's order. It
-// holds what the sidebar shows, never a pane's screen.
+// holds what the sidebar shows, never a pane's screen: its one row from
+// the screen is Spinner, the agent's status, redacted.
 type Tab struct {
 	Item
 	ID     string `json:"id"`              // the tab's workspace id
@@ -53,9 +54,13 @@ type Tab struct {
 	Queue        []QueueRow `json:"queue,omitempty"`
 	QueueHold    string     `json:"queueHold,omitempty"`
 	AllowBlocked string     `json:"allowBlocked,omitempty"`
-	Exited       bool       `json:"exited,omitempty"`
-	ExitCode     int        `json:"exitCode,omitempty"`
-	ExitUnknown  bool       `json:"exitUnknown,omitempty"`
+	// Spinner is the agent's spinner row while its turn runs, verb and
+	// detail, such as "Nesting… 9s · ↓ 232 tokens"; "" for none or from a
+	// daemon too old to send it.
+	Spinner     string `json:"spinner,omitempty"`
+	Exited      bool   `json:"exited,omitempty"`
+	ExitCode    int    `json:"exitCode,omitempty"`
+	ExitUnknown bool   `json:"exitUnknown,omitempty"`
 	// Dropped are the ids of phone messages the pane's agent left before
 	// they went in, which the page shows as not sent.
 	Dropped []uint64 `json:"dropped,omitempty"`

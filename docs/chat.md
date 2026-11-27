@@ -218,6 +218,14 @@ Windows lists none.
   you send.
 - Each turn's tool calls fold into one work log, such as "Worked for 48s ·
   4 tools". Click it to open it.
+- While a turn runs in a terminal tab, the line under the composer shows
+  the agent's own spinner row in place of "Working…", such as
+  "Flibbertigibbeting… 11s · ↓ 789 tokens · thinking" for Claude Code,
+  "Working… 5s" for Codex or "Running command… 12s" for Antigravity.
+  Antigravity's thought keeps its own Thinking row, and the line says
+  "Thinking… 12s". That line shows in the Ledger layout and no longer lists
+  key hints. A compaction, which runs no turn, shows in the transcript as
+  "Compacting conversation… 7s · ↓ 122 tokens" until it ends.
 - Replies render as markdown: tables, lists, quotes, code blocks and diffs,
   with Copy on each block and Copy reply under the reply.
 - Each tool call has its own row. An edit shows its file, +N −M and the diff

@@ -323,6 +323,16 @@ func TestChat(t *testing.T) {
 	if w, _ := c.Working(tab); w != "Working" {
 		t.Fatalf("Working with no call running = %q", w)
 	}
+	// A daemon that sends the agent's spinner row: the line is that row.
+	spun := tab
+	spun.Spinner = "Nesting… 9s · ↓ 232 tokens"
+	if w, ok := c.Working(spun); !ok || w != spun.Spinner {
+		t.Fatalf("Working with a spinner row = %q %v", w, ok)
+	}
+	spun.State = "completed"
+	if _, ok := c.Working(spun); ok {
+		t.Fatal("a finished tab shows its spinner row")
+	}
 	// Older entries go in front, once each.
 	if n := c.Older([]flow.Entry{{Seq: 8, Kind: flow.EntryUser, Text: "a"}, {Seq: 9, Kind: flow.EntryAssistant, Text: "b"}, {Seq: 10}}, false); n != 2 || c.First() != 8 || c.More {
 		t.Fatalf("Older added %d, first %d, more %v", n, c.First(), c.More)

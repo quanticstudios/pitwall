@@ -25,8 +25,12 @@ const (
 	liveThought = "live-thought"
 	liveCall    = "live-call"
 	livePrompt  = "live-prompt"
-	liveStatus  = "live-status"
+	liveStatus  = session.LiveStatus
 )
+
+// statusEvery is how often a spinner row's text changes at most while its
+// verb holds, in a pane chat's Live and on the phone's tabs.
+const statusEvery = time.Second
 
 // echoFor is how long the prompt a chat sent shows before its transcript
 // line, at most: a prompt the agent took as something else never lands.
@@ -46,14 +50,42 @@ const foldMatch = 60
 // liveState is what a pane chat read off its agent's screen ahead of the
 // transcript (live) and the prompt it sent that the transcript lacks.
 type liveState struct {
-	turn  string         // the turn rows are of
-	ended time.Time      // when turn ended, zero while it runs
-	rows  []string       // the reply block from its first row, as last read
-	cells [][]vt.Cell    // rows' cells
-	items []session.Item // the screen's part of Live, as last read
-	echo  *session.Item  // the prompt sent, until the transcript has it
-	after string         // the transcript's last prompt when echo was sent
-	at    time.Time      // when echo was sent
+	turn   string         // the turn rows are of
+	ended  time.Time      // when turn ended, zero while it runs
+	rows   []string       // the reply block from its first row, as last read
+	cells  [][]vt.Cell    // rows' cells
+	items  []session.Item // the screen's part of Live, as last read
+	echo   *session.Item  // the prompt sent, until the transcript has it
+	after  string         // the transcript's last prompt when echo was sent
+	at     time.Time      // when echo was sent
+	status statusGate     // the spinner row's item text as last sent
+}
+
+// statusGate holds a spinner row's text back while its verb holds, so it
+// changes at most every statusEvery: its clock and token count tick many
+// times a second, and each change goes out whole to every reader.
+type statusGate struct {
+	text string
+	at   time.Time
+}
+
+// pass is the spinner row status as verb and detail, "Nesting… 9s · ↓ 232
+// tokens", or the text g let through last while that is under
+// statusEvery old and has the same verb; "" for none.
+func (g *statusGate) pass(status string, now time.Time) string {
+	verb, detail := agent.SplitStatus(status)
+	if verb == "" {
+		g.text = ""
+		return ""
+	}
+	text := strings.TrimSpace(verb + " " + detail)
+	switch {
+	case strings.HasPrefix(g.text, verb) && now.Sub(g.at) < statusEvery:
+		return g.text
+	case text != g.text:
+		g.text, g.at = text, now
+	}
+	return text
 }
 
 // live reads what pane l's screen shows of the running turn that the
@@ -61,9 +93,10 @@ type liveState struct {
 // snapshot's Live. Callers hold pc.mu.
 func (pc *paneChat) live(l paneLive) {
 	pc.lv.items = nil
-	turn := runningTurn(pc.snap)
+	turn, run := runningTurn(pc.snap), ""
 	switch {
 	case turn != "" && pc.tr.Running():
+		run = turn
 		if turn != pc.lv.turn {
 			pc.lv.rows, pc.lv.cells = nil, nil
 		}
@@ -90,15 +123,36 @@ func (pc *paneChat) live(l paneLive) {
 	} else {
 		pc.lv.rows, pc.lv.cells, pc.lv.turn = nil, nil, ""
 	}
-	// why: a compaction writes nothing to the transcript until it ends, and a /compact runs no turn; the TUI's spinner row is the only sign.
-	if st, _, _ := strings.Cut(lv.Status, " ("); strings.HasPrefix(st, "Compacting") {
-		p := pc.prov
-		pc.lv.items = append(pc.lv.items, session.Item{ID: liveStatus, Kind: session.KindSystem, Text: st, Provider: &p})
+	if it, ok := pc.statusItem(run, lv.Status, time.Now()); ok {
+		pc.lv.items = append(pc.lv.items, it)
 	}
 	if e := pc.lv.echo; e != nil && (lastPrompt(pc.snap) != pc.lv.after || time.Since(pc.lv.at) > echoFor) {
 		pc.lv.echo = nil
 	}
 	pc.setLive()
+}
+
+// statusItem is the Live item of the agent's spinner row status, its verb
+// and detail as "Nesting… 9s · ↓ 232 tokens": in turn, whose running line
+// draws it, or with no turn for a compaction, which shows as a row of its
+// own. False for no row, or one outside a turn that is no compaction.
+// While its verb holds, its text changes at most every statusEvery.
+// Callers hold pc.mu.
+func (pc *paneChat) statusItem(turn, status string, now time.Time) (session.Item, bool) {
+	// why: a compaction writes nothing to the transcript until it ends, and a /compact runs no turn; the TUI's spinner row is the only sign.
+	if verb, _ := agent.SplitStatus(status); turn == "" && !strings.HasPrefix(verb, "Compacting") {
+		status = ""
+	}
+	text := pc.lv.status.pass(status, now)
+	if text == "" {
+		return session.Item{}, false
+	}
+	p := pc.prov
+	it := session.Item{ID: liveStatus, Kind: session.KindSystem, Text: text, Provider: &p}
+	if turn != "" {
+		it.TurnID = &turn
+	}
+	return it, true
 }
 
 // liveItems are the parts of lv, read off the screen in turn, that the

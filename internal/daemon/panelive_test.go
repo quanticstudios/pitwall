@@ -65,6 +65,7 @@ func TestPaneChatLive(t *testing.T) {
 			}
 			reader, seq = n, d.Seq
 		}
+		reader.Live = noStatus(reader.Live)
 		for _, it := range append(slices.Clone(reader.Content), reader.Live...) {
 			if it.Kind == session.KindAssistantText {
 				replies++
@@ -104,6 +105,11 @@ func TestPaneChatLive(t *testing.T) {
 	if n := read("once the prompt landed"); n != 1 || len(reader.Live) != 0 || len(reader.Content) != 3 {
 		t.Errorf("once the prompt landed: %d replies, live %+v, %d items", n, reader.Live, len(reader.Content))
 	}
+}
+
+// noStatus is items without the spinner row's, which these screens all draw.
+func noStatus(items []session.Item) []session.Item {
+	return slices.DeleteFunc(slices.Clone(items), func(it session.Item) bool { return it.ID == liveStatus })
 }
 
 // A block whose first row scrolled off the screen joins the rows read
@@ -160,16 +166,16 @@ func TestPaneChatLiveMarkdown(t *testing.T) {
 	pc := &paneChat{id: "a", path: path, prov: model.ProviderClaude, tr: claude.NewTranscript(), snap: session.Snapshot{SessionID: "a"}}
 	pc.catchUp(l)
 	want := "Read the setup [docs](https://example.com/docs) and run `make` **now**.\n\n- one\n- two"
-	if len(pc.snap.Live) != 1 || pc.snap.Live[0].Text != want {
-		t.Fatalf("live %+v, want %q", pc.snap.Live, want)
+	if live := noStatus(pc.snap.Live); len(live) != 1 || live[0].Text != want {
+		t.Fatalf("live %+v, want %q", live, want)
 	}
 	reply := `{"type":"assistant","uuid":"a1","parentUuid":"p1","timestamp":"2026-11-19T10:00:05Z","message":{"id":"m1","content":[{"type":"text","text":"Read the [setup docs](https://example.com/docs) and run ` + "`make`" + ` **now**.\n\n- one\n- two"}]}}` + "\n"
 	if err := os.WriteFile(path, []byte(prompt+reply), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	pc.catchUp(l)
-	if len(pc.snap.Live) != 0 {
-		t.Errorf("once the message landed: live %+v", pc.snap.Live)
+	if live := noStatus(pc.snap.Live); len(live) != 0 {
+		t.Errorf("once the message landed: live %+v", live)
 	}
 }
 

@@ -363,7 +363,7 @@ func (d *demo) fill(variant int) error {
 	pr := tab("pr", "demo", "api", "Review the PR", "pi", "awaiting-input", "Input", "review/1.4", ago(2))
 	pr.Detail, pr.Reply = "Should the review cover the docs changes too?", true
 	fix := tab("fix", "demo", "", "Fix the checkout race", "claude", "working", "Working", "fix/checkout-race", ago(0))
-	fix.Transcript = race
+	fix.Transcript, fix.Spinner = race, "Flibbertigibbeting… 11s · ↓ 789 tokens · thinking"
 	doc := tab("doc", "demo", "", "Update the README", "claude", "completed", "Done", "docs/install", ago(12))
 	doc.Transcript = readme
 	tidy := tab("tidy", "demo", "", "Tidy the cart tests", "claude", "completed", "Done", "test/cart", ago(1))

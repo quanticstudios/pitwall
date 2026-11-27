@@ -27,8 +27,34 @@ type Live struct {
 	Thinking string
 	Command  string
 	// Status is the text on Claude Code's spinner row, such as
-	// "Compacting conversation… (5s)", "" with none on screen.
+	// "Compacting conversation… (5s)", on Codex's, such as
+	// "Working (5s • esc to interrupt)", or on Antigravity's, such as
+	// "Running command (12s)", with "Thinking" for a thought, which
+	// Thinking holds; "" with none on screen.
+	// SplitStatus cuts it into verb and detail.
 	Status string
+}
+
+// SplitStatus cuts a spinner row's text, Live.Status, into its verb and
+// its detail: "Nesting… (9s · ↓ 232 tokens)" is "Nesting…" and
+// "9s · ↓ 232 tokens". The verb always ends in "…", Codex's "Working"
+// too, and the detail leaves out "esc to interrupt".
+func SplitStatus(status string) (verb, detail string) {
+	verb, detail, _ = strings.Cut(status, " (")
+	verb = strings.TrimSpace(verb)
+	if verb == "" {
+		return "", ""
+	}
+	if !strings.HasSuffix(verb, "…") {
+		verb += "…"
+	}
+	var parts []string
+	for _, f := range strings.FieldsFunc(strings.TrimSuffix(detail, ")"), func(r rune) bool { return r == '·' || r == '•' }) {
+		if f = strings.TrimSpace(f); f != "" && f != "esc to interrupt" {
+			parts = append(parts, f)
+		}
+	}
+	return verb, strings.Join(parts, " · ")
 }
 
 // LiveScreen reads Live off agent p's screen g: Claude Code, Codex or
@@ -63,6 +89,12 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 		}
 		tool = func(r string) bool { return strings.HasPrefix(strings.TrimLeft(r, " "), "⎿") }
 	case model.ProviderCodex:
+		for i := len(rows) - 1; i >= 0; i-- {
+			if r := rows[i]; strings.HasPrefix(r, "• ") && strings.Contains(r, "esc to interrupt") {
+				lv.Status = strings.TrimSpace(r[len("• "):])
+				break
+			}
+		}
 		for i := len(rows) - 1; i >= 0 && end < 0; i-- {
 			if codexGlyph(rows[i]) {
 				end = i
@@ -100,7 +132,7 @@ func LiveScreen(p model.Provider, g vt.Grid) Live {
 	}
 	rows = rows[:end]
 	if p == model.ProviderAntigravity {
-		lv.Thinking, lv.Command = agyLive(rows[start:], anchor)
+		lv.Thinking, lv.Command, lv.Status = agyLive(rows[start:], anchor)
 	}
 	from, echoed := start, false
 	for i := len(rows) - 1; i >= start; i-- {
@@ -201,17 +233,34 @@ func rowCellsFrom(g vt.Grid, y, n int) []vt.Cell {
 // agyRun is an Antigravity call row while its command runs.
 var agyRun = regexp.MustCompile(`^[●○◉] Running \((.+?)\)(?: \(ctrl\+o to expand\))?$`)
 
+// agyElapsed is the time Antigravity's spinner row ends with once its
+// step has run a while, as in "Recalcula... 12s".
+var agyElapsed = regexp.MustCompile(`\s+((?:\d+h\s*)?(?:\d+m\s*)?\d+s)$`)
+
 // agyLive is the thought on Antigravity's spinner row, while it shows one
 // rather than a word or two of status, and the command of the call it
-// runs, when that call is its last row.
-func agyLive(rows []string, anchor func(string) bool) (thought, command string) {
+// runs, when that call is its last row. status is the row as Live.Status
+// has it: "Running command (12s)", or "Thinking (12s)" for a thought,
+// which shows as the thought's own row.
+func agyLive(rows []string, anchor func(string) bool) (thought, command, status string) {
 	for i := len(rows) - 1; i >= 0; i-- {
 		r := rows[i]
 		c, n := utf8.DecodeRuneInString(r)
 		if spinner(c) {
-			t := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(r[n:]), "..."))
+			if status != "" {
+				continue // an older spinner row
+			}
+			t, took := strings.TrimSpace(r[n:]), ""
+			if m := agyElapsed.FindStringSubmatchIndex(t); m != nil {
+				t, took = t[:m[0]], t[m[2]:m[3]]
+			}
+			t = strings.TrimSpace(strings.TrimSuffix(t, "..."))
+			status = t
 			if len(strings.Fields(t)) >= 4 {
-				thought = t
+				thought, status = t, "Thinking"
+			}
+			if status != "" && took != "" {
+				status += " (" + took + ")"
 			}
 			continue
 		}
@@ -225,7 +274,7 @@ func agyLive(rows []string, anchor func(string) bool) (thought, command string) 
 		}
 		break
 	}
-	return thought, command
+	return thought, command, status
 }
 
 // spinner reports whether c is a frame of Antigravity's braille spinner.

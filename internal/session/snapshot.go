@@ -126,6 +126,11 @@ func (s *Snapshot) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// LiveStatus is the ID of the Live item that holds the agent's spinner
+// row, its verb and detail as "Nesting… 9s · ↓ 232 tokens". With a TurnID
+// it is that running turn's line; without one, a compaction's own row.
+const LiveStatus = "live-status"
+
 // Item is aide's ManagedSessionContentItem: one entry of the transcript.
 type Item struct {
 	Attachments []Attachment    `json:"attachments,omitzero"`

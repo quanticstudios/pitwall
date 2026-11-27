@@ -101,8 +101,14 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 	dir := ws.Path
 	s, ok := ch.Chat(id)
 	// A pane chat's Live is what its agent's screen shows ahead of the
-	// transcript; it draws as the transcript's newest items.
-	s.Content = append(slices.Clip(s.Content), s.Live...)
+	// transcript; it draws as the transcript's newest items, but for the
+	// spinner row of the running turn, which the composer's status line shows.
+	s.Content = slices.Clip(s.Content)
+	for _, it := range s.Live {
+		if it.ID != session.LiveStatus || it.TurnID == nil {
+			s.Content = append(s.Content, it)
+		}
+	}
 	if ok {
 		t := u.chatTranscript(st, id)
 		t.Width, t.Copy, t.Dir = unit.Dp(u.cfg.Chat.Width), putClipboard, dir
