@@ -22,6 +22,11 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Allow and Deny, on the phone and in the sidebar, answer only a menu that lists Yes first. Codex 0.172's Folder access screen, Claude Code's folder trust dialog and its model and effort pickers also end in "esc back" or "Esc to cancel", so pitwall showed Allow on them: Allow pressed a key the screen ignored, or picked the menu's first entry, and the phone said "Allowed." The phone now says to answer those in their tab.
+- An answer that leaves the prompt on screen as it was reports "the prompt did not change after the key" instead of success.
+
 ## v0.3.9
 
 - A terminal tab's chat draws the reply it streams as markdown from the start: headings, bold, italic, inline code, lists, code blocks, tables, links and quotes, read back from how Claude Code, Codex and agy style them on screen, with the lines they wrapped joined. It used to show the screen's plain text until the transcript's message landed, then jump to the markdown. A bold line stays bold, since the screen cannot tell it from a `##` heading. A Claude Code reply with a link in its first lines no longer shows twice for a moment once it lands.

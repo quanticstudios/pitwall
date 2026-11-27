@@ -167,6 +167,18 @@ func FormUp(p model.Provider, g vt.Grid, pasted string) bool {
 	}
 }
 
+// AnswersYes reports whether the menu on g is one Allow and Deny answer for
+// agent p: Claude Code's and Codex's permission prompts list Yes first. Codex
+// 0.172's folder access screen also ends in "esc back" but offers "Open
+// restricted", which Allow's y does not pick.
+func AnswersYes(p model.Provider, g vt.Grid) bool {
+	if p != model.ProviderClaude && p != model.ProviderCodex {
+		return true
+	}
+	opts := formOptions(screenRows(g))
+	return len(opts) > 0 && strings.HasPrefix(strings.ToLower(opts[0].label), "yes")
+}
+
 // Offers is what the form on g's screen takes for a, beyond Allow and Deny:
 // a question's options, Allow always on a permission prompt, Approve plan on
 // a plan. It reads the screen, so it is empty when the form a asks about is

@@ -63,6 +63,9 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	for i, p := range panes {
 		if p != nil {
 			g := p.Snapshot()
+			if tabs[i].Answer && !agent.AnswersYes(tabs[i].Provider, g) {
+				tabs[i].Answer = false
+			}
 			if tabs[i].Answer {
 				a := model.Activity{Provider: tabs[i].Provider, State: model.AgentState(tabs[i].State)}
 				if err := confirmApproval(a, asked[i], g); err != nil {
