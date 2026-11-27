@@ -188,6 +188,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, false) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.AwayCard(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.TodoStrip(gtx, u.th, &s) }),
+			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.dockLayout(gtx, st, ws.ID, env) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
 		if t.AwayDismissed() {

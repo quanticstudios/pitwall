@@ -74,6 +74,9 @@ type Tab struct {
 	// Away is the tab's chat's Since you left card while it shows, which
 	// POST /api/away dismisses.
 	Away *model.Away `json:"away,omitempty"`
+	// Inbox is what in this tab waits on the user (State.Inbox), which the
+	// phone's Needs you section answers.
+	Inbox []model.InboxItem `json:"inbox,omitempty"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`

@@ -35,6 +35,8 @@ var errUpdateRateLimit = errors.New("GitHub's rate limit was reached. Try again 
 type phoneSettings struct {
 	CheckUpdates bool   `json:"check_updates"`
 	Dismissed    string `json:"dismissed,omitempty"`
+	// DockFolded folds the list's Needs you section to its header.
+	DockFolded bool `json:"dock_folded,omitempty"`
 }
 
 func loadPhoneSettings(dir string) (phoneSettings, error) {

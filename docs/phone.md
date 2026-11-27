@@ -321,7 +321,8 @@ it does:
   a line with its name and latency;
 - leads each row with its repo's icon, and folds the tabs an agent opened
   under that agent's tab;
-- puts Waiting on you at the top, with Allow and Deny on a row;
+- puts Needs you at the top: what waits on you on every machine, with
+  Allow and Deny, a question's options and Open;
 - draws an agent's replies as the markdown reader does, with tables, code
   blocks and mermaid flowcharts, and opens a `.md` file full screen;
 - sends a message during a turn, and answers approvals and Claude Code and
@@ -388,9 +389,17 @@ the phone; `pitwall remote revoke` stops the token on the computer.
 
 ### Use
 
-The sidebar is the home screen: Waiting on you lists the errors, approvals
-and questions of every session. Two or more fold into one row, the most
-pressing tab and how many more; a tap on it opens the list. The tree below
+The sidebar is the home screen. Needs you at the top lists what waits on
+you on every paired machine, as the desktop chat's inbox dock does: its
+header counts the items for you, the blocked ones and the agents moving,
+and each item is a card with its tab, its machine and what it wants. An
+approval has Deny and Allow. A question its screen shows has its options,
+the recommended one with a star. A plan, or a question the phone cannot
+read, has Answer in chat; a form, failed CI and a stopped agent have Open.
+Both open the tab's chat. The section takes at most
+about half the screen and scrolls. A tap on its header folds it to one line,
+and the app remembers that. With nothing waiting it shows how many agents
+are moving, and with none at work it is gone. The tree below
 is the session's tabs as the window's sidebar draws them. A row leads with
 its repo's own icon, its favicon or logo, as in the window, or a tile with
 the repo's first letter when it has none; the computer sends the icon's

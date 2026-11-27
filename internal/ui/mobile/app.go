@@ -77,6 +77,7 @@ type App struct {
 	pair  pairView
 	cam   camFeed
 	list  listView
+	dock  phoneDock // the list's Needs you section
 	mach  machinesView
 	form  newForm // the New tab screen, while form.on
 	chat  chatView

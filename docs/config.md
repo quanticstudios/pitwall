@@ -80,6 +80,7 @@ send_key = "enter"                      # or "ctrl+enter": Ctrl+Enter sends and 
 tool_calls = "all"                      # or "failed", "none", "zen": which tool calls the chat shows
 suggest_next = false                    # after a turn, offer a predicted next prompt (Tab); uses the agent's plan
 away_summary = "on"                     # or "off": a Since you left card's two summary lines from the agent's cheapest model
+inbox_dock = "open"                     # or "folded": the chat's inbox dock lists its items, or one line with the counts
 
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag

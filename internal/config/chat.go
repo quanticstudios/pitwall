@@ -14,6 +14,7 @@ type Chat struct {
 	SendKey     string `toml:"send_key" enum:"enter,ctrl+enter" doc:"The composer's send key: enter sends with Enter, Shift+Enter adds a line; ctrl+enter sends with Ctrl+Enter (Cmd+Enter on macOS), Enter adds a line, and Ctrl+Shift+Enter does the other follow-up"`
 	ToolCalls   string `toml:"tool_calls" enum:"all,failed,none,zen" doc:"Which tool calls the desktop chat shows: all; failed hides a call once it succeeds; none hides every call; zen shows your messages, each turn's final reply and the agent's longer reports between calls. Errors, approvals and questions always show. The chat header's Tools button cycles it"`
 	SuggestNext bool   `toml:"suggest_next" doc:"After a turn ends, an empty composer shows a predicted next message in muted text; Tab fills it in. Each suggestion is one extra headless run of the chat's agent on its cheapest model, billed to the agent's plan, so it is off by default. Never while the agent works, at most once per turn, never in a guarded tab"`
+	InboxDock   string `toml:"inbox_dock" enum:"open,folded" doc:"The inbox dock under the chat, which lists what waits on you in your other tabs and machines with its answers as buttons: open lists them, folded shows one line with the counts. A click on the dock's header switches it and saves the choice here"`
 	AwaySummary string `toml:"away_summary" enum:"on,off" doc:"When you come back to a chat after 5 minutes or more and its agent worked meanwhile, a Since you left card above the box says how long you were away and what the log shows. on (the default) adds two lines from the chat's agent on its cheapest model: the state of the work and what it needs from you. It sends that model your last message, its first 1,500 characters, and the agent's replies since you left, their last 6,000, with secrets redacted, once per return. off shows the facts alone and calls no model"`
 }
 
@@ -64,10 +65,12 @@ type ChatSettings struct {
 	SuggestNext bool
 	// AwaySummary adds the model's two lines to a Since you left card.
 	AwaySummary bool
+	// DockFolded folds the inbox dock to its header.
+	DockFolded bool
 }
 
 func defaultChat() Chat {
-	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", Layout: ChatColumn, FollowUp: "queue", SendKey: "enter", ToolCalls: ToolsAll, AwaySummary: "on"}
+	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", Layout: ChatColumn, FollowUp: "queue", SendKey: "enter", ToolCalls: ToolsAll, InboxDock: "open", AwaySummary: "on"}
 }
 
 // resolveChat fills in [chat]'s values from c.
@@ -139,6 +142,13 @@ func resolveChat(c Chat) (ChatSettings, []issue) {
 	default:
 		out.ToolCalls = ToolsAll
 		issues = append(issues, issue{"chat.tool_calls", fmt.Sprintf("%q is not all, failed, none or zen; using all", c.ToolCalls)})
+	}
+	switch c.InboxDock {
+	case "", "open":
+	case "folded":
+		out.DockFolded = true
+	default:
+		issues = append(issues, issue{"chat.inbox_dock", fmt.Sprintf("%q is not open or folded; using open", c.InboxDock)})
 	}
 	switch c.AwaySummary {
 	case "", "on":

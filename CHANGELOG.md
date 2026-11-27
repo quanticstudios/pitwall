@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The inbox dock: under every chat, above the box, one list of what waits on you in your other tabs and machines. Approvals have Deny and Allow, questions their answers with the recommended one starred, forms open, and failed CI and stopped agents open their tab. It folds to one line, and the phone's list shows the same items at the top as Needs you.
 - The agent's reply in the chat reads at 15 sp and stops near 72 characters, in the Ledger layout too, so it stands out from the work rows around it. A report the agent writes between calls, such as Antigravity's findings, has a blue bar beside it, and short narration between calls draws smaller and muted.
 - The phone's chat has a floating title pill in place of its top bar: the tab's name and its state, such as Needs you in amber or Working in blue. A tap opens the tab's menu, which now holds Screen with Restart and Close tab. The composer shows the agent's status line on top, lists queued messages with Move up and Remove, shows the model, effort and mode as quiet text, and has one hint line under it.
 - A finished turn's work rolls up into one line, "Worked 2m 14s" with chips such as "6 tools", "2 files" and a red "1 test failed". Click it to see every call. Tools starts it open; Failed only, No tools and Zen start it folded, and Failed only keeps the failed calls under it. Ledger and Column both draw it.

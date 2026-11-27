@@ -273,7 +273,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 102
+const Level = 103
+
+// DockLevel is the first daemon that fills State.Inbox, the chat's inbox
+// dock.
+const DockLevel = 103
 
 // AwayLevel is the first daemon that fills State.Away and takes
 // ChatAwayDismiss.
