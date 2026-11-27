@@ -37,6 +37,10 @@ type listView struct {
 	noteUntil time.Time
 	// restarting are the tabs whose Restart is on its way, by State id.
 	restarting map[string]bool
+	// feed shows the Agents feed (triage.go) in place of the tree; the
+	// views row under the header switches it.
+	feed            bool
+	tabsTab, agents widget.Clickable
 }
 
 func (l *listView) btn(id string) *widget.Clickable {
@@ -99,11 +103,20 @@ func (a *App) listLayout(gtx C) {
 	}
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(a.listHeader),
+		layout.Rigid(a.views),
 		layout.Rigid(a.updateLine),
 		layout.Rigid(a.updateProgress),
 		layout.Rigid(a.offlineLine),
-		layout.Rigid(a.inbox),
+		layout.Rigid(func(gtx C) D {
+			if l.feed {
+				return D{} // the feed puts what waits first
+			}
+			return a.inbox(gtx)
+		}),
 		layout.Flexed(1, func(gtx C) D {
+			if l.feed {
+				return a.triageLayout(gtx)
+			}
 			if len(a.st.Workspaces) == 0 {
 				fillMax(gtx, th.Sidebar)
 				msg := "No tabs are open."
@@ -137,6 +150,62 @@ func (a *App) listLayout(gtx C) {
 	if l.menu == "sessions" {
 		a.sessionMenu(gtx)
 	}
+}
+
+// views is the row under the header that switches the list between
+// the session's tree (Tabs) and the Agents feed, with how many agents on
+// every machine need you.
+//
+// why: two tabs, one tap from launch, not a menu: the feed is the
+// phone's other start screen.
+func (a *App) views(gtx C) D {
+	th, l := a.th, &a.list
+	if l.tabsTab.Clicked(gtx) {
+		l.feed = false
+	}
+	if l.agents.Clicked(gtx) {
+		l.feed = true
+	}
+	n := 0
+	for _, s := range a.st.Sessions {
+		n += phone.NeedsYou(&a.st, s.ID)
+	}
+	tab := func(c *widget.Clickable, on bool, s string, count int) layout.FlexChild {
+		return layout.Flexed(1, func(gtx C) D {
+			return c.Layout(gtx, func(gtx C) D {
+				size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(rowH))
+				if c.Pressed() {
+					paint.FillShape(gtx.Ops, th.Pressed, clip.Rect{Max: size}.Op())
+				}
+				col := th.Muted
+				if on {
+					col = th.Fg
+					paint.FillShape(gtx.Ops, th.Primary, clip.Rect{Min: image.Pt(size.X/2-gtx.Dp(22), size.Y-gtx.Dp(2)), Max: image.Pt(size.X/2+gtx.Dp(22), size.Y)}.Op())
+				}
+				g := gtx
+				g.Constraints = layout.Exact(size)
+				layout.Center.Layout(g, func(gtx C) D {
+					gtx.Constraints.Min = image.Point{}
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx C) D {
+							return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Body), col, 1, s)
+						}),
+						layout.Rigid(func(gtx C) D {
+							if count == 0 {
+								return D{}
+							}
+							return layout.Inset{Left: 6}.Layout(gtx, func(gtx C) D { return badge(gtx, th, count) })
+						}),
+					)
+				})
+				return D{Size: size}
+			})
+		})
+	}
+	paint.FillShape(gtx.Ops, th.Sidebar, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(rowH))}.Op())
+	d := layout.Flex{}.Layout(gtx, tab(&l.tabsTab, !l.feed, "Tabs", 0), tab(&l.agents, l.feed, "Agents", n))
+	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, d.Size.Y-1), Max: d.Size}.Op())
+	return d
 }
 
 // shown is the link of the machine whose session the list shows: in a
