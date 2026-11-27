@@ -2,12 +2,15 @@ package chatin
 
 import (
 	"image"
+	"image/color"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"gioui.org/gesture"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -23,7 +26,10 @@ import (
 
 // queueFold is how many queued messages the strip lists before it starts
 // folded to a count.
-const queueFold = 2
+const queueFold = 3
+
+// queueRowDp is a queued row's height, the step a drag moves a row by.
+const queueRowDp = 30
 
 // queueState is the strip of queued messages above the card.
 type queueState struct {
@@ -32,6 +38,13 @@ type queueState struct {
 	until time.Time       // when order stops standing in for the chat's
 	open  bool            // the folded strip was opened
 	hov   map[string]*gesture.Hover
+	// drags is each row's grip; drag the row being dragged, from its
+	// index at the press, y0 the press's y and dy how far it went since.
+	drags map[string]*gesture.Drag
+	drag  string
+	from  int
+	y0    float32
+	dy    float32
 	// pending is what this window just queued, shown until the chat lists
 	// it, so a message never looks swallowed meanwhile.
 	pending []pendingRow
@@ -105,12 +118,44 @@ func Reorder(qs []session.QueuedInput, order []string) []session.QueuedInput {
 // down) past its neighbor, as the chat's queue all holds them; false
 // when there is no neighbor that way.
 func MoveTo(all, shown []session.QueuedInput, i, dir int) (int, bool) {
-	n := i + dir
-	if i < 0 || i >= len(shown) || n < 0 || n >= len(shown) {
+	return moveIndex(all, shown, i, i+dir)
+}
+
+// moveIndex is the ChatQueue Index that puts shown[i] where shown[to] is,
+// as the chat's queue all holds them; false for no move.
+func moveIndex(all, shown []session.QueuedInput, i, to int) (int, bool) {
+	if i < 0 || i >= len(shown) || to < 0 || to >= len(shown) || to == i {
 		return 0, false
 	}
-	j := slices.IndexFunc(all, func(q session.QueuedInput) bool { return q.ID == shown[n].ID })
+	j := slices.IndexFunc(all, func(q session.QueuedInput) bool { return q.ID == shown[to].ID })
 	return j, j >= 0
+}
+
+// dragTo is the index a row dragged from index from by dy px lands on,
+// among n rows rowH px tall: the nearest slot, kept in the list.
+func dragTo(from int, dy float32, rowH, n int) int {
+	if rowH <= 0 || n == 0 {
+		return from
+	}
+	to := from + int(math.Round(float64(dy)/float64(rowH)))
+	return min(max(to, 0), n-1)
+}
+
+// dragShift is how far row k of n, rowH px tall, draws from its slot
+// while row from is dragged dy px: the dragged row follows the pointer
+// and the rows it passed step aside.
+func dragShift(k, from int, dy float32, rowH, n int) int {
+	if k == from {
+		return min(max(int(dy), -from*rowH), (n-1-from)*rowH)
+	}
+	to := dragTo(from, dy, rowH, n)
+	switch {
+	case from < k && k <= to:
+		return -rowH
+	case to <= k && k < from:
+		return rowH
+	}
+	return 0
 }
 
 // shownQueue is what the strip lists at now: the chat's queue less the
@@ -181,61 +226,192 @@ func (c *Composer) queueEvents(gtx layout.Context, env Env) {
 			c.PullBack(q)
 			gtx.Execute(key.FocusCmd{Tag: &c.ed})
 		case c.click("qup:" + q.ID).Clicked(gtx):
-			c.move(env, shown, i, -1, gtx.Now)
+			c.move(env, shown, i, i-1, gtx.Now)
 		case c.click("qdown:" + q.ID).Clicked(gtx):
-			c.move(env, shown, i, 1, gtx.Now)
+			c.move(env, shown, i, i+1, gtx.Now)
+		}
+	}
+	c.dragEvents(gtx, env, shown)
+}
+
+// dragEvents runs the rows' grips: a press picks a row up, a drag moves
+// it, a release drops it where dragTo says.
+func (c *Composer) dragEvents(gtx layout.Context, env Env, shown []session.QueuedInput) {
+	if c.q.drag != "" && !slices.ContainsFunc(shown, func(q session.QueuedInput) bool { return q.ID == c.q.drag }) {
+		c.q.drag = "" // the row went while held
+	}
+	for i, q := range shown {
+		d := c.q.drags[q.ID]
+		if d == nil {
+			continue
+		}
+		for {
+			e, ok := d.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+			if !ok {
+				break
+			}
+			switch e.Kind {
+			case pointer.Press:
+				c.q.drag, c.q.from, c.q.y0, c.q.dy = q.ID, i, e.Position.Y, 0
+			case pointer.Drag:
+				if c.q.drag == q.ID {
+					c.q.dy = e.Position.Y - c.q.y0
+				}
+			case pointer.Release:
+				if c.q.drag == q.ID {
+					c.drop(env, shown, gtx.Dp(queueRowDp), gtx.Now)
+				}
+			case pointer.Cancel:
+				c.q.drag = ""
+			}
 		}
 	}
 }
 
-// move asks the chat to move shown[i] by dir and shows it moved at once.
-func (c *Composer) move(env Env, shown []session.QueuedInput, i, dir int, now time.Time) {
-	to, ok := MoveTo(env.Snap.QueuedInputs, shown, i, dir)
+// drop ends the drag: the held row moves to where it was let go.
+func (c *Composer) drop(env Env, shown []session.QueuedInput, rowH int, now time.Time) {
+	from := c.q.from
+	c.q.drag = ""
+	if from >= len(shown) {
+		return
+	}
+	c.move(env, shown, from, dragTo(from, c.q.dy, rowH, len(shown)), now)
+}
+
+// move asks the chat to put shown[i] at index to and shows it moved at once.
+func (c *Composer) move(env Env, shown []session.QueuedInput, i, to int, now time.Time) {
+	idx, ok := moveIndex(env.Snap.QueuedInputs, shown, i, to)
 	if !ok {
 		return
 	}
-	c.out = append(c.out, proto.ChatQueue{Chat: env.Chat, Action: "move", ID: shown[i].ID, Index: to})
-	ids := make([]string, len(shown))
-	for k, q := range shown {
-		ids[k] = q.ID
+	c.out = append(c.out, proto.ChatQueue{Chat: env.Chat, Action: "move", ID: shown[i].ID, Index: idx})
+	ids := make([]string, 0, len(shown))
+	for _, q := range shown {
+		ids = append(ids, q.ID)
 	}
-	ids[i], ids[i+dir] = ids[i+dir], ids[i]
+	id := ids[i]
+	ids = slices.Insert(slices.Delete(ids, i, i+1), to, id)
 	c.q.order, c.q.until = ids, now.Add(holdFor)
 }
 
-// queued is the messages waiting for the turn to end, above the card.
-// One muted line says why they wait, or that they go as one message, with
-// Resume or Send when they wait for the user. Up to queueFold show as
-// rows; more start folded to a count that opens on a click.
-func (c *Composer) queued(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
+// head is the top of the card: the agent's status row, then the
+// messages waiting for the turn to end, each over a hairline. One muted
+// line says why they wait, or that they go as one message, with Resume or
+// Send when they wait for the user. Up to queueFold show as rows, each
+// with a grip to drag it to another place; more start folded to a count
+// that opens on a click.
+func (c *Composer) head(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
+	w, y := gtx.Constraints.Max.X, 0
+	hair := gtx.Dp(1)
+	// put draws widget fn at y and a hairline under it.
+	put := func(fn layout.Widget) {
+		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+		d := fn(gtx)
+		o.Pop()
+		if d.Size.Y == 0 {
+			return
+		}
+		y += d.Size.Y
+		paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, y-hair), Max: image.Pt(w, y)}.Op())
+	}
+	put(func(gtx layout.Context) layout.Dimensions { return c.statusRow(gtx, th, env) })
 	qs := c.stripQueue(env.Snap, gtx.Now)
 	if len(qs) == 0 {
-		return layout.Dimensions{}
+		return layout.Dimensions{Size: image.Pt(w, y)}
 	}
 	folds := len(qs) > queueFold
-	var kids []layout.FlexChild
 	s := QueueStatus(env.Snap, qs, env.Separate)
-	if env.Snap.QueueReason == "" && !env.Snap.QueuePaused {
+	if env.Snap.QueueReason == "" && !env.Snap.QueuePaused && s != "" {
 		s = queueHint(env, s)
 	}
 	if s != "" || env.Snap.QueuePaused {
-		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return c.queueStatus(gtx, th, env, s)
-		}))
+		put(func(gtx layout.Context) layout.Dimensions { return c.queueStatus(gtx, th, env, s) })
 	}
 	if folds {
-		kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return c.queueHead(gtx, th, env, qs, folds)
-		}))
+		put(func(gtx layout.Context) layout.Dimensions { return c.queueHead(gtx, th, env, qs, folds) })
 	}
-	if !folds || c.q.open {
-		for i, q := range qs {
-			kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return c.queuedRow(gtx, th, env, q, i, len(qs))
-			}))
+	if folds && !c.q.open {
+		return layout.Dimensions{Size: image.Pt(w, y)}
+	}
+	rowH, n := gtx.Dp(queueRowDp), len(qs)
+	var held op.CallOp
+	heldY := -1
+	for k, q := range qs {
+		slot := y + k*rowH
+		shift := 0
+		if c.q.drag != "" {
+			shift = dragShift(k, c.q.from, c.q.dy, rowH, n)
+		}
+		m := op.Record(gtx.Ops)
+		if q.ID == c.q.drag {
+			r := image.Rectangle{Max: image.Pt(w, rowH)}
+			kit.Shadow(gtx, r, 0, kit.Raised)
+			paint.FillShape(gtx.Ops, th.Surface, clip.Rect(r).Op())
+			paint.FillShape(gtx.Ops, th.Hover, clip.Rect(r).Op())
+		}
+		c.queuedRow(gtx, th, env, q, k, n)
+		paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, rowH-hair), Max: image.Pt(w, rowH)}.Op())
+		call := m.Stop()
+		if q.ID == c.q.drag {
+			held, heldY = call, slot+shift
+			continue
+		}
+		o := op.Offset(image.Pt(0, slot+shift)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+	}
+	if heldY >= 0 {
+		o := op.Offset(image.Pt(0, heldY)).Push(gtx.Ops)
+		held.Add(gtx.Ops)
+		o.Pop()
+	}
+	// The grips last, on top, at their rows' resting slots: a drag's
+	// positions then stay in one frame of reference while the row moves.
+	for k, q := range qs {
+		if !c.movable(env, q) {
+			continue
+		}
+		if c.q.drags == nil {
+			c.q.drags = map[string]*gesture.Drag{}
+		}
+		d := c.q.drags[q.ID]
+		if d == nil {
+			d = new(gesture.Drag)
+			c.q.drags[q.ID] = d
+		}
+		o := op.Offset(image.Pt(0, y+k*rowH)).Push(gtx.Ops)
+		area := clip.Rect{Max: image.Pt(gtx.Dp(theme.SpaceM+14+theme.SpaceS), rowH)}.Push(gtx.Ops)
+		pass := pointer.PassOp{}.Push(gtx.Ops)
+		semantic.LabelOp("Drag to reorder").Add(gtx.Ops)
+		d.Add(gtx.Ops)
+		cur := pointer.CursorGrab
+		if c.q.drag == q.ID {
+			cur = pointer.CursorGrabbing
+		}
+		cur.Add(gtx.Ops)
+		pass.Pop()
+		area.Pop()
+		o.Pop()
+	}
+	return layout.Dimensions{Size: image.Pt(w, y+n*rowH)}
+}
+
+// movable reports whether row q can be dragged: the daemon moves queued
+// rows, and q is the chat's, not one being edited.
+func (c *Composer) movable(env Env, q session.QueuedInput) bool {
+	return env.Queue && !strings.HasPrefix(q.ID, localID) && q.ID != c.qedit.id
+}
+
+// gripDots draws the six-dot drag handle centered in a size px square.
+func gripDots(gtx layout.Context, size int, col color.NRGBA) layout.Dimensions {
+	r := max(1, gtx.Dp(1.1))
+	cx, cy, dx, dy := size/2, size/2, gtx.Dp(2), gtx.Dp(4)
+	for _, x := range []int{cx - dx, cx + dx} {
+		for _, y := range []int{cy - dy, cy, cy + dy} {
+			paint.FillShape(gtx.Ops, col, clip.Ellipse(image.Rect(x-r, y-r, x+r, y+r)).Op(gtx.Ops))
 		}
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+	return layout.Dimensions{Size: image.Pt(size, size)}
 }
 
 // queueHead is the folded strip's line: the fold's chevron and the
@@ -255,7 +431,7 @@ func (c *Composer) queueHead(gtx layout.Context, th *theme.Theme, env Env, qs []
 		}}
 		if failed > 0 {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Readable(th.Red, th.Bg), itoa(failed)+" not sent")
+				return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Readable(th.Red, th.Surface), itoa(failed)+" not sent")
 			})
 		}
 		return row(gtx, gtx.Dp(theme.SpaceS), h, ws...)
@@ -295,7 +471,7 @@ func (c *Composer) queueHead(gtx layout.Context, th *theme.Theme, env Env, qs []
 // and under the pointer Send now, Edit, Move up and down and Remove. One
 // that could not be sent shows the alert icon and Retry at all times.
 func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q session.QueuedInput, i, n int) layout.Dimensions {
-	h := gtx.Dp(30)
+	h := gtx.Dp(queueRowDp)
 	w := gtx.Constraints.Max.X
 	if c.q.hov == nil {
 		c.q.hov = map[string]*gesture.Hover{}
@@ -345,7 +521,7 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	if editing || strings.HasPrefix(q.ID, localID) {
 		acts = nil
 	}
-	over := hv.Update(gtx.Source)
+	over := hv.Update(gtx.Source) && c.q.drag == ""
 	for _, a := range acts {
 		if b := c.click(a.key + q.ID); a.key != "" && (b.Hovered() || gtx.Focused(b)) {
 			over = true
@@ -353,9 +529,9 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	}
 	switch {
 	case editing:
-		paint.FillShape(gtx.Ops, th.SelectedBg, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
-	case over:
-		paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(rect, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.SelectedBg, clip.Rect(rect).Op())
+	case over && c.q.drag == "":
+		paint.FillShape(gtx.Ops, th.Hover, clip.Rect(rect).Op())
 	}
 	area := clip.Rect(rect).Push(gtx.Ops)
 	hv.Add(gtx.Ops)
@@ -396,28 +572,33 @@ func (c *Composer) queuedRow(gtx layout.Context, th *theme.Theme, env Env, q ses
 	bg.Constraints = layout.Constraints{Max: image.Pt(w, h)}
 	bd := row(bg, gtx.Dp(theme.Space2XS), h, ws...)
 	bcall := m.Stop()
-	o := op.Offset(image.Pt(w-bd.Size.X-gtx.Dp(1), 0)).Push(gtx.Ops)
+	o := op.Offset(image.Pt(w-bd.Size.X-gtx.Dp(theme.SpaceXS), 0)).Push(gtx.Ops)
 	bcall.Add(gtx.Ops)
 	o.Pop()
 	line, _, _ := strings.Cut(strings.TrimSpace(q.Text), "\n")
 	if line == "" && len(q.Attachments) > 0 {
 		line = "Image"
 	}
-	icon, ic, fg := "list-plus", th.Muted, theme.Mix(th.Fg, th.Bg, 0.2)
+	icon, ic, fg := "", th.Muted, theme.Mix(th.Fg, th.Surface, 0.15)
 	if q.Alone && env.Separate {
 		icon = "split"
 	}
 	if failed {
-		icon, ic, fg = "circle-alert", th.Readable(th.Red, th.Bg), th.Muted
+		icon, ic, fg = "circle-alert", th.Readable(th.Red, th.Surface), th.Muted
 	}
 	if editing {
-		icon, ic = "pencil", th.Readable(th.Primary, th.Bg)
+		icon, ic = "pencil", th.Readable(th.Primary, th.Surface)
 	}
 	tg := gtx
 	tg.Constraints = layout.Constraints{Max: image.Pt(max(0, w-bd.Size.X-gtx.Dp(theme.SpaceS)-gtx.Dp(theme.SpaceM)), h)}
 	o = op.Offset(image.Pt(gtx.Dp(theme.SpaceM), 0)).Push(gtx.Ops)
 	row(tg, gtx.Dp(theme.SpaceS), h,
-		func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, icon, gtx.Dp(14), ic) },
+		func(gtx layout.Context) layout.Dimensions {
+			if icon == "" {
+				return gripDots(gtx, gtx.Dp(14), ic)
+			}
+			return sidebar.Icon(gtx, icon, gtx.Dp(14), ic)
+		},
 		func(gtx layout.Context) layout.Dimensions {
 			return text(gtx, th, th.UIFont, th.Sp(theme.Body), fg, line)
 		})

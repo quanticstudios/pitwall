@@ -365,8 +365,9 @@ func followKeys(env Env) (queue, steer string) {
 	return send, other
 }
 
-// placeholder is the empty box's line: Placeholder, and while the agent
-// works, which key queues and which steers.
+// placeholder is the empty box's one hint line: Placeholder, and while
+// the agent works, which key queues and which steers, as "Enter queues ·
+// Ctrl+Enter steers".
 func placeholder(env Env) string {
 	s := env.Snap
 	if !s.Busy() || asking(s) || Pending(s) {
@@ -375,11 +376,11 @@ func placeholder(env Env) string {
 	queue, steer := followKeys(env)
 	switch {
 	case !env.Steers:
-		return "Type to queue: this agent reads it when the turn ends"
+		return queue + " queues for when the turn ends"
 	case env.Steer:
-		return "Type to steer the running turn · " + queue + " queues"
+		return steer + " steers · " + queue + " queues"
 	}
-	return "Type to queue a follow-up · " + steer + " steers it in now"
+	return queue + " queues · " + steer + " steers"
 }
 
 // queueHint is the strip's line under a running turn when no reason

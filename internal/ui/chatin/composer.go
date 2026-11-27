@@ -974,9 +974,6 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 	cg := gtx
 	cg.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, gtx.Constraints.Max.Y)}
 	m := op.Record(gtx.Ops)
-	queued := c.queued(cg, th, env)
-	qcall := m.Stop()
-	m = op.Record(gtx.Ops)
 	var card layout.Dimensions
 	if env.Ledger {
 		card = c.ledgerCard(cg, th, env)
@@ -984,37 +981,16 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 		card = c.card(cg, th, env)
 	}
 	call := m.Stop()
-	var statusCall op.CallOp
-	var statusDims layout.Dimensions
-	if env.Ledger {
-		m = op.Record(gtx.Ops)
-		statusDims = c.ledgerStatusLine(cg, th, env)
-		statusCall = m.Stop()
-	}
 	top := gtx.Dp(theme.SpaceM)
 	if env.Ledger {
 		top = gtx.Dp(theme.SpaceXS)
-	}
-	if queued.Size.Y > 0 {
-		top += queued.Size.Y + gtx.Dp(theme.SpaceS)
 	}
 	bot := gtx.Dp(theme.SpaceL)
 	if env.Ledger {
 		bot = gtx.Dp(theme.SpaceM + theme.Space2XS) // 14 dp, mock .dock bottom padding
 	}
-	statusGap := 0
-	if statusDims.Size.Y > 0 {
-		statusGap = gtx.Dp(theme.SpaceS)
-	}
-	h := top + card.Size.Y + statusGap + statusDims.Size.Y + bot
+	h := top + card.Size.Y + bot
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: image.Pt(full, h)}.Op())
-	qtop := gtx.Dp(theme.SpaceM)
-	if env.Ledger {
-		qtop = gtx.Dp(theme.SpaceXS)
-	}
-	qoff := op.Offset(image.Pt(x, qtop)).Push(gtx.Ops)
-	qcall.Add(gtx.Ops)
-	qoff.Pop()
 	off := op.Offset(image.Pt(x, top)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	if t := c.popT.Get(gtx); c.menu || t > 0 {
@@ -1027,11 +1003,6 @@ func (c *Composer) Layout(gtx layout.Context, th *theme.Theme, env Env) layout.D
 		c.slash.pop(gtx, th, image.Rectangle{Max: c.cardSize}, image.Rectangle{Min: image.Pt(0, -1<<20), Max: c.cardSize})
 	}
 	off.Pop()
-	if statusDims.Size.Y > 0 {
-		soff := op.Offset(image.Pt(x, top+card.Size.Y+statusGap)).Push(gtx.Ops)
-		statusCall.Add(gtx.Ops)
-		soff.Pop()
-	}
 	return layout.Dimensions{Size: image.Pt(full, h)}
 }
 
@@ -1040,6 +1011,7 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 	m := op.Record(gtx.Ops)
 	c.barY = 0
 	d := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.head(gtx, th, env); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.shelf(gtx, th); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.field(gtx, th, env); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return c.bar(gtx, th, env) }),
@@ -1053,8 +1025,11 @@ func (c *Composer) card(gtx layout.Context, th *theme.Theme, env Env) layout.Dim
 		ring = theme.Mix(th.Surface, th.Primary, 0.5)
 	}
 	paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(rect.Inset(gtx.Dp(1)), r-gtx.Dp(1)).Op(gtx.Ops))
+	inner := clip.UniformRRect(rect.Inset(gtx.Dp(1)), r-gtx.Dp(1))
+	paint.FillShape(gtx.Ops, th.Surface, inner.Op(gtx.Ops))
+	cl := inner.Push(gtx.Ops) // the head's rows fill to the rounded edge
 	call.Add(gtx.Ops)
+	cl.Pop()
 	if c.note != "" {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return d }),
@@ -1392,7 +1367,7 @@ func (c *Composer) bar(gtx layout.Context, th *theme.Theme, env Env) layout.Dime
 	})
 }
 
-func pickFg(th *theme.Theme) color.NRGBA { return theme.Mix(th.Fg, th.Muted, 0.3) }
+func pickFg(th *theme.Theme) color.NRGBA { return th.Muted }
 
 // modeLook is the mode chip's color, icon and tooltip for mode m. Bypass
 // is red with a shield, as Claude Code's TUI shows it in red.
@@ -1405,7 +1380,7 @@ func modeLook(th *theme.Theme, m string) (color.NRGBA, string, string) {
 	case ModeBypass:
 		return th.Readable(th.Red, th.Surface), "shield", "Bypass permissions: Claude runs every tool without asking (Shift+Tab)"
 	}
-	return pickFg(th), "circle", "Permission mode (Shift+Tab)"
+	return pickFg(th), "", "Permission mode (Shift+Tab)"
 }
 
 // pick is a 28dp ghost control: an icon, a label, a chevron.
@@ -1413,7 +1388,7 @@ func (c *Composer) pick(gtx layout.Context, th *theme.Theme, b *widget.Clickable
 	gtx.Constraints.Min = image.Point{}
 	return kit.Clickable(gtx, b, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
-		h, pad := gtx.Dp(28), gtx.Dp(theme.SpaceS)
+		h, pad := gtx.Dp(24), gtx.Dp(theme.SpaceS)
 		m := op.Record(gtx.Ops)
 		var ws []layout.Widget
 		if icon != "" {
