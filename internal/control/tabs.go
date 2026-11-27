@@ -60,6 +60,10 @@ type Tab struct {
 	// Stale marks a worker on a host pitwall cannot reach now: its state
 	// is "unknown".
 	Stale bool `json:"stale"`
+	// Away is the tab's Since you left card while it has one (its chat's,
+	// else its first pane's that has one), null otherwise; pitwall away
+	// prints them all.
+	Away *model.Away `json:"away"`
 }
 
 // Pane is one pane in Tab.PaneList, a contract like it.
@@ -135,11 +139,29 @@ func Rows(state model.State, session string, only map[string]bool, where func(mo
 				}
 			}
 		}
+		if cards := TabAway(state, w); len(cards) > 0 {
+			t.Away = &cards[0]
+		}
 		t.PaneList = []Pane{}
 		for i, p := range panes {
 			t.PaneList = append(t.PaneList, PaneOf(state, i+1, p))
 		}
 		out = append(out, t)
+	}
+	return out
+}
+
+// TabAway is w's Since you left cards: its chat's, then its panes' in
+// layout order.
+func TabAway(state model.State, w model.Workspace) []model.Away {
+	var out []model.Away
+	if a, ok := state.Away[w.Chat]; ok && w.Chat != "" {
+		out = append(out, a)
+	}
+	for _, p := range TabPanes(state, w) {
+		if a, ok := state.Away[p.ID]; ok {
+			out = append(out, a)
+		}
 	}
 	return out
 }

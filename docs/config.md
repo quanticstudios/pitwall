@@ -79,6 +79,7 @@ follow_up = "queue"                     # or "steer": what the send key does whi
 send_key = "enter"                      # or "ctrl+enter": Ctrl+Enter sends and Enter adds a line
 tool_calls = "all"                      # or "failed", "none", "zen": which tool calls the chat shows
 suggest_next = false                    # after a turn, offer a predicted next prompt (Tab); uses the agent's plan
+away_summary = "on"                     # or "off": a Since you left card's two summary lines from the agent's cheapest model
 
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag

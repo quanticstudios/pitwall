@@ -1,10 +1,11 @@
-18.101
+18.102
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
 image.Rectangle{Min image.Point; Max image.Point}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; Command string; UpdatedAt time.Time; Unseen bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Repeats int; Repeating string; Options []string; OptionNotes []string; Buttons []string; Menu bool; Background bool}
+model.Away{Chat string; Since time.Time; At time.Time; Replies int; Turns int; Edited []string; EditedN int; Commands int; Failed string; Tests string; Item string; Seq int64; Status string; Needs string; Asking bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
 model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; QueueHeld string; Turns int; Seq int64; UpdatedAt time.Time; Terminal string}
 model.ChatQueue{N int; Held string}
@@ -28,7 +29,7 @@ model.RemoteSession{Host string; Session string; Forget []string}
 model.RemoteWorker{ID string; Host string; Parent string; Since time.Time; Lost string}
 model.Server{PID int; Name string; Ports []int; Agent bool}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin; Workers []model.RemoteWorker}
-model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; Servers map[string][]model.Server; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form}
+model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; Servers map[string][]model.Server; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form; Away map[string]model.Away}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.TabStart{SessionID string; SessionName string; Parent string; ParentPane string}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
@@ -52,6 +53,7 @@ proto.ChatApprove{Chat string; Request string; Decision string; Reason string}
 proto.ChatArchive{Chat string; Delete bool}
 proto.ChatAside{Chat string; ID string; Question string}
 proto.ChatAsideResult{Chat string; ID string; Answer string; Err string}
+proto.ChatAwayDismiss{Chat string}
 proto.ChatDeltas{Chat string; Snapshot []uint8; Seq int64; Deltas [][]uint8; Older int64; Page int64; Item []uint8; Push bool}
 proto.ChatFind{Chat string; Query string}
 proto.ChatFindResult{Chat string; Query string; Hits []session.FindHit; More bool; Err string}

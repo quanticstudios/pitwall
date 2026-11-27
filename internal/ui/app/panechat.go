@@ -50,12 +50,8 @@ func paneChatOf(st *model.State, id string) *model.Chat {
 // in the view [chat] claude, codex or antigravity starts it in unless
 // flipped since.
 func (u *ui) paneChatShown(st *model.State, ws *model.Workspace, id string) bool {
-	if ws == nil || ws.Chat != "" || curHost() != "" || u.hostOf(id) != "" || linkLevel(u.b) < proto.PaneChatLevel {
-		return false
-	}
-	c := paneChatOf(st, id)
-	if c == nil || !u.paneChatServed(st, id) || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel ||
-		c.Provider == model.ProviderAntigravity && linkLevel(u.b) < proto.AntigravityLevel {
+	c := u.paneChatable(st, ws, id)
+	if c == nil {
 		delete(u.paneFlip, id) // the next agent in the pane starts in the default view
 		return false
 	}
@@ -68,6 +64,21 @@ func (u *ui) paneChatShown(st *model.State, ws *model.Workspace, id string) bool
 		start = u.cfg.Chat.Antigravity
 	}
 	return ok && start != u.paneFlip[id]
+}
+
+// paneChatable is pane id of tab ws as a chat when it can show as one,
+// in either view: a pane chat of a tab of panes, on a local daemon that
+// answers for it; nil otherwise.
+func (u *ui) paneChatable(st *model.State, ws *model.Workspace, id string) *model.Chat {
+	if ws == nil || ws.Chat != "" || curHost() != "" || u.hostOf(id) != "" || linkLevel(u.b) < proto.PaneChatLevel {
+		return nil
+	}
+	c := paneChatOf(st, id)
+	if c == nil || !u.paneChatServed(st, id) || c.Provider == model.ProviderCodex && linkLevel(u.b) < proto.CodexPaneChatLevel ||
+		c.Provider == model.ProviderAntigravity && linkLevel(u.b) < proto.AntigravityLevel {
+		return nil
+	}
+	return c
 }
 
 // flipPaneChat flips pane id between its chat and the TUI.

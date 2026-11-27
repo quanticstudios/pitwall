@@ -71,6 +71,9 @@ type Tab struct {
 	// a repo without one, "" outside a repo; Dir is the folder it is in now.
 	Icon string `json:"icon,omitempty"`
 	Dir  string `json:"-"`
+	// Away is the tab's chat's Since you left card while it shows, which
+	// POST /api/away dismisses.
+	Away *model.Away `json:"away,omitempty"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`
@@ -178,6 +181,9 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 			t.Label = "Exited, code unknown"
 		}
 		t.Answer, t.Reply, t.Mode = false, false, ""
+	}
+	if a, ok := st.Away[t.Pane]; ok {
+		t.Away = &a
 	}
 	t.Agent = string(t.Provider)
 	if !t.Chat && !exited {

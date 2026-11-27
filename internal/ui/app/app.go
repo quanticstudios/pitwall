@@ -398,6 +398,7 @@ type ui struct {
 	paneHeads   map[string]*chatHead         // the pane chats' headers, by pane id
 	tui         map[string]*tuiDialog        // TUI-only commands' dialogs, by chat id (tuidialog.go)
 	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
+	awayPanes   map[string]*awayPane         // terminal panes' Since you left cards, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
 	stashes     *stashFiles                  // the composers' stashed drafts on disk, see stash.go
 	load        chatLoad                     // the buttons of a chat that did not load
@@ -1610,6 +1611,7 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 			dim = paint.PushOpacity(gtx.Ops, 0.4)
 		}
 		input, cols, rows = drawTerm(tg, &p.view, u.th, &g, m, focused)
+		input = u.awayEsc(st, id, input)
 		if down {
 			dim.Pop()
 			input = nil // typing is off, never queued, until the host is back
@@ -1638,6 +1640,7 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 		u.drawFind(gtx, grid, findFocus)
 	}
 	u.copyBadge(gtx, p, grid)
+	u.layoutAwayPane(gtx, st, id, grid)
 	if u.hints.on && id == u.hints.pane {
 		u.badge(gtx, "HINTS", [][2]string{{"a-z", "copy"}, {"Shift", "open"}, {"Esc", "exit"}}, grid)
 	}

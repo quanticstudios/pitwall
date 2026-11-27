@@ -190,6 +190,8 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatEntries: d.phoneChatEntries,
 		ChatMenu:    d.phoneChatMenu,
 		Watch:       d.phoneWatch,
+		AwayDismiss: func(chat string) { d.mu.Lock(); d.awayDrop(chat); d.mu.Unlock() },
+		View:        d.awayView,
 		Send:        d.phoneSend,
 		Command:     d.phoneSet,
 		Queue:       d.phoneQueue,

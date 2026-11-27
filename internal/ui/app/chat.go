@@ -116,6 +116,13 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		t.LiveSteps = u.link().Level >= proto.QuestionStepLevel
 		paneLimit(st, id, &s, gtx.Now)
 		t.Limit = u.limitResume(st, id, ws, &s)
+		t.Away, t.AwayNow = nil, ""
+		if a, ok := st.Away[id]; ok {
+			t.Away = &a
+			if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == id }); i >= 0 {
+				t.AwayNow = model.AwayNow(st.AwaitPR(st.Activities[i]).State)
+			}
+		}
 		t.CopyOnSelect = u.cfg.CopyOnSelect
 		t.Copied = func(gtx gl.Context, s string, r image.Rectangle) {
 			u.showNotice(gtx, copiedText(s), r.Sub(u.contentOrigin))
@@ -179,9 +186,13 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 			// Open in aide is the header's menu; the transcript's own copy
 			// floated over the reply's top right.
 			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions { return t.Layout(gtx, u.th, &s, false) }),
+			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.AwayCard(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return t.TodoStrip(gtx, u.th, &s) }),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return cmp.Layout(gtx, u.th, env) }),
 		)
+		if t.AwayDismissed() {
+			u.send(proto.ChatAwayDismiss{Chat: id})
+		}
 		for _, c := range t.Cites() {
 			cmp.AddQuote(c.Text, c.Src)
 			gtx.Execute(op.InvalidateCmd{}) // the composer laid out before the quote came

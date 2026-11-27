@@ -187,6 +187,65 @@ stops a run still going. T3 Code asks the live session instead (Claude's
 cache; a pane chat has no such session to ask, so pitwall pays for a short
 context on a cheap model instead.
 
+## Since you left
+
+Come back to a tab that no window had on screen and no phone had open for
+5 minutes or more, while its agent worked, and pitwall says what happened:
+how long you were away, the agent's state now (Working, Needs you or
+Done), two summary lines (see below), how many messages and turns came,
+the files it edited, how many commands it ran, the last one that failed,
+and the last test run's result.
+
+A window counts as having the tab on screen while it is focused and shows
+that tab. The phone counts while it has the chat open in the foreground:
+the Android app and the page tell the computer every 30 seconds that they
+show it, and say so when they go to the background or the screen goes
+off. A phone that stops telling, because the system froze the app or the
+connection dropped, stops counting 75 seconds after it last did. Typing
+in the agent's terminal counts as being there too.
+
+Where it shows depends on how you look at the agent:
+
+- **In its terminal** (the TUI in a pane), a card floats at the bottom of
+  the pane, up to 560 dp wide. It never takes the keys: they still go to
+  the agent, and typing closes the card. **Escape** or the **x** closes it
+  without reaching the agent. **Open chat** shows the pane as pitwall's
+  chat, for a Claude Code, Codex or Antigravity pane. A chat tab switched
+  to its agent's terminal gets the same card, and Open chat goes back to
+  the chat.
+- **In pitwall's chat**, a marker in the log sits above the first message
+  you missed, "Since you left · 47m". When what you missed is taller than
+  the log's view, a card with the summary and the facts sits above the
+  box too, with **First missed** to jump there and the **x**; otherwise
+  the log already shows it all, and the marker is enough. The card also
+  goes once you scroll up to the first missed message and back down. When
+  Claude Code writes its own recap since you left, that recap is the card.
+- **On the phone**, the Android app and the page follow the chat's rule:
+  the marker always, the card when what you missed is taller than the
+  screen.
+- **From the command line**, `pitwall away [tab]` prints the cards and
+  `pitwall away --dismiss <tab>` clears one; `pitwall ls --json` rows carry
+  the card as `away`. Reading keeps it. See [Command line](cli.md).
+
+Sending a message clears the card, and so does closing it anywhere: in
+the pane, in the chat, on the phone or with `pitwall away --dismiss`.
+
+With **Summaries** on in Settings (`[chat] away_summary = "on"`, the
+default), the card adds two lines from the chat's own agent on its cheapest
+model, the same headless run as a suggested prompt: where the work stands,
+and what it needs from you. pitwall asks once per return, when the card
+appears, never after each turn, and never in a guarded tab. The facts show
+at once and the two lines when they come; a failed run leaves the facts
+alone. **Off** shows the facts and calls no model.
+
+The model gets only this, with secrets such as tokens, keys and passwords
+replaced by `logs.Redact`:
+
+- your last message to the agent, its first 1,500 characters;
+- the agent's replies since you left, their last 6,000 characters.
+
+No tool calls, command output, file contents or earlier turns go with it.
+
 ## Servers
 
 The **Servers** tab of the chat's side panel lists the dev servers the tab
@@ -339,6 +398,7 @@ layout = "column"   # or "ledger": time/agent gutter, unrolled tool rows, plan s
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's and composer's column
 tool_calls = "all"  # or "failed", "none", "zen": which tool calls show
 suggest_next = false # after a turn, offer a predicted next prompt; uses the agent's plan
+away_summary = "on" # or "off": a Since you left card's two lines from the agent's cheapest model
 
 [font]
 chat_code_size = 0  # code in the chat; 0 follows chat_size

@@ -87,7 +87,7 @@ func (d *Daemon) chatSuggest(ctx context.Context, m proto.ChatSuggest) proto.Cha
 	if d.o.SuggestNext == nil || !d.o.SuggestNext() {
 		return fail("off", "suggested prompts are off ([chat] suggest_next)")
 	}
-	run, err := d.suggestOf(m.Chat)
+	run, err := d.suggestOf(m.Chat, 4*suggestItems)
 	if err != nil {
 		var ce chatError
 		if errors.As(err, &ce) {
@@ -143,7 +143,7 @@ func (d *Daemon) chatSuggest(ctx context.Context, m proto.ChatSuggest) proto.Cha
 	case run.busy() || run.turn() != m.Turn:
 		job.res = proto.ChatSuggestResult{Code: "stale", Err: "the chat moved on"}
 	default:
-		job.res = proto.ChatSuggestResult{Text: text}
+		job.res = proto.ChatSuggestResult{Text: cleanSuggestion(text)}
 	}
 	r := job.res
 	r.Chat, r.Turn = m.Chat, m.Turn
@@ -162,7 +162,7 @@ type suggestCmd struct {
 }
 
 // runSuggest runs cmd in run's folder and environment and returns the
-// suggestion it printed. It stops the process when run.busy turns true.
+// answer it printed. It stops the process when run.busy turns true.
 func runSuggest(ctx context.Context, run suggestRun, cmd suggestCmd) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, suggestWait)
 	defer cancel()
@@ -206,7 +206,7 @@ wait:
 	if run.prov == model.ProviderAntigravity {
 		out = agyResponse(out, run.env)
 	}
-	return cleanSuggestion(out), nil
+	return out, nil
 }
 
 // suggestEnv is the daemon's environment without the session markers and
@@ -433,8 +433,9 @@ func lastTurn(snap session.Snapshot) string {
 }
 
 // suggestOf is what a suggestion for chat id runs with: a pane chat's
-// agent, transcript and pane environment, or a New task chat's.
-func (d *Daemon) suggestOf(id string) (suggestRun, error) {
+// agent, transcript (its newest tail items) and pane environment, or a
+// New task chat's.
+func (d *Daemon) suggestOf(id string, tail int) (suggestRun, error) {
 	d.mu.Lock()
 	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
 	var p model.Pane
@@ -451,7 +452,7 @@ func (d *Daemon) suggestOf(id string) (suggestRun, error) {
 			pc.mu.Lock()
 			defer pc.mu.Unlock()
 			s := pc.snap
-			s.Content = slices.Clone(s.Content[max(0, len(s.Content)-4*suggestItems):])
+			s.Content = slices.Clone(s.Content[max(0, len(s.Content)-tail):])
 			s.Turns = slices.Clone(s.Turns)
 			return s
 		}
@@ -476,7 +477,7 @@ func (d *Daemon) suggestOf(id string) (suggestRun, error) {
 	var run suggestRun
 	if !c.do(func() {
 		s := c.snap
-		s.Content = slices.Clone(s.Content[max(0, len(s.Content)-4*suggestItems):])
+		s.Content = slices.Clone(s.Content[max(0, len(s.Content)-tail):])
 		s.Turns = slices.Clone(s.Turns)
 		run = suggestRun{prov: c.cfg.Provider, dir: c.cfg.Cwd, env: slices.Clone(c.cfg.Env), snap: s,
 			guarded: envGet(c.cfg.Env)(guard.Env) != ""}

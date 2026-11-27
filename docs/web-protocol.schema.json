@@ -4374,7 +4374,8 @@
         "status",
         "host",
         "addr",
-        "stale"
+        "stale",
+        "away"
       ],
       "properties": {
         "n": {
@@ -4461,6 +4462,30 @@
         },
         "stale": {
           "type": "boolean"
+        },
+        "away": {
+          "description": "The tab's Since you left card while it has one, null otherwise: what its agent did while no window or phone showed it for 5 minutes or more. See pitwall away.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "chat": { "type": "string" },
+            "since": { "type": "string" },
+            "at": { "type": "string" },
+            "replies": { "type": "integer", "minimum": 0 },
+            "turns": { "type": "integer", "minimum": 0 },
+            "edited": { "type": "array", "items": { "type": "string" } },
+            "editedN": { "type": "integer", "minimum": 0 },
+            "commands": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "string" },
+            "tests": { "type": "string" },
+            "item": { "type": "string" },
+            "seq": { "type": "integer" },
+            "status": { "type": "string" },
+            "needs": { "type": "string" },
+            "asking": { "type": "boolean" }
+          }
         }
       },
       "additionalProperties": false

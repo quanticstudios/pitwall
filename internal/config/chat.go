@@ -14,6 +14,7 @@ type Chat struct {
 	SendKey     string `toml:"send_key" enum:"enter,ctrl+enter" doc:"The composer's send key: enter sends with Enter, Shift+Enter adds a line; ctrl+enter sends with Ctrl+Enter (Cmd+Enter on macOS), Enter adds a line, and Ctrl+Shift+Enter does the other follow-up"`
 	ToolCalls   string `toml:"tool_calls" enum:"all,failed,none,zen" doc:"Which tool calls the desktop chat shows: all; failed hides a call once it succeeds; none hides every call; zen shows only your messages and each turn's final reply. Errors, approvals and questions always show. The chat header's Tools button cycles it"`
 	SuggestNext bool   `toml:"suggest_next" doc:"After a turn ends, an empty composer shows a predicted next message in muted text; Tab fills it in. Each suggestion is one extra headless run of the chat's agent on its cheapest model, billed to the agent's plan, so it is off by default. Never while the agent works, at most once per turn, never in a guarded tab"`
+	AwaySummary string `toml:"away_summary" enum:"on,off" doc:"When you come back to a chat after 5 minutes or more and its agent worked meanwhile, a Since you left card above the box says how long you were away and what the log shows. on (the default) adds two lines from the chat's agent on its cheapest model: the state of the work and what it needs from you. It sends that model your last message, its first 1,500 characters, and the agent's replies since you left, their last 6,000, with secrets redacted, once per return. off shows the facts alone and calls no model"`
 }
 
 // Tool call visibility, [chat] tool_calls.
@@ -61,10 +62,12 @@ type ChatSettings struct {
 	// SuggestNext shows a predicted next prompt in an empty composer after
 	// a turn ends.
 	SuggestNext bool
+	// AwaySummary adds the model's two lines to a Since you left card.
+	AwaySummary bool
 }
 
 func defaultChat() Chat {
-	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", Layout: ChatColumn, FollowUp: "queue", SendKey: "enter", ToolCalls: ToolsAll}
+	return Chat{Claude: "chat", Codex: "chat", Antigravity: "chat", Width: "standard", Layout: ChatColumn, FollowUp: "queue", SendKey: "enter", ToolCalls: ToolsAll, AwaySummary: "on"}
 }
 
 // resolveChat fills in [chat]'s values from c.
@@ -136,6 +139,14 @@ func resolveChat(c Chat) (ChatSettings, []issue) {
 	default:
 		out.ToolCalls = ToolsAll
 		issues = append(issues, issue{"chat.tool_calls", fmt.Sprintf("%q is not all, failed, none or zen; using all", c.ToolCalls)})
+	}
+	switch c.AwaySummary {
+	case "", "on":
+		out.AwaySummary = true
+	case "off":
+	default:
+		out.AwaySummary = true
+		issues = append(issues, issue{"chat.away_summary", fmt.Sprintf("%q is not on or off; using on", c.AwaySummary)})
 	}
 	return out, issues
 }

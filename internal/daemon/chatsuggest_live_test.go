@@ -48,3 +48,25 @@ func TestLiveSuggest(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveAway asks the real Claude Code for a Since you left summary of
+// awaySnap with the prompt awayOpen sends, under the throwaway
+// PITWALL_LIVE_CLAUDE_DIR.
+func TestLiveAway(t *testing.T) {
+	dir := os.Getenv("PITWALL_LIVE_CLAUDE_DIR")
+	if dir == "" {
+		t.Skip("PITWALL_LIVE_CLAUDE_DIR is not set")
+	}
+	work := filepath.Join(dir, "work")
+	os.MkdirAll(work, 0o700)
+	left := time.Now().Add(-time.Hour)
+	snap := awaySnap(left)
+	run := suggestRun{prov: model.ProviderClaude, dir: work, env: []string{"CLAUDE_CONFIG_DIR=" + dir}, snap: snap, busy: func() bool { return false }}
+	start := time.Now()
+	out, err := awaySummarize(context.Background(), run, awayPrompt(snap, left))
+	status, needs := awayLines(out)
+	t.Logf("answered in %s (err %v):\nState: %s\nNeeds: %s", time.Since(start).Round(100*time.Millisecond), err, status, needs)
+	if err != nil || status == "" || needs == "" {
+		t.Fatalf("no summary from %q", out)
+	}
+}

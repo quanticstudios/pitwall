@@ -21,6 +21,7 @@ import (
 	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -31,7 +32,7 @@ import (
 var DemoStates = []string{
 	"following", "scrolled", "ready", "queued", "six-lines", "sending", "not-sent",
 	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host", "screen",
-	"agy", "agy-model-menu", "agy-mode-menu",
+	"agy", "agy-model-menu", "agy-mode-menu", "away", "away-short",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -60,6 +61,8 @@ func (demoAPI) Older(ctx context.Context, pane string, before int64) ([]flow.Ent
 func (demoAPI) Screen(ctx context.Context, pane string) (string, error) { return demoScreen, nil }
 func (demoAPI) Key(ctx context.Context, pane, key string) error         { return nil }
 func (demoAPI) Stop(ctx context.Context, pane string) error             { return nil }
+func (demoAPI) AwayDismiss(context.Context, string) error               { return nil }
+func (demoAPI) View(context.Context, string, bool) error                { return nil }
 
 // demoScreen is Claude Code's autocompact dialog, a menu pitwall does not
 // read, as the Screen view shows it.
@@ -175,6 +178,12 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	case "approval":
 		env.Tab.State, env.Tab.Label, env.Tab.Detail, env.Tab.Answer = "pending-approval", "Approval", demoRun, true
 		c.data.Entries = c.data.Entries[:6]
+	case "away", "away-short":
+		idleTab()
+		now := env.Now
+		env.Tab.Away = &model.Away{Chat: "p1", Since: now.Add(-47 * time.Minute), At: now, Replies: 2, Turns: 1,
+			Edited: []string{"cart.go", "cart_test.go"}, EditedN: 2, Commands: 3, Failed: "go test -race ./cart/...", Tests: "failed", Item: "x", Seq: map[string]int64{"away": 2, "away-short": 6}[state],
+			Status: "Add no longer races, but one test still fails under -race.", Needs: "Say whether a mutex per cart is fine, or you want a channel."}
 	case "screen":
 		c.scr.show()
 	case "host":

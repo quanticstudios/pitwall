@@ -168,6 +168,9 @@ type Options struct {
 	Failures         func(ctx context.Context, dir string) ([]forge.FailedCheck, error)
 	// SuggestNext reads [chat] suggest_next; nil means off.
 	SuggestNext func() bool
+	// AwaySummary reads [chat] away_summary: a Since you left card asks
+	// the agent's cheapest model for its two lines; nil means off.
+	AwaySummary func() bool
 	// SendReviewOnRequest reads [git] send_review_on_request; nil means off.
 	SendReviewOnRequest func() bool
 	Reviews             func(context.Context, string, int) ([]forge.Thread, []forge.Comment, error)
@@ -325,6 +328,7 @@ type Daemon struct {
 	reviews       map[string]string            // second opinions: reviewer pane to the pane it reviews; see opinion.go
 	chats         map[string]*chat             // live chats by id; see chats.go
 	suggests      suggestJobs                  // each chat's latest suggested-prompt run; see chatsuggest.go
+	away          awayState                    // when chats were last seen and their Since you left cards; see away.go
 	srvSeen       seenServers                  // the tab each server found was in; see servers.go
 	// archiving are the chats dropChat closes, until their folder is archived.
 	archiving map[string]chan struct{}
@@ -471,6 +475,7 @@ func Defaults() Options {
 
 		SendReviewOnRequest: func() bool { s, _ := config.Load(); return s.SendReviewOnRequest },
 		SuggestNext:         func() bool { s, _ := config.Load(); return s.Chat.SuggestNext },
+		AwaySummary:         func() bool { s, _ := config.Load(); return s.Chat.AwaySummary },
 		Reviews:             forge.Reviews,
 		Merge: func(ctx context.Context, dir string, number int) error {
 			s, _ := config.Load()
@@ -1017,6 +1022,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			d.unwatchMonitor(c)
 			d.mu.Lock()
 			delete(d.clients, c)
+			d.awayLooks(c.focus)
 			if c.session != "" && !d.closing {
 				d.changed() // Session.Windows drops
 			}
@@ -1164,6 +1170,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			go func() { c.queue(d.chatSuggest(ctx, s)) }() // a reply to this client alone, once the agent answered
 			continue
 		}
+		if a, ok := m.(proto.ChatAwayDismiss); ok {
+			d.mu.Lock()
+			d.awayDrop(a.Chat)
+			d.mu.Unlock()
+			continue
+		}
 		if reply, ok := d.chatRequest(ctx, m); ok {
 			c.queue(reply) // a reply to this client alone
 			continue
@@ -1196,7 +1208,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if see, ok := m.(proto.SeePane); ok && hello.Kind == "gui" && hello.Level >= proto.SeeFocusLevel {
 			d.mu.Lock()
+			was := c.focus
 			c.focus = see.Pane
+			d.awayLooks(was)
+			d.awayLooks(see.Pane)
 			d.mu.Unlock()
 		}
 		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
@@ -1934,6 +1949,8 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.phoneSettings, id)
 	delete(d.statuslines, id)
 	delete(d.reviews, id)
+	delete(d.st.Away, id)
+	delete(d.away.seen, id)
 	if t := d.mail.wake[id]; t != nil {
 		t.Stop()
 	}
@@ -3222,6 +3239,7 @@ func (d *Daemon) snapshot() model.State {
 	}
 	s.ChatQueues = d.chatQueues(s.Chats)
 	s.Drafting = maps.Clone(d.mail.drafting)
+	s.Away = maps.Clone(s.Away) // cards are replaced, never changed in place
 	s.DraftHeld = maps.Clone(d.mail.held)
 	s.Delivered = maps.Clone(d.mail.delivered)
 	s.Skillshare = d.o.Skillshare.Installed != nil && d.o.Skillshare.Installed()

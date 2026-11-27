@@ -148,6 +148,12 @@ const usage = `usage:
   pitwall status [pane] [-- text]
                              show text under the tab's row, such as "CI
                              3/7"; no text or --clear clears it
+  pitwall away [tab|@pane] [--json]
+                             print the Since you left cards: what each
+                             tab's agent did while you were away; all of
+                             the session's with no tab. Reading keeps them
+  pitwall away --dismiss <tab|@pane>
+                             clear a tab's or pane's card everywhere
   pitwall status <state> [--app name] [--progress N] [--message text]
                              report a script's state to its pane: working,
                              blocked, done, error or idle (see docs/agent-report.md)
@@ -280,7 +286,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "adopt", "new", "fork", "wait", "split", "popup", "prompt", "send", "send-key", "events", "api", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
+	case "ls", "adopt", "new", "fork", "wait", "split", "popup", "prompt", "send", "send-key", "events", "api", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "away", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
