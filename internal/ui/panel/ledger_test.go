@@ -121,7 +121,8 @@ func TestLedgerRowsAndToolVisibility(t *testing.T) {
 		return tr
 	}
 
-	// All: each tool call is its own segItem row, no segHead or segTurn folds.
+	// All: each tool call is its own segItem row, no segHead folds, under
+	// the finished turn's open Worked line.
 	all := runMode(ToolsAll)
 	items, heads, turns, gutters := 0, 0, 0, 0
 	for _, r := range all.rows {
@@ -140,8 +141,8 @@ func TestLedgerRowsAndToolVisibility(t *testing.T) {
 			t.Fatalf("prompt row should have a gutter and stay out of the turn: %+v", r)
 		}
 	}
-	if items != 4 || heads != 0 || turns != 0 {
-		t.Fatalf("ToolsAll: items=%d heads=%d turns=%d, want 4/0/0", items, heads, turns)
+	if items != 4 || heads != 0 || turns != 1 {
+		t.Fatalf("ToolsAll: items=%d heads=%d turns=%d, want 4/0/1", items, heads, turns)
 	}
 	if gutters != 4 {
 		t.Fatalf("ToolsAll: gutters=%d, want 4 (one per prompt and per agent turn)", gutters)

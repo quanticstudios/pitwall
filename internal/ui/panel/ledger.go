@@ -155,7 +155,8 @@ func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 			turnStart = ledgerItemTime(d.s, b.from)
 		}
 		start := len(t.rows)
-		for i := b.lo; i < b.hi; i++ {
+		mode, folded := t.ledgerRoll(gtx, d, b, bi, mode, quiet, running, lastOf)
+		for i := b.lo; i < b.hi && !folded; i++ {
 			it := &d.s.Content[i]
 			switch {
 			case i == b.reply || quiet[i] || isTodo(it.Tool) || t.tool.shells.isAttached(i):
@@ -186,6 +187,7 @@ func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 			st := turnStart
 			t.rows = append(t.rows, trow{b: whole, tail: func(gtx layout.Context) layout.Dimensions { return d.ledgerWorking(gtx, st) }, inTurn: true})
 		}
+		t.changeRowIn(d, b, run)
 		if len(t.rows) > start {
 			markGutter(start, b.from, turnStart)
 		}
@@ -701,6 +703,9 @@ func (d *cdraw) ledgerRowFirstLineH(gtx layout.Context, r *trow) int {
 	}
 	if r.tail != nil {
 		return gtx.Dp(hit)
+	}
+	if r.seg == segTurn {
+		return gtx.Dp(rowH) + 2*gtx.Dp(theme.SpaceXS)
 	}
 	return gtx.Sp(d.th.Sp(theme.Large) * 1.45)
 }

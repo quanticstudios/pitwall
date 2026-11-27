@@ -3,11 +3,8 @@ package panel
 import (
 	"image"
 	"strings"
-	"time"
 
 	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -73,73 +70,6 @@ func (d *cdraw) logHead(gtx layout.Context, r *trow) layout.Dimensions {
 func (d *cdraw) logItem(gtx layout.Context, i int) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	return d.logEntry(gtx, i)
-}
-
-// turnLine is the line T3 Code draws at a turn's work: "Worked for 22s"
-// with a chevron that hides the work or shows it again, at the top of a
-// finished turn, or "Working for 12s" at the end of a running one; the
-// turn's tokens after it, quieter; a hairline under it.
-func (d *cdraw) turnLine(gtx layout.Context, r *trow) layout.Dimensions {
-	th := d.th
-	w := gtx.Constraints.Max.X
-	start, end, _ := turnTimes(d.s, r.b, r.b.hi == len(d.s.Content))
-	took := end.Sub(start)
-	verb := "Worked"
-	if r.running {
-		verb, took = "Working", d.t.now.Sub(start)
-		d.t.live = true
-	}
-	label := verb
-	if !start.IsZero() && took >= time.Second {
-		label += " for " + duration(took)
-	}
-	detail := ""
-	if n := turnTokens(d.s, r.b.turn); n > 0 {
-		detail = " · " + tokens(n)
-	}
-	pt, pb := gtx.Dp(theme.SpaceXS), gtx.Dp(theme.SpaceS)
-	line := func(gtx layout.Context, hover bool) layout.Dimensions {
-		col := th.Muted
-		if hover {
-			col = th.Fg
-		}
-		lc, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), col, label)
-		})
-		x := gtx.Dp(theme.Space2XS)
-		at(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions { lc.Add(gtx.Ops); return ld })
-		x += ld.Size.X
-		if detail != "" {
-			dc, dd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-				return d.lbl(gtx, th.UIFont, th.Sp(theme.Body), th.TextQuiet, detail)
-			})
-			at(gtx, image.Pt(x, 0), func(gtx layout.Context) layout.Dimensions { dc.Add(gtx.Ops); return dd })
-			x += dd.Size.X
-		}
-		if !r.running {
-			chev := "chevron-right"
-			if r.open {
-				chev = "chevron-down"
-			}
-			x += gtx.Dp(theme.SpaceXS)
-			icon(gtx, image.Pt(x, (ld.Size.Y-gtx.Dp(14))/2), chev, 14, col)
-			x += gtx.Dp(14)
-		}
-		return layout.Dimensions{Size: image.Pt(x+gtx.Dp(theme.Space2XS), ld.Size.Y)}
-	}
-	var ld layout.Dimensions
-	at(gtx, image.Pt(0, pt), func(gtx layout.Context) layout.Dimensions {
-		if r.running {
-			ld = line(gtx, false)
-			return ld
-		}
-		c := d.t.click(turnID(d.s, r.b))
-		ld = clickable(gtx, c, func(gtx layout.Context) layout.Dimensions { return line(gtx, c.Hovered()) })
-		return ld
-	})
-	y := pt + ld.Size.Y + pb
-	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, y), Max: image.Pt(w, y+max(1, gtx.Dp(1)))}.Op())
-	return layout.Dimensions{Size: image.Pt(w, y+max(1, gtx.Dp(1)))}
 }
 
 // turnID is the id of the Worked for line's fold of turn b's work.

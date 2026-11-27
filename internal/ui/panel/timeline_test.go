@@ -78,11 +78,10 @@ func visRows(t *testing.T, tr *Transcript, s *session.Snapshot) []string {
 	return out
 }
 
-// TestToolCallsVisibility: [chat] tool_calls hides calls as T3 Code's
-// toolCallVisibility does. failed keeps a call that failed and drops one
-// that completed; none drops every call but keeps thinking; zen keeps
-// only the reply, errors and questions, with no Worked for line. A
-// question and a subagent show in every mode but zen's subagent.
+// TestToolCallsVisibility: [chat] tool_calls sets how a finished turn's
+// Worked line starts. all starts open with every call; failed, none and
+// zen start folded: failed keeps the call that failed, and all three keep
+// the reply, errors and questions.
 func TestToolCallsVisibility(t *testing.T) {
 	for _, c := range []struct {
 		mode      string
@@ -90,9 +89,9 @@ func TestToolCallsVisibility(t *testing.T) {
 	}{
 		{"", []string{"turn", "item:r1", "item:b1", "prose:a1", "item:b2", "item:q1", "item:g1", "prose:e1", "item:w1", "reply"}, nil},
 		{ToolsAll, []string{"item:b1", "item:w1"}, nil},
-		{ToolsFailed, []string{"item:r1", "item:b2", "item:q1", "item:g1", "prose:a1", "prose:e1", "reply"}, []string{"item:b1", "item:w1"}},
-		{ToolsNone, []string{"item:r1", "item:q1", "item:g1", "prose:a1", "prose:e1", "reply"}, []string{"item:b1", "item:b2", "item:w1"}},
-		{ToolsZen, []string{"item:q1", "prose:e1", "reply"}, []string{"turn", "head", "item:r1", "item:b1", "prose:a1", "item:b2", "item:g1", "item:w1"}},
+		{ToolsFailed, []string{"turn", "item:b2", "item:q1", "prose:e1", "reply"}, []string{"item:r1", "item:b1", "item:w1", "item:g1", "prose:a1"}},
+		{ToolsNone, []string{"turn", "item:q1", "prose:e1", "reply"}, []string{"item:r1", "item:b1", "item:b2", "item:w1", "item:g1", "prose:a1"}},
+		{ToolsZen, []string{"turn", "item:q1", "prose:e1", "reply"}, []string{"head", "item:r1", "item:b1", "prose:a1", "item:b2", "item:g1", "item:w1"}},
 		{"bogus", []string{"item:b1"}, nil},
 	} {
 		tr := &Transcript{ToolCalls: c.mode}
@@ -146,7 +145,7 @@ func TestToolCallsZenFind(t *testing.T) {
 }
 
 // TestToolCallsLoneHooks: a fold left with only hooks once its calls
-// hide draws no line.
+// hide draws no fold line; the turn's Worked line counts the call.
 func TestToolCallsLoneHooks(t *testing.T) {
 	turn := "t1"
 	s := &session.Snapshot{SessionID: "s", Content: []session.Item{
@@ -155,8 +154,8 @@ func TestToolCallsLoneHooks(t *testing.T) {
 		{ID: "h1", Kind: session.KindSystem, Phase: session.PhaseHook, Text: "hook ran", TurnID: &turn},
 		{ID: "a1", Kind: session.KindAssistantText, Text: "done", TurnID: &turn},
 	}}
-	if got := visRows(t, &Transcript{ToolCalls: ToolsNone}, s); slices.Contains(got, "head") || slices.Contains(got, "item:h1") || slices.Contains(got, "turn") {
-		t.Errorf("none: %v, want the reply alone", got)
+	if got := visRows(t, &Transcript{ToolCalls: ToolsNone}, s); slices.Contains(got, "head") || slices.Contains(got, "item:h1") || !slices.Contains(got, "turn") {
+		t.Errorf("none: %v, want the Worked line and the reply", got)
 	}
 	if got := visRows(t, &Transcript{}, s); !slices.Contains(got, "head") {
 		t.Errorf("all: %v, want the fold", got)

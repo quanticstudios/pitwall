@@ -20,7 +20,7 @@ const cardFiles = 6
 const peekLines = 14
 
 // changeCard is a finished turn's edits at a glance: "Edited 2 files
-// +5 −5" with View changes, then a row per file with its counts. A row's
+// +5 −5", a bar of the lines added against removed, and Review, then a row per file with its counts. A row's
 // click opens its diff in the side panel; resting on it shows its first
 // lines over the chat.
 func (d *cdraw) changeCard(gtx layout.Context, b block) layout.Dimensions {
@@ -37,10 +37,10 @@ func (d *cdraw) changeCard(gtx layout.Context, b block) layout.Dimensions {
 		d.t.showChanges(turn, "")
 	}
 
-	// The head: the icon, the title and totals, View changes on the right.
+	// The head: the icon, the title, totals and bar, Review on the right.
 	add, del := changeTotals(fs)
 	bc, bd := measure(gtx, func(gtx layout.Context) layout.Dimensions {
-		return kit.Button(gtx, th, view, kit.Secondary, kit.Medium, "View changes")
+		return kit.Button(gtx, th, view, kit.Secondary, kit.Medium, "Review")
 	})
 	isz := gtx.Dp(hit)
 	headH := max(isz, bd.Size.Y) + 2*py
@@ -71,7 +71,12 @@ func (d *cdraw) changeCard(gtx layout.Context, b block) layout.Dimensions {
 			func(gtx layout.Context) layout.Dimensions {
 				return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, editedTitle(fs))
 			},
-			func(gtx layout.Context) layout.Dimensions { return d.counts(gtx, add, del, false) })
+			func(gtx layout.Context) layout.Dimensions { return d.counts(gtx, add, del, false) },
+			func(gtx layout.Context) layout.Dimensions {
+				bw, bh := gtx.Dp(64), gtx.Dp(5)
+				diffBar(gtx, th, image.Point{}, bw, bh, add, del)
+				return layout.Dimensions{Size: image.Pt(bw, bh)}
+			})
 	})
 	at(gtx, image.Pt(tx, (headH-td.Size.Y)/2), func(gtx layout.Context) layout.Dimensions { tc.Add(gtx.Ops); return td })
 	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Rect{Min: image.Pt(0, headH-1), Max: image.Pt(w, headH)}.Op())
