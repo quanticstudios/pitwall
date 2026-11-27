@@ -46,6 +46,7 @@ jobs:
           PACKAGES: ${{ startsWith(matrix.shard, 'daemon-') && 'socat jq' || 'gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev socat jq' }}
         run: |
           apt="sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.* # why: its 403s failed apt; nothing here comes from it
           $apt update
           $apt install -y --no-install-recommends $PACKAGES
       - name: gofmt
@@ -180,6 +181,7 @@ jobs:
       # why: the release is a desktop binary, and the test builds this one.
       - name: Install Gio's build dependencies
         run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.* # why: its 403s failed apt; nothing here comes from it
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev
       - name: Download the last release
