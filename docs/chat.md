@@ -275,8 +275,20 @@ Windows lists none.
 
 - It follows the newest line while Claude writes and jumps to the end when
   you send.
-- Each turn's tool calls fold into one work log, such as "Worked for 48s ·
-  4 tools". Click it to open it.
+- A finished turn's work rolls up into one line above its reply: "Worked
+  2m 14s" with its counts as chips, such as "6 tools", "2 files" and, in
+  red, "1 test failed". Click it to show every call under it, and again to
+  fold them. A running turn's line, "Working 12s", sits under its work and
+  counts as it goes.
+- The Tools setting picks how that line starts. Tools: open, with every
+  call. Failed only: folded, with the failed calls left under it. No tools:
+  folded. Zen: folded, and the agent's longer reports stay under it. In
+  every mode a folded line keeps errors, questions and plans, and opening
+  it shows every call. Both the Ledger and Column layouts work this way.
+- A turn's edits end in one card: "Edited 2 files +18 −4" with a bar of the
+  lines added against removed, a row per file with its own counts, and
+  Review, which opens the changes panel. Click a file's row to open its
+  diff there.
 - While a turn runs in a terminal tab, the line under the composer shows
   the agent's own spinner row in place of "Working…", such as
   "Flibbertigibbeting… 11s · ↓ 789 tokens · thinking" for Claude Code,

@@ -1169,7 +1169,7 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			dims = d.logHead(gtx, r)
 		case r.seg == segTurn:
 			if !r.running {
-				recordFold(turnID(s, r.b), true)
+				recordFold(turnID(s, r.b), t.toolMode() == ToolsAll)
 			}
 			dims = d.turnLine(gtx, r)
 		case r.seg == segItem:
@@ -1658,23 +1658,26 @@ func (t *Transcript) buildBaseRows(gtx layout.Context, d *cdraw) {
 		}
 		last := b.turn == "" || lastOf[b.turn] == bi
 		run := running(b, b.hi == len(d.s.Content)) && last
-		// A finished turn's work sits under its Worked for line, which
-		// hides it on a click, as T3 Code folds a turn; it shows by default.
-		// A turn an answer split is one turn here: the line goes above its
-		// first part, times the whole turn, and hides the work of every part
-		// but not the lines that answered it.
 		whole := b
 		whole.lo = b.from
 		if b.lo == b.from {
 			start = len(t.rows)
 		}
-		show := t.toggled(gtx, turnID(d.s, whole), true)
-		t.turnRows(gtx, d, b, run, quiet, mode)
-		// Zen has no Worked for line, as T3 Code folds no turn in it.
-		if work := len(t.rows) > start; work && !run && last && mode != ToolsZen {
-			if !show {
-				t.rows = append(t.rows[:start], slices.DeleteFunc(slices.Clone(t.rows[start:]), func(r trow) bool { return r.res == nil })...)
-			}
+		// A finished turn's work rolls up into its Worked line: open, the
+		// line shows every call under it; folded, only what keptFolded keeps.
+		// A turn an answer split is one turn here: the line goes above its
+		// first part, counts the whole turn, and folds every part.
+		roll := !t.turnRuns(d, running, lastOf, bi) && rollupOf(d.s.Content, b.from, t.turnLast(lastOf, bi).hi).any()
+		show := roll && t.rollOpen(gtx, d.s, whole, mode)
+		switch {
+		case roll && show:
+			t.turnRows(gtx, d, b, run, quiet, ToolsAll)
+		case roll:
+			t.foldedRows(d, b, mode, quiet, false)
+		default:
+			t.turnRows(gtx, d, b, run, quiet, mode)
+		}
+		if roll && last {
 			t.rows = slices.Insert(t.rows, start, trow{b: whole, seg: segTurn, open: show})
 		}
 		if b.todo >= 0 && mode != ToolsZen {
@@ -1682,7 +1685,8 @@ func (t *Transcript) buildBaseRows(gtx layout.Context, d *cdraw) {
 		}
 		// Zen shows a reply once its turn ends: before, it may be words
 		// between calls.
-		if b.reply >= 0 && !(mode == ToolsZen && run) {
+		// A folded turn keeps its last reply; an earlier part's goes with the work.
+		if b.reply >= 0 && !(mode == ToolsZen && run) && (show || !roll || last) {
 			// A request answered before the reply came stays with the work
 			// it was about, above the reply.
 			for ; k < len(t.done) && t.done[k].at <= b.reply; k++ {

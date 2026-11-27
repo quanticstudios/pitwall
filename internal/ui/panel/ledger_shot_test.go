@@ -25,12 +25,18 @@ import (
 // composer's height.
 func ledgerFrame(t *testing.T, th *theme.Theme, s *session.Snapshot, chatLayout string, w, h int) (*image.RGBA, int) {
 	t.Helper()
+	return ledgerFrameMode(t, th, s, chatLayout, ToolsAll, w, h)
+}
+
+// ledgerFrameMode is ledgerFrame with tool calls shown as mode says.
+func ledgerFrameMode(t *testing.T, th *theme.Theme, s *session.Snapshot, chatLayout, mode string, w, h int) (*image.RGBA, int) {
+	t.Helper()
 	win, err := headless.NewWindow(w, h)
 	if err != nil {
 		t.Skip(err)
 	}
 	defer win.Release()
-	tr := Transcript{Dir: "/repo", ChatLayout: chatLayout, ToolCalls: ToolsAll, Width: 760}
+	tr := Transcript{Dir: "/repo", ChatLayout: chatLayout, ToolCalls: mode, Width: 760}
 	var cmp chatin.Composer
 	var ops op.Ops
 	now := time.Date(2026, 11, 21, 14, 4, 0, 0, time.UTC)

@@ -66,8 +66,8 @@ the session.
   image shows as a thumbnail and an `[Image #1]` token in your text. While
   Claude works, Enter queues a message above the box and Ctrl+Enter steers it into the running turn, the queue with it. `/` lists
   the slash commands.
-- **The transcript** follows Claude as it writes. Each turn's tool calls fold
-  into one work log, such as "Worked for 1m 23s · 8 tools".
+- **The transcript** follows Claude as it writes. Each turn's work rolls up
+  into one line, such as "Worked 1m 23s · 8 tools · 2 files".
 - **Replies** render as markdown: tables, lists, code with a Copy button,
   diffs.
 - **Each tool call has its own view:** an edit's diff with line numbers, a
