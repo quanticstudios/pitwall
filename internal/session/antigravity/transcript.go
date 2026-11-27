@@ -70,6 +70,12 @@ type step struct {
 		Name string                     `json:"name"`
 		Args map[string]json.RawMessage `json:"args"`
 	} `json:"tool_calls"`
+	// Media are a USER_INPUT's pictures, files agy copied into the
+	// conversation's folder.
+	Media []struct {
+		MimeType string `json:"mime_type"`
+		URI      string `json:"uri"`
+	} `json:"media"`
 }
 
 var (
@@ -96,13 +102,23 @@ func (t *Transcript) Line(b []byte) []session.Event {
 		if m := request.FindStringSubmatch(text); m != nil {
 			text = m[1]
 		}
-		if text = strings.TrimSpace(text); text == "" {
+		var atts []session.Attachment
+		for _, m := range s.Media {
+			if a, ok := session.ImageFile(m.URI, m.MimeType, len(atts)+1); ok {
+				atts = append(atts, a)
+			}
+		}
+		text = strings.TrimSpace(text)
+		if len(atts) > 0 && (text == "(image)" || text == "(images)") {
+			text = "" // why: the daemon types this for a picture sent alone, which agy's TUI needs
+		}
+		if text == "" && len(atts) == 0 {
 			return nil
 		}
 		out = t.End(session.TurnCompleted)
 		t.turn = id
 		out = append(out, session.Event{Type: session.EventTurnStarted, TurnID: id},
-			session.Event{Type: session.EventContent, ItemID: id, Kind: session.KindUserPrompt, Text: text})
+			session.Event{Type: session.EventContent, ItemID: id, Kind: session.KindUserPrompt, Text: text, Attachments: atts})
 	case "PLANNER_RESPONSE":
 		if mdl, eff := splitModel(s.Model); mdl != "" && (mdl != t.model || eff != t.effort) {
 			t.model, t.effort = mdl, eff

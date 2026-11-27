@@ -225,3 +225,22 @@ func TestRolloutCompactResetsContext(t *testing.T) {
 		t.Fatalf("after compacted record: %+v", u)
 	}
 }
+
+// A prompt's pasted pictures come with it, and a picture sent alone is a
+// prompt too.
+func TestRolloutPromptImages(t *testing.T) {
+	pic := t.TempDir() + "/pasted.png"
+	os.WriteFile(pic, []byte("\x89PNG\r\n\x1a\n0000"), 0o600)
+	for _, c := range []struct{ text, want string }{{"look", "look"}, {"", ""}} {
+		content := []map[string]string{{"type": "local_image", "path": pic}, {"type": "local_image", "path": "/gone.png"}}
+		if c.text != "" {
+			content = append(content, map[string]string{"type": "text", "text": c.text})
+		}
+		line, _ := json.Marshal(map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "turn_id": "t1",
+			"item": map[string]any{"type": "UserMessage", "id": "u", "content": content}}})
+		es := NewRollout().Line(line)
+		if len(es) != 2 || es[1].Text != c.want || len(es[1].Attachments) != 1 || es[1].Attachments[0].MimeType != "image/png" {
+			t.Errorf("%q: %+v", c.text, es)
+		}
+	}
+}
