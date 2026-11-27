@@ -69,6 +69,7 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 		Screen:      d.screen,
 		Key:         d.key,
 		Stop:        d.stop,
+		AwayDismiss: d.awayDismiss,
 
 		NewOptions: d.newOptions,
 		Start:      d.start,
@@ -231,6 +232,15 @@ func (d *demo) entries(pane string) ([]flow.Entry, string, bool) {
 	}, "", true
 }
 
+func (d *demo) awayDismiss(pane string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if t, err := d.tab(pane); err == nil {
+		t.Away = nil
+		d.touch()
+	}
+}
+
 func (d *demo) answer(pane string, at int64, allow bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -382,6 +392,9 @@ func (d *demo) fill(variant int) error {
 	search.Efforts, search.Modes = remote.AgyEfforts, remote.AgyModes
 	search.Mode, search.Model, search.Effort = "auto", "Gemini 4 Neon", "high"
 	search = in(search, "shop")
+	search.Away = &model.Away{Chat: "p-search", Since: now.Add(-47 * time.Minute), At: now, Replies: 1, Turns: 1, Commands: 2,
+		Edited: []string{"index.go"}, EditedN: 1, Tests: "passed", Item: "x", Seq: 2,
+		Status: "The index now loads on the first query; cold start is 140 ms.", Needs: "Review the change, or say if the first query may take 0.6 s."}
 	rate, pr, fix, doc, site, certs, tidy = in(rate, "api"), in(pr, "api"), in(fix, "shop"), in(doc, "docs"), in(site, "docs"), in(certs, "infra"), in(tidy, "shop")
 	d.tabs = []remote.Tab{rate, pr, fix, search, tidy, nightly, doc, site, logs, certs}
 	if variant == 1 {

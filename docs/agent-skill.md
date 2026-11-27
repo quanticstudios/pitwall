@@ -219,7 +219,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 `""`.
 
 ```json
-{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z","repeats":0,"repeating":""}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z","pr_state":"checks_failing","quiet_since":null,"repeats":0,"repeating":"","status":"","host":"","addr":"#2","stale":false}
+{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z","repeats":0,"repeating":""}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z","pr_state":"checks_failing","quiet_since":null,"repeats":0,"repeating":"","status":"","host":"","addr":"#2","stale":false,"away":null}
 ```
 
 `agent` is the agent's name (`claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
@@ -237,7 +237,30 @@ current state began, `null` for a pane with no agent state. `parent` is the
 `host` is the `[[hosts]]` name of the machine a tab runs on, `""` here;
 `addr` is the address to pass to the other commands, `#3` here or `box:3`
 there; `stale` is true for a worker on a host out of reach (see
-[Workers on another machine](#workers-on-another-machine)).
+[Workers on another machine](#workers-on-another-machine)). `away` is the
+tab's Since you left card while it has one, `null` otherwise (see below).
+
+`pitwall away [tab|@pane] [--json]` prints the Since you left cards: for
+each tab whose agent worked while the user was away for 5 minutes or more,
+how long, the agent's state now (`Working`, `Needs you` or `Done`), two
+lines from the agent's cheapest model when summaries are on (the state of
+the work, and what it needs from the user), and the facts: messages, files
+edited, commands, the test result and the last failed command. With no tab
+it prints every card of the session. `--json` prints an array, one object
+per card: `addr`, `tab`, `title`, `now`, `for` (as `2h 14m`), then the
+card's own keys: `chat` (the pane or chat it belongs to), `since`, `at`,
+`replies`, `turns`, `edited`, `editedN`, `commands`, `failed`, `tests`,
+`item`, `seq`, `status`, `needs`, and `asking` while the summary is on its
+way. Reading never clears a card. `pitwall away --dismiss <tab|@pane>`
+clears it in every window, the phone and `pitwall away`, as the user's
+own dismiss does.
+
+An orchestrator coming back to its workers can read what each did without
+opening them:
+
+```sh
+pitwall away --json | jq -r '.[] | "\(.addr) \(.now): \(.status) \(.needs)"'
+```
 
 `pitwall ls --tree` prints the table with each tab under the tab that
 opened it. The table's `SINCE` column says how long each tab has been in

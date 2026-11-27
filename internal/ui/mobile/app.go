@@ -146,6 +146,9 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 					l.conn.Retry()
 				}
 			}
+			if !e.Config.Focused && a.focused {
+				a.leaveChat() // the screen went off or another app came up: no longer watching
+			}
 			a.focused = e.Config.Focused
 		case app.FrameEvent:
 			a.drain()
@@ -431,7 +434,19 @@ func (a *App) openChat(id string) {
 	a.links[m.ID].conn.Watch(t.Pane)
 }
 
+// leaveChat tells the open chat's computer the app no longer shows it,
+// for Since you left; the chat beats again once it is back on screen.
+func (a *App) leaveChat() {
+	if a.chatM == "" || a.chat.pane == "" {
+		return
+	}
+	pane := a.chat.pane
+	a.chat.beatAt = time.Time{}
+	a.do(a.chatM, func(ctx context.Context, c *phone.Client) error { return c.View(ctx, pane, false) }, func(error) {})
+}
+
 func (a *App) closeChat() {
+	a.leaveChat()
 	if l := a.links[a.chatM]; l != nil {
 		l.conn.Watch("")
 	}
@@ -509,7 +524,7 @@ func (a *App) chatLayout(gtx C) {
 		PickImage: func(clip bool, done func([]byte, error)) {
 			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
 		},
-		Retry: l.conn.Retry, OpenFile: a.fileOpener(l, t.ID),
+		Retry: l.conn.Retry, OpenFile: a.fileOpener(l, t.ID), Foreground: a.focused,
 		OpenDesktop: func(done func(error)) {
 			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return c.OpenDesktop(ctx, t.Pane) }, done)
 		},

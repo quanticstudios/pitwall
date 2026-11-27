@@ -299,7 +299,8 @@ func (d *Daemon) phoneWatch(pane string) (<-chan struct{}, func()) {
 	if err != nil {
 		return nil, nil
 	}
-	return s, func() { d.chatUnsubscribe(pane, s) }
+	d.awayPhone(pane, 1)
+	return s, func() { d.chatUnsubscribe(pane, s); d.awayPhone(pane, -1) }
 }
 
 func cutOut(s string) string {
@@ -323,6 +324,7 @@ func (d *Daemon) phoneSend(pane, text string) (uint64, error) {
 // texts pasted after it.
 func (d *Daemon) phoneSendPaths(pane, text string, images, quoted []string) (uint64, error) {
 	d.mu.Lock()
+	d.awaySeen(pane)
 	c := d.chats[pane]
 	prov := d.paneProvider(pane)
 	d.mu.Unlock()

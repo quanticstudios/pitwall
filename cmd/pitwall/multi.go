@@ -314,6 +314,7 @@ func (m *multi) merge() {
 		st.Delivered = join(st.Delivered, s.Delivered)
 		st.Listening = join(st.Listening, s.Listening)
 		st.Servers = join(st.Servers, s.Servers)
+		st.Away = join(st.Away, s.Away)
 		if st.Notice == "" {
 			st.Notice = s.Notice
 		}

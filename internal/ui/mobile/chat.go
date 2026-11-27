@@ -50,6 +50,8 @@ type chatAPI interface {
 	Stop(ctx context.Context, pane string) error
 	CloseTab(ctx context.Context, tab string) error
 	Restart(ctx context.Context, pane string) error
+	AwayDismiss(ctx context.Context, pane string) error
+	View(ctx context.Context, pane string, on bool) error
 }
 
 // chatEnv is what the chat screen reads from the app each frame.
@@ -59,8 +61,11 @@ type chatEnv struct {
 	Online  bool
 	Offline string // the offline line's text
 	Retry   func() // reconnects now; nil hides Retry
-	Models  []string
-	Efforts []string
+	// Foreground says the app has the screen: only then does the open
+	// chat tell the computer it shows it (View), for Since you left.
+	Foreground bool
+	Models     []string
+	Efforts    []string
 	// CanClose and CanRestart are the machine closing a tab and restarting
 	// an exited one, for the header's menu.
 	CanClose, CanRestart bool
@@ -113,6 +118,8 @@ type chatView struct {
 	cmp                    composer
 	slashes                slashMenu
 	menu                   tabMenu
+	away                   awayState
+	beatAt                 time.Time // the last View beat sent for this chat
 }
 
 // entryRow is an entry's widgets, kept across frames by seq.
@@ -223,6 +230,8 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 		c.fresh = false
 	}
 	c.older(env)
+	c.viewBeat(gtx, env)
+	c.awayMark(env)
 	c.files = env.OpenFile != nil
 	t := env.Tab
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
@@ -256,12 +265,14 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 			}
 			return c.askCard(gtx, th, env)
 		}),
+		layout.Rigid(func(gtx C) D { return c.awayCard(gtx, th, env) }),
 		layout.Rigid(func(gtx C) D {
 			d := c.composer(gtx, th, env)
 			top = total - d.Size.Y
 			return d
 		}),
 	)
+	c.awayTrack(env)
 	c.menus(gtx, th, env, top)
 	c.slash(gtx, th, env, top)
 	c.tabMenuLayout(gtx, th, env)
@@ -576,6 +587,11 @@ func (c *chatView) logItem(gtx C, th *theme.Theme, i int, working string) D {
 		i--
 	}
 	if i < len(c.data.Entries) {
+		if i+1 == c.away.mark {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx C) D { return awayMarker(gtx, th, c.away.label) }),
+				layout.Rigid(func(gtx C) D { return c.entry(gtx, th, c.data.Entries[i]) }))
+		}
 		return c.entry(gtx, th, c.data.Entries[i])
 	}
 	i -= len(c.data.Entries)

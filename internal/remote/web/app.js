@@ -269,9 +269,23 @@ function renderList() {
   document.title = n ? '(' + n + ') pitwall' : 'pitwall';
 }
 
+// viewBeat tells the computer this page shows the open chat (on), which
+// it repeats every 30 s while the page is in view, or that it no longer
+// does: the chat closed, the page went to the background or the screen
+// went off. Only a page in view counts as watching for Since you left.
+// keepalive lets the last one leave with a closing page.
+function viewBeat(on) {
+  if (!pane || !authed) return;
+  fetch('/api/view', { method: 'POST', keepalive: true, cache: 'no-store', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ pane, on }) }).catch(() => {});
+}
+setInterval(() => { if (document.visibilityState === 'visible') viewBeat(true); }, 30000);
+document.addEventListener('visibilitychange', () => viewBeat(document.visibilityState === 'visible'));
+window.addEventListener('pagehide', () => viewBeat(false));
+
 // ---- Views and history: Back goes from a chat to the list.
 
 function showList() {
+  viewBeat(false);
   pane = '';
   chat.hidden = true;
   screenV.hidden = true;
@@ -284,8 +298,9 @@ function showList() {
 function openChat(p, push) {
   if (!p) return;
   if (push) history.pushState({ pane: p }, '', '#pane=' + encodeURIComponent(p));
-  if (p !== pane) clearAttachment();
+  if (p !== pane) { clearAttachment(); viewBeat(false); }
   pane = p;
+  viewBeat(document.visibilityState === 'visible');
   home.hidden = true;
   newV.hidden = true;
   screenV.hidden = true;
@@ -339,6 +354,7 @@ function toBottom() { log.scrollTop = log.scrollHeight; newpill.hidden = true; s
 log.addEventListener('scroll', () => {
   stick = atBottom();
   if (stick) newpill.hidden = true;
+  if (pane) awayScroll(tabOf(pane));
   if (log.scrollTop < 300) older();
 }, { passive: true });
 newpill.onclick = toBottom;
@@ -535,6 +551,7 @@ function renderChatState() {
     work.lastChild.textContent = 'Working' + (what.trim() ? ': ' + what.trim() : '');
   }
   renderAsks(t);
+  renderAway(t);
   renderHold(t);
   renderQueue(t);
   composer.hidden = !(t && t.send);
@@ -689,6 +706,105 @@ function renderAsks(t) {
   answerCard = want[0] && want[0].boxAnswer ? want[0] : null;
   const same = want.length === asks.children.length && want.every((c, i) => asks.children[i] === c);
   if (!same) changing(() => asks.replaceChildren(...want));
+}
+
+// renderAway draws the open tab's Since you left card (tab.away): a
+// marker in the log above the first missed entry, and the card above the
+// box only when what was missed is taller than the log's view, so it never
+// repeats what is on screen. The card says how long the phone and the
+// window had the chat out of sight, the summary, what the log shows, and
+// has a jump to the first missed entry and Dismiss.
+let awayKey = '', awayCardEl = null, awayTall = false, awayHid = '';
+const awayMarkEl = el('div', 'away-mark');
+const awayID = (a) => a.chat + '@' + a.at;
+function renderAway(t) {
+  const box = $('away'), a = t && t.away && awayID(t.away) !== awayHid ? t.away : null;
+  const k = a ? awayID(a) + '@' + a.asking : '';
+  if (k !== awayKey) {
+    awayKey = k;
+    awayCardEl = a ? awayCard(t, a) : null;
+    awayTall = false;
+  }
+  placeAwayMark(a);
+  if (a && atBottom()) awayTall = !awayMarkEl.isConnected || awayMarkEl.getBoundingClientRect().top < log.getBoundingClientRect().top;
+  const want = a && awayTall ? [awayCardEl] : [];
+  if (want.length !== box.children.length || want[0] !== box.firstChild) changing(() => box.replaceChildren(...want));
+}
+
+// awayScroll follows the reader through what they missed: scrolled up
+// to the marker, then back down to the bottom, they have read it, and the
+// card goes here and everywhere, as in the app. At the bottom it also
+// decides again whether the card shows.
+let awayRead = '';
+function awayScroll(t) {
+  const a = t && t.away;
+  if (!a || awayID(a) === awayHid || !awayMarkEl.isConnected) return;
+  if (!atBottom()) {
+    if (awayMarkEl.getBoundingClientRect().top >= log.getBoundingClientRect().top - 1) awayRead = awayKey;
+    return;
+  }
+  if (awayRead === awayKey) {
+    awayDismiss(t);
+    return;
+  }
+  renderAway(t);
+}
+
+// awayDismiss closes the card and the marker here, until the tab list
+// drops the card, and on the computer, which clears it everywhere.
+function awayDismiss(t) {
+  awayHid = awayID(t.away);
+  awayRead = '';
+  $('away').replaceChildren();
+  awayMarkEl.remove();
+  api('/api/away', { pane: t.pane }).catch(() => {});
+}
+
+// awayFor is how long the card's absence was, as "2h 14m".
+function awayFor(a) {
+  const mins = Math.max(1, Math.round((Date.parse(a.at) - Date.parse(a.since)) / 60000));
+  return mins < 60 ? mins + 'm' : mins < 1440 ? Math.floor(mins / 60) + 'h' + (mins % 60 ? ' ' + (mins % 60) + 'm' : '') : Math.floor(mins / 1440) + 'd';
+}
+
+// placeAwayMark puts the log's marker above the first missed entry, or
+// takes it out with no card or with that entry not loaded.
+function placeAwayMark(a) {
+  const seq = a && [...shown.keys()].filter((q) => q >= a.seq).sort((p, q) => p - q)[0];
+  const node = seq !== undefined && shown.get(seq);
+  if (!node || seq !== a.seq && seq === Math.min(...shown.keys())) { awayMarkEl.remove(); return; }
+  awayMarkEl.textContent = 'Since you left · ' + awayFor(a);
+  if (node.previousSibling !== awayMarkEl) changing(() => node.before(awayMarkEl));
+}
+
+function awayCard(t, a) {
+  const now = { working: 'Working', connecting: 'Working', 'pending-approval': 'Needs you', 'awaiting-input': 'Needs you', 'plan-ready': 'Needs you', error: 'Needs you', completed: 'Done', 'pr-open': 'Done', parked: 'Done' }[t.state];
+  const c = el('div', 'card away');
+  const head = el('div', 'label');
+  const x = el('button', 'btn quiet', '✕');
+  x.type = 'button';
+  x.setAttribute('aria-label', 'Dismiss');
+  x.onclick = () => awayDismiss(t);
+  head.append(el('span', '', ['Since you left', awayFor(a), now].filter(Boolean).join(' · ')), x);
+  c.append(head);
+  if (a.status) c.append(el('p', 'detail', a.status));
+  if (a.asking) c.append(el('p', 'facts', 'Summarizing…'));
+  else if (a.needs) c.append(el('p', 'detail', a.needs));
+  const n = (v, one) => v + ' ' + one + (v === 1 ? '' : 's');
+  const facts = [];
+  if (a.replies) facts.push(n(a.replies, 'message') + (a.turns > 1 ? ' in ' + n(a.turns, 'turn') : ''));
+  if (a.editedN) facts.push(n(a.editedN, 'file') + ' edited');
+  if (a.commands) facts.push(n(a.commands, 'command'));
+  if (a.tests) facts.push('tests ' + a.tests);
+  if (facts.length) c.append(el('p', 'facts', facts.join(' · ')));
+  if (a.failed) c.append(el('p', 'facts', 'Last failed: ' + a.failed));
+  const jump = el('button', 'btn quiet jump', 'Show what you missed');
+  jump.type = 'button';
+  jump.onclick = () => {
+    const node = awayMarkEl.isConnected ? awayMarkEl : shown.get(Math.min(...shown.keys()));
+    if (node) node.scrollIntoView({ block: 'start' });
+  };
+  c.append(jump);
+  return c;
 }
 
 function askCard(t) {

@@ -582,6 +582,9 @@ type State struct {
 	// Forms are the open forms of `pitwall form`, oldest first. The daemon
 	// fills it in; it is not saved.
 	Forms []Form `json:"-"`
+	// Away is, per chat id, its Since you left card while it shows. The
+	// daemon fills it in; it is not saved.
+	Away map[string]Away `json:"-"`
 }
 
 // Server is a process that listens on TCP ports, for a chat's Servers

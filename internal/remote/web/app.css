@@ -145,6 +145,13 @@ footer.compose {
 .card .command { margin: 8px 0 0; padding: 8px; border-radius: 6px; background: var(--field); font: 13px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .card .opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .card .opts .btn { flex: 1 1 auto; }
+.away-mark { display: flex; align-items: center; gap: 10px; margin: 6px 0 14px; color: var(--muted); font-size: 13px; font-weight: 650; }
+.away-mark::before, .away-mark::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.card.away .label { color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card.away .detail { margin-top: 4px; }
+.card.away .facts { margin: 6px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.card.away .btn.quiet { min-height: 32px; padding: 0 6px; }
+.card.away .btn.jump { padding: 0; margin-top: 4px; color: var(--primary); }
 .card .request + .request { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
 /* The / menu floats over the log's bottom, right above the composer, so the keyboard never hides it. */
 footer.compose .wrap { position: relative; }

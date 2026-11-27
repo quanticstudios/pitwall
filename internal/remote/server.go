@@ -183,6 +183,12 @@ type Server struct {
 	Changed     func() <-chan struct{}
 	ChatEntries func(chat string) (entries []flow.Entry, model string, ok bool)
 	Watch       func(chat string) (wake <-chan struct{}, stop func())
+	// AwayDismiss removes a chat's Since you left card (Tab.Away).
+	AwayDismiss func(chat string)
+	// View says the phone shows chat now (on, a beat it repeats while it
+	// does) or stopped: it left the foreground, its screen went off, or it
+	// closed the chat. POST /api/view sends it.
+	View func(chat string, on bool)
 	// ChatMenu is the / menu of a chat ChatEntries reads, as the
 	// window's composer lists it; the stream sends it as "commands".
 	ChatMenu func(chat string) []session.Command
@@ -308,6 +314,31 @@ func (s *Server) Handler() http.Handler {
 		}
 		if s.Stop != nil {
 			mux.Handle("POST /api/stop", sameOrigin(s.authed(s.stop)))
+		}
+		if s.View != nil {
+			mux.Handle("POST /api/view", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, _ Device) {
+				var req struct {
+					Pane string `json:"pane"`
+					On   bool   `json:"on"`
+				}
+				if !decode(w, r, &req) {
+					return
+				}
+				s.View(req.Pane, req.On)
+				writeJSON200(w, map[string]any{})
+			})))
+		}
+		if s.AwayDismiss != nil {
+			mux.Handle("POST /api/away", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, _ Device) {
+				var req struct {
+					Pane string `json:"pane"`
+				}
+				if !decode(w, r, &req) {
+					return
+				}
+				s.AwayDismiss(req.Pane)
+				writeJSON200(w, map[string]any{})
+			})))
 		}
 		if s.Upload != nil {
 			mux.Handle("POST /api/upload", sameOrigin(s.authed(s.upload)))

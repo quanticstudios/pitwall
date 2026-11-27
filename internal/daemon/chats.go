@@ -186,6 +186,11 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 		d.mu.Unlock()
 		return r, true
 	}
+	if s, ok := m.(proto.ChatSend); ok {
+		d.mu.Lock()
+		d.awaySeen(s.Chat) // pane chats' sends note a key, as typing does
+		d.mu.Unlock()
+	}
 	var id string
 	var run func(*chat) (turn, note string, err error)
 	switch m := m.(type) {

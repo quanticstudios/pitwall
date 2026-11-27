@@ -145,6 +145,20 @@ its bottom while you are there; scrolled up, it shows a New messages button
 instead of moving. Scrolling to the top loads earlier messages, as far back
 as the last 8 MiB of the file.
 
+Open a chat that neither the phone nor a desktop window had on screen for
+5 minutes or more, while its agent worked, and a marker in the log sits
+above the first message you missed: "Since you left · 47m". When what you
+missed is taller than the screen, a card sits above the box too: how long
+you were away, the agent's state now, the summary when Summaries is on,
+the messages, files edited, commands and test result, and the last failed
+command. **Show what you missed** scrolls to the marker. The **x** closes
+it here, on the desktop and in `pitwall away`, and so does sending, and
+so does scrolling up to the first missed message and back down. The phone
+counts as having a chat on screen only while the app or the page is in
+the foreground with the chat open: in the background, with the screen
+off, or once it has said nothing for 75 seconds, it does not.
+See [Since you left](chat.md#since-you-left) for what the summary sends.
+
 A tab without a session file, a shell or an agent without hooks, shows its
 state and never its screen or scrollback. The page and the Android app
 show a pane's screen only in its Screen view, which you open (see

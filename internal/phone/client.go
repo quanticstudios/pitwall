@@ -507,3 +507,14 @@ func (c *Client) Key(ctx context.Context, pane, key string) error {
 func (c *Client) Stop(ctx context.Context, pane string) error {
 	return c.call(ctx, "POST", "api/stop", map[string]string{"pane": pane}, nil)
 }
+
+// View tells the computer the app shows pane's chat now (on), a beat it
+// repeats while it does, or that it left the foreground or the chat.
+func (c *Client) View(ctx context.Context, pane string, on bool) error {
+	return c.call(ctx, "POST", "api/view", map[string]any{"pane": pane, "on": on}, nil)
+}
+
+// AwayDismiss removes pane's chat's Since you left card (Tab.Away).
+func (c *Client) AwayDismiss(ctx context.Context, pane string) error {
+	return c.call(ctx, "POST", "api/away", map[string]string{"pane": pane}, nil)
+}

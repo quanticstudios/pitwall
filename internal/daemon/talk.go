@@ -543,6 +543,7 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	}()
 	now := time.Now()
 	d.mail.keyAt[pane] = now
+	d.awaySeen(pane)
 	if len(b) > 0 && pressed {
 		if d.live.tuiKeyAt == nil {
 			d.live.tuiKeyAt = map[string]time.Time{}

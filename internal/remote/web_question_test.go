@@ -59,6 +59,7 @@ type webPage struct {
 	result  chan string
 	mu      sync.Mutex
 	calls   []string
+	views   bool // record POST /api/view too
 }
 
 // newWebPage serves the page with the drive script at path; it skips the
@@ -104,11 +105,11 @@ func newWebPage(t *testing.T, path string) *webPage {
 	})
 	mux.HandleFunc("POST /api/", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		if r.URL.Path == "/api/input" || r.URL.Path == "/api/send" {
-			p.mu.Lock()
+		p.mu.Lock()
+		if r.URL.Path == "/api/input" || r.URL.Path == "/api/send" || r.URL.Path == "/api/away" || r.URL.Path == "/api/view" && p.views {
 			p.calls = append(p.calls, r.URL.Path+" "+strings.TrimSpace(string(b)))
-			p.mu.Unlock()
 		}
+		p.mu.Unlock()
 		io.WriteString(w, `{"id":1}`)
 	})
 	mux.HandleFunc("GET /api/", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{}`) })

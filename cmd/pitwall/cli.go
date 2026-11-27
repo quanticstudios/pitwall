@@ -194,6 +194,8 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 		err = reviewCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "status":
 		err = statusCommand(args[1:])
+	case len(args) > 0 && args[0] == "away":
+		err = awayCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "form":
 		var stdin io.Reader
 		if in != nil {

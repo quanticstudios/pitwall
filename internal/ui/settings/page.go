@@ -1355,6 +1355,12 @@ func (p *Page) agents() []section {
 		extra: "chat composer send enter ctrl newline send_key", control: p.choice("chat", "send_key", []string{"enter", "ctrl+enter"}, []string{"Enter", "Ctrl+Enter"}, !p.s.Chat.CtrlEnter)})
 	rows = append(rows, row{label: "Suggest next prompt", desc: "After a turn ends, an empty chat composer shows a predicted next message; Tab fills it in, Escape dismisses it. Each suggestion is one extra request to the chat's agent on its cheapest model, billed to the agent's plan, so it uses some of your usage. Never while the agent works, at most once per turn, never in a guarded tab.",
 		extra: "chat suggest_next suggestion predict prediction autocomplete next prompt tab plan usage", control: p.toggle("chat", "suggest_next", p.s.Chat.SuggestNext)})
+	awaySummary := "off"
+	if p.s.Chat.AwaySummary {
+		awaySummary = "on"
+	}
+	rows = append(rows, row{label: "Summaries", desc: "When you come back to a chat after 5 minutes or more and its agent worked meanwhile, a Since you left card above the box says how long you were away and what the log shows. On adds two lines from the chat's agent on its cheapest model, once per return: the state of the work and what it needs from you. It sends your last message and the agent's replies since you left, capped, with secrets redacted. Off shows the facts alone.",
+		extra: "chat away since you left summary summaries recap return away_summary", control: p.dropdown("chat", "away_summary", []string{"on", "off"}, []string{"On", "Off"}, awaySummary)})
 	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	rows = append(rows, row{label: "Guard workers", desc: "Turns the guard on in tabs an agent opens with pitwall worktree new: it denies their agents git push, gh pr merge, terraform apply and the like. A seatbelt, not a sandbox; see docs/usage.md.",

@@ -99,7 +99,7 @@ func allMessages() []any {
 		ChatRewindCheck{Chat: "c", Turn: "t1"}, ChatRewindFiles{Chat: "c", Turn: "t1", Files: []RewindFile{{Path: "new.go", From: "old.go", Status: "renamed"}}, Unsaved: []RewindFile{{Path: "mine.go", Status: "modified"}}, Refused: "no"},
 		ChatFind{Chat: "c", Query: "needle"}, ChatFindResult{Chat: "c", Query: "needle", Hits: []session.FindHit{{Item: "i", At: []int{0, 9}, Runes: 20}}, More: true},
 		ChatSubscribe{Chat: "c", After: 4},
-		ServerStop{Workspace: "w", PID: 12, Port: 3000, Force: true}, ServerStopResult{Workspace: "w", PID: 12, Port: 3000, Running: true, Err: "x"}, ChatSuggest{Chat: "c", Turn: "t1"}, ChatSuggestResult{Chat: "c", Turn: "t1", Text: "run the tests", Code: "busy", Err: "e"},
+		ServerStop{Workspace: "w", PID: 12, Port: 3000, Force: true}, ServerStopResult{Workspace: "w", PID: 12, Port: 3000, Running: true, Err: "x"}, ChatSuggest{Chat: "c", Turn: "t1"}, ChatSuggestResult{Chat: "c", Turn: "t1", Text: "run the tests", Code: "busy", Err: "e"}, ChatAwayDismiss{Chat: "c"},
 		ChatResult{Chat: "c", Turn: "t", Code: "busy", Message: "a turn is running"},
 		ChatDeltas{Chat: "c", Snapshot: []byte(`{}`), Seq: 1, Deltas: [][]byte{[]byte(`{"seq":2}`)}, Push: true},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},

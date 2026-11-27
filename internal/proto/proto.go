@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 102 added State.Away and ChatAwayDismiss (AwayLevel): a chat's
+// Since you left card, and the window or phone dismissing it.
 // Level 101 added Codex and Antigravity chats to ChatTerminal
 // (ChatTerminalAgentsLevel).
 // Level 100 added ChatSubscribe and ChatDeltas.Push (SubscribeLevel): the
@@ -271,7 +273,11 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 101
+const Level = 102
+
+// AwayLevel is the first daemon that fills State.Away and takes
+// ChatAwayDismiss.
+const AwayLevel = 102
 
 // SubscribeLevel added ChatSubscribe and ChatDeltas.Push. Below it a
 // window polls ChatRead.
@@ -609,6 +615,8 @@ func Since(msg any) int {
 		return ServersLevel
 	case ChatSuggest, ChatSuggestResult:
 		return SuggestLevel
+	case ChatAwayDismiss:
+		return AwayLevel
 	case ChatSubscribe:
 		return SubscribeLevel
 	case ChatTerminal:
@@ -1440,6 +1448,7 @@ var Messages = []any{
 	ChatAside{}, ChatAsideResult{},
 	ServerStop{}, ServerStopResult{},
 	ChatSuggest{}, ChatSuggestResult{},
+	ChatAwayDismiss{},
 	AgentExplain{}, AgentExplanation{},
 	Image{}, ImageResult{},
 	OpenForm{}, FormAnswer{},
@@ -1658,6 +1667,10 @@ type ChatSuggest struct{ Chat, Turn string }
 // clear next step, or Err when there is none (Code: off, busy, guarded,
 // stale, unsupported, not-found or provider).
 type ChatSuggestResult struct{ Chat, Turn, Text, Code, Err string }
+
+// ChatAwayDismiss removes Chat's Since you left card (State.Away): the
+// user closed it or scrolled through what they missed.
+type ChatAwayDismiss struct{ Chat string }
 
 // ServerStop stops PID, one of State.Servers[Workspace] listening on
 // Port: SIGTERM to its job, or with Force SIGKILL. The daemon signals

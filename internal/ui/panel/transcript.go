@@ -100,6 +100,11 @@ type Transcript struct {
 	// LiveSteps says the daemon accepts step-by-step TUI question actions
 	// (proto.QuestionStepLevel).
 	LiveSteps bool
+	// Away is the chat's Since you left card (State.Away), set by the
+	// window each frame, nil for none; AwayNow is the agent's state as the
+	// card names it (model.AwayNow).
+	Away    *model.Away
+	AwayNow string
 
 	list       layout.List
 	listPx     float32 // the px per sp list's offsets were laid out at
@@ -180,6 +185,7 @@ type Transcript struct {
 	msg    msgState       // the prompts' hover buttons, the find bar and side questions
 	cite   citeState      // the selection's toolbar and a quote's reveal, see cite.go
 	mm     minimap        // the marks at the right edge
+	away   away           // the Since you left card's jump and dismissal
 }
 
 // Answer is an approval answered with its buttons or keys.
@@ -1063,6 +1069,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 	}
 	t.findJump(lgtx, s, listSize.Y)
 	t.revealJump(lgtx, s, prev, listSize.Y)
+	t.awayJump(s)
+	t.awayMark(s)
 	t.autoScroll(lgtx, prev, listSize.Y)
 	if t.span.drag { // the button held: the newest line does not pull the view away
 		t.list.Position.BeforeEnd = true
@@ -1093,6 +1101,9 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		t.wantWhole(s, r)
 		gap := gtx.Dp(r.gap)
 		topY := gap
+		if i == t.away.row {
+			topY += t.awayMarker(gtx, d, x0, col, topY)
+		}
 		if d.ledger && r.divider {
 			paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(d.geom.x0, gap), Max: image.Pt(d.geom.x0+d.geom.ledgerW, gap+max(1, gtx.Dp(1)))}.Op())
 			topY += gtx.Dp(theme.SpaceS + theme.Space2XS)
@@ -1195,6 +1206,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 		d.bottomFade(lgtx, listSize)
 	}
 	t.msg.spans(t.list.Position)
+	t.awayTrack(s)
+	t.awayMeasure(lgtx, s)
 	t.span.rank, t.span.seq = math.MaxInt/2, 0 // what floats over the rows reads after them
 	t.atTop(s, listSize.Y)
 	t.forget(s)
