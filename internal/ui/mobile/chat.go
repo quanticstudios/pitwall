@@ -14,6 +14,7 @@ import (
 	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/io/clipboard"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -107,7 +108,7 @@ type chatView struct {
 	tab        remote.Tab
 	tabUpdates uint64
 	list       layout.List
-	rows       map[int64]*entryRow
+	entryRows  map[int64]*entryRow
 	loading    bool   // a page of older entries is on its way
 	fresh      bool   // new entries came while scrolled up
 	files      bool   // replies link markdown paths: OpenFile is set
@@ -125,6 +126,21 @@ type chatView struct {
 	away                   awayState
 	reps                   reportState
 	beatAt                 time.Time // the last View beat sent for this chat
+
+	// rows are the list's rows, entries with each turn's work folded,
+	// and turns that work; built again when gen, the entries' count or
+	// busy changes. gen counts changes to the entries and the folds.
+	rows    []logRow
+	turns   []turnWork
+	gen     uint64
+	rowsSig [3]uint64
+	works   map[int64]*workRow // a turn's Worked line, by its key
+}
+
+// workRow is a turn's Worked line's click and whether it is open.
+type workRow struct {
+	click widget.Clickable
+	open  bool
 }
 
 // entryRow is an entry's widgets, kept across frames by seq.
@@ -154,7 +170,9 @@ func newChat(pane string) chatView {
 // reset starts the chat over with a "reset" event.
 func (c *chatView) reset(e phone.Entries) {
 	c.data.Reset(e)
-	c.rows = nil
+	c.gen++
+	c.rows = c.rows[:0]
+	c.entryRows = nil
 	c.fresh = false
 	c.list.Position = layout.Position{BeforeEnd: false}
 }
@@ -165,6 +183,7 @@ func (c *chatView) add(e phone.Entries) {
 	if e.Model != "" {
 		c.data.Model = e.Model
 	}
+	c.gen++
 	if c.data.Add(e.Entries) && c.list.Position.BeforeEnd {
 		c.fresh = true
 	}
@@ -196,13 +215,13 @@ func (c *chatView) handleBack(gtx C) bool {
 }
 
 func (c *chatView) row(seq int64) *entryRow {
-	if c.rows == nil {
-		c.rows = map[int64]*entryRow{}
+	if c.entryRows == nil {
+		c.entryRows = map[int64]*entryRow{}
 	}
-	r := c.rows[seq]
+	r := c.entryRows[seq]
 	if r == nil {
 		r = &entryRow{}
-		c.rows[seq] = r
+		c.entryRows[seq] = r
 	}
 	return r
 }
@@ -233,6 +252,8 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	}
 	c.older(env)
 	c.viewBeat(gtx, env)
+	_, busy := c.data.Working(env.Tab)
+	c.buildRows(busy && env.Open)
 	c.awayMark(env)
 	c.reportsMark(env)
 	c.files = env.OpenFile != nil
@@ -423,14 +444,50 @@ func (c *chatView) older(env chatEnv) {
 // pageIn puts a page of older entries above the first, keeping what was
 // on screen where it was.
 func (c *chatView) pageIn(es []flow.Entry, more bool) {
-	n := c.data.Older(es, more)
-	c.list.Position.First += n
+	c.buildRows(c.rowsSig[2] == 1)
+	before := len(c.rows)
+	c.data.Older(es, more)
+	c.gen++
+	c.buildRows(c.rowsSig[2] == 1)
+	c.list.Position.First += len(c.rows) - before
+}
+
+// buildRows makes the list's rows again when the entries, a fold or busy
+// changed: busy says the tab works, so its last turn's line says Working.
+func (c *chatView) buildRows(busy bool) {
+	b := uint64(0)
+	if busy {
+		b = 1
+	}
+	sig := [3]uint64{c.gen, uint64(len(c.data.Entries)), b}
+	if sig == c.rowsSig && (len(c.rows) > 0 || len(c.data.Entries) == 0) {
+		return
+	}
+	c.rowsSig = sig
+	c.rows, c.turns = buildRows(c.rows, c.turns, c.data.Entries, func(k int64) bool {
+		w := c.works[k]
+		return w != nil && w.open
+	}, busy)
+}
+
+// work is the Worked line of the turn keyed k.
+func (c *chatView) work(k int64) *workRow {
+	if c.works == nil {
+		c.works = map[int64]*workRow{}
+	}
+	w := c.works[k]
+	if w == nil {
+		w = &workRow{}
+		c.works[k] = w
+	}
+	return w
 }
 
 // log is the scrolling chat: the loading line, the entries, the messages
 // on their way and the Working line.
 func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
-	n := 1 + len(c.data.Entries)
+	c.buildRows(c.rowsSig[2] == 1)
+	n := 1 + len(c.rows)
 	if c.data.None {
 		n++
 	}
@@ -451,7 +508,10 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		in := layout.Inset{Left: 16, Right: 16, Bottom: 10}
 		if i == 0 {
-			in.Bottom, in.Top = 0, pillClear-10 // why: the floating title pill covers the top
+			in.Top = pillClear - 10 // why: the floating title pill covers the top
+		}
+		if r := i - 1; i == 0 || !c.data.None && !c.data.Gone && r < len(c.rows) && c.rows[r].kind == rowFolded && c.data.Entries[c.rows[r].i].Kind == flow.EntryTool {
+			in.Bottom = 0 // why: a call's line is 48dp tall already
 		}
 		return in.Layout(gtx, func(gtx C) D {
 			if hasQuestion && i == n-1 {
@@ -482,15 +542,15 @@ func (c *chatView) logItem(gtx C, th *theme.Theme, i int, working string) D {
 		}
 		i--
 	}
-	if i < len(c.data.Entries) {
+	if i < len(c.rows) {
 		if i+1 == c.away.mark {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx C) D { return awayMarker(gtx, th, c.away.label) }),
-				layout.Rigid(func(gtx C) D { return c.entry(gtx, th, c.data.Entries[i]) }))
+				layout.Rigid(func(gtx C) D { return c.logRow(gtx, th, c.rows[i]) }))
 		}
-		return c.entry(gtx, th, c.data.Entries[i])
+		return c.logRow(gtx, th, c.rows[i])
 	}
-	i -= len(c.data.Entries)
+	i -= len(c.rows)
 	for _, p := range c.data.Pending {
 		if !p.Sent || p.Queued || p.Err != "" {
 			continue
@@ -576,7 +636,7 @@ func (c *chatView) userEntry(gtx C, th *theme.Theme, r *entryRow, src string) D 
 		r.flat = mdview.Plain(src, blocks)
 		r.doc.Set(blocks)
 		r.text, r.parsed = src, true
-		r.doc.Size, r.doc.Follow = promptSize, c.tap
+		r.doc.Size, r.doc.Follow, r.doc.Leading = promptSize, c.tap, readLeading
 	}
 	if r.flat {
 		return prompt(gtx, th, src, 1)
@@ -584,13 +644,20 @@ func (c *chatView) userEntry(gtx C, th *theme.Theme, r *entryRow, src string) D 
 	return bubble(gtx, th, 1, func(gtx C) D { return r.doc.Layout(gtx, th) })
 }
 
-// promptSize is a prompt's text size, in the chat's real sp.
-const promptSize unit.Sp = 16
+// The chat's type, in real sp: replies and prompts at reading size, 1.45
+// apart; work quieter and smaller; code and call output in the desktop's
+// mono size (Small beside its 13 body), scaled as the replies are.
+const (
+	promptSize  unit.Sp = replySize
+	readLeading         = 1.45
+	workSize    unit.Sp = 14
+	monoSize    unit.Sp = 12 * replySize / 13
+)
 
 // prompt is a message of the user's as typed, on the right.
 func prompt(gtx C, th *theme.Theme, s string, opacity float32) D {
 	return bubble(gtx, th, opacity, func(gtx C) D {
-		return widget.Label{WrapPolicy: text.WrapWords, LineHeight: 22.4, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.UIFont, promptSize, s, colorOp(gtx, th.Fg))
+		return widget.Label{WrapPolicy: text.WrapWords, LineHeight: promptSize, LineHeightScale: readLeading}.Layout(gtx, th.Shaper, th.UIFont, promptSize, s, colorOp(gtx, th.Fg))
 	})
 }
 
@@ -617,23 +684,29 @@ func bubble(gtx C, th *theme.Theme, opacity float32, w layout.Widget) D {
 // parsed once for its text, laid out at the width each frame. Tapping a
 // link opens a markdown file, or copies anything else.
 func (c *chatView) reply(gtx C, th *theme.Theme, r *entryRow, src string) D {
-	if !r.parsed || r.text != src || r.files != c.files {
+	return c.replyAt(gtx, th, r, src, replySize)
+}
+
+// replyAt is reply at size: the turn's last at reading size, one between
+// calls smaller.
+func (c *chatView) replyAt(gtx C, th *theme.Theme, r *entryRow, src string, size unit.Sp) D {
+	if !r.parsed || r.text != src || r.files != c.files || r.doc.Size != size {
 		blocks := mdview.ParseChat([]byte(src))
 		if c.files {
 			linkPaths(blocks)
 		}
 		r.doc.Set(blocks)
 		r.text, r.files, r.parsed = src, c.files, true
-		r.doc.Size, r.doc.Follow = replySize, c.tap
+		r.doc.Size, r.doc.Follow, r.doc.Leading = size, c.tap, readLeading
 	}
 	return r.doc.Layout(gtx, th)
 }
 
 // replySize is a reply's text size, in the chat's real sp.
-const replySize unit.Sp = 16.5
+const replySize unit.Sp = 15.5
 
-// tool is a call's 48dp line, its name and what it ran, which opens to its
-// output.
+// tool is a call's 48dp line in an open Worked line, its name and what
+// it ran, which opens to its output.
 func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 	if r.click.Clicked(gtx) {
 		r.open = !r.open
@@ -643,77 +716,87 @@ func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 	if r.file.Clicked(gtx) && md {
 		c.tap(e.Path)
 	}
-	return box(gtx, th.Surface, th.BorderSubtle, 12, layout.Inset{}, func(gtx C) D {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx C) D {
-				return r.click.Layout(gtx, func(gtx C) D {
-					gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(48))
-					return layout.Inset{Left: 12, Right: 12}.Layout(gtx, func(gtx C) D {
-						chev := icRight
-						if r.open {
-							chev = icDown
-						}
-						return midFlex(gtx,
-							layout.Rigid(func(gtx C) D { return glyph(gtx, chev, 16, th.Muted) }),
-							layout.Rigid(layout.Spacer{Width: 8}.Layout),
-							layout.Rigid(func(gtx C) D {
-								return label(gtx, th, weight(th.UIFont, font.SemiBold), 15, th.Muted, 1, e.Tool)
-							}),
-							layout.Rigid(layout.Spacer{Width: 8}.Layout),
-							layout.Flexed(1, func(gtx C) D {
-								gtx.Constraints.Min.X = 0
-								return label(gtx, th, th.MonoFont, 14, th.Fg, 1, e.Arg)
-							}),
-							layout.Rigid(func(gtx C) D {
-								if md {
-									return layout.Inset{Left: 4}.Layout(gtx, func(gtx C) D { return linkButton(gtx, th, &r.file, "Open") })
-								}
-								return D{}
-							}),
-							layout.Rigid(func(gtx C) D {
-								switch {
-								case !e.Done:
-									return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D { return circle(gtx, th.Blue, 9) })
-								case e.Failed:
-									return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D {
-										return label(gtx, th, th.UIFont, 14, th.Readable(th.Red, th.Surface), 1, "failed")
-									})
-								}
-								return D{}
-							}),
-						)
-					})
-				})
-			}),
-			layout.Rigid(func(gtx C) D {
-				if !r.open {
-					return D{}
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx C) D {
+			return r.click.Layout(gtx, func(gtx C) D {
+				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(48))
+				if r.click.Pressed() {
+					paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(8)).Op(gtx.Ops))
 				}
-				f := th.MonoFont
-				if e.Out == "" {
-					f = th.UIFont
-				}
-				if !r.toolCached || r.toolArg != e.Arg || r.toolOut != e.Out || r.toolDone != e.Done {
-					out := e.Out
-					if out == "" {
-						out = map[bool]string{true: "No output.", false: "Running."}[e.Done]
+				pointer.CursorPointer.Add(gtx.Ops)
+				return layout.Inset{Left: 4, Right: 4}.Layout(gtx, func(gtx C) D {
+					chev := icRight
+					if r.open {
+						chev = icDown
 					}
-					if e.Arg != "" {
-						out = e.Arg + "\n\n" + out
-					}
-					r.toolArg, r.toolOut, r.toolDone = e.Arg, e.Out, e.Done
-					r.toolDetab, r.toolCached = mdview.Detab(out), true
-				}
-				return layout.Inset{Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx C) D {
-					return box(gtx, th.Bg, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {
-						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return widget.Label{MaxLines: 40, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, f, 13, r.toolDetab, colorOp(gtx, toolOut))
-					})
+					return midFlex(gtx,
+						layout.Rigid(func(gtx C) D { return glyph(gtx, chev, 14, th.Muted) }),
+						layout.Rigid(layout.Spacer{Width: 8}.Layout),
+						layout.Rigid(func(gtx C) D {
+							return label(gtx, th, weight(th.UIFont, font.SemiBold), workSize, th.Muted, 1, e.Tool)
+						}),
+						layout.Rigid(layout.Spacer{Width: 8}.Layout),
+						layout.Flexed(1, func(gtx C) D {
+							gtx.Constraints.Min.X = 0
+							return label(gtx, th, th.MonoFont, 13, theme.Mix(th.Muted, th.Fg, 0.5), 1, e.Arg)
+						}),
+						layout.Rigid(func(gtx C) D {
+							if e.Add == 0 && e.Del == 0 || e.Failed {
+								return D{}
+							}
+							return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D {
+								return label(gtx, th, th.MonoFont, 12.5, th.Muted, 1, fmt.Sprintf("+%d −%d", e.Add, e.Del))
+							})
+						}),
+						layout.Rigid(func(gtx C) D {
+							if md {
+								return layout.Inset{Left: 4}.Layout(gtx, func(gtx C) D { return linkButton(gtx, th, &r.file, "Open") })
+							}
+							return D{}
+						}),
+						layout.Rigid(func(gtx C) D {
+							switch {
+							case !e.Done:
+								return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D { return circle(gtx, th.Blue, 9) })
+							case e.Failed:
+								return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D {
+									return label(gtx, th, th.UIFont, 13, th.Readable(th.Red, th.Bg), 1, "failed")
+								})
+							}
+							return D{}
+						}),
+					)
 				})
-			}),
-		)
-	})
+			})
+		}),
+		layout.Rigid(func(gtx C) D {
+			if !r.open {
+				return D{}
+			}
+			f := th.MonoFont
+			if e.Out == "" {
+				f = th.UIFont
+			}
+			if !r.toolCached || r.toolArg != e.Arg || r.toolOut != e.Out || r.toolDone != e.Done {
+				out := e.Out
+				if out == "" {
+					out = map[bool]string{true: "No output.", false: "Running."}[e.Done]
+				}
+				if e.Arg != "" {
+					out = e.Arg + "\n\n" + out
+				}
+				r.toolArg, r.toolOut, r.toolDone = e.Arg, e.Out, e.Done
+				r.toolDetab, r.toolCached = mdview.Detab(out), true
+			}
+			return layout.Inset{Left: 4, Bottom: 8}.Layout(gtx, func(gtx C) D {
+				return box(gtx, th.Surface, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					return widget.Label{MaxLines: 40, Truncator: "…", LineHeight: monoSize, LineHeightScale: 1.4}.Layout(gtx, th.Shaper, f, monoSize, r.toolDetab, colorOp(gtx, toolOut))
+				})
+			})
+		}),
+	)
 }
 
 var toolOut = color.NRGBA{R: 0xcf, G: 0xd2, B: 0xd8, A: 0xff}

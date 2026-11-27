@@ -44,6 +44,9 @@ type Doc struct {
 	// CodeFill, when set, puts inline code on a pill of that color, as
 	// the chat's paragraphs draw it.
 	CodeFill color.NRGBA
+	// Leading is the line height as a multiple of a text's size; zero
+	// keeps the reader's, 1.4 times the font's own line height.
+	Leading float32
 
 	blocks  []Block
 	th      *theme.Theme
@@ -109,6 +112,14 @@ func (d *Doc) size(th *theme.Theme) unit.Sp {
 		return d.Size
 	}
 	return th.Sp(theme.Title)
+}
+
+// lineHeight is a text's LineHeight and LineHeightScale at size.
+func (d *Doc) lineHeight(size unit.Sp) (unit.Sp, float32) {
+	if d.Leading > 0 {
+		return size, d.Leading
+	}
+	return 0, 1.4
 }
 
 // Layout draws every block top to bottom, gtx.Constraints.Max.X wide.
@@ -237,6 +248,9 @@ func (d *Doc) marker(gtx gl.Context, th *theme.Theme, b *Block) {
 	}
 	gw := gtx.Dp(22)
 	line := gtx.Sp(d.size(th)) * 7 / 5
+	if d.Leading > 0 {
+		line = int(float32(gtx.Sp(d.size(th))) * d.Leading)
+	}
 	if b.Task != 0 {
 		s := gtx.Dp(14)
 		r := image.Rect(-gw+gtx.Dp(2), (line-s)/2, -gw+gtx.Dp(2)+s, (line-s)/2+s)
@@ -256,7 +270,8 @@ func (d *Doc) marker(gtx gl.Context, th *theme.Theme, b *Block) {
 	lg := gtx
 	lg.Constraints = gl.Constraints{Min: image.Pt(wide, 0), Max: image.Pt(wide, line)}
 	t := op.Offset(image.Pt(-gtx.Dp(6)-wide, 0)).Push(gtx.Ops)
-	widget.Label{Alignment: text.End, MaxLines: 1, LineHeightScale: 1.4}.Layout(lg, th.Shaper, th.UIFont, d.size(th), b.Marker, colorCall(gtx, th.Muted))
+	lh, ls := d.lineHeight(d.size(th))
+	widget.Label{Alignment: text.End, MaxLines: 1, LineHeight: lh, LineHeightScale: ls}.Layout(lg, th.Shaper, th.UIFont, d.size(th), b.Marker, colorCall(gtx, th.Muted))
 	t.Pop()
 }
 
@@ -291,7 +306,8 @@ func (d *Doc) clicked(gtx gl.Context, st *richtext.InteractiveText) {
 func (d *Doc) text(gtx gl.Context, th *theme.Theme, key part, spans []Span, size unit.Sp, c color.NRGBA, heading bool) gl.Dimensions {
 	st := d.state(key)
 	d.clicked(gtx, st)
-	return richtext.TextStyle{State: st, Styles: d.styled(key, th, spans, size, c, heading), Shaper: th.Shaper, LineHeightScale: 1.4}.Layout(gtx)
+	lh, ls := d.lineHeight(size)
+	return richtext.TextStyle{State: st, Styles: d.styled(key, th, spans, size, c, heading), Shaper: th.Shaper, LineHeight: lh, LineHeightScale: ls}.Layout(gtx)
 }
 
 // styled is d.rich of the text key names, styled once for its blocks
@@ -354,7 +370,8 @@ func (d *Doc) code(gtx gl.Context, th *theme.Theme, i int, s string) gl.Dimensio
 	lg.Constraints = gl.Constraints{Max: image.Pt(1<<20, 1<<24)}
 	m := op.Record(gtx.Ops)
 	t := op.Offset(image.Pt(pad, pad)).Push(gtx.Ops)
-	dl := widget.Label{LineHeightScale: 1.4}.Layout(lg, th.Shaper, th.MonoFont, d.size(th)*0.875, Detab(s), colorCall(gtx, th.Fg))
+	lh, ls := d.lineHeight(d.size(th) * 0.875)
+	dl := widget.Label{LineHeight: lh, LineHeightScale: ls}.Layout(lg, th.Shaper, th.MonoFont, d.size(th)*0.875, Detab(s), colorCall(gtx, th.Fg))
 	t.Pop()
 	call := m.Stop()
 	h := dl.Size.Y + 2*pad
