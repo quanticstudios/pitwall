@@ -267,7 +267,14 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				o.Pop()
 				continue
 			}
-			vis := inView(y, ey1)
+			// A tab's tile runs down past its sub-rows: it draws while any of it shows.
+			tile := e.bot
+			if e.kind == 's' {
+				for j := i + 1; j < len(elems) && elems[j].kind == 'a' && elems[j].parent == e.id; j++ {
+					tile = elems[j].bot + subsBottom(gtx)
+				}
+			}
+			vis := inView(y, max(ey1, y+tile-e.top))
 			if !vis && s.menuWS != e.id && s.renaming != e.id && s.replying != e.id && s.reply.ws != e.id && s.hover.shown != e.id {
 				continue
 			}
@@ -296,11 +303,6 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 			} else {
 				if e.parent != "" {
 					workerGuide(rg, v.th, e.bot-e.top)
-				}
-				// The tile runs down past the tab's sub-rows.
-				tile := e.bot
-				for j := i + 1; j < len(elems) && elems[j].kind == 'a' && elems[j].parent == e.id; j++ {
-					tile = elems[j].bot + subsBottom(gtx)
 				}
 				s.row(e.id).tileH = tile - e.top
 				_, a = s.workspaceRow(rg, v, byID[e.id], false, digit)
