@@ -353,3 +353,40 @@ func TestMinimapJump(t *testing.T) {
 		t.Errorf("narrow chat: hover %d, want no strip", tr.mm.hover)
 	}
 }
+
+// TestToolCallsZenReports: zen keeps the agent's report between calls,
+// as Antigravity writes its findings mid-turn and works on, also while
+// the turn runs, and still hides short narration.
+func TestToolCallsZenReports(t *testing.T) {
+	findings := "Training and quantization are done:\n- SFT: 3,478 steps, best at 2000\n- Budget: $13.01 left"
+	s := visibilityChat()
+	for i := range s.Content {
+		if s.Content[i].ID == "a1" {
+			s.Content[i].Text = findings
+		}
+	}
+	if got := visRows(t, &Transcript{ToolCalls: ToolsZen}, s); !slices.Contains(got, "prose:a1") {
+		t.Errorf("zen hides the report between calls: %v", got)
+	}
+	s.Content = append(s.Content[:len(s.Content)-1:len(s.Content)-1], session.Item{ID: "a3", Kind: session.KindAssistantText, Text: findings, TurnID: s.Content[0].TurnID})
+	s.SessionState, s.Running = session.StateRunning, true
+	s.Turns = []session.TurnSummary{{ID: "t1", State: session.TurnRunning}}
+	if got := visRows(t, &Transcript{ToolCalls: ToolsZen}, s); !slices.Contains(got, "prose:a3") || slices.Contains(got, "reply") {
+		t.Errorf("zen while running: %v, want the latest report as prose and no reply", got)
+	}
+	for _, c := range []struct {
+		text string
+		want bool
+	}{
+		{"Let me check the tests.", false},
+		{"Checking.", false},
+		{"Done:\n- one", true},
+		{"## Result", true},
+		{"1. pull the model", true},
+		{"a\nb\nc", true},
+	} {
+		if got := report(c.text); got != c.want {
+			t.Errorf("report(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
+}

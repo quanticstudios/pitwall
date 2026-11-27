@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- Zen mode keeps the agent's reports between tool calls: words of three lines or more, 240 characters or more, or a list, heading or table, also while the turn runs. Antigravity writes its findings mid-turn and then works on, so Zen hid them, and showed nothing at all of a running turn. Short narration such as "Let me check the tests" stays hidden.
 - A sidebar tab whose agent is back at its prompt while something it started still runs (Background), or that watches its workers (Watching), draws its ring in gray, not in Working's blue. Blue now means an agent mid-turn.
 - A sidebar tile's outline, and the selected tile's blue ring, is a crisp 1px line on all four sides. It was drawn across two pixels at half strength, so its top and bottom looked blurry and the window cut off its left and right halves.
 - An [Image #N] chip, in a sent message and in the box while you type, centres its box and icon on the middle of the line's capitals. The box hung low, with more room under the text than over it, and the icon sat about a quarter em under the text's middle.
