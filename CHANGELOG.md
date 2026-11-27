@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The phone app sends your message again when you tap Send. Since v0.3.11 the Stop check took the tap first, so nothing went out.
+
 ## v0.3.14
 
 - The phone's chat reads at 15.5sp with 1.45 line spacing. A turn's tool calls fold into one line, such as "Worked 2m 14s · 6 tools · 1 failed", that you tap to open, and the files it edited show on one card under the reply, such as "Edited 2 files +18 −4".
