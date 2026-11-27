@@ -17,6 +17,17 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
+// spin is a pane chat's spinner row item, in turn ("" for none).
+func spin(turn, text string) session.Item {
+	it := session.Item{ID: session.LiveStatus, Kind: session.KindSystem, Text: text}
+	if turn != "" {
+		it.TurnID = &turn
+	}
+	return it
+}
+
+// The status line says the agent's own spinner row while a turn runs, and
+// what waits on the user over it.
 func TestLedgerStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -31,6 +42,10 @@ func TestLedgerStatus(t *testing.T) {
 		{"plan", &session.Snapshot{PlanApproval: &session.PlanApproval{ID: "p1"}}, "", false, "Waiting for plan review", "yellow"},
 		{"limit", &session.Snapshot{UsageLimit: &session.UsageLimit{Label: "5-hour"}}, "", false, "Usage limit reached", "yellow"},
 		{"working", &session.Snapshot{SessionState: session.StateRunning, Running: true}, "", false, "Working…", "muted"},
+		{"spinner", &session.Snapshot{SessionState: session.StateRunning, Running: true, Live: []session.Item{spin("t1", "Nesting… 9s · ↓ 232 tokens")}}, "", false, "Nesting… 9s · ↓ 232 tokens", "muted"},
+		{"compaction", &session.Snapshot{SessionState: session.StateRunning, Running: true, Live: []session.Item{spin("", "Compacting conversation… 7s")}}, "", false, "Working…", "muted"},
+		{"spinner-approval", &session.Snapshot{SessionState: session.StateRunning, Running: true, PendingApprovals: []session.Approval{{ID: "a1"}}, Live: []session.Item{spin("t1", "Nesting… 9s")}}, "", false, "Waiting for approval", "yellow"},
+		{"spinner-idle", &session.Snapshot{SessionState: session.StateReady, Live: []session.Item{spin("t1", "Nesting… 9s")}}, "", false, "", ""},
 		{"idle", &session.Snapshot{SessionState: session.StateReady}, "", false, "", ""},
 		{"error-note", &session.Snapshot{SessionState: session.StateReady}, "Failed to attach", false, "Failed to attach", "red"},
 		{"ok-note", &session.Snapshot{SessionState: session.StateReady}, "Kept files", true, "Kept files", "muted"},

@@ -141,3 +141,50 @@ func TestLiveScreenClaudeSpinner(t *testing.T) {
 		}
 	}
 }
+
+// TestSplitStatus: the spinner row of each recorded screen reads as its
+// verb and its detail, Codex's without "esc to interrupt".
+func TestSplitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		p            model.Provider
+		verb, detail string
+	}{
+		{"claude-start", model.ProviderClaude, "Moseying…", "1s · ↓ 6 tokens"},
+		{"claude-running", model.ProviderClaude, "Scurrying…", "1s · ↓ 5 tokens"},
+		{"claude-tool", model.ProviderClaude, "Hyperspacing…", "running PreToolUse hook · 1s · ↓ 64 tokens"},
+		{"codex-tool", model.ProviderCodex, "Working…", "5s"},
+		{"antigravity-start", model.ProviderAntigravity, "Working…", ""},
+		{"antigravity-running", model.ProviderAntigravity, "Thinking…", ""},
+		{"antigravity-working.txt", model.ProviderAntigravity, "Running command…", ""},
+		{"antigravity-working-generating.txt", model.ProviderAntigravity, "Generating…", ""},
+		{"antigravity-md-streaming.txt", model.ProviderAntigravity, "Thinking…", "12s"},
+	} {
+		var g vt.Grid
+		if strings.HasSuffix(tc.name, ".txt") {
+			g = screenFixture(t, tc.name)
+		} else {
+			g = liveGrid(t, tc.name)
+		}
+		lv := LiveScreen(tc.p, g)
+		verb, detail := SplitStatus(lv.Status)
+		if verb != tc.verb || detail != tc.detail {
+			t.Errorf("%s: %q, %q; want %q, %q", tc.name, verb, detail, tc.verb, tc.detail)
+		}
+		// why: agy's thought shows as its own row; the line says Thinking, never the thought again.
+		if verb == "Thinking…" && (lv.Thinking == "" || strings.HasSuffix(lv.Thinking, "12s")) {
+			t.Errorf("%s: thinking %q", tc.name, lv.Thinking)
+		}
+	}
+	for status, want := range map[string][2]string{
+		"Compacting conversation…":                                  {"Compacting conversation…", ""},
+		"Compacting conversation… (7s · ↓ 122 tokens)":              {"Compacting conversation…", "7s · ↓ 122 tokens"},
+		"Flibbertigibbeting… (11s · ↓ 789 tokens · still thinking)": {"Flibbertigibbeting…", "11s · ↓ 789 tokens · still thinking"},
+		"Thinking… (12s · ↑ 1.2k tokens · esc to interrupt)":        {"Thinking…", "12s · ↑ 1.2k tokens"},
+		"": {"", ""},
+	} {
+		if v, d := SplitStatus(status); v != want[0] || d != want[1] {
+			t.Errorf("SplitStatus(%q) = %q, %q; want %q", status, v, d, want)
+		}
+	}
+}

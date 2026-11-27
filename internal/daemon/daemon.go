@@ -291,11 +291,12 @@ type Daemon struct {
 	pushMu        sync.Mutex    // refcounts pushLoop shared by loopback and Tailscale remote servers
 	pushRefs      int
 	pushCancel    context.CancelFunc
-	phoneTick     chan struct{}       // closed at the next change, nil while no phone stream waits
-	phoneSeq      uint64              // the last phone message's id
-	phoneDropped  map[string][]uint64 // pane: phone messages its agent left before they went in
-	phoneIcons    remote.Icons        // the repo icons the phone app's rows show
-	agyList       []string            // agy's models for the phone, nil until listed (phoneAgyModels)
+	phoneTick     chan struct{}          // closed at the next change, nil while no phone stream waits
+	phoneSeq      uint64                 // the last phone message's id
+	phoneDropped  map[string][]uint64    // pane: phone messages its agent left before they went in
+	phoneSpin     map[string]*statusGate // pane: the spinner row its phone tab shows
+	phoneIcons    remote.Icons           // the repo icons the phone app's rows show
+	agyList       []string               // agy's models for the phone, nil until listed (phoneAgyModels)
 	agyListing    sync.Once
 	paneCmd       map[string]*sync.Mutex // pane: held while a phone slash command goes in
 	awakeWake     chan struct{}          // wakes keepAwakeLoop on activity changes

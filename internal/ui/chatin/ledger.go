@@ -636,56 +636,24 @@ func ledgerStatus(s *session.Snapshot, note string, noteOK bool) (icon, msg, ton
 	case s.UsageLimit != nil:
 		return "circle-alert", "Usage limit reached", "yellow"
 	case s.Busy():
+		// The agent's own spinner row, such as "Nesting… 9s · ↓ 232 tokens", says more than ours.
+		for _, it := range s.Live {
+			if it.ID == session.LiveStatus && it.TurnID != nil && it.Text != "" {
+				return "clock", it.Text, "muted"
+			}
+		}
 		return "clock", "Working…", "muted"
 	}
 	return "", "", ""
 }
 
 // ledgerStatusLine draws the quiet line under the floating card (.statusl):
-// waiting/working state on the left, key hints (Esc stop, / commands, @ files)
-// on the right.
+// the waiting or working state, or the agent's own spinner row.
 func (c *Composer) ledgerStatusLine(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
 	w := gtx.Constraints.Max.X
 	pad := gtx.Dp(6)
 	h := gtx.Dp(20)
 	innerW := max(0, w-2*pad)
-
-	type hint struct{ k, label string }
-	var hints []hint
-	if env.Snap != nil && (env.Snap.Busy() || Pending(env.Snap)) {
-		hints = append(hints, hint{"Esc", "stop"})
-	}
-	if env.Commands {
-		hints = append(hints, hint{"/", "commands"})
-	}
-	if env.Mentions != nil {
-		hints = append(hints, hint{"@", "files"})
-	}
-	// Even when Commands/Mentions aren't wired in a bare test snapshot, keep
-	// the default hints visible when empty so the status line stays balanced.
-	if len(hints) == 0 {
-		hints = []hint{{"/", "commands"}, {"@", "files"}}
-	}
-
-	hintCall, hintDims := func() (op.CallOp, layout.Dimensions) {
-		var ws []layout.Widget
-		for _, ht := range hints {
-			ht := ht
-			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return row(gtx, gtx.Dp(5), h,
-					func(gtx layout.Context) layout.Dimensions { return c.hintKeycap(gtx, th, ht.k) },
-					func(gtx layout.Context) layout.Dimensions {
-						return text(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, ht.label)
-					},
-				)
-			})
-		}
-		m := op.Record(gtx.Ops)
-		g := gtx
-		g.Constraints = layout.Constraints{Max: image.Pt(innerW, h)}
-		d := row(g, gtx.Dp(theme.SpaceM), h, ws...)
-		return m.Stop(), d
-	}()
 
 	ic, msg, tone := ledgerStatus(env.Snap, c.note, c.noteOK)
 	col := th.Muted
@@ -695,14 +663,9 @@ func (c *Composer) ledgerStatusLine(gtx layout.Context, th *theme.Theme, env Env
 	case "red":
 		col = th.Readable(th.Red, th.Bg)
 	}
-	leftRoom := innerW
-	showHints := hintDims.Size.X > 0 && innerW-hintDims.Size.X >= gtx.Dp(120)
-	if showHints {
-		leftRoom = innerW - hintDims.Size.X - gtx.Dp(theme.SpaceM)
-	}
-	if msg != "" && leftRoom > 0 {
+	if msg != "" && innerW > 0 {
 		lg := gtx
-		lg.Constraints = layout.Constraints{Max: image.Pt(leftRoom, h)}
+		lg.Constraints = layout.Constraints{Max: image.Pt(innerW, h)}
 		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
 		var ws []layout.Widget
 		if ic != "" {
@@ -714,27 +677,5 @@ func (c *Composer) ledgerStatusLine(gtx layout.Context, th *theme.Theme, env Env
 		row(lg, gtx.Dp(6), h, ws...)
 		o.Pop()
 	}
-	if showHints {
-		o := op.Offset(image.Pt(w-pad-hintDims.Size.X, 0)).Push(gtx.Ops)
-		hintCall.Add(gtx.Ops)
-		o.Pop()
-	}
 	return layout.Dimensions{Size: image.Pt(w, h)}
-}
-
-// hintKeycap draws a small mono keycap for the status line's key hints.
-func (c *Composer) hintKeycap(gtx layout.Context, th *theme.Theme, k string) layout.Dimensions {
-	m := op.Record(gtx.Ops)
-	td := text(gtx, th, th.MonoFont, th.Sp(theme.Caption), theme.Mix(th.Fg, th.Muted, 0.2), k)
-	call := m.Stop()
-	px, py := gtx.Dp(5), gtx.Dp(2)
-	sz := image.Pt(td.Size.X+2*px, td.Size.Y+2*py)
-	r := image.Rectangle{Max: sz}
-	rad := gtx.Dp(5)
-	paint.FillShape(gtx.Ops, th.BorderStrong, clip.UniformRRect(r, rad).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(r.Inset(gtx.Dp(1)), max(0, rad-gtx.Dp(1))).Op(gtx.Ops))
-	o := op.Offset(image.Pt(px, py)).Push(gtx.Ops)
-	call.Add(gtx.Ops)
-	o.Pop()
-	return layout.Dimensions{Size: sz}
 }

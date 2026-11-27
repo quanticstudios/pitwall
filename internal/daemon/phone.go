@@ -27,6 +27,24 @@ import (
 // The phone page's chat: every tab in the sidebar's order, each agent's
 // transcript, and messages and slash commands typed as the window types them.
 
+// phoneSpinner is the spinner row pane's phone tab shows for status, held
+// back as a pane chat's is. Callers hold d.mu.
+func (d *Daemon) phoneSpinner(pane, status string, now time.Time) string {
+	g := d.phoneSpin[pane]
+	if status == "" {
+		delete(d.phoneSpin, pane)
+		return ""
+	}
+	if g == nil {
+		g = &statusGate{}
+		if d.phoneSpin == nil {
+			d.phoneSpin = map[string]*statusGate{}
+		}
+		d.phoneSpin[pane] = g
+	}
+	return g.pass(status, now)
+}
+
 // phoneTabs is every tab the phone lists, with each chat's pending requests
 // read from its loop once d.mu is free.
 func (d *Daemon) phoneTabs() []remote.Tab {
@@ -97,7 +115,12 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 				tabs[i].Mode = mode
 			}
 			m, e := agent.ClaudeSettings(g)
+			status := ""
+			if tabs[i].State == string(model.StateWorking) {
+				status = agent.LiveScreen(tabs[i].Provider, g).Status
+			}
 			d.mu.Lock()
+			tabs[i].Spinner = logs.Redact(d.phoneSpinner(tabs[i].Pane, status, time.Now()))
 			d.keepClaudeSettings(tabs[i].Pane, p, m, e)
 			_, hasSL := d.liveStatusline(tabs[i].Pane)
 			set := d.settingsOf(tabs[i].Pane)

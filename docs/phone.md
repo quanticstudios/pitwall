@@ -135,7 +135,12 @@ a resume or a fork. The chat shows
 
 Thinking and the agent's own bookkeeping are left out. New entries arrive
 as the agent writes them, a whole message at a time. While the agent works,
-a "Working:" line under the chat names the call it runs. The chat stays at
+a line under the chat shows the agent's own spinner row, such as
+"Flibbertigibbeting… 11s · ↓ 789 tokens · thinking" for Claude Code,
+"Working… 5s" for Codex or "Running command… 12s" for Antigravity. Its time
+and tokens move about once a second. Without a spinner row, or with a
+daemon older than this app, the line says "Working:" and names the call
+the agent runs. The chat stays at
 its bottom while you are there; scrolled up, it shows a New messages button
 instead of moving. Scrolling to the top loads earlier messages, as far back
 as the last 8 MiB of the file.

@@ -94,6 +94,30 @@ func TestPhoneTabs(t *testing.T) {
 	}
 }
 
+// TestPhoneSpinner: a working tab carries the agent's spinner row, its
+// clock held to once a second, and none once the turn ends.
+func TestPhoneSpinner(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	rule := "────────"
+	screen := func(spin string) []string { return []string{"❯ go on", "", "✻ " + spin, "", rule, "❯ ", rule} }
+	setScreen(f.pane(0), screen("Nesting… (9s · ↓ 232 tokens · esc to interrupt)"))
+	if tab := d.phoneTabs()[0]; tab.Spinner != "" {
+		t.Fatalf("a finished tab shows %q", tab.Spinner)
+	}
+	event(t, d, "a", "working")
+	if tab := d.phoneTabs()[0]; tab.Spinner != "Nesting… 9s · ↓ 232 tokens" {
+		t.Fatalf("spinner %q", tab.Spinner)
+	}
+	setScreen(f.pane(0), screen("Nesting… (9s · ↓ 240 tokens)"))
+	if tab := d.phoneTabs()[0]; tab.Spinner != "Nesting… 9s · ↓ 232 tokens" {
+		t.Fatalf("spinner %q under a second later", tab.Spinner)
+	}
+	event(t, d, "a", "completed")
+	if tab := d.phoneTabs()[0]; tab.Spinner != "" {
+		t.Fatalf("spinner %q after the turn", tab.Spinner)
+	}
+}
+
 func TestPhoneCurrentSettings(t *testing.T) {
 	d, f, _ := phoneDaemon(t)
 	setScreen(f.pane(0), []string{"────────", "❯ ", "────────", "Opus 5.5 · high · project · 8% 83k/1.0M"})

@@ -173,11 +173,15 @@ func (c *Chat) Update(t remote.Tab, now time.Time) {
 	})
 }
 
-// Working is the line under a running chat: "Working", with the call the
-// tab names or else the last call still running.
+// Working is the line under a running chat: the agent's own spinner row
+// when the daemon sends it, else "Working", with the call the tab names or
+// else the last call still running.
 func (c *Chat) Working(t remote.Tab) (string, bool) {
 	if t.State != "working" && t.State != "connecting" {
 		return "", false
+	}
+	if t.Spinner != "" {
+		return t.Spinner, true
 	}
 	what := strings.TrimSpace(t.Detail)
 	if what == "" {
