@@ -311,20 +311,21 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 		st = withStop(st, t, k.stopping)
 	}
 	c.imageClicks(gtx, env)
-	if k.send.Clicked(gtx) && st == sendStop {
+	// why: Clicked hands each tap out once, so Stop and Send read it once
+	switch tapped := k.send.Clicked(gtx); {
+	case tapped && st == sendStop:
 		c.stopTurn(env)
 		st = sendSending
-	}
-	if k.openScreen.Clicked(gtx) {
-		c.scr.show()
-	}
-	if k.send.Clicked(gtx) && (st == sendReady || st == sendQueue) {
+	case tapped && (st == sendReady || st == sendQueue):
 		if c.answerFromBox(env, k.ed.Text(), k.attachment != nil) {
 			k.ed.SetText("")
 		} else {
 			c.sendDraft(env)
 			st = sendSending
 		}
+	}
+	if k.openScreen.Clicked(gtx) {
+		c.scr.show()
 	}
 	if k.pasteText {
 		k.pasteText = false
