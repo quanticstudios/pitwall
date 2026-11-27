@@ -79,7 +79,7 @@ func TestScreenReads(t *testing.T) {
 	}
 	api.err = errors.New("the tab is guarded")
 	c.pressKey(env, "enter")
-	if c.scr.keyErr != "the tab is guarded" {
+	if c.scr.keyErr != "The tab is guarded" {
 		t.Fatalf("key error %q", c.scr.keyErr)
 	}
 }
@@ -143,5 +143,30 @@ func TestScreenKeysAndSize(t *testing.T) {
 		if got := float32(screenSize(tc.text, tc.width)); got != tc.want {
 			t.Errorf("screenSize(%d cols, %v) = %v, want %v", len(tc.text), tc.width, got, tc.want)
 		}
+	}
+}
+
+// The view gives up once its tab leaves the list while online: no read
+// goes, and the note names the tab. Offline, the last list stands.
+func TestScreenLost(t *testing.T) {
+	api := &screenAPI{}
+	env := screenEnv(api)
+	env.Tab.Tab = "Fix the build"
+	c := newChat("p1")
+	c.scr.show()
+	if c.scr.lost(env) {
+		t.Fatal("lost while its tab is listed")
+	}
+	env.Open, env.Online = false, false
+	if c.scr.lost(env) {
+		t.Fatal("lost while offline")
+	}
+	env.Online = true
+	if !c.scr.lost(env) || c.scr.lostNote() != "Fix the build closed." {
+		t.Fatalf("not lost, note %q", c.scr.lostNote())
+	}
+	c.readScreen(layout.Context{Ops: new(op.Ops), Now: time.Now()}, env)
+	if api.reads != 0 {
+		t.Fatal("read the screen of a tab that is gone")
 	}
 }

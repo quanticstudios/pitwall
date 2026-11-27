@@ -28,6 +28,7 @@ type screenView struct {
 	next    time.Time // when the next read may go
 	readErr string    // why the last read failed
 	keyErr  string    // why the last key did not go in
+	name    string    // the tab's name while the list has it, for the note when it goes
 
 	back         widget.Clickable
 	keys         [len(screenKeys)]widget.Clickable
@@ -68,7 +69,7 @@ func (s *screenView) due(now time.Time) bool { return s.open && !s.reading && !n
 // read. No frames come while the app is in the background, so no reads do.
 func (c *chatView) readScreen(gtx C, env chatEnv) {
 	s := &c.scr
-	if !env.Online || env.Do == nil {
+	if !env.Online || !env.Open || env.Do == nil {
 		return
 	}
 	if s.due(gtx.Now) {
@@ -84,7 +85,7 @@ func (c *chatView) readScreen(gtx C, env chatEnv) {
 			}
 			s.reading = false
 			if err != nil {
-				s.readErr = err.Error()
+				s.readErr = sentence(err.Error())
 				return
 			}
 			s.text, s.read, s.readErr = text, true, ""
@@ -93,6 +94,24 @@ func (c *chatView) readScreen(gtx C, env chatEnv) {
 	if !s.reading {
 		gtx.Execute(op.InvalidateCmd{At: s.next})
 	}
+}
+
+// lost reports whether the open view's tab left the list while online:
+// it closed, or its pane went away. It keeps the tab's name until then.
+func (s *screenView) lost(env chatEnv) bool {
+	if env.Open {
+		s.name = env.Tab.Tab
+		return false
+	}
+	return s.open && env.Online
+}
+
+// lostNote is what the sidebar says once the view's tab is gone.
+func (s *screenView) lostNote() string {
+	if s.name == "" {
+		return "The tab closed."
+	}
+	return s.name + " closed."
 }
 
 // pressKey sends key to the tab, then reads the screen soon after to show
@@ -108,7 +127,7 @@ func (c *chatView) pressKey(env chatEnv, key string) {
 		}
 		s.keyErr = ""
 		if err != nil {
-			s.keyErr = err.Error()
+			s.keyErr = sentence(err.Error())
 			return
 		}
 		s.next = time.Now().Add(keySettle)
@@ -156,7 +175,7 @@ func (c *chatView) screenLayout(gtx C, th *theme.Theme, env chatEnv) {
 		return
 	}
 	for i := range screenKeys {
-		if s.keys[i].Clicked(gtx) && env.Online {
+		if s.keys[i].Clicked(gtx) && env.Online && env.CanKey {
 			c.pressKey(env, screenKeys[i].name)
 		}
 	}
@@ -188,7 +207,12 @@ func (c *chatView) screenLayout(gtx C, th *theme.Theme, env chatEnv) {
 				)
 			})
 		}),
-		layout.Rigid(func(gtx C) D { return s.keyBar(gtx, th, env.Online) }),
+		layout.Rigid(func(gtx C) D {
+			if !env.CanKey {
+				return D{}
+			}
+			return s.keyBar(gtx, th, env.Online)
+		}),
 	)
 }
 

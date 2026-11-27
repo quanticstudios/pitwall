@@ -113,6 +113,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 	// why: no machine is the phone's own; a worker's state shows on its parent's strip, a tap opens its row.
 	a.sb.AllHosts, a.sb.SeparateWorkers, a.sb.Rev = true, true, 1
 	a.sb.RepoIcons = a.repoIcon
+	a.sb.Restartable = a.restartable
 	a.pair.init()
 	if ms, err := phone.LoadMachines(dir); err != nil {
 		a.pair.note = sentence(err.Error())
@@ -194,11 +195,16 @@ func (a *App) do(machine string, call func(ctx context.Context, c *phone.Client)
 		}
 		return
 	}
-	f, c := a.fleet, a.fleet.Client(machine)
+	f, c, name := a.fleet, a.fleet.Client(machine), a.machineName(machine)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := call(ctx, c)
+		if errors.Is(err, phone.ErrNotServed) {
+			err = errors.New("update pitwall on " + name + " to use this")
+		} else if err != nil && phone.Why(err) != err.Error() {
+			err = errors.New(phone.Why(err))
+		}
 		a.post(func() {
 			if errors.Is(err, phone.ErrUnpaired) && a.fleet == f {
 				a.removeMachine(machine, err.Error())
@@ -256,7 +262,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 					if errors.Is(err, phone.ErrUnpaired) {
 						a.removeMachine(m.ID, m.Name+": "+err.Error())
 					} else if err != nil {
-						l.offline = err.Error()
+						l.offline = phone.Why(err)
 					}
 				})
 			}}
@@ -499,7 +505,7 @@ func (a *App) chatLayout(gtx C) {
 	t, open := a.tab()
 	l := a.links[a.chatM]
 	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts,
-		CanClose: l.hello.Close, CanRestart: l.hello.Restart, Attach: l.hello.Upload && t.Attach && canPickImage,
+		CanClose: l.hello.Close, CanRestart: l.hello.Restart, CanScreen: l.hello.Screen, CanKey: l.hello.Key, CanStop: l.hello.Stop, Attach: l.hello.Upload && t.Attach && canPickImage,
 		PickImage: func(clip bool, done func([]byte, error)) {
 			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
 		},
@@ -518,7 +524,11 @@ func (a *App) chatLayout(gtx C) {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 	}
 	if a.chat.layout(gtx, a.th, env) {
+		lost := a.chat.lost
 		a.closeChat()
+		if lost != "" {
+			a.list.note, a.list.notePane, a.list.noteUntil = lost, "", gtx.Now.Add(6*time.Second)
+		}
 	}
 }
 

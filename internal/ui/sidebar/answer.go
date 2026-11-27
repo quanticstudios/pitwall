@@ -62,6 +62,11 @@ func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowSta
 			s.startReply(ws, a.PaneID)
 		}
 	}
+	for r.restart.Clicked(gtx) {
+		if s.Restartable != nil && s.Restartable(ws) {
+			s.events = append(s.events, Restart{WorkspaceID: ws})
+		}
+	}
 	a := s.choiceActivity(v, ws)
 	var asking *model.Activity
 	if s.answering(v, ws, false, a) {

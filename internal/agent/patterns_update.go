@@ -20,6 +20,9 @@ const screenPatternsURL = "https://raw.githubusercontent.com/quanticstudios/pitw
 // and daily until ctx ends. enabled controls fetching; cached patterns still
 // apply offline. Each accepted version replaces the rules for all callers.
 func UpdateScreenPatterns(ctx context.Context, dir string, enabled func() bool) {
+	if os.Getenv("PITWALL_TEST_OFFLINE") == "1" { // why: testenv sets it; a test daemon never reaches GitHub
+		enabled = func() bool { return false }
+	}
 	runPatternUpdates(ctx, &http.Client{Timeout: 10 * time.Second}, screenPatternsURL,
 		filepath.Join(dir, "screen-patterns.json"), enabled, 24*time.Hour)
 }

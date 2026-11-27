@@ -7,6 +7,7 @@ const home = $('home'), chat = $('chat'), list = $('list'), push = $('push'), fu
 const log = $('log'), entriesEl = $('entries'), pend = $('pend'), work = $('work'), more = $('more');
 const asks = $('asks'), composer = $('composer'), text = $('text'), cnote = $('cnote'), queueList = $('queue');
 const newpill = $('newpill'), pick = $('pick'), sheet = $('sheet');
+const screenV = $('screen'), newV = $('newtab'), tsheet = $('tsheet');
 
 let token = '';
 try { token = localStorage.getItem(KEY) || ''; } catch (e) { /* private mode: pair again each visit */ }
@@ -31,7 +32,7 @@ let stick = true;        // the log was at its bottom
 let ctrl = null, backoff = 1000, retry = 0;
 const cards = new Map(); // a request card by its key, so typing survives a refresh
 
-const agents = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', omp: 'omp', gemini: 'Gemini', opencode: 'OpenCode', cursor: 'Cursor' };
+const agents = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity', pi: 'pi', omp: 'omp', gemini: 'Gemini', opencode: 'OpenCode', cursor: 'Cursor' };
 const agentName = (a) => agents[a] || a || '';
 
 function el(tag, cls, txt) {
@@ -54,6 +55,8 @@ function denied(msg) {
   ctrl = null;
   showList();
   full.hidden = true;
+  $('newbtn').hidden = true;
+  offline(false);
   push.replaceChildren();
   $('device').textContent = '';
   const box = el('div', 'empty');
@@ -69,6 +72,8 @@ function unpaired(msg) {
   ctrl = null;
   showList();
   full.hidden = true;
+  $('newbtn').hidden = true;
+  offline(false);
   push.replaceChildren();
   $('device').textContent = '';
   const box = el('div', 'empty');
@@ -85,7 +90,8 @@ function unpaired(msg) {
   go.style.flex = 'none';
   form.append(input, go);
   form.onsubmit = (e) => { e.preventDefault(); pair(input.value); };
-  box.append(el('p', '', msg || 'This phone is not paired.'), how, form);
+  msg = msg ? msg[0].toUpperCase() + msg.slice(1) : 'This phone is not paired.';
+  box.append(el('p', '', msg), how, form);
   list.replaceChildren(box);
   document.title = 'pitwall';
 }
@@ -97,6 +103,8 @@ async function pair(code) {
     if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
     saveToken((await r.json()).token);
   } catch (e) {
+    // why: a pairing link opened again must not drop the token it already gave; a dead one still gets 401 below
+    if (token) { connect(); return; }
     unpaired(e.message);
     return;
   }
@@ -120,8 +128,15 @@ async function api(path, body) {
     denied(msg);
     throw new Error(msg);
   }
-  if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+  if (!r.ok) throw new Error(failure(r.status, (await r.text()).trim()) || r.statusText);
   return r.json();
+}
+
+// failure is a refused request's words; net/http's own 404 is a route the
+// daemon is too old to serve.
+function failure(status, msg) {
+  if (status === 404 && msg === '404 page not found') return 'Update pitwall on this computer to use this.';
+  return msg;
 }
 
 // ---- The stream: Server-Sent Events read through fetch, which carries the token.
@@ -181,6 +196,7 @@ function event(block) {
       backoff = 1000;
       offline(false);
       full.hidden = !v.web;
+      $('newbtn').hidden = !v.start;
       $('device').textContent = v.device || '';
       if (!pushInit) {
         pushInit = true;
@@ -191,6 +207,7 @@ function event(block) {
       tabs = v || [];
       renderList();
       if (pane) renderChatState();
+      if (!screenV.hidden) screenTab();
       break;
     case 'reset':
       reset(v);
@@ -257,8 +274,11 @@ function renderList() {
 function showList() {
   pane = '';
   chat.hidden = true;
+  screenV.hidden = true;
+  newV.hidden = true;
   home.hidden = false;
   closeSheet();
+  closeTabSheet();
 }
 
 function openChat(p, push) {
@@ -267,7 +287,11 @@ function openChat(p, push) {
   if (p !== pane) clearAttachment();
   pane = p;
   home.hidden = true;
+  newV.hidden = true;
+  screenV.hidden = true;
   chat.hidden = false;
+  restarting = '';
+  stopErr = '';
   shown.clear();
   entriesEl.replaceChildren();
   pend.replaceChildren();
@@ -292,9 +316,18 @@ $('back').onclick = () => {
   else { showList(); connect(); }
 };
 window.addEventListener('popstate', (e) => {
-  const p = e.state && e.state.pane;
-  if (p) openChat(p, false);
-  else if (pane) { showList(); connect(); }
+  const s = e.state || {};
+  const p = s.pane;
+  closeTabSheet();
+  if (p && s.screen) {
+    if (p !== pane || chat.hidden && screenV.hidden) openChat(p, false);
+    showScreen(false);
+  } else if (p) {
+    if (p === pane && !screenV.hidden) hideScreen();
+    else openChat(p, false);
+  } else if (s.new) {
+    showNew(false);
+  } else if (pane || !newV.hidden) { showList(); connect(); }
 });
 
 function tabOf(p) { return tabs.find((t) => t.pane === p); }
@@ -487,9 +520,11 @@ function renderChatState() {
   $('ctitle').textContent = t ? t.tab : 'Tab';
   const meta = $('cmeta');
   meta.replaceChildren();
-  if (t) meta.append(pillOf(t), [agentName(t.agent), prettyModel(model)].filter(Boolean).join(' · '));
+  if (t) meta.append(pillOf(t), [agentName(t.agent), t.picker ? '' : prettyModel(model)].filter(Boolean).join(' · '));
   pick.hidden = !(t && t.picker);
   pick.textContent = prettyModel(model) || 'Model';
+  $('scrbtn').hidden = !(t && !t.chat && hello.screen);
+  $('tmenu').hidden = !(t && (hello.close || hello.restart && t.exited));
   const running = !!t && (t.state === 'working' || t.state === 'connecting');
   work.hidden = !running;
   if (running) {
@@ -500,12 +535,20 @@ function renderChatState() {
     work.lastChild.textContent = 'Working' + (what.trim() ? ': ' + what.trim() : '');
   }
   renderAsks(t);
+  renderHold(t);
   renderQueue(t);
   composer.hidden = !(t && t.send);
+  $('stop').hidden = !(t && t.send && t.state === 'working' && hello.stop);
   $("attach").hidden = !(t && t.attach && hello.upload);
   cnote.hidden = !!(t && t.send);
+  if (t && t.send && stopErr) {
+    if (t.state === 'working') { cnote.hidden = false; cnote.textContent = 'Stop: ' + stopErr; }
+    else stopErr = ''; // the turn ended
+  }
   if (!t) cnote.textContent = 'This tab is not open now.';
+  else if (t.exited && hello.restart) exitedBand(t);
   else if (!t.send) cnote.textContent = t.exited ? t.label + '. Open on desktop to restart the agent.' : 'This tab runs no agent, so it takes no messages from here.';
+  if (t && !t.exited) restarting = '';
   text.placeholder = !t ? '' : answerCard ? 'Pick an answer above, or type your own' : running || t.state === 'pending-approval' ? 'Queue a message' : t.state === 'awaiting-input' ? 'Answer' : 'Message ' + agentName(t.agent);
   updatePending(t);
 }
@@ -536,6 +579,56 @@ function prettyModel(m) {
     return 'GPT-' + version + (words.length ? ' ' + words.join(' ') : '') + wide;
   }
   return parts[1][0].toUpperCase() + parts[1].slice(1) + ' ' + version + wide;
+}
+
+// restarting is the pane whose Restart is on its way; restartErr why the last failed.
+let restarting = '', restartErr = '';
+// stopErr is why the last Stop failed; it shows until the next Stop or the turn's end.
+let stopErr = '';
+
+// exitedBand is the exited tab's line with Restart, as the menu's.
+function exitedBand(t) {
+  const b = el('button', 'btn primary', restarting === t.pane ? 'Restarting…' : 'Restart');
+  b.disabled = restarting === t.pane;
+  b.onclick = () => restartTab(t);
+  cnote.replaceChildren(el('span', '', t.label + '.'), b);
+  if (restartErr) cnote.append(el('span', 'qerr', restartErr));
+}
+
+function restartTab(t) {
+  if (restarting) return;
+  restarting = t.pane;
+  restartErr = '';
+  renderChatState();
+  api('/api/restart', { pane: t.pane }).catch((e) => {
+    restarting = '';
+    if (e.message !== 'unpaired') restartErr = e.message;
+    if (pane === t.pane) renderChatState();
+  });
+}
+
+// renderHold says a menu in the agent's terminal holds the queue, with
+// Open screen to answer it.
+let holdShown = '';
+function renderHold(t) {
+  const on = !!t && t.holdMenu && !t.chat;
+  const k = on ? t.pane + '|' + t.hold + '|' + !!hello.screen : '';
+  if (k === holdShown) return;
+  holdShown = k;
+  const out = [];
+  if (on) {
+    const r = el('div', 'holdrow');
+    r.append(el('p', 'note', 'Waiting: ' + (t.hold || 'a menu is open in the agent\'s terminal')));
+    if (hello.screen) r.append(screenButton());
+    out.push(r);
+  }
+  changing(() => $('hold').replaceChildren(...out));
+}
+
+function screenButton() {
+  const b = el('button', 'btn', 'Open screen');
+  b.onclick = () => showScreen(true);
+  return b;
 }
 
 // renderQueue lists what the open tab's chat queued, why it waits, and
@@ -685,6 +778,9 @@ function askCard(t) {
       done('Answer it in its tab.');
     } else if (t.state === 'plan-ready') {
       done('Answer the plan in its tab or from the sidebar.');
+    } else if (hello.screen && !t.chat) {
+      done('Its screen shows a menu: answer it with the keys on its screen.');
+      c.append(screenButton());
     } else {
       done('Its screen shows a menu: answer it in its tab.');
     }
@@ -1300,3 +1396,290 @@ text.addEventListener('paste', (e) => {
   const file = Array.from(e.clipboardData.files).find((f) => f.type.startsWith('image/'));
   if (file) { e.preventDefault(); attachImage(file); }
 });
+
+// ---- Stop: interrupts the agent's turn, as the window's Stop does.
+
+$('stop').onclick = () => {
+  const b = $('stop'), p = pane;
+  b.disabled = true;
+  stopErr = '';
+  renderChatState();
+  api('/api/stop', { pane: p })
+    .catch((e) => { if (e.message !== 'unpaired' && p === pane) { stopErr = e.message; renderChatState(); } })
+    .finally(() => { b.disabled = false; });
+};
+
+// ---- The tab's actions: Restart an exited tab, Close tab after a second tap.
+
+$('tmenu').onclick = () => {
+  const t = tabOf(pane);
+  if (!t) return;
+  const acts = [];
+  if (t.exited && hello.restart) {
+    const r = el('button', 'btn', 'Restart');
+    r.onclick = () => { closeTabSheet(); restartTab(t); };
+    acts.push(r);
+  }
+  if (hello.close) {
+    const c = el('button', 'btn', 'Close tab');
+    let armed = false;
+    c.onclick = () => {
+      if (!armed) {
+        armed = true;
+        c.classList.add('armed');
+        c.textContent = 'Tap again to close';
+        return;
+      }
+      c.disabled = true;
+      api('/api/close', { tab: t.id }).then(() => {
+        closeTabSheet();
+        if (pane === t.pane) $('back').onclick();
+      }).catch((e) => {
+        c.disabled = false;
+        if (e.message !== 'unpaired') { $('tnote').hidden = false; $('tnote').className = 'note bad'; $('tnote').textContent = e.message; }
+      });
+    };
+    acts.push(c);
+  }
+  $('tacts').replaceChildren(...acts);
+  $('tnote').hidden = true;
+  tsheet.hidden = false;
+  $('tclose').focus();
+};
+function closeTabSheet() { tsheet.hidden = true; }
+$('tclose').onclick = closeTabSheet;
+tsheet.addEventListener('click', (e) => { if (e.target === tsheet) closeTabSheet(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tsheet.hidden) closeTabSheet(); });
+
+// ---- The Screen view: the tab's screen as text, read each second while
+// it shows, and keys that press into the tab, for a menu pitwall cannot answer.
+
+const screenKeys = [
+  [['esc', 'Esc'], ['tab', 'Tab'], ['shift+tab', 'Shift+Tab'], ['ctrl+c', 'Ctrl+C'], ['enter', 'Enter']],
+  [['left', '←'], ['up', '↑'], ['down', '↓'], ['right', '→']],
+  [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [String(n), String(n)]),
+];
+let screenTimer = 0, screenRead = 0, screenName = '';
+
+// screenTab keeps the view's title, and leaves for the list with a note
+// once its tab is gone from the list: it closed, or its pane went away.
+function screenTab() {
+  const t = tabOf(pane);
+  if (t) {
+    screenName = t.tab || 'Tab';
+    $('stitle').textContent = screenName;
+    return true;
+  }
+  clearTimeout(screenTimer);
+  screenRead++;
+  history.replaceState(null, '', location.pathname);
+  showList();
+  connect();
+  listNote((screenName || 'The tab') + ' closed.');
+  return false;
+}
+
+// listNote shows msg over the list for a few seconds.
+let listNoteTimer = 0;
+function listNote(msg) {
+  const n = $('lnote');
+  n.textContent = msg;
+  n.hidden = false;
+  clearTimeout(listNoteTimer);
+  listNoteTimer = setTimeout(() => { n.hidden = true; }, 6000);
+}
+
+$('keys').replaceChildren(...screenKeys.map((row) => {
+  const r = el('div', 'krow');
+  r.append(...row.map(([key, label]) => {
+    const b = el('button', 'btn', label);
+    b.type = 'button';
+    b.setAttribute('aria-label', key);
+    b.onclick = () => pressKey(key);
+    return b;
+  }));
+  return r;
+}));
+
+function showScreen(push) {
+  if (!pane || !hello.screen) return;
+  if (push) history.pushState({ pane, screen: 1 }, '', '#pane=' + encodeURIComponent(pane) + '&screen=1');
+  closeTabSheet();
+  chat.hidden = true;
+  screenV.hidden = false;
+  screenName = '';
+  if (!screenTab()) return;
+  $('stext').textContent = 'Reading the screen';
+  $('snote').hidden = true;
+  $('keys').hidden = !hello.key;
+  readScreen();
+}
+
+function hideScreen() {
+  clearTimeout(screenTimer);
+  screenV.hidden = true;
+  chat.hidden = !pane;
+}
+
+$('sback').onclick = () => {
+  if (history.state && history.state.screen) history.back();
+  else hideScreen();
+};
+
+function screenNote(msg) {
+  $('snote').hidden = !msg;
+  $('snote').textContent = msg || '';
+}
+
+// readScreen reads the screen and the next one a second after; a tab in the
+// background gets none.
+function readScreen() {
+  clearTimeout(screenTimer);
+  if (screenV.hidden || !pane || !screenTab()) return;
+  const p = pane, n = ++screenRead;
+  api('/api/screen?pane=' + encodeURIComponent(p)).then((r) => {
+    if (n !== screenRead || p !== pane) return;
+    const pre = $('stext');
+    const cols = Math.max(1, ...(r.text || '').split('\n').map((l) => l.length));
+    const w = $('sbox').clientWidth - 24;
+    pre.style.fontSize = Math.min(13, Math.max(9, w / (cols * 0.6))) + 'px';
+    pre.textContent = r.text || '';
+    screenNote('');
+  }).catch((e) => {
+    if (e.message !== 'unpaired' && n === screenRead) screenNote(e.message);
+  }).finally(() => {
+    if (n === screenRead && !screenV.hidden && !document.hidden) screenTimer = setTimeout(readScreen, 1000);
+  });
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !screenV.hidden) readScreen(); });
+
+function pressKey(key) {
+  const p = pane;
+  api('/api/key', { pane: p, key }).then(() => {
+    clearTimeout(screenTimer);
+    screenTimer = setTimeout(readScreen, 150);
+  }).catch((e) => { if (e.message !== 'unpaired') screenNote(e.message); });
+}
+
+$('scrbtn').onclick = () => showScreen(true);
+
+// ---- New tab: a folder, an agent, a worktree or none, and a first message.
+
+let newOpts = null, newGen = 0;
+
+// shortDir is path with ~ for home, cut in the middle to n characters so its
+// end, which tells folders apart, stays; as the app's shortDir.
+function shortDir(path, home, n) {
+  if (home && home !== '/') {
+    if (path === home) path = '~';
+    else if (path.startsWith(home) && '/\\'.includes(path[home.length])) path = '~' + path.slice(home.length);
+  }
+  const r = [...path];
+  if (n < 8 || r.length <= n) return path;
+  const head = Math.floor((n - 1) / 3);
+  return r.slice(0, head).join('') + '…' + r.slice(r.length - (n - 1 - head)).join('');
+}
+
+function option(value, label) {
+  const o = el('option', '', label);
+  o.value = value;
+  return o;
+}
+
+function showNew(push) {
+  if (!hello.start) return;
+  if (push) history.pushState({ new: 1 }, '', '#new');
+  home.hidden = true;
+  chat.hidden = true;
+  screenV.hidden = true;
+  newV.hidden = false;
+  $('nnote').hidden = true;
+  $('nstart').disabled = false;
+  $('nstart').textContent = 'Start';
+  const sessions = [...new Set(tabs.map((t) => t.session).filter(Boolean))];
+  const sel = $('nsession');
+  const keep = sel.value;
+  sel.replaceChildren(...sessions.map((s) => option(s, s)));
+  if (sessions.includes(keep)) sel.value = keep;
+  $('nsessionl').hidden = sessions.length < 2;
+  loadNew();
+}
+
+function loadNew() {
+  const n = ++newGen;
+  $('nload').hidden = false;
+  $('nload').className = 'note';
+  $('nload').textContent = 'Loading…';
+  $('nform').hidden = true;
+  api('/api/new?session=' + encodeURIComponent($('nsession').value || '')).then((o) => {
+    if (n !== newGen) return;
+    newOpts = o;
+    const w = Math.max(16, Math.floor(($('nform').parentElement.clientWidth - 60) / 8.5));
+    $('nfolder').replaceChildren(...(o.folders || []).map((f, i) => option(String(i), f.name + ' · ' + shortDir(f.path, o.home, Math.max(8, w - f.name.length - 3)))),
+      option('typed', 'Type a path'));
+    $('nagent').replaceChildren(...(o.agents || []).map((a) => option(a.id, a.name)));
+    $('nload').hidden = true;
+    $('nform').hidden = false;
+    newFields();
+  }).catch((e) => {
+    if (n !== newGen || e.message === 'unpaired') return;
+    $('nload').className = 'note bad';
+    $('nload').textContent = e.message;
+    const again = el('button', 'btn', 'Try again');
+    again.onclick = loadNew;
+    $('nload').append(' ', again);
+  });
+}
+
+// newFields shows the fields the picks call for: the path for a typed
+// folder, the branch for a new worktree, no first message for a terminal.
+function newFields() {
+  const typed = $('nfolder').value === 'typed';
+  const f = !typed && newOpts.folders[+$('nfolder').value];
+  $('npath').hidden = !typed;
+  $('nworktreel').hidden = !(typed || f && f.git);
+  if ($('nworktreel').hidden) $('nworktree').value = '';
+  $('nbranch').hidden = $('nworktree').value !== 'new';
+  $('nbriefl').hidden = $('nagent').value === 'terminal';
+}
+$('nfolder').onchange = () => { newFields(); if ($('nfolder').value === 'typed') $('npath').focus(); };
+$('nworktree').onchange = () => { newFields(); if ($('nworktree').value === 'new') $('nbranch').focus(); };
+$('nagent').onchange = newFields;
+$('nsession').onchange = loadNew;
+
+$('nform').onsubmit = (e) => {
+  e.preventDefault();
+  const note = $('nnote');
+  const typed = $('nfolder').value === 'typed';
+  const dir = typed ? $('npath').value.trim() : (newOpts.folders[+$('nfolder').value] || {}).path;
+  const req = { session: $('nsession').value || '', dir, agent: $('nagent').value };
+  if (!$('nworktreel').hidden && $('nworktree').value === 'new') {
+    req.worktree = true;
+    req.branch = $('nbranch').value.trim();
+  }
+  if ($('nagent').value !== 'terminal') req.brief = $('nbrief').value.trim();
+  const missing = !dir ? 'Type the folder\'s path.' : !req.agent ? 'This computer offers no agent.' : req.worktree && !req.branch ? 'Name the new worktree\'s branch.' : '';
+  note.hidden = !missing;
+  note.textContent = missing;
+  if (missing) return;
+  $('nstart').disabled = true;
+  $('nstart').textContent = 'Starting…';
+  const n = newGen;
+  api('/api/new', req).then((r) => {
+    if (n !== newGen || newV.hidden) return;
+    $('nbrief').value = '';
+    $('nbranch').value = '';
+    history.replaceState({ pane: r.pane }, '', '#pane=' + encodeURIComponent(r.pane));
+    openChat(r.pane, false);
+  }).catch((e) => {
+    $('nstart').disabled = false;
+    $('nstart').textContent = 'Start';
+    if (e.message !== 'unpaired') { note.hidden = false; note.textContent = e.message; }
+  });
+};
+
+$('newbtn').onclick = () => showNew(true);
+$('nback').onclick = () => {
+  if (history.state && history.state.new) history.back();
+  else { showList(); connect(); }
+};

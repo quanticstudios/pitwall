@@ -107,6 +107,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	answering := s.answering(v, ws.ID, ghost, own)
 	planning := s.planning(v, ws.ID, ghost, own)
 	asking := s.replyable(v, ws.ID, ghost, own)
+	restart := !ghost && !answering && !planning && !asking && s.Restartable != nil && s.Restartable(ws.ID)
 	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning && !asking
 	// Left of where "…" and "×" show, hovered or not, so the buttons never
 	// move under the pointer; line 2's fold chip or group tag keeps its room.
@@ -120,6 +121,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	answerW := 0
 	if answering || planning || asking {
 		answerW = answerSize(answerG, th, *own, base).X
+	} else if restart {
+		m := op.Record(gtx.Ops)
+		answerW = pillButton(nil, th, base, answerHeight(gtx, th), "Restart", th.Blue)(answerG).Size.X
+		m.Stop()
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
@@ -267,7 +272,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
-		case answering || planning || asking: // drawn over the row below, with room for "…" and "×"
+		case answering || planning || asking || restart: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(answerW+keep, 0)}
 			}})
@@ -362,6 +367,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if answering || planning || asking {
 		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
 		answerArea(answerG, th, answerBtns{allow: &r.allow, deny: &r.deny, plan: &r.plan, reply: &r.reply, choices: &r.choices}, *own, base)
+		off.Pop()
+	} else if restart {
+		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		pillButton(&r.restart, th, base, answerHeight(gtx, th), "Restart", th.Blue)(answerG)
 		off.Pop()
 	}
 	if showMore {

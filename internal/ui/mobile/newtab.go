@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"image/color"
 	"strings"
 
 	"gioui.org/io/key"
@@ -286,7 +287,7 @@ func (a *App) newFields() []layout.Widget {
 	}
 	var ws []layout.Widget
 	if len(f.machines) > 1 {
-		ws = append(ws, head("Machine"), a.selectRow("machine", a.machineName(f.machine), ""), gap(12))
+		ws = append(ws, head("Machine"), a.selectRow("machine", a.machineName(f.machine), "", ""), gap(12))
 	}
 	switch {
 	case f.loadErr != "":
@@ -299,23 +300,23 @@ func (a *App) newFields() []layout.Widget {
 	if !f.typed() {
 		folder, where = f.opts.Folders[f.folder].Name, f.opts.Folders[f.folder].Path
 	}
-	ws = append(ws, head("Folder"), a.selectRow("folder", folder, where))
+	ws = append(ws, head("Folder"), a.selectRow("folder", folder, where, f.opts.Home))
 	if f.typed() {
 		ws = append(ws, gap(6), func(gtx C) D {
-			return field(gtx, th, &f.path, &f.pathBox, "/home/you/project or ~/project", th.MonoFont)
+			return field(gtx, th, &f.path, &f.pathBox, "~/project or /abs/path", th.MonoFont)
 		})
 	}
 	agent := "None"
 	if f.agent < len(f.opts.Agents) {
 		agent = f.opts.Agents[f.agent].Name
 	}
-	ws = append(ws, gap(12), head("Agent"), a.selectRow("agent", agent, ""))
+	ws = append(ws, gap(12), head("Agent"), a.selectRow("agent", agent, "", ""))
 	if f.canWorktree() {
 		wt := "None"
 		if f.worktree {
 			wt = "New worktree"
 		}
-		ws = append(ws, gap(12), head("Worktree"), a.selectRow("worktree", wt, ""))
+		ws = append(ws, gap(12), head("Worktree"), a.selectRow("worktree", wt, "", ""))
 		if f.worktree {
 			ws = append(ws, gap(6), func(gtx C) D { return field(gtx, th, &f.branch, &f.branchBox, "Branch name", th.MonoFont) })
 		}
@@ -344,8 +345,9 @@ func (a *App) machineName(id string) string {
 }
 
 // selectRow is a dropdown's closed face: the value picked, a muted line
-// under it when sub is set, and a chevron. A tap opens its menu.
-func (a *App) selectRow(k, value, sub string) layout.Widget {
+// under it when sub is set, and a chevron. A tap opens its menu. With home
+// set, sub is a folder's path, cut in the middle to fit.
+func (a *App) selectRow(k, value, sub, home string) layout.Widget {
 	th, c := a.th, a.form.sel(k)
 	return func(gtx C) D {
 		return c.Layout(gtx, func(gtx C) D {
@@ -363,6 +365,9 @@ func (a *App) selectRow(k, value, sub string) layout.Widget {
 								if sub == "" {
 									return D{}
 								}
+								if home != "" {
+									return pathLabel(gtx, th, th.Muted, sub, home)
+								}
 								return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, 1, sub)
 							}),
 						)
@@ -374,9 +379,37 @@ func (a *App) selectRow(k, value, sub string) layout.Widget {
 	}
 }
 
+// pathLabel is a folder's path in caption mono, ~ for home, cut in the
+// middle to the width so the end that tells folders apart shows.
+func pathLabel(gtx C, th *theme.Theme, col color.NRGBA, path, home string) D {
+	size := th.Sp(theme.Caption)
+	// ponytail: a monospace advance is about 0.6 em, as screenSize takes it.
+	n := int(float32(gtx.Constraints.Max.X) / (float32(gtx.Sp(size)) * 0.6))
+	return label(gtx, th, th.MonoFont, size, col, 1, shortDir(path, home, n))
+}
+
+// shortDir is path with ~ for home, cut in the middle to n runes: its
+// start and, at twice the length, its end.
+func shortDir(path, home string, n int) string {
+	if home != "" && home != "/" {
+		if path == home {
+			path = "~"
+		} else if rest, ok := strings.CutPrefix(path, home); ok && (rest[0] == '/' || rest[0] == '\\') {
+			path = "~" + rest
+		}
+	}
+	r := []rune(path)
+	if n < 8 || len(r) <= n {
+		return path
+	}
+	head := (n - 1) / 3
+	return string(r[:head]) + "…" + string(r[len(r)-(n-1-head):])
+}
+
 // choice is one row of a dropdown's menu.
 type choice struct {
 	key, name, sub string
+	path           bool // sub is a folder's path
 	on             bool
 	pick           func()
 }
@@ -396,7 +429,7 @@ func (a *App) newChoices() (title string, cs []choice) {
 		return "Machine", cs
 	case "folder":
 		for i, fo := range f.opts.Folders {
-			cs = append(cs, choice{key: fo.Path, name: fo.Name, sub: fo.Path, on: i == f.folder, pick: func() { f.folder = i }})
+			cs = append(cs, choice{key: fo.Path, name: fo.Name, sub: fo.Path, path: true, on: i == f.folder, pick: func() { f.folder = i }})
 		}
 		n := len(f.opts.Folders)
 		return "Folder", append(cs, choice{key: "\x00typed", name: "Type a path", on: f.typed(), pick: func() {
@@ -459,6 +492,9 @@ func (a *App) newMenu(gtx C) {
 									layout.Rigid(func(gtx C) D {
 										if c.sub == "" {
 											return D{}
+										}
+										if c.path {
+											return pathLabel(gtx, th, th.Muted, c.sub, f.opts.Home)
 										}
 										return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, c.sub)
 									}),

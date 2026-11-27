@@ -27,6 +27,10 @@ import (
 // ErrUnpaired is a refused device token: pitwall revoked this phone.
 var ErrUnpaired = errors.New("this phone is no longer paired; pair it again")
 
+// ErrNotServed is a route the machine's daemon does not know: it is older
+// than the app.
+var ErrNotServed = errors.New("the machine's pitwall is too old for this")
+
 // UntrustedError is a server certificate that neither the system nor the
 // pin trusts, such as the one pitwall makes for tls = true.
 type UntrustedError struct{ Fingerprint string }
@@ -110,6 +114,9 @@ func Pair(ctx context.Context, server, code, pin string) (Creds, error) {
 		if errors.Is(err, ErrUnpaired) {
 			return Creds{}, errors.New("that code was wrong, used or expired. Run pitwall remote pair again for a new one")
 		}
+		if errors.Is(err, ErrNotServed) {
+			return Creds{}, errors.New("no pitwall phone page answers at that address. Check it against the link pitwall remote pair prints")
+		}
 		return Creds{}, err
 	}
 	return Creds{Server: server, Token: out.Token, Device: out.Device, Pin: pin}, nil
@@ -164,7 +171,11 @@ func status(resp *http.Response) error {
 	}
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		if msg := strings.TrimSpace(string(b)); msg != "" {
+		msg := strings.TrimSpace(string(b))
+		if resp.StatusCode == http.StatusNotFound && msg == "404 page not found" {
+			return ErrNotServed // why: net/http's mux words; a handler's own 404 says what is missing
+		}
+		if msg != "" {
 			return errors.New(msg)
 		}
 		return errors.New(resp.Status)
@@ -296,6 +307,11 @@ type Hello struct {
 	Start   bool `json:"start"`
 	Close   bool `json:"close"`
 	Restart bool `json:"restart"`
+	// Screen, Key and Stop are the Screen view's read, its keys and the
+	// Stop button; an older daemon serves none.
+	Screen bool `json:"screen"`
+	Key    bool `json:"key"`
+	Stop   bool `json:"stop"`
 	// Latency is how long the stream's request took to get its answer's
 	// first byte over an open connection: a round trip and the server's
 	// check of the token.

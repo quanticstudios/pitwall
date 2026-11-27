@@ -64,6 +64,9 @@ type chatEnv struct {
 	// CanClose and CanRestart are the machine closing a tab and restarting
 	// an exited one, for the header's menu.
 	CanClose, CanRestart bool
+	// CanScreen, CanKey and CanStop are the machine serving the Screen
+	// view, its keys and Stop; an older daemon serves none.
+	CanScreen, CanKey, CanStop bool
 	// Host is the machine the tab runs on, "" for the paired computer
 	// itself; Hosts are the machines, for the tag's color and up state.
 	Host  string
@@ -102,7 +105,9 @@ type chatView struct {
 	tapped     string // a link tapped in a reply this frame
 
 	backBtn, newBtn, retry widget.Clickable
-	screenBtn              widget.Clickable
+	screenBtn, restartBtn  widget.Clickable
+	restarting             bool   // a Restart went; the band says so until the tab runs
+	lost                   string // the Screen view's tab went: the sidebar's note
 	scr                    screenView
 	card                   cardState
 	cmp                    composer
@@ -195,8 +200,12 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	if c.backBtn.Clicked(gtx) || c.menu.gone {
 		return true
 	}
-	if c.screenBtn.Clicked(gtx) {
+	if c.screenBtn.Clicked(gtx) && env.CanScreen {
 		c.scr.show()
+	}
+	if c.scr.lost(env) {
+		c.lost = c.scr.lostNote()
+		return true
 	}
 	if c.scr.open {
 		c.screenLayout(gtx, th, env)
@@ -325,7 +334,7 @@ func (c *chatView) header(gtx C, th *theme.Theme, env chatEnv) D {
 				})
 			}),
 			layout.Rigid(func(gtx C) D {
-				if !env.Open || t.Chat {
+				if !env.Open || t.Chat || !env.CanScreen {
 					return D{}
 				}
 				return roundButton(gtx, th, &c.screenBtn, "terminal", 22, th.Fg)
@@ -345,6 +354,9 @@ func (c *chatView) agentLine(t remote.Tab) string {
 	}
 	if m := c.cmp.modelShown(c.currentModel(t)); m != "" {
 		parts = append(parts, m)
+	}
+	if len(parts) == 0 && !t.Chat {
+		return "Terminal" // why: a shell has no agent or state, and the line would stay blank
 	}
 	return strings.Join(parts, " · ")
 }
@@ -367,6 +379,9 @@ func agentName(agent string) string {
 func statePill(gtx C, th *theme.Theme, t remote.Tab, base color.NRGBA) D {
 	s := model.AgentState(t.State)
 	col := sidebar.StateColor(th, s)
+	if t.Exited {
+		col = th.Muted // why: StateColor's green would read "Exited 1" as a success
+	}
 	bg, fg := th.Chip(col, base)
 	text := t.Label
 	if text == "" {

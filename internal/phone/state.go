@@ -73,7 +73,8 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 		}
 		st.Workspaces = append(st.Workspaces, w)
 		st.Panes = append(st.Panes, pane)
-		if t.State != "" {
+		// why: the sidebar has no pill for "exited"; the desktop's draws an exited pane with none.
+		if t.State != "" && !t.Exited {
 			st.Activities = append(st.Activities, model.Activity{PaneID: t.Pane, WorkspaceID: t.ID, Provider: prov,
 				State: model.AgentState(t.State), Detail: t.Detail, UpdatedAt: at})
 		}

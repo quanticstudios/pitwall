@@ -88,6 +88,9 @@ type Answer struct {
 	Allow  bool
 }
 
+// Restart is a click on an exited tab's Restart (Sidebar.Restartable).
+type Restart struct{ WorkspaceID string }
+
 // Press is a click on one of a row's other answers: proto.Press for a form's
 // option, Allow always or Approve plan.
 type Press struct {

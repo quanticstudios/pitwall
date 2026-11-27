@@ -31,6 +31,22 @@ func tabActions(env chatEnv) (restart, close bool) {
 	return env.CanRestart && env.Tab.Exited, env.CanClose
 }
 
+// restartTab starts the exited tab's command again, once: the band says
+// Restarting… until the list shows it running, or the error.
+func (c *chatView) restartTab(env chatEnv) {
+	if env.Do == nil || c.restarting {
+		return
+	}
+	pane, tp := c.pane, env.Tab.Pane
+	c.restarting, c.cmp.note = true, ""
+	env.Do(func(ctx context.Context, api chatAPI) error { return api.Restart(ctx, tp) }, func(err error) {
+		if c.pane != pane || err == nil {
+			return
+		}
+		c.restarting, c.cmp.note = false, sentence(err.Error())
+	})
+}
+
 // tabMenuButton is the header's ⋯, nothing when the tab takes no action.
 func (c *chatView) tabMenuButton(gtx C, th *theme.Theme, env chatEnv) D {
 	if r, cl := tabActions(env); !r && !cl {
@@ -62,12 +78,7 @@ func (c *chatView) tabMenuLayout(gtx C, th *theme.Theme, env chatEnv) {
 	t := env.Tab
 	if restart && m.restart.Clicked(gtx) {
 		m.open = false
-		pane := c.pane
-		env.Do(func(ctx context.Context, api chatAPI) error { return api.Restart(ctx, t.Pane) }, func(err error) {
-			if err != nil && c.pane == pane {
-				c.cmp.note = sentence(err.Error())
-			}
-		})
+		c.restartTab(env)
 		return
 	}
 	if closes && m.close.Clicked(gtx) {
