@@ -231,21 +231,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
 		}
-		// The stats, the port chip, the PR chip and the radar mark give way,
-		// in that order, to Allow and Deny or a long time; the hover card has
-		// them all.
-		if inRepo && hasStats && (stats.Additions > 0 || stats.Deletions > 0) {
-			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, l2, gtx.Dp(4),
-					item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Green, fmt.Sprintf("+%d", stats.Additions))
-					}},
-					item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Red, fmt.Sprintf("-%d", stats.Deletions))
-					}},
-				)
-			}})
-		}
+		// The port chip, the PR chip and the radar mark give way, in that
+		// order, to Allow and Deny or a long time; the hover card has them
+		// all. The diff lives in the hover card and the board, not here.
+
 		// The first open port of the tab's block, else of a server the tab
 		// started: a dev server. On a Host it listens there, and localhost
 		// here would not reach it.
