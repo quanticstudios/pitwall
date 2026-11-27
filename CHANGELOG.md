@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.14
 
 - The phone's chat reads at 15.5sp with 1.45 line spacing. A turn's tool calls fold into one line, such as "Worked 2m 14s · 6 tools · 1 failed", that you tap to open, and the files it edited show on one card under the reply, such as "Edited 2 files +18 −4".
 - Worker reports show in the orchestrator's chat as cards, on the desktop and the phone. When a worker tab's turn ends, its card names the worker, its pull request and a status: Done when the reply's last line is DONE, Blocked when it is BLOCKED: and a reason, In progress otherwise. A click opens the worker's tab, or the report itself once the tab closed.
