@@ -1240,12 +1240,12 @@ func (c *Composer) tokens(gtx layout.Context, th *theme.Theme) {
 				w += em + gap
 			}
 			x := rg.Bounds.Min.X + (rg.Bounds.Dx()-w)/2
-			r := image.Rect(x, ly-padY, x+w, ly+ld.Size.Y+padY)
+			top, bottom, iconY := theme.ChipRows(base, em, padY)
+			r := image.Rect(x, top, x+w, bottom)
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(5)).Op(gtx.Ops))
 			lx := x + padX
 			if withIcon {
-				// why: its center on the x-height's middle, about a quarter em above the baseline.
-				o := op.Offset(image.Pt(lx, base-em/4-em/2)).Push(gtx.Ops)
+				o := op.Offset(image.Pt(lx, iconY)).Push(gtx.Ops)
 				sidebar.Icon(gtx, "image", em, fg)
 				o.Pop()
 				lx += em + gap

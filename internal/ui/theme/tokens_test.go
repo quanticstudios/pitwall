@@ -149,3 +149,23 @@ func TestHoverElevated(t *testing.T) {
 		}
 	}
 }
+
+// TestChipRows: an inline chip and its icon centre on the capitals'
+// middle and hold them with room, at the sizes chats use.
+func TestChipRows(t *testing.T) {
+	for _, em := range []int{13, 14, 16, 20, 28} {
+		base := 100
+		capTop := base - em*70/100
+		mid := (capTop + base) / 2
+		top, bottom, iconY := ChipRows(base, em, 2)
+		if c := (top + bottom) / 2; c < mid-1 || c > mid+1 {
+			t.Errorf("em %d: box centre %d, capitals' middle %d", em, c, mid)
+		}
+		if c := iconY + em/2; c < mid-1 || c > mid+1 {
+			t.Errorf("em %d: icon centre %d, capitals' middle %d", em, c, mid)
+		}
+		if top > capTop-2 || bottom < base+2 {
+			t.Errorf("em %d: box %d..%d does not hold the capitals %d..%d with room", em, top, bottom, capTop, base)
+		}
+	}
+}

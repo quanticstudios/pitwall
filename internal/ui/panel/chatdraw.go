@@ -424,11 +424,11 @@ func (d *cdraw) imageChip(gtx layout.Context, slot image.Rectangle, r widget.Reg
 	bg, fg := th.Chip(th.Blue, th.SurfaceSecondary)
 	em := gtx.Sp(st.size)
 	base := r.Bounds.Max.Y - r.Baseline
-	box := image.Rect(slot.Min.X, base-em*78/100-gtx.Dp(2), slot.Max.X, base+em*22/100+gtx.Dp(2))
+	top, bottom, iconY := theme.ChipRows(base, em, gtx.Dp(2))
+	box := image.Rect(slot.Min.X, top, slot.Max.X, bottom)
 	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
-	xh := em / 2
 	ix := box.Min.X + (r.Bounds.Min.X-box.Min.X-em)*6/10 // the slot's slack split 6:4 like its 6 dp and 4 dp pads
-	at(gtx, image.Pt(ix, base-xh/2-em/2), func(gtx layout.Context) layout.Dimensions {
+	at(gtx, image.Pt(ix, iconY), func(gtx layout.Context) layout.Dimensions {
 		return sidebar.Icon(gtx, "image", em, fg)
 	})
 	call, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
