@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.12
 
 - Zen mode keeps the agent's reports between tool calls: words of three lines or more, 240 characters or more, or a list, heading or table, also while the turn runs. Antigravity writes its findings mid-turn and then works on, so Zen hid them, and showed nothing at all of a running turn. Short narration such as "Let me check the tests" stays hidden.
 - A sidebar tab whose agent is back at its prompt while something it started still runs (Background), or that watches its workers (Watching), draws its ring in gray, not in Working's blue. Blue now means an agent mid-turn.
