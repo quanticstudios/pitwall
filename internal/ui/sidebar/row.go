@@ -8,7 +8,6 @@ import (
 	"slices"
 	"time"
 
-	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -85,9 +84,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if tileRect.Max.Y > h {
 			subsHairline(gtx, th, h, w)
 		}
-	}
-	if animating {
-		shimmer(gtx, tileRect, rr, base, v.t(s))
 	}
 	if cursor {
 		cursorRing(gtx, th, rect, rr)
@@ -662,37 +658,6 @@ func PillText(a model.Activity) string {
 	}
 	return model.PillLabel(a)
 }
-
-// shimmer is .sidebar-working-shimmer: a 200%-wide white gradient (0, .02,
-// .04, .02, 0 at 0/40/50/60/100%) sliding from background-position -200% to
-// 200% over 3s ease-in-out, repeating.
-func shimmer(gtx layout.Context, rect image.Rectangle, r int, base color.NRGBA, t float64) {
-	defer clip.UniformRRect(rect, r).Push(gtx.Ops).Pop()
-	w := float32(rect.Dx())
-	_, p := math.Modf(t / 3)
-	e := float32(p * p * (3 - 2*p))
-	c := float32(math.Mod(float64(w*(3-4*e)), float64(2*w)))
-	// why: aide's shimmer is a white gradient in every theme.
-	white := func(a float32) color.NRGBA { return theme.Mix(base, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, a) }
-	stops := []struct{ x, a float32 }{{-1, 0}, {-0.2, 0.02}, {0, 0.04}, {0.2, 0.02}, {1, 0}}
-	for _, cx := range []float32{c - 2*w, c, c + 2*w} {
-		for i := 0; i+1 < len(stops); i++ {
-			x0, x1 := cx+stops[i].x*w, cx+stops[i+1].x*w
-			if x1 < 0 || x0 > w {
-				continue
-			}
-			area := clip.Rect{Min: image.Pt(round(x0), rect.Min.Y), Max: image.Pt(round(x1), rect.Max.Y)}.Push(gtx.Ops)
-			paint.LinearGradientOp{
-				Stop1: f32.Pt(x0, 0), Color1: white(stops[i].a),
-				Stop2: f32.Pt(x1, 0), Color2: white(stops[i+1].a),
-			}.Add(gtx.Ops)
-			paint.PaintOp{}.Add(gtx.Ops)
-			area.Pop()
-		}
-	}
-}
-
-func round(x float32) int { return int(math.Round(float64(x))) }
 
 // pulse is Tailwind's animate-pulse opacity: 1 -> .5 -> 1 every 2s.
 func pulse(t float64) float32 {
