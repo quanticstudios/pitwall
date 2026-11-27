@@ -12,8 +12,9 @@ import (
 )
 
 // The fixture is the one agy acp 1.5.13 listed, under a temp HOME, as
-// u-acli, u-conf, u-gem, p-agent, p-agents and p-sub among its own: it
-// skipped ~/.agents/skills, ~/.gemini/antigravity/skills, XDG's,
+// u-acli, u-conf, u-gem, p-agent, p-agents and p-sub among its own, plus
+// ~/.agents/skills, which agy 1.5.18 reads too, after ~/.gemini's: it
+// skipped ~/.gemini/antigravity/skills, XDG's,
 // .gemini/skills, .antigravity/skills and bare skills folders in the
 // project, workflows and .agents/commands.
 func TestCommands(t *testing.T) {
@@ -32,7 +33,8 @@ func TestCommands(t *testing.T) {
 	skill(filepath.Join(home, ".gemini/antigravity-cli/skills"), "u-acli", "from acli")
 	skill(filepath.Join(home, ".gemini/config/skills"), "u-conf", "from conf")
 	skill(filepath.Join(home, ".gemini/skills"), "u-gem", "from gem")
-	skill(filepath.Join(home, ".agents/skills"), "u-agents", "skipped")
+	skill(filepath.Join(home, ".agents/skills"), "u-agents", "from shared")
+	skill(filepath.Join(home, ".agents/skills"), "u-conf", "loses to ~/.gemini")
 	skill(filepath.Join(home, ".gemini/antigravity/skills"), "u-ag", "skipped")
 	skill(filepath.Join(proj, ".agents/skills"), "p-agents", "from agents")
 	skill(filepath.Join(proj, ".agent/skills"), "p-agent", "from agent")
@@ -56,12 +58,15 @@ func TestCommands(t *testing.T) {
 			custom = append(custom, c.Name+"="+c.Source)
 		}
 	}
-	want := []string{"front-name=project", "p-agent=project", "p-agents=project", "p-sub=project", "u-acli=user", "u-conf=user", "u-gem=user"}
+	want := []string{"front-name=project", "p-agent=project", "p-agents=project", "p-sub=project", "u-acli=user", "u-agents=user", "u-conf=user", "u-gem=user"}
 	if !slices.Equal(custom, want) {
 		t.Fatalf("skills %q, want %q", custom, want)
 	}
 	if len(got) != len(Builtins)+len(want) {
 		t.Fatalf("%d commands, want %d", len(got), len(Builtins)+len(want))
+	}
+	if i := slices.IndexFunc(got, func(c session.Command) bool { return c.Name == "u-conf" }); got[i].Description != "from conf" {
+		t.Errorf("u-conf = %q, want ~/.gemini's over ~/.agents/skills'", got[i].Description)
 	}
 	if !slices.IsSortedFunc(got, func(a, b session.Command) int { return strings.Compare(a.Name, b.Name) }) {
 		t.Error("not sorted by name, as agy's menu is")

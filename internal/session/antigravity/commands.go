@@ -76,12 +76,13 @@ var Builtins = []session.Command{
 	{Name: "swarm", Description: "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board.", Hint: "<task>"},
 }
 
-// userSkills are the folders under home agy 1.5.13 reads the user's
-// skills from, and projectSkills the ones in each folder from the repo
-// root down to the session's. It lists neither workflows nor
-// .agents/commands.
+// userSkills are the folders under home agy reads the user's skills
+// from, ~/.gemini's first since they win a name clash, and ~/.agents/skills
+// (skillshare's and other tools' shared folder) since agy 1.5.18;
+// projectSkills are the ones in each folder from the repo root down to the
+// session's. It lists neither workflows nor .agents/commands.
 var (
-	userSkills    = []string{".gemini/antigravity-cli/skills", ".gemini/config/skills", ".gemini/skills"}
+	userSkills    = []string{".gemini/antigravity-cli/skills", ".gemini/config/skills", ".gemini/skills", ".agents/skills"}
 	projectSkills = []string{".agents/skills", ".agent/skills"}
 )
 
