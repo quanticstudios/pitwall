@@ -360,6 +360,8 @@ type rowState struct {
 	kids               widget.Clickable // a fleet's strip, which folds its workers
 	kidsT              anim.Value       // its chevron's turn
 	ctx                int              // tag for right- and middle-click
+	tileH              int              // the tile's height, its sub-rows in, as the tree placed it
+	tile               color.NRGBA      // the tile's fill as last drawn, under its sub-rows
 	easedFill
 }
 
