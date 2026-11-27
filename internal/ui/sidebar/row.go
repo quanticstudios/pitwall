@@ -41,6 +41,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	pad := gtx.Dp(8)
 	l1, l2 := rowLines(gtx, th)
 	h := rowHeight(gtx, th) + v.linesHeight(gtx, ws.ID)
+	if !ghost {
+		h += s.actsHeight(gtx, v, ws.ID)
+	}
 	subs := len(v.subsOf(ws.ID)) > 0
 	fleet := s.fleet(v, ws.ID)
 	if fleet {
@@ -109,23 +112,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	asking := s.replyable(v, ws.ID, ghost, own)
 	restart := !ghost && !answering && !planning && !asking && s.Restartable != nil && s.Restartable(ws.ID)
 	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning && !asking
-	// Left of where "…" and "×" show, hovered or not, so the buttons never
-	// move under the pointer; line 2's fold chip or group tag keeps its room.
-	keep := 2*btn - x + gtx.Dp(6)
-	if s.Touch {
-		keep = 0 // no "…" or "×" on a phone
-	}
-	answerEnd := w - gtx.Dp(12) - keep
+	acting := answering || planning || asking || restart
+	// The answers get a line of their own under the text, from the title's
+	// x to the content's right edge.
 	answerG := gtx
-	answerG.Constraints = layout.Constraints{Max: image.Pt(max(answerEnd-gtx.Dp(32)-answerRoom(gtx, v, ws.ID, subs), 0), answerHeight(gtx, th))}
-	answerW := 0
-	if answering || planning || asking {
-		answerW = answerSize(answerG, th, *own, base).X
-	} else if restart {
-		m := op.Record(gtx.Ops)
-		answerW = pillButton(nil, th, base, answerHeight(gtx, th), "Restart", th.Blue)(answerG).Size.X
-		m.Stop()
-	}
+	answerG.Constraints = layout.Constraints{Max: image.Pt(max(w-2*gtx.Dp(12)-gtx.Dp(20), 0), answerHeight(gtx, th))}
+	answerY := rowHeight(gtx, th) - gtx.Dp(8) + v.linesHeight(gtx, ws.ID) + gtx.Dp(actsGap)
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
 		left := gtx.Dp(12)
@@ -201,7 +193,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		var line []item
 		if subs {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
-				return s.foldChip(gtx, v, ws.ID, muted, ghost, answering)
+				return s.foldChip(gtx, v, ws.ID, muted, ghost, false)
 			}})
 		}
 		// The inbox mixes groups: each row names its own.
@@ -225,7 +217,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// On a desktop, Allow and Deny or the agent count leave it a few letters at most (a phone's row has room),
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if (s.Touch || !answering && !planning && !asking) && !subs && where != title {
+		if !subs && where != title {
 			// Beside the inbox's group tag it shows whole or not at all.
 			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
@@ -262,10 +254,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
-		case answering || planning || asking || restart: // drawn over the row below, with room for "…" and "×"
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(answerW+keep, 0)}
-			}})
 		case showMore:
 			n := 2
 			if merged {
@@ -316,6 +304,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			off.Pop()
 			y += l2
 		}
+		if acting {
+			y += gtx.Dp(actsGap) + answerHeight(gtx, th) // drawn over the row below
+		}
 		if fleet {
 			off = op.Offset(image.Pt(left, y)).Push(gtx.Ops)
 			gtx.Constraints = layout.Exact(image.Pt(inner, fleetHeight(gtx, th)))
@@ -339,11 +330,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	// has no hidden hit area: a stray click there must not close the tab.
 	pos := image.Pt(w-gtx.Dp(12)+x-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
 	if answering || planning || asking {
-		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(gtx.Dp(12)+gtx.Dp(20), answerY)).Push(gtx.Ops)
 		answerArea(answerG, th, answerBtns{allow: &r.allow, deny: &r.deny, plan: &r.plan, reply: &r.reply, choices: &r.choices}, *own, base)
 		off.Pop()
 	} else if restart {
-		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(gtx.Dp(12)+gtx.Dp(20), answerY)).Push(gtx.Ops)
 		pillButton(&r.restart, th, base, answerHeight(gtx, th), "Restart", th.Blue)(answerG)
 		off.Pop()
 	}

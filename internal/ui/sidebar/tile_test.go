@@ -48,7 +48,8 @@ func TestStateMark(t *testing.T) {
 
 // TestTileStyle: live tiles fill with Surface, finished ones only outline,
 // the selected one fills SurfaceSecondary in a Primary ring, and a tab
-// that needs the user rings amber, or red on an error.
+// that needs the user rings amber, or red on an error. The outline of a
+// finished tile reads against the sidebar.
 func TestTileStyle(t *testing.T) {
 	th := theme.Dark()
 	none := func(c interface{ RGBA() (r, g, b, a uint32) }) bool { _, _, _, a := c.RGBA(); return a == 0 }
@@ -61,8 +62,8 @@ func TestTileStyle(t *testing.T) {
 		t.Errorf("working tab = %v %v", f, r)
 	}
 	for _, s := range []model.AgentState{model.StateCompleted, model.StatePlanReady, model.StateParked} {
-		if f, r := tileStyle(th, act(s), false); f != th.Sidebar || r != th.SurfaceSecondary {
-			t.Errorf("%s tab = %v %v, want no fill in a SurfaceSecondary ring", s, f, r)
+		if f, r := tileStyle(th, act(s), false); f != th.Sidebar || r != finishedRing(th) {
+			t.Errorf("%s tab = %v %v, want no fill in an outline", s, f, r)
 		}
 		if c, bold := titleStyle(th, act(s)); c == th.Fg || bold {
 			t.Errorf("%s title stays bright", s)
@@ -70,6 +71,9 @@ func TestTileStyle(t *testing.T) {
 	}
 	if c, bold := titleStyle(th, act(model.StateWorking)); c != th.Fg || !bold {
 		t.Error("a live title dims")
+	}
+	if c := theme.Contrast(finishedRing(th), th.Sidebar); c < 1.5 {
+		t.Errorf("a finished tile's outline is %.2f:1 on the sidebar, want 1.5:1 or more", c)
 	}
 	if f, r := tileStyle(th, act(model.StateCompleted), true); f != th.SurfaceSecondary || r != th.Primary {
 		t.Errorf("selected tab = %v %v", f, r)

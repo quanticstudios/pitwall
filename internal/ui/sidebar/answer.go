@@ -383,15 +383,22 @@ const touchPad = 12
 // ponytail: one value for the process; a phone draws one sidebar.
 var touchSlop int
 
-// answerRoom is what line 2 keeps for its own items before a row's answers:
-// the fold chip, or the inbox's group tag.
-func answerRoom(gtx layout.Context, v *view, id string, subs bool) int {
-	room := 0
-	if subs {
-		room += gtx.Dp(44)
+// actsGap is the space above a row's line of answers, in dp.
+const actsGap = 6
+
+// acts reports whether tab id's row offers answers: Allow and Deny, a
+// plan's buttons, Reply or an exited tab's Restart, on a line of their own under the row's text,
+// so line 2 keeps the state word.
+func (s *Sidebar) acts(v *view, id string, ghost bool) bool {
+	own := v.ownActivity(id)
+	return s.answering(v, id, ghost, own) || s.planning(v, id, ghost, own) || s.replyable(v, id, ghost, own) ||
+		!ghost && s.Restartable != nil && s.Restartable(id)
+}
+
+// actsHeight is what tab id's line of answers adds to its row: 0 for none.
+func (s *Sidebar) actsHeight(gtx layout.Context, v *view, id string) int {
+	if !s.acts(v, id, false) {
+		return 0
 	}
-	if v.inbox && v.groupOf(id) != "" {
-		room += gtx.Dp(72)
-	}
-	return room
+	return gtx.Dp(actsGap) + answerHeight(gtx, v.th)
 }

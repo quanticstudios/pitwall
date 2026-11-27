@@ -33,7 +33,7 @@ func tileStyle(th *theme.Theme, a *model.Activity, selected bool) (fill, ring co
 	case selected:
 		fill, ring = th.SurfaceSecondary, th.Primary
 	case finished(a):
-		fill, ring = th.Sidebar, th.SurfaceSecondary
+		fill, ring = th.Sidebar, finishedRing(th)
 	default:
 		fill = th.Surface
 	}
@@ -45,6 +45,13 @@ func tileStyle(th *theme.Theme, a *model.Activity, selected bool) (fill, ring co
 		ring = theme.Mix(fill, col, 0.6)
 	}
 	return fill, ring
+}
+
+// finishedRing is a finished tile's outline: SurfaceSecondary a step
+// toward Fg, 1.7:1 on aide-dark's sidebar where SurfaceSecondary alone
+// is 1.2:1 and fades on a dim monitor.
+func finishedRing(th *theme.Theme) color.NRGBA {
+	return theme.Mix(th.SurfaceSecondary, th.Fg, 0.12)
 }
 
 // tileHover is a tile's fill under the pointer.
