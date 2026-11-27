@@ -1770,7 +1770,7 @@ func (t *Transcript) turnRows(gtx layout.Context, d *cdraw, b block, run bool, q
 	for i := b.lo; i < b.hi; i++ {
 		it := &d.s.Content[i]
 		switch {
-		case i == b.reply || quiet[i] || isTodo(it.Tool) || t.tool.shells.isAttached(i):
+		case i == b.reply && !(mode == ToolsZen && run && report(it.Text)) || quiet[i] || isTodo(it.Tool) || t.tool.shells.isAttached(i):
 		case mode == ToolsZen:
 			if zenShows(it) {
 				kind := segProse

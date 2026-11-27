@@ -303,9 +303,12 @@ Windows lists none.
 - The header's Tools button picks which tool calls show, as `[chat]
   tool_calls` does: Tools (all of them), Failed only (a call shows while it
   runs and stays only if it fails), No tools (thinking stays) and Zen (your
-  messages and each turn's final reply, once the turn ends). Errors,
-  approvals, questions and plans always show. In Zen, the find bar shows the
-  words between calls while it is open.
+  messages, each turn's final reply once the turn ends, and the agent's
+  reports between calls: words of three lines or more, 240 characters or
+  more, or a list, heading or table, also while the turn runs). Short
+  narration such as "Let me check the tests" stays hidden in Zen. Errors,
+  approvals, questions and plans always show. In Zen, the find bar shows all
+  the words between calls while it is open.
 - A work log's line names at most two kinds of call, commands and edits
   before reads and searches, then counts the rest, "Ran 2 commands, read 1
   file, and performed 3 other actions". A failed call is not counted as

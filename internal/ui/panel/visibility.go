@@ -1,6 +1,9 @@
 package panel
 
 import (
+	"strings"
+	"unicode/utf8"
+
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -54,15 +57,35 @@ func callHidden(mode string, c *session.ToolCall) bool {
 }
 
 // zenShows is whether zen draws item it of a turn's work: a call that
-// asks the user, and the lines that are the user's own or an error, never
-// the agent's words between calls.
+// asks the user, the lines that are the user's own or an error, and the
+// agent's words between calls only when they are a report, not narration.
 func zenShows(it *session.Item) bool {
 	switch it.Kind {
+	case session.KindAssistantText:
+		return report(it.Text)
 	case session.KindToolCall:
 		return it.Tool != nil && asksUser(it.Tool)
 	case session.KindSystem:
 		switch it.Phase {
 		case session.PhaseError, session.PhaseCompact, session.PhaseCommand, session.PhaseOutput:
+			return true
+		}
+	}
+	return false
+}
+
+// report is whether the agent's words between calls are worth zen's room:
+// three lines or more, 240 characters or more, or a list, heading or
+// table. Antigravity writes its findings mid-turn and works on; "Let me
+// check the tests" is narration zen hides.
+func report(text string) bool {
+	text = strings.TrimSpace(text)
+	if strings.Count(text, "\n") >= 2 || utf8.RuneCountInString(text) >= 240 {
+		return true
+	}
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "* ") || strings.HasPrefix(l, "#") || strings.HasPrefix(l, "|") || len(l) > 2 && l[0] >= '0' && l[0] <= '9' && strings.HasPrefix(l[1:], ". ") {
 			return true
 		}
 	}
