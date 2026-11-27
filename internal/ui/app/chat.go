@@ -124,6 +124,8 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 				t.AwayNow = model.AwayNow(st.AwaitPR(st.Activities[i]).State)
 			}
 		}
+		t.Reports = st.Reports[id]
+		t.OpenReport = func(r model.Report) bool { return u.openReport(st, r) }
 		t.CopyOnSelect = u.cfg.CopyOnSelect
 		t.Copied = func(gtx gl.Context, s string, r image.Rectangle) {
 			u.showNotice(gtx, copiedText(s), r.Sub(u.contentOrigin))

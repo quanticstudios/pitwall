@@ -284,6 +284,21 @@ replaced by `logs.Redact`:
 
 No tool calls, command output, file contents or earlier turns go with it.
 
+## Worker reports
+
+A tab an agent started with `pitwall new` or `pitwall worktree new` is a
+worker of that agent's tab. Each time a worker's turn ends, a card shows in
+the orchestrator's chat, in Ledger and Column alike, at the time it came:
+
+- a dot and the status: **Done** (green) when the reply's last line is
+  `DONE`, **Blocked** (red) when it is `BLOCKED: <why>`, **In progress**
+  (blue) when it is neither;
+- the worker's name, its pull request when it has one, and the time;
+- the reason for Blocked, else the first line of the reply.
+
+Click a card to open the worker's tab. Once that tab closed, the click
+opens the report in place instead. Each turn makes one card. The daemon
+keeps the last 30 per chat until it restarts.
 ### Turn headlines
 
 The same setting writes each finished turn a one-line headline for the

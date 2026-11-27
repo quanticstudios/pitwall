@@ -118,7 +118,11 @@ func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 	}
 	lastTurnFrom := -1
 	lastTurnOpen := false
+	reps := 0 // the next of Reports to place
 	for bi, b := range t.blocks {
+		if b.kind != blockTurn || b.lo == b.from { // never inside a turn
+			t.reportRows(d.s, &reps, b.lo)
+		}
 		if bi > 0 && t.blocks[bi-1].turn != "" && t.blocks[bi-1].turn != b.turn && stopped[t.blocks[bi-1].turn] {
 			t.rows = append(t.rows, trow{tail: d.interrupted, inTurn: true})
 		}
@@ -199,6 +203,7 @@ func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 	for ; k < len(t.done); k++ {
 		t.resRowLedger(gtx, block{}, &t.done[k])
 	}
+	t.reportRows(d.s, &reps, len(d.s.Content))
 	tailStart := len(t.rows)
 	for _, w := range d.tail() {
 		t.rows = append(t.rows, trow{tail: w, inTurn: true})

@@ -159,6 +159,13 @@ the foreground with the chat open: in the background, with the screen
 off, or once it has said nothing for 75 seconds, it does not.
 See [Since you left](chat.md#since-you-left) for what the summary sends.
 
+An orchestrator's chat shows its workers' report cards, as the desktop
+does (see [Worker reports](chat.md#worker-reports)): Done, In progress or
+Blocked, the worker's name, its pull request and a line of the report. A
+card sits under the newest message the app had when the card came in.
+Tap it to open the worker's chat, or the report once the worker's tab
+closed.
+
 A tab without a session file, a shell or an agent without hooks, shows its
 state and never its screen or scrollback. The page and the Android app
 show a pane's screen only in its Screen view, which you open (see

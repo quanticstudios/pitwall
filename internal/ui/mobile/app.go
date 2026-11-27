@@ -529,6 +529,7 @@ func (a *App) chatLayout(gtx C) {
 			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
 		},
 		Retry: l.conn.Retry, OpenFile: a.fileOpener(l, t.ID), Foreground: a.focused,
+		OpenTab: func(tab string) bool { return a.openWorker(l.m.ID, tab) },
 		OpenDesktop: func(done func(error)) {
 			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return c.OpenDesktop(ctx, t.Pane) }, done)
 		},

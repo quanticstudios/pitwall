@@ -88,6 +88,9 @@ type chatEnv struct {
 	// path and #fragment; nil when the computer serves no files, and then
 	// a path in a reply is plain text.
 	OpenFile func(path, frag string)
+	// OpenTab opens a worker card's tab by its id on the tab's machine,
+	// false when that tab is gone.
+	OpenTab func(tab string) bool
 }
 
 func (e *chatEnv) now() time.Time {
@@ -120,6 +123,7 @@ type chatView struct {
 	slashes                slashMenu
 	menu                   tabMenu
 	away                   awayState
+	reps                   reportState
 	beatAt                 time.Time // the last View beat sent for this chat
 }
 
@@ -230,6 +234,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	c.older(env)
 	c.viewBeat(gtx, env)
 	c.awayMark(env)
+	c.reportsMark(env)
 	c.files = env.OpenFile != nil
 	t := env.Tab
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
@@ -452,7 +457,7 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 			if hasQuestion && i == n-1 {
 				return c.askCard(gtx, th, env)
 			}
-			return c.logItem(gtx, th, i, working)
+			return c.withReports(gtx, th, env, i, func(gtx C) D { return c.logItem(gtx, th, i, working) })
 		})
 	})
 }
