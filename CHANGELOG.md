@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- Sidebar tiles have no outlines. A live tab fills a shade lighter than the sidebar, a finished one has no box, the selected tab is tinted blue, and a tab that needs you is tinted amber, or red on an error. A remote machine's header names it in purple and "This machine" in gray, with a hairline to the tab count. A tab with workers shows a people icon and their count beside its time, blue while one works, in place of "3 workers · 3 working", and each worker hangs off a corner connector.
+
 ## v0.3.13
 
 - An Antigravity tab's / menu lists the skills in ~/.agents/skills, the shared folder skillshare and other tools fill, as agy 1.5.18 does. A skill of the same name in ~/.gemini still wins.

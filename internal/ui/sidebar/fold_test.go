@@ -187,34 +187,25 @@ func TestFoldFocus(t *testing.T) {
 	}
 }
 
-// TestFoldCount: a row's count names its agents and workers and how many
-// share the most urgent state.
-func TestFoldCount(t *testing.T) {
-	acts := func(ss ...model.AgentState) []model.Activity {
-		var out []model.Activity
-		for _, s := range ss {
-			out = append(out, model.Activity{State: s})
-		}
-		return out
-	}
-	for _, c := range []struct {
-		agents, workers int
-		acts            []model.Activity
-		want            string
-	}{
-		{2, 2, acts(model.StateWorking, model.StatePendingApproval, model.StateCompleted), "2 agents · 2 workers · 1 approval"},
-		{0, 3, acts(model.StatePendingApproval, model.StatePendingApproval, model.StateWorking), "3 workers · 2 approvals"},
-		{0, 1, nil, "1 worker"},
-		{3, 0, acts(model.StateError), "3 agents · 1 error"},
-	} {
-		if got := subCount(c.agents, c.workers, c.acts); got != c.want {
-			t.Errorf("%q, want %q", got, c.want)
-		}
-	}
+// TestWorkerChip: the chip counts a tab's sub-rows and turns Blue while
+// one works in the foreground or connects, Muted otherwise.
+func TestWorkerChip(t *testing.T) {
+	th := theme.Dark()
 	h := newFoldHarness(t)
-	v := newView(layout.Context{}, theme.Dark(), &h.st, "", "u1")
-	if got := v.familyCount("o"); got != "3 workers · 1 approval" {
-		t.Errorf("o's count %q", got)
+	v := newView(layout.Context{}, th, &h.st, "", "u1")
+	n, on := v.workerChip("o")
+	if n != 3 {
+		t.Errorf("o's chip counts %d, want 3", n)
+	}
+	if !on {
+		t.Error("o's chip is Muted while w1 works")
+	}
+	h.st.Activities[1].Background = true
+	if _, on := newView(layout.Context{}, th, &h.st, "", "u1").workerChip("o"); on {
+		t.Error("o's chip is Blue with only background work and an approval")
+	}
+	if chipColor(th, true, th.Sidebar) != th.Blue || chipColor(th, false, th.Sidebar) != th.Muted {
+		t.Error("the chip is not Blue while working, Muted otherwise")
 	}
 }
 

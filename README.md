@@ -210,9 +210,10 @@ relay.
 **Ask Claude Code or Codex to split a job and it starts one worker per
 task, each in its own worktree, under its own tab.** Each worker gets a
 small row under the orchestrator's, with its state and Allow and Deny when
-it asks. The orchestrator's row counts them, as in "3 workers · 1
-approval", and takes the most urgent state among them. Click the count to
-fold them away; a worker that asks for you stays. Click a worker's row to
+it asks. The orchestrator's row counts them beside its time, in blue
+while one works, and takes the most urgent state among them. Click the
+chevron under its title to fold them away; a worker that asks for you
+stays. Click a worker's row to
 watch or type into it.
 
 The orchestrator waits with `pitwall wait --children`. It stops at the

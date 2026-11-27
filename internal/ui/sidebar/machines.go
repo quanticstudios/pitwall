@@ -326,23 +326,30 @@ func (s *Sidebar) dividerLine(gtx layout.Context, v *view, host string, hi HostI
 	hrow(g, h, gtx.Dp(7), machineItems(th, host, hi, gtx.Now, tabCount(tabs), th.Muted)...)
 }
 
-// machineItems is the line every machine header draws: the name in Fg,
-// the latency in mono Muted, and count on the right, or in its place, in
-// red, why the machine is down.
+// machineItems is the line every machine header draws: the name, Purple
+// for a host and Muted for this machine, the latency in mono Muted, a
+// hairline, and count on the right, or in its place, in red, why the
+// machine is down.
 func machineItems(th *theme.Theme, host string, hi HostInfo, now time.Time, count string, countC color.NRGBA) []item {
-	name := "This machine"
+	name, nameC := "This machine", th.Muted
 	if host != "" {
-		name = host
+		name, nameC = host, th.Purple
 	}
 	note, bad := machineNote(hi, now)
 	items := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Fg, name)
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Readable(nameC, th.Sidebar), name)
 	}}}
 	if note != "" && !bad {
 		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, note)
 		}})
 	}
+	// A hairline fills the room between them and the count.
+	items = append(items, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+		w, m, lw := gtx.Constraints.Max.X, gtx.Dp(2), max(gtx.Dp(1), 1)
+		paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Fg, 0.07), clip.Rect{Min: image.Pt(m, 0), Max: image.Pt(max(w-m, m), lw)}.Op())
+		return layout.Dimensions{Size: image.Pt(w, lw)}
+	}})
 	if bad {
 		return append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Readable(th.Red, th.Sidebar), note)

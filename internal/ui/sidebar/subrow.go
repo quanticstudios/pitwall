@@ -1,13 +1,14 @@
 package sidebar
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -235,66 +236,6 @@ func paneTitle(ap model.AgentPane) string {
 	return agent
 }
 
-// stateNouns names how many panes share a state in agentCount.
-var stateNouns = map[model.AgentState][2]string{
-	model.StatePendingApproval: {"approval", "approvals"},
-	model.StateAwaitingInput:   {"question", "questions"},
-	model.StateError:           {"error", "errors"},
-	model.StateWorking:         {"working", "working"},
-	model.StateConnecting:      {"working", "working"},
-	model.StatePlanReady:       {"plan", "plans"},
-	model.StatePROpen:          {"PR open", "PRs open"},
-	model.StateCompleted:       {"done", "done"},
-}
-
-// subCount is a tab row's summary of its sub-rows' activities acts: how
-// many agent panes and workers, and how many of them all share the most
-// urgent state, "2 agents · 3 workers · 1 approval".
-func subCount(agents, workers int, acts []model.Activity) string {
-	out := subTotals(agents, workers)
-	top := model.Aggregate(acts)
-	if top == nil {
-		return out
-	}
-	noun, ok := stateNouns[top.State]
-	if !ok {
-		return out
-	}
-	n := 0
-	for _, a := range acts {
-		if a.State == top.State || (a.State == model.StateWorking || a.State == model.StateConnecting) && (top.State == model.StateWorking || top.State == model.StateConnecting) {
-			n++
-		}
-	}
-	if n == 1 {
-		return fmt.Sprintf("%s · 1 %s", out, noun[0])
-	}
-	return fmt.Sprintf("%s · %d %s", out, n, noun[1])
-}
-
-// subTotals is "2 agents · 3 workers", either left out at zero.
-func subTotals(agents, workers int) string {
-	var parts []string
-	if agents > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s", agents, plural(agents, "agent", "agents")))
-	}
-	if workers > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s", workers, plural(workers, "worker", "workers")))
-	}
-	return strings.Join(parts, " · ")
-}
-
-// familyCount is subCount for tab id's sub-rows.
-func (v *view) familyCount(id string) string {
-	var acts []model.Activity
-	for _, e := range v.subsOf(id) {
-		if a := v.act(e); a != nil {
-			acts = append(acts, *a)
-		}
-	}
-	return subCount(len(v.agents[id]), len(v.subKids(id)), acts)
-}
-
 // subRowAt draws sub-row e under tab, the lifted copy when ghost, and
 // reports whether its pill animates.
 func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, ghost bool) (layout.Dimensions, bool) {
@@ -331,6 +272,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	if cursor {
 		base = cursorFill(th, base, focused)
 	}
+	subGuide(gtx, th, tile, rect.Min.X, pad+line/2)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	if !ghost {
 		base = r.fill(gtx, base, hovered)
@@ -449,6 +391,23 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	return layout.Dimensions{Size: image.Pt(w, h)}, model.Pulses(a) && !anim.Reduced()
 }
 
+// subGuide draws a sub-row's corner connector in a tile filled fill: a
+// 1dp L whose foot ends at x, at y, rounding its corner by 6dp.
+func subGuide(gtx layout.Context, th *theme.Theme, fill color.NRGBA, x, y int) {
+	lw := float32(max(gtx.Dp(1), 1))
+	x0, x1 := float32(x-gtx.Dp(12))+lw/2, float32(x)
+	y0, y1 := float32(-gtx.Dp(5)), float32(y)-lw/2
+	r := float32(gtx.Dp(6))
+	const k = 0.5523 // a cubic's control distance for a quarter circle
+	var p clip.Path
+	p.Begin(gtx.Ops)
+	p.MoveTo(f32.Pt(x0, y0))
+	p.LineTo(f32.Pt(x0, y1-r))
+	p.CubeTo(f32.Pt(x0, y1-r+k*r), f32.Pt(x0+r-k*r, y1), f32.Pt(x0+r, y1))
+	p.LineTo(f32.Pt(x1, y1))
+	paint.FillShape(gtx.Ops, tileHairline(th, fill), clip.Stroke{Path: p.End(), Width: lw}.Op())
+}
+
 // subTitle is what a sub-row calls its pane or worker.
 func subTitle(e subEntry) string {
 	if e.worker != nil {
@@ -480,7 +439,7 @@ func (s *Sidebar) ghostSubs(gtx layout.Context, v *view, id string) int {
 	if len(subs) == 0 {
 		return 0
 	}
-	subsHairline(gtx, v.th, 0, gtx.Constraints.Max.X)
+	subsHairline(gtx, v.th, v.th.SurfaceSecondary, 0, gtx.Constraints.Max.X)
 	y := subsTop(gtx)
 	for _, e := range subs {
 		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
@@ -491,34 +450,56 @@ func (s *Sidebar) ghostSubs(gtx layout.Context, v *view, id string) int {
 	return y + subsBottom(gtx)
 }
 
-// foldChip is the count on line 2 of a tab with sub-rows, after a
-// chevron that turns as clicking it folds and unfolds them. Short, beside
-// Allow and Deny, it only counts them; the pill names the state.
-func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRGBA, ghost, short bool) layout.Dimensions {
-	th := v.th
+// foldChip is the chevron on line 2 of a tab with sub-rows, which turns
+// as clicking it folds and unfolds them.
+func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRGBA, ghost bool) layout.Dimensions {
 	r := s.row(id)
-	_, l2 := rowLines(gtx, th)
-	text := v.familyCount(id)
-	if short {
-		text = subTotals(len(v.agents[id]), len(v.subKids(id)))
-	}
+	_, l2 := rowLines(gtx, v.th)
 	draw := func(gtx layout.Context) layout.Dimensions {
 		c := col
 		if !ghost && r.fold.Hovered() {
-			c = th.Fg
+			c = v.th.Fg
 		}
-		return hrowFit(gtx, l2, gtx.Dp(4),
-			item{w: func(gtx layout.Context) layout.Dimensions {
-				return chevron(gtx, &r.foldT, !s.folded[id], gtx.Dp(12), c)
-			}},
-			item{w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), c, text)
-			}})
+		return hrowFit(gtx, l2, 0, item{w: func(gtx layout.Context) layout.Dimensions {
+			return chevron(gtx, &r.foldT, !s.folded[id], gtx.Dp(12), c)
+		}})
 	}
 	if ghost {
 		return draw(gtx)
 	}
 	return clickable(gtx, &r.fold, draw)
+}
+
+// workerChip is the people icon and n on line 1 of a tab with sub-rows,
+// in col.
+func workerChip(gtx layout.Context, th *theme.Theme, n int, col color.NRGBA) layout.Dimensions {
+	gtx.Constraints.Min = image.Point{}
+	return hrowFit(gtx, gtx.Constraints.Max.Y, gtx.Dp(3),
+		item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icPeople, gtx.Dp(13), col, 0) }},
+		item{w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, medium(th.MonoFont), th.Sp(theme.Caption), col, strconv.Itoa(n))
+		}})
+}
+
+// chipColor is the worker chip's color on base: Blue while any of the
+// tab's sub-rows works, else Muted.
+func chipColor(th *theme.Theme, working bool, base color.NRGBA) color.NRGBA {
+	if working {
+		return th.Readable(th.Blue, base)
+	}
+	return th.Readable(th.Muted, base)
+}
+
+// workerChip is how many sub-rows tab id has and whether any works:
+// Working in the foreground, or Connecting.
+func (v *view) workerChip(id string) (n int, working bool) {
+	subs := v.subsOf(id)
+	for _, e := range subs {
+		if a := v.act(e); a != nil && markOf(v.th, *a).loud && model.Tier(a) != model.TierAttention {
+			working = true
+		}
+	}
+	return len(subs), working
 }
 
 // chevron draws a disclosure chevron size px wide in col, turning from

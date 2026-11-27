@@ -1524,9 +1524,10 @@ this machine's files only, so a pane on a `--host` says so instead.
 The tabs an agent opened (its workers, and their workers in turn) list
 under the agent's row, after its agent panes, one small row each: the
 worker's agent logo, its tab's name and its state, with Allow and Deny on
-one that asks for approval. The agent's row counts them, as in "2 agents ·
-3 workers · 1 approval": its agent panes, its workers, and how many of them
-all share the most urgent state.
+one that asks for approval, each hanging off a corner line. The agent's
+row shows a people icon and how many there are, agent panes and workers
+together, beside its time: blue while one of them works, gray otherwise.
+The chevron under its title folds them away.
 
 The agent's row shows the most urgent state of it and its workers, so a
 worker waiting on approval turns its pill and accent bar too. Allow and

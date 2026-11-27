@@ -13,9 +13,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// Every tab is a tile: filled while live, outlined once finished, ringed
-// when selected or when it needs the user. Its state sits in a right
-// column under the time: a 6dp dot and a word.
+// Every tab is a tile with no outline: a faint fill while live, none once
+// finished, a tint of Primary when selected, of amber or red when it needs
+// the user. Its state sits in a right column under the time: a 6dp dot
+// and a word.
 
 // tileGap is the space between two tiles.
 const tileGap unit.Dp = 4
@@ -26,32 +27,27 @@ func finished(a *model.Activity) bool {
 	return a != nil && (a.State == model.StateCompleted || a.State == model.StatePlanReady || a.State == model.StateParked)
 }
 
-// tileStyle is a tab tile's fill and its 1dp ring, transparent for none.
-// Attention outranks selection, which outranks finished.
-func tileStyle(th *theme.Theme, a *model.Activity, selected bool) (fill, ring color.NRGBA) {
+// tileStyle is a tab tile's fill, the sidebar's for none. Attention
+// outranks selection, which outranks finished.
+func tileStyle(th *theme.Theme, a *model.Activity, selected bool) color.NRGBA {
 	switch {
-	case selected:
-		fill, ring = th.SurfaceSecondary, th.Primary
-	case finished(a):
-		fill, ring = th.Sidebar, finishedRing(th)
-	default:
-		fill = th.Surface
-	}
-	if model.Tier(a) == model.TierAttention {
+	case model.Tier(a) == model.TierAttention:
 		col := th.Yellow
 		if a.State == model.StateError {
 			col = th.Red
 		}
-		ring = theme.Mix(fill, col, 0.6)
+		return theme.Mix(th.Sidebar, col, 0.10)
+	case selected:
+		return theme.Mix(th.Sidebar, th.Primary, 0.13)
+	case finished(a):
+		return th.Sidebar
 	}
-	return fill, ring
+	return theme.Mix(th.Sidebar, th.Fg, 0.025)
 }
 
-// finishedRing is a finished tile's outline: SurfaceSecondary a step
-// toward Fg, 1.7:1 on aide-dark's sidebar where SurfaceSecondary alone
-// is 1.2:1 and fades on a dim monitor.
-func finishedRing(th *theme.Theme) color.NRGBA {
-	return theme.Mix(th.SurfaceSecondary, th.Fg, 0.12)
+// tileHairline is the 1dp rule and corner guides inside a tile of fill.
+func tileHairline(th *theme.Theme, fill color.NRGBA) color.NRGBA {
+	return theme.Mix(fill, th.Fg, 0.06)
 }
 
 // tileHover is a tile's fill under the pointer.
@@ -137,20 +133,14 @@ func stateWord(gtx layout.Context, th *theme.Theme, m stateMark, base color.NRGB
 		}})
 }
 
-// drawTile paints a tile in rect: its fill unless it is the sidebar's,
-// then its ring.
-func drawTile(gtx layout.Context, th *theme.Theme, rect image.Rectangle, fill, ring color.NRGBA) {
-	rr := gtx.Dp(8)
-	if ring.A == 0 {
-		if fill != th.Sidebar {
-			paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-		}
-		return
+// tileRadius is a tile's corner radius.
+const tileRadius unit.Dp = 10
+
+// drawTile paints a tile's fill in rect, unless it is the sidebar's.
+func drawTile(gtx layout.Context, th *theme.Theme, rect image.Rectangle, fill color.NRGBA) {
+	if fill != th.Sidebar {
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, gtx.Dp(tileRadius)).Op(gtx.Ops))
 	}
-	// why: a stroke centred on the edge straddles two pixels at half strength and the row's clip cuts its outer half; a band inside the tile stays on whole pixels.
-	lw := max(gtx.Dp(1), 1)
-	paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect.Inset(lw), max(rr-lw, 0)).Op(gtx.Ops))
 }
 
 // subsTop and subsBottom are the space a tile keeps above its sub-rows,
@@ -159,8 +149,8 @@ func subsTop(gtx layout.Context) int    { return max(gtx.Dp(1), 1) + gtx.Dp(3) }
 func subsBottom(gtx layout.Context) int { return gtx.Dp(4) }
 
 // subsHairline draws the 1dp rule between a tab and its sub-rows at y,
-// across the tile's content, w wide.
-func subsHairline(gtx layout.Context, th *theme.Theme, y, w int) {
+// across the content of a tile filled fill, w wide.
+func subsHairline(gtx layout.Context, th *theme.Theme, fill color.NRGBA, y, w int) {
 	in := gtx.Dp(12)
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.Rect{Min: image.Pt(in, y), Max: image.Pt(w-in, y+max(gtx.Dp(1), 1))}.Op())
+	paint.FillShape(gtx.Ops, tileHairline(th, fill), clip.Rect{Min: image.Pt(in, y), Max: image.Pt(w-in, y+max(gtx.Dp(1), 1))}.Op())
 }

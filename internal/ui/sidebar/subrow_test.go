@@ -69,30 +69,6 @@ func (h *dragHarness) click(p f32.Point) []Event {
 	return append(h.pointer(pointer.Press, p), h.pointer(pointer.Release, p)...)
 }
 
-func TestAgentCount(t *testing.T) {
-	acts := func(ss ...model.AgentState) []model.Activity {
-		var out []model.Activity
-		for _, s := range ss {
-			out = append(out, model.Activity{State: s})
-		}
-		return out
-	}
-	for _, c := range []struct {
-		n    int
-		acts []model.Activity
-		want string
-	}{
-		{3, acts(model.StateWorking, model.StatePendingApproval, model.StateCompleted), "3 agents · 1 approval"},
-		{2, acts(model.StateWorking, model.StateConnecting), "2 agents · 2 working"},
-		{3, acts(model.StateError, model.StateError), "3 agents · 2 errors"},
-		{2, nil, "2 agents"},
-	} {
-		if got := subCount(c.n, 0, c.acts); got != c.want {
-			t.Errorf("%q, want %q", got, c.want)
-		}
-	}
-}
-
 // TestSubRows: only the tab with two or more agents gets sub-rows, in its
 // layout's order, shells left out; folding hides them but the one asking.
 func TestSubRows(t *testing.T) {

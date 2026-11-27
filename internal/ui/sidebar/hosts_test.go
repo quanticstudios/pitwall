@@ -69,13 +69,6 @@ func TestGroupSummaryCountsBackgroundWork(t *testing.T) {
 	}
 }
 
-func TestSubCountIncludesBackgroundAndConnecting(t *testing.T) {
-	acts := []model.Activity{{State: model.StateWorking, Background: true}, {State: model.StateConnecting}}
-	if got := subCount(2, 0, acts); got != "2 agents · 2 working" {
-		t.Fatalf("background work changed the working count: %q", got)
-	}
-}
-
 func TestHostListCounts(t *testing.T) {
 	for _, tt := range []struct {
 		name, session, count string
