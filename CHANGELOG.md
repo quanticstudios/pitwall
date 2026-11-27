@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.13
 
 - An Antigravity tab's / menu lists the skills in ~/.agents/skills, the shared folder skillshare and other tools fill, as agy 1.5.18 does. A skill of the same name in ~/.gemini still wins.
 
