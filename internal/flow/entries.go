@@ -23,7 +23,13 @@ type Entry struct {
 	Path   string `json:"path,omitempty"`
 	Done   bool   `json:"done,omitempty"`
 	Failed bool   `json:"failed,omitempty"`
-	rev    int64
+	// At is when the entry's line was written, in Unix milliseconds; 0
+	// when the file does not say.
+	At int64 `json:"at,omitempty"`
+	// Add and Del are the lines an edit call adds and removes.
+	Add int `json:"add,omitempty"`
+	Del int `json:"del,omitempty"`
+	rev int64
 }
 
 // Entry kinds.
@@ -57,6 +63,7 @@ type Log struct {
 	entries []Entry
 	next    int64
 	calls   map[string]int64 // a call's id to its entry's seq
+	at      int64            // the line being read's time, Unix ms
 }
 
 // NewLog reads nothing yet; Poll does.
@@ -79,6 +86,18 @@ func (l *Log) Poll() {
 
 func (l *Log) parse(line []byte) {
 	defer func() { _ = recover() }() // why: a line that trips a parser bug costs that line
+	var ts struct {
+		Timestamp json.RawMessage `json:"timestamp"`
+	}
+	l.at = 0
+	if json.Unmarshal(line, &ts) == nil {
+		var s string
+		if json.Unmarshal(ts.Timestamp, &s) == nil {
+			if t := parseTime(s); !t.IsZero() {
+				l.at = t.UnixMilli()
+			}
+		}
+	}
 	switch l.Provider {
 	case model.ProviderClaude:
 		l.claude(line)
@@ -118,7 +137,7 @@ func clone(es []Entry) []Entry { return append([]Entry(nil), es...) }
 
 func (l *Log) add(e Entry, id string) {
 	l.Rev++
-	e.Seq, e.rev = l.next, l.Rev
+	e.Seq, e.rev, e.At = l.next, l.Rev, l.at
 	l.next++
 	l.entries = append(l.entries, e)
 	if n := len(l.entries); n > maxEntries {
@@ -141,7 +160,8 @@ func (l *Log) call(id, tool, arg string) {
 
 // tool adds a call of tool with its JSON input.
 func (l *Log) tool(id, tool string, input json.RawMessage) {
-	l.add(Entry{Kind: EntryTool, Tool: tool, Arg: cut(arg(tool, input), maxText), Path: filePath(tool, input)}, id)
+	add, del := editStat(tool, input)
+	l.add(Entry{Kind: EntryTool, Tool: tool, Arg: cut(arg(tool, input), maxText), Path: filePath(tool, input), Add: add, Del: del}, id)
 }
 
 // result ends the call id with its output.
@@ -283,6 +303,10 @@ func (l *Log) codex(line []byte) {
 			a = patchFile(p.Input)
 		}
 		l.call(p.CallID, p.Name, a)
+		if p.Name == "apply_patch" {
+			e := &l.entries[len(l.entries)-1]
+			e.Add, e.Del = patchStat(p.Input)
+		}
 	case "response_item/local_shell_call":
 		l.call(p.CallID, "shell", command(p.Action.Command))
 	case "response_item/function_call_output", "response_item/custom_tool_call_output":

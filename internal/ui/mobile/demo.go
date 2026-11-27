@@ -34,6 +34,7 @@ var DemoStates = []string{
 	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host", "screen",
 	"agy", "agy-model-menu", "agy-mode-menu", "away", "away-short",
 	"idle", "needs-you", "queued-two", "tab-menu", "reports",
+	"long-turn", "edits", "failed", "work-open",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -106,6 +107,41 @@ func demoEntries() []flow.Entry {
 		{Seq: 6, Kind: flow.EntryTool, Tool: "Edit", Arg: "cart.go", Done: true},
 		{Seq: 7, Kind: flow.EntryTool, Tool: "Bash", Arg: demoRun},
 	}
+}
+
+// demoTurn is one finished turn for the reading states: a prompt, the
+// work between, and the reply, over 2m 14s from at.
+func demoTurn(state string, at time.Time) []flow.Entry {
+	ms := func(s int) int64 { return at.Add(time.Duration(s) * time.Second).UnixMilli() }
+	es := []flow.Entry{
+		{Seq: 1, Kind: flow.EntryUser, Text: "Make the login test stop racing the session cookie.", At: ms(0)},
+		{Seq: 2, Kind: flow.EntryAssistant, Text: "I'll run the login tests a few times to catch the race first.", At: ms(3)},
+		{Seq: 3, Kind: flow.EntryTool, Tool: "Bash", Arg: "go test -race -count=20 ./internal/auth/...", Done: true, At: ms(5), Out: "ok  example.com/app/internal/auth  4.112s"},
+		{Seq: 4, Kind: flow.EntryTool, Tool: "Grep", Arg: "SetCookie", Done: true, At: ms(31), Out: "login.go:88\nsession.go:41"},
+		{Seq: 5, Kind: flow.EntryTool, Tool: "Read", Arg: "login.go", Path: "internal/auth/login.go", Done: true, At: ms(34)},
+		{Seq: 6, Kind: flow.EntryTool, Tool: "Read", Arg: "session.go", Path: "internal/auth/session.go", Done: true, At: ms(37)},
+	}
+	switch state {
+	case "long-turn":
+		for i, a := range []string{"login_test.go", "cookie.go", "clock.go", "refresh.go", "middleware.go", "store.go"} {
+			es = append(es, flow.Entry{Seq: int64(7 + i), Kind: flow.EntryTool, Tool: "Read", Arg: a, Done: true, At: ms(40 + 9*i)})
+		}
+		es = append(es, flow.Entry{Seq: 13, Kind: flow.EntryAssistant, At: ms(134), Text: "The race is in the refresh path, not the login. `refresh` reads the cookie before `store.Save` has written it back, so the second request sees the old expiry.\n\nNothing to change in `login.go`. Want me to move the save before the write, or lock the session for the whole refresh?"})
+	case "edits", "failed":
+		es = append(es,
+			flow.Entry{Seq: 7, Kind: flow.EntryTool, Tool: "Edit", Arg: "login.go", Path: "internal/auth/login.go", Done: true, At: ms(52), Add: 6, Del: 2},
+			flow.Entry{Seq: 8, Kind: flow.EntryTool, Tool: "Edit", Arg: "login.go", Path: "internal/auth/login.go", Done: true, At: ms(61), Add: 5, Del: 1},
+			flow.Entry{Seq: 9, Kind: flow.EntryTool, Tool: "Edit", Arg: "login_test.go", Path: "internal/auth/login_test.go", Done: true, At: ms(70), Add: 7, Del: 1},
+			flow.Entry{Seq: 10, Kind: flow.EntryTool, Tool: "Bash", Arg: "go test -race ./internal/auth/...", Done: true, Failed: state == "failed", At: ms(81),
+				Out: map[bool]string{true: "--- FAIL: TestLoginRefresh (1.00s)\n    login_test.go:57: expiry 14:02:11, want 14:02:12\nFAIL", false: "ok  example.com/app/internal/auth  3.904s"}[state == "failed"]},
+		)
+		reply := "The race is gone: `Login` now writes the session before it sets the cookie, and the test waits on the write."
+		if state == "failed" {
+			reply = "The race is gone. `TestLoginRefresh` still fails by one second. Pad the expiry by the skew, or move the check to the client?"
+		}
+		es = append(es, flow.Entry{Seq: 11, Kind: flow.EntryAssistant, Text: reply, At: ms(134)})
+	}
+	return es
 }
 
 func demoTab() remote.Tab {
@@ -201,6 +237,17 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 		idleTab()
 		c.data.Entries = c.data.Entries[:6]
 		env.Tab.Reports = demoReports(env.Now)
+	case "long-turn", "edits", "failed", "work-open":
+		env.Tab.State, env.Tab.Label, env.Tab.Detail, env.Tab.Tab = "completed", "Done", "", "Login cookie race"
+		turn := state
+		if state == "work-open" {
+			turn = "failed"
+		}
+		c.reset(phone.Entries{Entries: demoTurn(turn, env.Now.Add(-10*time.Minute)), Model: "claude-opus-5-5"})
+		if state == "work-open" {
+			c.work(2).open = true
+			c.row(10).open = true
+		}
 	case "screen":
 		c.scr.show()
 	case "host":
@@ -220,11 +267,16 @@ var ShotWidth = 412
 // ChatShot draws the chat in state at ShotWidth x 860dp, scale px per dp,
 // and writes it to path as a PNG, with no window.
 func ChatShot(th *theme.Theme, state, path string, scale float32) error {
+	return ChatShotAt(th, state, path, scale, float32(ShotWidth))
+}
+
+// ChatShotAt is ChatShot at width dp across.
+func ChatShotAt(th *theme.Theme, state, path string, scale, width float32) error {
 	if !slices.Contains(DemoStates, state) {
 		return errors.New("no demo state " + state + "; one of " + strings.Join(DemoStates, ", "))
 	}
 	c, env, focus := demoChat(state)
-	size := image.Pt(int(float32(ShotWidth)*scale), int(860*scale))
+	size := image.Pt(int(width*scale), int(860*scale))
 	win, err := headless.NewWindow(size.X, size.Y)
 	if err != nil {
 		return err

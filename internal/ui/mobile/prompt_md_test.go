@@ -58,10 +58,10 @@ func TestUserEntryMarkdown(t *testing.T) {
 	draw("phone-prompt-before.png", func(gtx C) D { return prompt(gtx, th, md, 1) })
 	draw("phone-prompt-after.png", func(gtx C) D { return c.entry(gtx, th, flow.Entry{Seq: 1, Kind: flow.EntryUser, Text: md}) })
 	draw("phone-prompt-plain.png", func(gtx C) D { return c.entry(gtx, th, flow.Entry{Seq: 2, Kind: flow.EntryUser, Text: plain}) })
-	if r := c.rows[1]; r == nil || r.flat || len(r.doc.Blocks()) < 4 {
+	if r := c.entryRows[1]; r == nil || r.flat || len(r.doc.Blocks()) < 4 {
 		t.Fatalf("markdown message drew as typed: %+v", r)
 	}
-	if r := c.rows[2]; r == nil || !r.flat {
+	if r := c.entryRows[2]; r == nil || !r.flat {
 		t.Fatalf("plain message drew as markdown")
 	}
 }

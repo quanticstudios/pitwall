@@ -261,15 +261,30 @@ func phoneEntries(items []session.Item, mdl string) ([]flow.Entry, string) {
 			t := it.Tool
 			e.Kind, e.Text, e.Tool, e.Arg, e.Path = flow.EntryTool, "", t.ToolName, flow.ToolArg(*t), flow.ToolPath(*t)
 			e.Out, e.Done, e.Failed = cutOut(t.Output), t.Status != "running", t.Status == "failed"
+			e.Add, e.Del = flow.ToolStat(*t)
 		default:
 			continue
 		}
 		if it.Model != nil && *it.Model != "" {
 			mdl = *it.Model
 		}
+		e.At = phoneAt(it)
 		es = append(es, e)
 	}
 	return es, mdl
+}
+
+// phoneAt is when item it began, in Unix ms, 0 when unknown.
+func phoneAt(it session.Item) int64 {
+	s := it.CreatedAt
+	if s == "" {
+		s = it.UpdatedAt
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return 0
+	}
+	return t.UnixMilli()
 }
 
 // phoneSink wakes a phone's stream at each push to the chat it shows; the

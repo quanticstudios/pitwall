@@ -82,17 +82,18 @@ func (c *chatView) awayHide(ce chatEnv, a *model.Away) {
 }
 
 // awayEntry is the list row of the first entry the reader missed, -1
-// when it is in history not loaded yet.
+// when it is in history not loaded yet: the row that shows it, or the
+// Worked line its turn's work folds into.
 func (c *chatView) awayEntry(a *model.Away) int {
 	for j, e := range c.data.Entries {
 		if e.Seq >= a.Seq {
 			if j == 0 && e.Seq > a.Seq {
 				return -1
 			}
-			return j + 1
+			return c.rowOf(j) + 1
 		}
 	}
-	return len(c.data.Entries) + 1
+	return len(c.rows) + 1
 }
 
 // awayMark notes, before the log draws, which row the marker sits above.

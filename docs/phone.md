@@ -127,10 +127,15 @@ session. It follows the newest one, so the chat starts over after `/clear`,
 a resume or a fork. The chat shows
 
 - your prompts, on the right;
-- the agent's replies, with paragraphs, lists, code blocks, inline code
-  and links;
-- each tool call as one line, its name and what it ran or read, which
-  opens to the start of its output, and says "failed" when it failed;
+- the agent's last reply of each turn, at reading size, with paragraphs,
+  lists, code blocks, inline code and links;
+- a turn's work on one line above that reply, such as "Worked 2m 14s ·
+  6 tools · 1 failed", or "Working" while the turn runs. Tap it to see
+  each tool call on a line of its own, its name and what it ran or read,
+  and the agent's notes between calls in smaller type. A call opens to
+  the start of its output and says "failed" when it failed;
+- a card under the reply when the turn changed files, such as "Edited 2
+  files +18 −4", with a row per file and its lines added and removed;
 - errors and interrupted turns, in red.
 
 Thinking and the agent's own bookkeeping are left out. New entries arrive
