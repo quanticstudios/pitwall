@@ -426,8 +426,11 @@ its own row, your messages sit on the right as bubbles, the plan and changed
 files sit in a strip under the header, approvals draw as compact cards, and the
 composer floats at the bottom with a quiet status and key-hint line.
 
-`standard` is 960 dp, enough for a 120-column diff. Reply prose stops near 96
-characters at any width. [Configuration](config.md) has the rest.
+`standard` is 960 dp, enough for a 120-column diff. Reply prose reads at 15 sp
+and stops near 72 characters at any width, in both layouts. A report the agent
+writes between calls has a blue bar beside it, so it reads as the agent
+speaking. Short narration between calls, such as "Let me check the tests",
+draws smaller and muted. [Configuration](config.md) has the rest.
 
 The chat is for Claude Code. A chat tab that pitwall drives over an agent's
 own protocol, such as a Codex chat from `pitwall chat new`, draws the same

@@ -291,6 +291,25 @@ func (d *cdraw) reply(gtx layout.Context, i int, running bool, start, end time.T
 	return vstack(gtx, gtx.Dp(gapFoot)-gtx.Dp((hit-20)/2), ws...)
 }
 
+// between draws the agent's words between calls: a report, findings it
+// writes mid-turn, at the reply's reading size with a bar in the agent's
+// color beside it, so it reads as the agent speaking and not as one more
+// work row; short narration ("Let me check the tests") a step down, muted.
+func (d *cdraw) between(gtx layout.Context, it *session.Item) layout.Dimensions {
+	r := d.t.reply(it, false)
+	if !report(it.Text) {
+		d.narration = true
+		defer func() { d.narration = false }()
+		return d.markdown(gtx, it.ID, r)
+	}
+	pad := gtx.Dp(theme.SpaceXS) // a little air off the work rows
+	dims := at(gtx, image.Pt(0, pad), func(gtx layout.Context) layout.Dimensions { return d.markdown(gtx, it.ID, r) })
+	dims.Size.Y += 2 * pad
+	bw, x := gtx.Dp(theme.Space2XS), -gtx.Dp(theme.SpaceS+theme.Space2XS)
+	paint.FillShape(gtx.Ops, theme.Mix(d.th.Bg, d.th.Blue, 0.7), clip.UniformRRect(image.Rect(x, 0, x+bw, dims.Size.Y), bw/2).Op(gtx.Ops))
+	return dims
+}
+
 // inlineMono is inline code's size over its text's: mono 12.5 in 14 sp
 // prose.
 const inlineMono = 12.5 / 14
