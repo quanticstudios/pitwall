@@ -28,6 +28,7 @@ takes `--dry-run`.
 - The Android app has a Screen view for a terminal tab: the terminal button in the chat's header, or Open screen on the "waiting: a menu is open in the agent's terminal" line, shows the tab's screen as text, read again each second while it shows. Keys under it (Esc, Tab, Shift+Tab, Ctrl+C, Enter, the arrows and 1 to 9) press into the tab as `pitwall send-key` does, so a menu pitwall does not know, such as Claude Code's autocompact dialog, can be closed from the phone and the queued messages go in. A guarded tab refuses the keys. `daemon.log` gets a line for each key.
 - While the agent works, the app's send button is Stop when the box is empty. It interrupts the turn as the window's Stop does.
 - The phone app's message box has model, effort and mode dropdowns for Antigravity tabs, and a mode dropdown for Claude Code tabs. A pick goes in the way the desktop's chat sets it.
+- The Android app starts tabs. The + in the sidebar's header opens New tab for the session shown: pick a folder of its tabs or type a path, an agent (Claude Code, Codex, Antigravity, a terminal or a preset), no worktree or a new one with its branch, and an optional first message. Start opens the tab on that machine, as `pitwall new` or `pitwall worktree new` would, and shows its chat. A chat's ⋯ menu closes the tab after a second tap, and restarts a tab whose command exited, resuming its agent's session when pitwall knows it. Each lands in `daemon.log`.
 
 ## v0.3.10
 

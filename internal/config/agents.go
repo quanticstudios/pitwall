@@ -166,6 +166,16 @@ func Efforts(agent string) []string {
 	return nil
 }
 
+// promptFlags are the flags before the prompt of agents that do not take
+// it as their first argument and stay open.
+var promptFlags = map[string][]string{"gemini": {"-i"}, "opencode": {"--prompt"}, "agy": {"-i"}}
+
+// PromptArgs are the arguments that give agent, a program, prompt as its
+// first turn: the flag it needs before it, if any, and prompt.
+func PromptArgs(agent, prompt string) []string {
+	return append(slices.Clone(promptFlags[filepath.Base(agent)]), prompt)
+}
+
 const codexEffort = "model_reasoning_effort="
 
 // SplitArgs reads a preset's args as the model, the effort and the rest,

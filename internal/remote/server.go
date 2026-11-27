@@ -213,6 +213,16 @@ type Server struct {
 	// Icons, when set, serves the repo icons Tab.Icon names.
 	Icons *Icons
 
+	// NewOptions is what the New form offers for the session of a name,
+	// and Start opens the tab a checked NewTab describes, as pitwall new
+	// or pitwall worktree new does. CloseTab closes a tab as the window's
+	// close does, and Restart starts an exited pane's command again, its
+	// agent's session resumed when one is known. Nil serves none of them.
+	NewOptions func(session string) NewOptions
+	Start      func(NewTab) (tab, pane string, err error)
+	CloseTab   func(tab string) error
+	Restart    func(pane string) error
+
 	// Authorize, when set (on the built-in Tailscale listener only),
 	// authenticates requests without a paired-device Bearer token using
 	// the connection's Tailscale identity. code == 0 allows the request
@@ -302,6 +312,16 @@ func (s *Server) Handler() http.Handler {
 		if s.Upload != nil {
 			mux.Handle("POST /api/upload", sameOrigin(s.authed(s.upload)))
 		}
+	}
+	if s.Start != nil {
+		mux.Handle("GET /api/new", sameOrigin(s.authed(s.newOptions)))
+		mux.Handle("POST /api/new", sameOrigin(s.authed(s.startTab)))
+	}
+	if s.CloseTab != nil {
+		mux.Handle("POST /api/close", sameOrigin(s.authed(tabAction("tab", "close", s.CloseTab))))
+	}
+	if s.Restart != nil {
+		mux.Handle("POST /api/restart", sameOrigin(s.authed(tabAction("pane", "restart", s.Restart))))
 	}
 	if s.Icons != nil {
 		mux.Handle("GET /api/icon/{hash}", sameOrigin(s.authed(s.Icons.serve)))

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/remote"
@@ -67,6 +69,11 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 		Screen:      d.screen,
 		Key:         d.key,
 		Stop:        d.stop,
+
+		NewOptions: d.newOptions,
+		Start:      d.start,
+		CloseTab:   d.closeTab,
+		Restart:    d.restart,
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -75,6 +82,57 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 	go http.Serve(ln, s.Handler())
 	code, err = remote.Pair(dir, "demo phone", time.Now())
 	return "http://" + ln.Addr().String() + "/", code, err
+}
+
+// newOptions offers the demo's repos in session, every agent, and a preset.
+func (d *demo) newOptions(session string) remote.NewOptions {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	o := remote.NewOptions{Agents: remote.Agents([]config.AgentPreset{{Name: "Opus, high effort", Agent: "claude"}}, func(string) error { return nil })}
+	for _, t := range d.tabs {
+		if t.Dir != "" && (t.Session == session || session == "") && !slices.ContainsFunc(o.Folders, func(f remote.Folder) bool { return f.Path == t.Dir }) {
+			o.Folders = append(o.Folders, remote.Folder{Path: t.Dir, Name: t.Repo, Git: true})
+		}
+	}
+	return o
+}
+
+// start opens a made-up tab at the top of its session, idle at its prompt.
+func (d *demo) start(n remote.NewTab) (tab, pane string, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.next++
+	id := fmt.Sprintf("new%d", d.next)
+	agent := n.Agent
+	if strings.HasPrefix(agent, "preset:") {
+		agent = "claude"
+	}
+	t := remote.Tab{ID: id, Branch: n.Branch, Dir: n.Dir, Repo: filepath.Base(n.Dir)}
+	t.Pane, t.Tab, t.Session, t.Agent, t.At = "p-"+id, cmp.Or(n.Branch, filepath.Base(n.Dir)), cmp.Or(n.Session, "demo"), agent, time.Now().UnixNano()
+	t.Provider, t.Send, t.Picker = model.Provider(agent), agent != remote.Terminal, agent == "claude"
+	d.tabs = append([]remote.Tab{t}, d.tabs...)
+	d.touch()
+	return t.ID, t.Pane, nil
+}
+
+func (d *demo) closeTab(tab string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tabs = slices.DeleteFunc(d.tabs, func(t remote.Tab) bool { return t.ID == tab })
+	d.touch()
+	return nil
+}
+
+func (d *demo) restart(pane string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	t, err := d.tab(pane)
+	if err != nil || !t.Exited {
+		return errors.New("that pane is still running")
+	}
+	t.Exited, t.ExitCode, t.State, t.Label = false, 0, "", ""
+	d.touch()
+	return nil
 }
 
 func (d *demo) list() []remote.Tab {

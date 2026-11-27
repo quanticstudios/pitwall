@@ -169,10 +169,6 @@ var taskModes = map[string][]taskMode{
 	"codex":  {{"Default", nil}, {"Read only", []string{"-s", "read-only"}}, {"Auto", []string{"-s", "workspace-write", "-a", "on-request"}}},
 }
 
-// promptFlags are the flags before the prompt of agents that do not take
-// it as their first argument and stay open.
-var promptFlags = map[string][]string{"gemini": {"-i"}, "opencode": {"--prompt"}, "agy": {"-i"}}
-
 // taskCmd is the argv that starts agent, the program at path, with args
 // in mode on prompt.
 func taskCmd(path, agent string, args []string, mode int, prompt string) []string {
@@ -180,7 +176,7 @@ func taskCmd(path, agent string, args []string, mode int, prompt string) []strin
 	if ms := taskModes[agent]; mode > 0 && mode < len(ms) {
 		cmd = append(cmd, ms[mode].args...)
 	}
-	return append(append(cmd, promptFlags[agent]...), prompt)
+	return append(cmd, config.PromptArgs(agent, prompt)...)
 }
 
 // taskProjects lists the folders of session's groups and tabs, in sidebar

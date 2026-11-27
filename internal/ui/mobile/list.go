@@ -28,7 +28,7 @@ import (
 // listView is the start screen: the header, what waits on you in every
 // session, and the sidebar's tree of one session.
 type listView struct {
-	sessions, settings, retry widget.Clickable
+	sessions, settings, retry, newTab widget.Clickable
 	// menu is the open menu: "sessions", "" for none.
 	menu      string
 	scrim     widget.Clickable
@@ -71,6 +71,10 @@ func (a *App) listLayout(gtx C) {
 	if l.settings.Clicked(gtx) {
 		a.machines, l.menu = true, ""
 		a.mach = machinesView{}
+	}
+	if l.newTab.Clicked(gtx) {
+		l.menu = ""
+		a.openNew()
 	}
 	shown := a.shown()
 	if l.retry.Clicked(gtx) && shown != nil {
@@ -192,6 +196,12 @@ func (a *App) listHeader(gtx C) D {
 	}, func(gtx C) D {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(a.hostTag),
+			layout.Rigid(func(gtx C) D {
+				if len(a.newLinks()) == 0 {
+					return D{}
+				}
+				return iconButton(gtx, th, &a.list.newTab, icon("plus"))
+			}),
 			layout.Rigid(func(gtx C) D { return iconButton(gtx, th, &a.list.settings, icon("settings")) }),
 		)
 	})

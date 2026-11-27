@@ -202,6 +202,10 @@ func (d *Daemon) remoteServer() *remote.Server {
 		SendImage:   d.phoneSendImage,
 		Icons:       &d.phoneIcons,
 		Folder:      d.phoneFolder,
+		NewOptions:  d.phoneNewOptions,
+		Start:       d.phoneStart,
+		CloseTab:    d.phoneCloseTab,
+		Restart:     d.phoneRestart,
 	}
 }
 

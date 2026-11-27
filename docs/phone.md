@@ -370,6 +370,7 @@ machines is under each.
 | Sidebar                  | closes the app                               |
 | A menu                   | closes the menu                              |
 | Machines, or Add machine | returns to the sidebar                       |
+| New tab                  | closes its list, then returns to the sidebar |
 | Chat, keyboard up        | hides the keyboard                           |
 | Screen view              | returns to the chat                          |
 | Chat                     | returns to the sidebar                       |
@@ -395,6 +396,31 @@ the menu closes, the messages go in. A guarded tab refuses the keys.
 While the agent works and the box is empty, the send button is Stop, a
 square. It interrupts the turn as the window's Stop does. For an agent in a
 terminal that is Esc, and the queue waits until you send again.
+
+### Start, close and restart tabs
+
+The + in the sidebar's header opens New tab for the session shown. When
+the session is on several machines, Machine picks the one to start on.
+
+- **Folder** lists the folders of the session's tabs, its groups and the
+  tabs closed since, or Type a path, such as `~/src/shop`. The folder must
+  exist on that machine.
+- **Agent** lists Claude Code, Codex and Antigravity when they are on the
+  machine's PATH, Terminal, then your `[[agents.preset]]` entries.
+- **Worktree** is None, or New worktree with a branch name. It shows for a
+  repo or a typed path.
+- **First message** is optional and goes to the agent as its first turn. A
+  terminal takes none, and a message cannot start with a dash.
+
+Start opens the tab as `pitwall new` does, or `pitwall worktree new` for a
+new worktree, with the same checks and the guard a preset asks for, and
+shows its chat. A worktree tab with a terminal gets a shell.
+
+A chat's ⋯ menu has Close tab, which asks for a second tap and ends what
+runs in the tab, and Restart for a tab whose command exited. Restart runs
+the command again in its folder, or resumes its agent's session when
+pitwall knows it, as a restart of pitwall would. A daemon older than the
+app shows neither the + nor the menu.
 
 `go run ./cmd/pitwall-phone` runs the app in a desktop window, and
 `-demo 1` pairs it with a server of made-up tabs in the same process, and
@@ -505,7 +531,9 @@ other one first, which forgets its pairings.
 answer, message and model or effort pick, with the device's name: "allow
 sent to pane …", "message of 42 bytes queued for pane …", "/model sonnet
 sent to pane …", "key esc sent to pane …", "stop sent to pane …", and for each file the app reads, its size and tab, never
-its path, nor what a message, a reply, a reason or an answer said.
+its path, nor what a message, a reply, a reason or an answer said. A tab the
+app opens logs its agent, folder and id, and whether it is a new worktree,
+never its first message; a close or a restart logs the tab or pane.
 
 The page loads only its own script and stylesheet, and puts agent text on
 screen as text: a reply's markdown becomes paragraphs, lists and code, and

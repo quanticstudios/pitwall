@@ -48,6 +48,8 @@ type chatAPI interface {
 	Screen(ctx context.Context, pane string) (string, error)
 	Key(ctx context.Context, pane, key string) error
 	Stop(ctx context.Context, pane string) error
+	CloseTab(ctx context.Context, tab string) error
+	Restart(ctx context.Context, pane string) error
 }
 
 // chatEnv is what the chat screen reads from the app each frame.
@@ -59,6 +61,9 @@ type chatEnv struct {
 	Retry   func() // reconnects now; nil hides Retry
 	Models  []string
 	Efforts []string
+	// CanClose and CanRestart are the machine closing a tab and restarting
+	// an exited one, for the header's menu.
+	CanClose, CanRestart bool
 	// Host is the machine the tab runs on, "" for the paired computer
 	// itself; Hosts are the machines, for the tag's color and up state.
 	Host  string
@@ -102,6 +107,7 @@ type chatView struct {
 	card                   cardState
 	cmp                    composer
 	slashes                slashMenu
+	menu                   tabMenu
 }
 
 // entryRow is an entry's widgets, kept across frames by seq.
@@ -160,6 +166,8 @@ func (c *chatView) handleBack(gtx C) bool {
 	switch {
 	case c.scr.open:
 		c.scr.open = false
+	case c.menu.open:
+		c.menu.open, c.menu.armed = false, false
 	case c.cmp.menu != "":
 		c.cmp.menu = ""
 	case len(c.slashes.Rows()) > 0:
@@ -184,7 +192,7 @@ func (c *chatView) row(seq int64) *entryRow {
 
 // layout draws the chat and reports whether its Back button was pressed.
 func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
-	if c.backBtn.Clicked(gtx) {
+	if c.backBtn.Clicked(gtx) || c.menu.gone {
 		return true
 	}
 	if c.screenBtn.Clicked(gtx) {
@@ -194,6 +202,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 		c.screenLayout(gtx, th, env)
 		return false
 	}
+	c.menu.toggle(gtx)
 	if c.retry.Clicked(gtx) && env.Retry != nil {
 		env.Retry()
 	}
@@ -246,6 +255,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	)
 	c.menus(gtx, th, env, top)
 	c.slash(gtx, th, env, top)
+	c.tabMenuLayout(gtx, th, env)
 	if l := c.tapped; l != "" {
 		c.tapped = ""
 		c.follow(gtx, env, l)
@@ -320,6 +330,7 @@ func (c *chatView) header(gtx C, th *theme.Theme, env chatEnv) D {
 				}
 				return roundButton(gtx, th, &c.screenBtn, "terminal", 22, th.Fg)
 			}),
+			layout.Rigid(func(gtx C) D { return c.tabMenuButton(gtx, th, env) }),
 		)
 	})
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, d.Size.Y-1), Max: d.Size}.Op())
