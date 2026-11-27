@@ -78,6 +78,7 @@ type App struct {
 	cam   camFeed
 	list  listView
 	mach  machinesView
+	form  newForm // the New tab screen, while form.on
 	chat  chatView
 	chatM string // the machine the open chat's tab is on
 	chatN int    // counts chats opened and closed, so a late keyboard picture finds its composer
@@ -299,6 +300,9 @@ func (a *App) removeMachine(id, why string) {
 	if a.reader.machine == id {
 		a.closeReader()
 	}
+	if a.form.machine == id {
+		a.form = newForm{}
+	}
 	a.setMachines(ms)
 	if len(ms) == 0 {
 		a.pair.note = sentence(why)
@@ -494,7 +498,8 @@ func (a *App) chatLayout(gtx C) {
 	gtx.Metric.PxPerSp /= zoom
 	t, open := a.tab()
 	l := a.links[a.chatM]
-	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts, Attach: l.hello.Upload && t.Attach && canPickImage,
+	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts,
+		CanClose: l.hello.Close, CanRestart: l.hello.Restart, Attach: l.hello.Upload && t.Attach && canPickImage,
 		PickImage: func(clip bool, done func([]byte, error)) {
 			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
 		},
@@ -519,8 +524,8 @@ func (a *App) chatLayout(gtx C) {
 
 // screen names what the window shows, so a frame can tell it changed.
 type screen struct {
-	pairing, machines, manual, scanning, terminal bool
-	untrusted, chat, menu, reader                 string
+	pairing, machines, manual, scanning, terminal, form bool
+	untrusted, chat, menu, reader                       string
 }
 
 func (a *App) screen() screen {
@@ -528,7 +533,7 @@ func (a *App) screen() screen {
 	if a.reader.v != nil {
 		reader = a.reader.v.Path()
 	}
-	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.chat.scr.open, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
+	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.chat.scr.open, a.form.on, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
 }
 
 // layoutFrame paints the background and lays the app out zoomed. It
@@ -548,6 +553,9 @@ func (a *App) layout(gtx C) {
 		return
 	case a.machines:
 		a.machinesLayout(gtx)
+		return
+	case a.form.on:
+		a.newLayout(gtx)
 		return
 	case a.reader.v != nil:
 		a.readerLayout(gtx)

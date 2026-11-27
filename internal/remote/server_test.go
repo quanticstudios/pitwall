@@ -36,6 +36,10 @@ func TestSameOriginAllEndpoints(t *testing.T) {
 	s.WS = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ws") })
 	s.Approve = func(string, string, string, string) error { return nil }
 	s.AnswerInput = func(string, string, map[string][]string) error { return nil }
+	s.NewOptions = func(string) NewOptions { return NewOptions{} }
+	s.Start = func(NewTab) (string, string, error) { return "", "", nil }
+	s.CloseTab = func(string) error { return nil }
+	s.Restart = func(string) error { return nil }
 	h := s.Handler()
 	token := pairDevice(t, s, h, "phone")
 
@@ -64,6 +68,10 @@ func TestSameOriginAllEndpoints(t *testing.T) {
 		{"POST", "/api/reply", `{"pane":"p1","at":"0","text":"hi"}`, false},
 		{"POST", "/api/approve", `{"chat":"c","request":"r","decision":"allow"}`, false},
 		{"POST", "/api/input", `{"chat":"c","request":"r","answers":{}}`, false},
+		{"GET", "/api/new", "", false},
+		{"POST", "/api/new", `{"dir":"/","agent":"terminal"}`, false},
+		{"POST", "/api/close", `{"tab":"w"}`, false},
+		{"POST", "/api/restart", `{"pane":"p"}`, false},
 	}
 	for _, rt := range routes {
 		r := httptest.NewRequest(rt.method, rt.path, strings.NewReader(rt.body))

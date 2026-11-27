@@ -291,6 +291,11 @@ type Hello struct {
 	Efforts []string `json:"efforts"`
 	Upload  bool     `json:"upload"`
 	Files   bool     `json:"files"`
+	// Start, Close and Restart are the new-tab form, closing a tab and
+	// restarting an exited one; an older daemon serves none.
+	Start   bool `json:"start"`
+	Close   bool `json:"close"`
+	Restart bool `json:"restart"`
 	// Latency is how long the stream's request took to get its answer's
 	// first byte over an open connection: a round trip and the server's
 	// check of the token.
@@ -437,6 +442,30 @@ func (c *Client) SendImage(ctx context.Context, pane, text, image string) (uint6
 	}
 	err := c.call(ctx, "POST", "api/send", map[string]string{"pane": pane, "text": text, "image": image}, &out)
 	return out.ID, err
+}
+
+// NewOptions is what the machine's New form offers for session, by name.
+func (c *Client) NewOptions(ctx context.Context, session string) (remote.NewOptions, error) {
+	var out remote.NewOptions
+	err := c.call(ctx, "GET", "api/new?session="+url.QueryEscape(session), nil, &out)
+	return out, err
+}
+
+// NewTab opens the tab t describes and returns its id and its pane's.
+func (c *Client) NewTab(ctx context.Context, t remote.NewTab) (tab, pane string, err error) {
+	var out struct{ Tab, Pane string }
+	err = c.call(ctx, "POST", "api/new", t, &out)
+	return out.Tab, out.Pane, err
+}
+
+// CloseTab closes tab, with whatever runs in it.
+func (c *Client) CloseTab(ctx context.Context, tab string) error {
+	return c.call(ctx, "POST", "api/close", map[string]string{"tab": tab}, nil)
+}
+
+// Restart starts exited pane's command again.
+func (c *Client) Restart(ctx context.Context, pane string) error {
+	return c.call(ctx, "POST", "api/restart", map[string]string{"pane": pane}, nil)
 }
 
 // OpenDesktop focuses pane in an existing desktop window.

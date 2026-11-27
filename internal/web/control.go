@@ -989,6 +989,30 @@ func (s *Server) newTab(ctx context.Context, st model.State, dir, name, session,
 	return s.startResult(ctx, s.Control.State(), startID, detached)
 }
 
+// StartTab opens a tab in dir of session as the control command newTab
+// does, running preset's agent or cmd, a shell for neither, and returns
+// its id and its main pane's.
+func StartTab(ctx context.Context, c Control, dir, session, preset string, cmd []string) (tab, pane string, err error) {
+	data, err := (&Server{Control: c}).newTab(ctx, c.State(), dir, "", session, preset, "", "", "", cmd, false, false)
+	tab, pane = startIDs(data)
+	return tab, pane, err
+}
+
+// StartWorktree opens a tab in a new worktree name of the repo at repo, as
+// the control command worktreeNew does; note is a setup problem of a tab
+// that opened.
+func StartWorktree(ctx context.Context, c Control, repo, name, session, preset string, cmd []string) (tab, pane, note string, err error) {
+	data, note, err := (&Server{Control: c}).worktreeNew(ctx, c.State(), repo, name, session, "", preset, "", cmd, false, "", "", 0)
+	tab, pane = startIDs(data)
+	return tab, pane, note, err
+}
+
+func startIDs(data map[string]any) (tab, pane string) {
+	tab, _ = data["tab"].(string)
+	pane, _ = data["pane"].(string)
+	return tab, pane
+}
+
 func (s *Server) startResult(ctx context.Context, st model.State, startID string, detached bool) (map[string]any, error) {
 	w := st.Workspace(startID)
 	if w == nil {

@@ -46,6 +46,8 @@ func (demoAPI) Command(ctx context.Context, pane, what, value string) error {
 	return nil
 }
 func (demoAPI) Answer(ctx context.Context, pane string, at int64, allow bool) error { return nil }
+func (demoAPI) CloseTab(ctx context.Context, tab string) error                      { return nil }
+func (demoAPI) Restart(ctx context.Context, pane string) error                      { return nil }
 func (demoAPI) Approve(ctx context.Context, chat, request, decision, reason string) error {
 	return nil
 }
