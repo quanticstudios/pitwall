@@ -26,6 +26,16 @@ conversation.
 Each pane of a split decides for itself. When claude exits, the pane shows
 the shell again.
 
+### The live screen inset
+
+While the agent works, a small card just above the composer, at the right
+edge of the chat column, shows the last lines of its terminal screen, above
+its input box. It is labelled with the agent's name and "live", and it reads
+the screen four times a second. Open switches the pane to the terminal, as
+Alt+T does. × closes it for that chat until you close the window. It hides
+when the turn ends, takes no keys, and lets the scroll wheel through to the
+chat. A chat tab whose agent runs without a terminal has no inset.
+
 ## Alt+T: the chat or the TUI
 
 Alt+T (Cmd+Option+T in the mac preset) flips the focused pane between the
