@@ -524,7 +524,11 @@ func (a *App) chatLayout(gtx C) {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 	}
 	if a.chat.layout(gtx, a.th, env) {
+		lost := a.chat.lost
 		a.closeChat()
+		if lost != "" {
+			a.list.note, a.list.notePane, a.list.noteUntil = lost, "", gtx.Now.Add(6*time.Second)
+		}
 	}
 }
 

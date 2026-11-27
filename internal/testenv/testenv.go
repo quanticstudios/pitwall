@@ -15,8 +15,8 @@ import (
 )
 
 // Main runs m with HOME (on Unix), XDG_STATE_HOME, XDG_CONFIG_HOME,
-// XDG_RUNTIME_DIR and PITWALL_OMARCHY_DIR in a new temporary directory and
-// PITWALL_SOCKET and PITWALL_PANE cleared, so no test logs, saves, dials or
+// XDG_RUNTIME_DIR and PITWALL_OMARCHY_DIR in a new temporary directory,
+// PITWALL_TEST_OFFLINE set and PITWALL_SOCKET and PITWALL_PANE cleared, so no test logs, saves, dials or
 // reads the desktop's theme outside it, then exits with m's code. GOCACHE,
 // GOMODCACHE and GOPATH keep their real values, so a go build inside a test
 // still hits the cache. A test can still point them elsewhere with t.Setenv.
@@ -44,6 +44,8 @@ func Main(m *testing.M, setup ...func()) {
 		"PITWALL_PROFILE":   "",
 		"CLAUDE_CONFIG_DIR": "",
 		"CODEX_HOME":        "",
+		// No test fetches from the network, as the screen patterns' daily check would.
+		"PITWALL_TEST_OFFLINE": "1",
 		// No Omarchy theme: a missing folder, so the defaults stay aide's.
 		"PITWALL_OMARCHY_DIR": filepath.Join(dir, "omarchy"),
 	}

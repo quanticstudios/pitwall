@@ -106,7 +106,8 @@ type chatView struct {
 
 	backBtn, newBtn, retry widget.Clickable
 	screenBtn, restartBtn  widget.Clickable
-	restarting             bool // a Restart went; the band says so until the tab runs
+	restarting             bool   // a Restart went; the band says so until the tab runs
+	lost                   string // the Screen view's tab went: the sidebar's note
 	scr                    screenView
 	card                   cardState
 	cmp                    composer
@@ -201,6 +202,10 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	}
 	if c.screenBtn.Clicked(gtx) && env.CanScreen {
 		c.scr.show()
+	}
+	if c.scr.lost(env) {
+		c.lost = c.scr.lostNote()
+		return true
 	}
 	if c.scr.open {
 		c.screenLayout(gtx, th, env)

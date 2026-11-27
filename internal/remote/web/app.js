@@ -90,7 +90,8 @@ function unpaired(msg) {
   go.style.flex = 'none';
   form.append(input, go);
   form.onsubmit = (e) => { e.preventDefault(); pair(input.value); };
-  box.append(el('p', '', msg || 'This phone is not paired.'), how, form);
+  msg = msg ? msg[0].toUpperCase() + msg.slice(1) : 'This phone is not paired.';
+  box.append(el('p', '', msg), how, form);
   list.replaceChildren(box);
   document.title = 'pitwall';
 }
@@ -102,6 +103,8 @@ async function pair(code) {
     if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
     saveToken((await r.json()).token);
   } catch (e) {
+    // why: a pairing link opened again must not drop the token it already gave; a dead one still gets 401 below
+    if (token) { connect(); return; }
     unpaired(e.message);
     return;
   }
@@ -204,7 +207,7 @@ function event(block) {
       tabs = v || [];
       renderList();
       if (pane) renderChatState();
-      if (!screenV.hidden) $('stitle').textContent = (tabOf(pane) || {}).tab || 'Tab';
+      if (!screenV.hidden) screenTab();
       break;
     case 'reset':
       reset(v);
@@ -288,6 +291,7 @@ function openChat(p, push) {
   screenV.hidden = true;
   chat.hidden = false;
   restarting = '';
+  stopErr = '';
   shown.clear();
   entriesEl.replaceChildren();
   pend.replaceChildren();
@@ -516,7 +520,7 @@ function renderChatState() {
   $('ctitle').textContent = t ? t.tab : 'Tab';
   const meta = $('cmeta');
   meta.replaceChildren();
-  if (t) meta.append(pillOf(t), [agentName(t.agent), prettyModel(model)].filter(Boolean).join(' · '));
+  if (t) meta.append(pillOf(t), [agentName(t.agent), t.picker ? '' : prettyModel(model)].filter(Boolean).join(' · '));
   pick.hidden = !(t && t.picker);
   pick.textContent = prettyModel(model) || 'Model';
   $('scrbtn').hidden = !(t && !t.chat && hello.screen);
@@ -537,6 +541,10 @@ function renderChatState() {
   $('stop').hidden = !(t && t.send && t.state === 'working' && hello.stop);
   $("attach").hidden = !(t && t.attach && hello.upload);
   cnote.hidden = !!(t && t.send);
+  if (t && t.send && stopErr) {
+    if (t.state === 'working') { cnote.hidden = false; cnote.textContent = 'Stop: ' + stopErr; }
+    else stopErr = ''; // the turn ended
+  }
   if (!t) cnote.textContent = 'This tab is not open now.';
   else if (t.exited && hello.restart) exitedBand(t);
   else if (!t.send) cnote.textContent = t.exited ? t.label + '. Open on desktop to restart the agent.' : 'This tab runs no agent, so it takes no messages from here.';
@@ -575,6 +583,8 @@ function prettyModel(m) {
 
 // restarting is the pane whose Restart is on its way; restartErr why the last failed.
 let restarting = '', restartErr = '';
+// stopErr is why the last Stop failed; it shows until the next Stop or the turn's end.
+let stopErr = '';
 
 // exitedBand is the exited tab's line with Restart, as the menu's.
 function exitedBand(t) {
@@ -1392,9 +1402,10 @@ text.addEventListener('paste', (e) => {
 $('stop').onclick = () => {
   const b = $('stop'), p = pane;
   b.disabled = true;
-  cnote.hidden = true;
+  stopErr = '';
+  renderChatState();
   api('/api/stop', { pane: p })
-    .catch((e) => { if (e.message !== 'unpaired' && p === pane) { cnote.hidden = false; cnote.textContent = 'Stop: ' + e.message; } })
+    .catch((e) => { if (e.message !== 'unpaired' && p === pane) { stopErr = e.message; renderChatState(); } })
     .finally(() => { b.disabled = false; });
 };
 
@@ -1448,7 +1459,35 @@ const screenKeys = [
   [['left', '←'], ['up', '↑'], ['down', '↓'], ['right', '→']],
   [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [String(n), String(n)]),
 ];
-let screenTimer = 0, screenRead = 0;
+let screenTimer = 0, screenRead = 0, screenName = '';
+
+// screenTab keeps the view's title, and leaves for the list with a note
+// once its tab is gone from the list: it closed, or its pane went away.
+function screenTab() {
+  const t = tabOf(pane);
+  if (t) {
+    screenName = t.tab || 'Tab';
+    $('stitle').textContent = screenName;
+    return true;
+  }
+  clearTimeout(screenTimer);
+  screenRead++;
+  history.replaceState(null, '', location.pathname);
+  showList();
+  connect();
+  listNote((screenName || 'The tab') + ' closed.');
+  return false;
+}
+
+// listNote shows msg over the list for a few seconds.
+let listNoteTimer = 0;
+function listNote(msg) {
+  const n = $('lnote');
+  n.textContent = msg;
+  n.hidden = false;
+  clearTimeout(listNoteTimer);
+  listNoteTimer = setTimeout(() => { n.hidden = true; }, 6000);
+}
 
 $('keys').replaceChildren(...screenKeys.map((row) => {
   const r = el('div', 'krow');
@@ -1468,7 +1507,8 @@ function showScreen(push) {
   closeTabSheet();
   chat.hidden = true;
   screenV.hidden = false;
-  $('stitle').textContent = (tabOf(pane) || {}).tab || 'Tab';
+  screenName = '';
+  if (!screenTab()) return;
   $('stext').textContent = 'Reading the screen';
   $('snote').hidden = true;
   $('keys').hidden = !hello.key;
@@ -1495,7 +1535,7 @@ function screenNote(msg) {
 // background gets none.
 function readScreen() {
   clearTimeout(screenTimer);
-  if (screenV.hidden || !pane) return;
+  if (screenV.hidden || !pane || !screenTab()) return;
   const p = pane, n = ++screenRead;
   api('/api/screen?pane=' + encodeURIComponent(p)).then((r) => {
     if (n !== screenRead || p !== pane) return;
