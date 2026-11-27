@@ -38,6 +38,8 @@ type listView struct {
 	notePane  string
 	noteAt    int64
 	noteUntil time.Time
+	// restarting are the tabs whose Restart is on its way, by State id.
+	restarting map[string]bool
 	// waitFold opens and closes Waiting on you; waitOpen is whether it
 	// lists every tab or only a summary row.
 	waitFold widget.Clickable
@@ -129,6 +131,8 @@ func (a *App) listLayout(gtx C) {
 					a.openChat(ev.WorkspaceID)
 				case sidebar.Answer:
 					a.answerRow(ev)
+				case sidebar.Restart:
+					a.restartRow(ev.WorkspaceID)
 				}
 			}
 			return D{Size: gtx.Constraints.Max}
@@ -153,6 +157,39 @@ func (a *App) shown() *link {
 		return nil
 	}
 	return ls[0]
+}
+
+// restartable reports whether tab id's row offers Restart: it exited, its
+// machine is online and restarts tabs, and no Restart of it is on its way.
+func (a *App) restartable(id string) bool {
+	m, t, ok := a.fleet.Tab(id)
+	if !ok || !t.Exited {
+		delete(a.list.restarting, id)
+		return false
+	}
+	l := a.links[m.ID]
+	return l != nil && l.online && l.hello.Restart && !a.list.restarting[id]
+}
+
+// restartRow starts exited tab id's command again; its Restart leaves the
+// row until the list shows it running, or the note says why it failed.
+func (a *App) restartRow(id string) {
+	m, t, ok := a.fleet.Tab(id)
+	if !ok {
+		return
+	}
+	if a.list.restarting == nil {
+		a.list.restarting = map[string]bool{}
+	}
+	a.list.restarting[id], a.list.note = true, ""
+	a.do(m.ID, func(ctx context.Context, c *phone.Client) error { return c.Restart(ctx, t.Pane) }, func(err error) {
+		if err != nil {
+			delete(a.list.restarting, id)
+			a.list.note = sentence(err.Error())
+			a.list.notePane, a.list.noteAt = id, t.At
+			a.list.noteUntil = time.Now().Add(6 * time.Second)
+		}
+	})
 }
 
 // answerRow presses Allow or Deny for a row's permission prompt.

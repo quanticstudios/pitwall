@@ -156,7 +156,7 @@ func (c *chatView) screenLayout(gtx C, th *theme.Theme, env chatEnv) {
 		return
 	}
 	for i := range screenKeys {
-		if s.keys[i].Clicked(gtx) && env.Online {
+		if s.keys[i].Clicked(gtx) && env.Online && env.CanKey {
 			c.pressKey(env, screenKeys[i].name)
 		}
 	}
@@ -188,7 +188,12 @@ func (c *chatView) screenLayout(gtx C, th *theme.Theme, env chatEnv) {
 				)
 			})
 		}),
-		layout.Rigid(func(gtx C) D { return s.keyBar(gtx, th, env.Online) }),
+		layout.Rigid(func(gtx C) D {
+			if !env.CanKey {
+				return D{}
+			}
+			return s.keyBar(gtx, th, env.Online)
+		}),
 	)
 }
 

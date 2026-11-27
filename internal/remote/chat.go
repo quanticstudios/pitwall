@@ -281,7 +281,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 		return true
 	}
 	if !send("hello", map[string]any{"device": d.Name, "version": s.Version, "web": s.Web != nil, "models": Models, "efforts": Efforts, "upload": s.Upload != nil, "files": s.Folder != nil,
-		"start": s.Start != nil, "close": s.CloseTab != nil, "restart": s.Restart != nil}) {
+		"start": s.Start != nil, "close": s.CloseTab != nil, "restart": s.Restart != nil,
+		"screen": s.Screen != nil, "key": s.Key != nil, "stop": s.Stop != nil}) {
 		return
 	}
 	log.Printf("remote: %q opened the stream", d.Name)

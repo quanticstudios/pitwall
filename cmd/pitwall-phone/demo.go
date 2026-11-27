@@ -131,6 +131,7 @@ func (d *demo) restart(pane string) error {
 		return errors.New("that pane is still running")
 	}
 	t.Exited, t.ExitCode, t.State, t.Label = false, 0, "", ""
+	t.Send, t.Picker = t.Agent != remote.Terminal, t.Agent == "claude"
 	d.touch()
 	return nil
 }
@@ -371,6 +372,9 @@ func (d *demo) fill(variant int) error {
 	tidy.Hold, tidy.HoldMenu = "claude: a menu is open in the agent's terminal", true
 	site := tab("site", "demo", "", "Port the docs site", "claude", "parked", "Parked", "docs/site", ago(60))
 	logs := tab("logs", "demo", "", "server logs", "terminal", "", "", "main", ago(180))
+	nightly := tab("nightly", "demo", "", "Run the nightly build", "claude", "exited", "Exited 1", "ci/nightly", ago(30))
+	nightly.Exited, nightly.ExitCode, nightly.Send, nightly.Picker = true, 1, false, false
+	nightly = in(nightly, "shop")
 	certs := tab("certs", "infra", "", "Rotate the certs", "claude", "error", "Error", "ops/certs", ago(4))
 	certs.Detail = "x509: certificate has expired"
 	search := tab("search", "demo", "", "Speed up the search index", "antigravity", "completed", "Done", "perf/search", ago(6))
@@ -379,7 +383,7 @@ func (d *demo) fill(variant int) error {
 	search.Mode, search.Model, search.Effort = "auto", "Gemini 4 Neon", "high"
 	search = in(search, "shop")
 	rate, pr, fix, doc, site, certs, tidy = in(rate, "api"), in(pr, "api"), in(fix, "shop"), in(doc, "docs"), in(site, "docs"), in(certs, "infra"), in(tidy, "shop")
-	d.tabs = []remote.Tab{rate, pr, fix, search, tidy, doc, site, logs, certs}
+	d.tabs = []remote.Tab{rate, pr, fix, search, tidy, nightly, doc, site, logs, certs}
 	if variant == 1 {
 		deps := tab("deps", "main", "", "Bump the deps", "codex", "working", "Working", "chore/deps", ago(0))
 		notes := tab("notes", "main", "", "Write the release notes", "claude", "awaiting-input", "Input", "docs/release", ago(3))

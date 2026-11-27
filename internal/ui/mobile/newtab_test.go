@@ -1,6 +1,8 @@
 package mobile
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -83,5 +85,63 @@ func TestTabActions(t *testing.T) {
 	env = chatEnv{Open: true, CanClose: true, CanRestart: true}
 	if r, c := tabActions(env); r || c {
 		t.Errorf("offline: restart %t close %t", r, c)
+	}
+}
+
+// restartAPI counts Restarts and answers err.
+type restartAPI struct {
+	chatAPI
+	n   int
+	err error
+}
+
+func (f *restartAPI) Restart(ctx context.Context, pane string) error { f.n++; return f.err }
+
+// Restart goes once until the list shows the tab running, and its error
+// shows on the exited band.
+func TestRestartTab(t *testing.T) {
+	api := &restartAPI{}
+	var later func()
+	env := chatEnv{Open: true, Online: true, CanRestart: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1"}, Exited: true},
+		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			err := call(context.Background(), api)
+			later = func() { done(err) }
+		}}
+	c := newChat("p1")
+	c.restartTab(env)
+	c.restartTab(env) // a second tap while the first goes
+	later()
+	if api.n != 1 || !c.restarting {
+		t.Fatalf("restarts %d, restarting %t", api.n, c.restarting)
+	}
+	c.restarting, api.err = false, errors.New("that pane is still running")
+	c.restartTab(env)
+	later()
+	if c.restarting || c.cmp.note != "That pane is still running" {
+		t.Fatalf("after an error: restarting %t, note %q", c.restarting, c.cmp.note)
+	}
+}
+
+// A folder's path shows ~ for home and keeps its end when it is cut.
+func TestShortDir(t *testing.T) {
+	for _, tc := range []struct {
+		path, home string
+		n          int
+		want       string
+	}{
+		{"/home/u/Work/pitwall", "/home/u", 40, "~/Work/pitwall"},
+		{"/home/u", "/home/u", 40, "~"},
+		{"/home/user2/x", "/home/u", 40, "/home/user2/x"},
+		{"/home/u/Work/pitwall/.worktrees/phone-polish", "/home/u", 22, "~/Work/…s/phone-polish"},
+		{"/home/u/Work/pitwall/.worktrees/phone-new", "/home/u", 22, "~/Work/…rees/phone-new"},
+		{`C:\Users\u\src\app`, `C:\Users\u`, 40, `~\src\app`},
+		{"/srv/a", "", 3, "/srv/a"},
+	} {
+		if got := shortDir(tc.path, tc.home, tc.n); got != tc.want {
+			t.Errorf("shortDir(%q, %q, %d) = %q, want %q", tc.path, tc.home, tc.n, got, tc.want)
+		}
+		if got := []rune(shortDir(tc.path, tc.home, tc.n)); tc.n >= 8 && len(got) > tc.n {
+			t.Errorf("shortDir(%q) is %d runes, over %d", tc.path, len(got), tc.n)
+		}
 	}
 }

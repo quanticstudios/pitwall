@@ -116,7 +116,7 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	c.row(3).open = true
 	c.cmp.effort = "high"
 	t := demoTab()
-	env := chatEnv{Tab: t, Open: true, Online: true,
+	env := chatEnv{Tab: t, Open: true, Online: true, CanScreen: true, CanKey: true, CanStop: true,
 		Models:  remote.Models,
 		Efforts: remote.Efforts,
 		Now:     time.Unix(1_800_000_000, 0)}

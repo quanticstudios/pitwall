@@ -248,17 +248,51 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 		k.inited = true
 		k.ed.LineHeight, k.ed.LineHeightScale = 23, 1
 	}
+	if !t.Exited {
+		c.restarting = false
+	}
 	if !env.Open || !t.Send {
 		msg := "This tab is not open now."
-		if env.Open && t.Exited {
+		restart := env.Open && t.Exited && env.CanRestart && env.Online
+		switch {
+		case env.Open && t.Exited && env.CanRestart:
+			msg = t.Label + "."
+		case env.Open && t.Exited:
 			msg = t.Label + ". Open on desktop to restart the agent."
-		} else if env.Open {
+		case env.Open:
 			msg = "This tab runs no agent, so it takes no messages from here."
 		}
+		if restart && c.restartBtn.Clicked(gtx) {
+			c.restartTab(env)
+		}
 		return c.cmpFrame(gtx, th, func(gtx C) D {
-			return layout.Inset{Left: 6, Right: 6, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D {
-				return label(gtx, th, th.UIFont, 15, th.Muted, 0, msg)
-			})
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx C) D {
+					return layout.Inset{Left: 6, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D {
+						return midFlex(gtx,
+							layout.Flexed(1, func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Muted, 0, msg) }),
+							layout.Rigid(func(gtx C) D {
+								if !restart {
+									return D{}
+								}
+								text := "Restart"
+								if c.restarting {
+									text = "Restarting…"
+								}
+								return linkButton(gtx, th, &c.restartBtn, text)
+							}),
+						)
+					})
+				}),
+				layout.Rigid(func(gtx C) D {
+					if k.note == "" || !env.Open {
+						return D{}
+					}
+					return layout.Inset{Left: 6, Right: 6, Bottom: 4}.Layout(gtx, func(gtx C) D {
+						return label(gtx, th, th.UIFont, 13.5, th.Readable(th.Red, th.Bg), 2, k.note)
+					})
+				}),
+			)
 		})
 	}
 	c.slashes.Events(gtx, &k.ed) // before the field takes its keys, so Enter picks a row
@@ -275,7 +309,10 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	if k.attachment != nil {
 		draft += "image"
 	}
-	st := withStop(sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t)), t, k.stopping)
+	st := sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t))
+	if env.CanStop {
+		st = withStop(st, t, k.stopping)
+	}
 	c.imageClicks(gtx, env)
 	if k.send.Clicked(gtx) && st == sendStop {
 		c.stopTurn(env)
@@ -332,7 +369,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 					return D{}
 				}
 				var open *widget.Clickable
-				if t.HoldMenu && bold == "waiting:" && !t.Chat {
+				if t.HoldMenu && bold == "waiting:" && !t.Chat && env.CanScreen {
 					open = &k.openScreen
 				}
 				return strip(gtx, th, bold, rest, bad, open)

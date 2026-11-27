@@ -83,6 +83,9 @@ type Sidebar struct {
 	// Answers shows Allow and Deny on a row whose permission prompt they
 	// answer (remote.Answerable): the daemon takes proto.Answer.
 	Answers bool
+	// Restartable, when set, reports whether tab id's row offers Restart:
+	// its command exited and its machine restarts it. A tap is a Restart.
+	Restartable func(id string) bool
 	// Pane is the focused pane of the active tab, whose agent sub-row is
 	// marked.
 	Pane string
@@ -346,6 +349,7 @@ type rowState struct {
 	allow, deny        widget.Clickable // a pending approval's answers
 	plan               widget.Clickable // a plan's Request changes…
 	reply              widget.Clickable // a question's Reply
+	restart            widget.Clickable // an exited tab's Restart
 	choices            choices          // the answers its Buttons name
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	settle             widget.Clickable // the inbox's Settle or Unsettle

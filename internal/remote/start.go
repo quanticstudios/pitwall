@@ -37,6 +37,9 @@ type Folder struct {
 type NewOptions struct {
 	Agents  []Agent  `json:"agents"`
 	Folders []Folder `json:"folders"`
+	// Home is the machine's home folder, which the phone shows as ~;
+	// GET /api/new fills it in.
+	Home string `json:"home,omitempty"`
 }
 
 // NewTab is POST /api/new: a tab in Dir of the session named Session,
@@ -175,7 +178,9 @@ func (r *NewTab) check(a Agent, home string) error {
 
 // newOptions serves GET /api/new: what the form offers for ?session=.
 func (s *Server) newOptions(w http.ResponseWriter, r *http.Request, d Device) {
-	writeJSON200(w, s.NewOptions(r.URL.Query().Get("session")))
+	o := s.NewOptions(r.URL.Query().Get("session"))
+	o.Home, _ = os.UserHomeDir()
+	writeJSON200(w, o)
 }
 
 // startTab serves POST /api/new: it opens the tab a NewTab describes and

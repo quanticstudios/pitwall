@@ -647,6 +647,9 @@ func TestExitedTabState(t *testing.T) {
 	if len(st.Panes) != 1 || !st.Panes[0].Exited || st.Panes[0].ExitCode != 1 {
 		t.Fatalf("panes: %#v", st.Panes)
 	}
+	if len(st.Activities) != 0 { // the sidebar would draw an empty pill for "exited"
+		t.Fatalf("activities: %#v", st.Activities)
+	}
 }
 
 // TestDecodeCommands reads a "commands" event's / menu, an empty one too.
