@@ -492,6 +492,14 @@ While the agent works and the box is empty, the send button is Stop, a
 square. It interrupts the turn as the window's Stop does. For an agent in a
 terminal that is Esc, and the queue waits until you send again.
 
+### Workers
+
+A chat whose tab started workers shows a "Work · N" chip under its title pill,
+where N counts the workers not done yet. An amber dot means one waits on you. Tap
+it to open the Work sheet, which lists the workers grouped Needs you, Blocked,
+Moving and Done, as the desktop's rail does. Tap a worker to open its chat.
+Tap outside the sheet, or Back, to close it.
+
 ### Start, close and restart tabs
 
 The + in the sidebar's header opens New tab for the session shown. When

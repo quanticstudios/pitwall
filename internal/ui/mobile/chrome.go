@@ -52,18 +52,36 @@ func pillState(th *theme.Theme, t remote.Tab, open bool) (string, color.NRGBA) {
 func (c *chatView) titleBar(gtx C, th *theme.Theme, env chatEnv) D {
 	clear := th.Bg
 	clear.A = 0
-	h := gtx.Dp(pillClear) + gtx.Dp(8)
+	h := gtx.Dp(topClear(env)) + gtx.Dp(8)
 	cl := clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, h)}.Push(gtx.Ops)
 	paint.LinearGradientOp{Stop1: layout.FPt(image.Pt(0, h-gtx.Dp(24))), Stop2: layout.FPt(image.Pt(0, h)), Color1: th.Bg, Color2: clear}.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
 	cl.Pop()
-	return layout.Inset{Left: 10, Right: 10, Top: 8}.Layout(gtx, func(gtx C) D {
+	d := layout.Inset{Left: 10, Right: 10, Top: 8}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx C) D { return floatButton(gtx, th, &c.backBtn, icBack) }),
 			layout.Rigid(layout.Spacer{Width: 8}.Layout),
 			layout.Flexed(1, func(gtx C) D { return c.titlePill(gtx, th, env) }),
 		)
 	})
+	if !hasWork(env) {
+		return d
+	}
+	// why: on its own row so the tab's name keeps the pill's width at 360dp
+	o := op.Offset(image.Pt(0, d.Size.Y+gtx.Dp(8))).Push(gtx.Ops)
+	w := layout.Inset{Left: 10}.Layout(gtx, func(gtx C) D { return c.workChip(gtx, th, env) })
+	o.Pop()
+	d.Size.Y += gtx.Dp(8) + w.Size.Y
+	return d
+}
+
+// topClear is the room the floating chrome takes over the log's top: the
+// title pill, and the Work chip's row under it while the tab has workers.
+func topClear(env chatEnv) unit.Dp {
+	if hasWork(env) {
+		return pillClear + 56
+	}
+	return pillClear
 }
 
 // floatButton is a 48dp round floating surface around a lucide icon.

@@ -77,6 +77,7 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 		}
 		tabs[i].Dropped = slices.Clone(d.phoneDropped[t.Pane])
 		tabs[i].Inbox = phoneInbox(d.st.Inbox, t.ID)
+		tabs[i].Workers = d.st.WorkRail(t.ID, nil)
 		if rows, held, reason := d.chatQueued(t.Pane); !t.Chat && len(rows) > 0 {
 			tabs[i].Queue, tabs[i].QueueHold = phoneRows(rows), queueHeld(held, reason)
 		}
