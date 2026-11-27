@@ -89,6 +89,9 @@ type App struct {
 	reader  readerView
 
 	icons map[string]*iconFetch // by machine and hash, for the rows' repo icons
+
+	// triage is the Agents feed, which the list shows while list.feed.
+	triage triageView
 }
 
 // link is one paired machine's stream and how it is going.

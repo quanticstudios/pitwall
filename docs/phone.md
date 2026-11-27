@@ -417,6 +417,22 @@ tabs show as flat rows. The session's name opens the other sessions, by
 machine, with a red count of what waits there; a session on several
 machines is under each.
 
+Two tabs under the header switch the home screen. Tabs is the sidebar
+above. Agents is a feed of every agent on every paired machine, one card
+each, with a red count of the agents that need you. Cards that need you
+come first, the one waiting longest on top, then agents at work, then
+finished ones. They are the same items as Needs you, which the feed hides,
+so a finished agent whose pull request failed CI comes first too. A card names the tab, its machine, how long it has waited,
+and one line: what it wants, its current step or its last result. A
+permission prompt the phone can answer has Deny and Allow on its card. A
+tap on a card opens its chat, where a question waits on its question
+card. Swipe a card that needs you right to allow it, or to open it when it
+is a question, a plan or an error. Swipe it left to answer later: it moves
+under the other cards that need you until the agent asks something new.
+The feed sits one tap from launch, next to the tree, because it answers
+"what needs me" across machines without picking a session, and the tree
+stays the start screen for finding a tab.
+
 | Where you are            | Back                                         |
 | ------------------------ | -------------------------------------------- |
 | Pairing                  | closes the app                               |
