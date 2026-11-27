@@ -46,3 +46,36 @@ func (k *composer) effortShown(current string) string {
 	}
 	return current
 }
+
+// modeShown is the mode chip's mode: a pick settle keeps, else the
+// session's.
+func (k *composer) modeShown(current string) string {
+	if k.mode != "" {
+		return k.mode
+	}
+	return current
+}
+
+// modeShort is the mode chip's word for m, short enough for a phone's
+// toolbar; the menu names it in full.
+func modeShort(m string) string {
+	switch m {
+	case "":
+		return "Mode"
+	case "acceptEdits", "accept-edits":
+		return "Edits"
+	case "bypassPermissions":
+		return "Bypass"
+	}
+	return chatin.ModeName(m)
+}
+
+// chipLists are the models, efforts and modes t's chips offer, nil for a
+// chip it does not show: the tab's own lists, or, from a daemon older than
+// them, the hello's models and efforts for a Claude Code tab.
+func chipLists(t remote.Tab, models, efforts []string) [3][]string {
+	if t.Models == nil && t.Efforts == nil && t.Picker {
+		return [3][]string{models, efforts, t.Modes}
+	}
+	return [3][]string{t.Models, t.Efforts, t.Modes}
+}

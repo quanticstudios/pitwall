@@ -187,8 +187,10 @@ type Server struct {
 	// window's composer lists it; the stream sends it as "commands".
 	ChatMenu func(chat string) []session.Command
 	// Send types text into pane's agent once it sits at its input box,
-	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
-	// keys, refused unless the agent waits at its input box.
+	// queued until then; id names the message in Tab.Dropped. Command sets
+	// pane's model, effort or permission mode from "/model <id>",
+	// "/effort <level>" or "/mode <mode>", a value its Tab offers; the
+	// daemon refuses what its desktop chips would, as a model mid-turn.
 	Send    func(pane, text string) (id uint64, err error)
 	Command func(pane, command string) error
 	// Queue sends pane's chat's queued message id now, or removes it.

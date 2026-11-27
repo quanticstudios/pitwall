@@ -75,8 +75,8 @@ var modes = []string{ModeDefault, ModeAccept, ModePlan}
 // shortcut: a fixed list of agy's models; read them from agy if they change often.
 var (
 	agyModels  = []string{"gemini-4-neon", "gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen", "gemini-3.8-flash", "claude-opus-5-5", "claude-sonnet-5-5"}
-	agyEfforts = []string{"low", "medium", "high", "xhigh"}
-	agyModes   = []string{ModeDefault, "accept-edits", "auto", ModePlan}
+	agyEfforts = remote.AgyEfforts
+	agyModes   = remote.AgyModes
 )
 
 // ModelsOf are the models the model chip offers for provider p's chats.

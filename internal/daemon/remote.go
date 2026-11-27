@@ -191,7 +191,7 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatMenu:    d.phoneChatMenu,
 		Watch:       d.phoneWatch,
 		Send:        d.phoneSend,
-		Command:     d.phoneCommand,
+		Command:     d.phoneSet,
 		Queue:       d.phoneQueue,
 		OpenDesktop: d.phoneOpenDesktop,
 		Question:    d.phoneQuestion,

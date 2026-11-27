@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"image"
@@ -22,13 +23,15 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // composer is the chat's message box: a field that grows to six lines,
-// and a toolbar with the model chip, the effort chip and the send button.
+// and a toolbar with the model, effort and mode chips the tab's agent
+// offers and the send button.
 type composer struct {
 	ed                              widget.Editor
 	attachment                      *attachment
@@ -38,29 +41,29 @@ type composer struct {
 	pasteText                       bool      // Paste found text: read it into the field
 	longPress                       time.Time // the field press that opened Paste
 	field, send                     widget.Clickable
-	modelChip, effChip              widget.Clickable
+	modelChip, effChip, modeChip    widget.Clickable
 	scrim                           widget.Clickable
 	items                           map[string]*widget.Clickable
 	sending                         bool // a send is on its way
 	stopping                        bool // a Stop is on its way
 	openScreen                      widget.Clickable
 	notSent                         string       // why the last message did not go in
-	menu                            string       // "model", "effort" or "paste" while its menu is open
+	menu                            string       // "model", "effort", "mode" or "paste" while its menu is open
 	picks                           []*pick      // picks waiting for the agent to sit idle, one per setting, oldest first
 	picking                         bool         // the first pick is on its way
 	model, modelAt                  string       // the last model picked, and the turn's model then, until settle drops it
 	effort, effortAt                string       // the last effort picked, and the server's effort then, until settle drops it
-	pickedUntil                     [2]time.Time // when settle drops the model and the effort pick
+	mode, modeAt                    string       // the last mode picked, and the server's mode then, until settle drops it
+	pickedUntil                     [3]time.Time // when settle drops the model, the effort and the mode pick
 	note                            string       // a pick that failed
-	chipX                           [2]int       // the chips' left edges, which the menus open above
-	chipW                           [2]int
+	chipW                           [3]int       // the chips' widths, 0 for one not shown, which the menus open above
 	inited                          bool
 }
 
-// pick is a /model or /effort to type once the agent waits at its prompt.
+// pick is a model, effort or mode to set once the agent waits at its prompt.
 type pick struct{ what, value string }
 
-// pending is the waiting pick for what, "model" or "effort", nil for none.
+// pending is the waiting pick for what, "model", "effort" or "mode", nil for none.
 func (k *composer) pending(what string) *pick {
 	if i := slices.IndexFunc(k.picks, func(p *pick) bool { return p.what == what }); i >= 0 {
 		return k.picks[i]
@@ -196,14 +199,17 @@ const pickHold = 5 * time.Second
 // settle drops a pick once the session reports a change, its own or one
 // made on the computer, or once pickHold passes, so the chips then show
 // what the session runs. It returns when the next pick drops by time.
-func (k *composer) settle(turn, effort string, now time.Time) (next time.Time) {
+func (k *composer) settle(turn, effort, mode string, now time.Time) (next time.Time) {
 	if k.model != "" && (turn != k.modelAt || !now.Before(k.pickedUntil[0])) {
 		k.model = ""
 	}
 	if k.effort != "" && (effort != k.effortAt || !now.Before(k.pickedUntil[1])) {
 		k.effort = ""
 	}
-	for i, held := range []bool{k.model != "", k.effort != ""} {
+	if k.mode != "" && (mode != k.modeAt || !now.Before(k.pickedUntil[2])) {
+		k.mode = ""
+	}
+	for i, held := range []bool{k.model != "", k.effort != "", k.mode != ""} {
 		if held && (next.IsZero() || k.pickedUntil[i].Before(next)) {
 			next = k.pickedUntil[i]
 		}
@@ -261,7 +267,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 		setDraft(&k.ed, text)
 	}
 	c.firePick(env)
-	if next := k.settle(c.currentModel(t), t.Effort, env.now()); !next.IsZero() {
+	if next := k.settle(c.currentModel(t), t.Effort, t.Mode, env.now()); !next.IsZero() {
 		gtx.Execute(op.InvalidateCmd{At: next})
 	}
 	k.ed.ReadOnly = k.sending
@@ -308,7 +314,11 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	if k.effChip.Clicked(gtx) && env.Online {
 		k.menu = toggle(k.menu, "effort")
 	}
-	chips := t.Picker
+	if k.modeChip.Clicked(gtx) && env.Online {
+		k.menu = toggle(k.menu, "mode")
+	}
+	lists := chipLists(t, env.Models, env.Efforts)
+	chips := len(lists[0])+len(lists[1])+len(lists[2]) > 0
 	focused := gtx.Focused(&k.ed)
 	hint := k.note
 	if !env.Online {
@@ -348,10 +358,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 							return layout.Inset{Left: 6, Right: 4, Bottom: 2}.Layout(gtx, func(gtx C) D {
 								gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(50))
 								return midFlex(gtx,
-									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 0, t) }),
-									layout.Rigid(layout.Spacer{Width: 8}.Layout),
-									layout.Rigid(func(gtx C) D { return c.chip(gtx, th, 1, t) }),
-									layout.Flexed(1, func(gtx C) D { return D{Size: image.Pt(gtx.Constraints.Min.X, 0)} }),
+									layout.Flexed(1, func(gtx C) D { return c.chipRow(gtx, th, t, lists) }),
 									layout.Rigid(sendW),
 								)
 							})
@@ -566,19 +573,42 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 	return c.Layout(gtx, draw)
 }
 
-// chip is the model chip (0) or the effort chip (1): 36dp in a 48dp hit
-// area, its name capped at 132dp so the send button never moves.
-func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
+// chipRow is the chips lists offers, left to right: the model chip takes
+// what the others leave, and with the mode chip there the effort chip shows
+// its bars only, so the row fits a phone.
+func (c *chatView) chipRow(gtx C, th *theme.Theme, t remote.Tab, lists [3][]string) D {
 	k := &c.cmp
-	btn, what := &k.modelChip, "model"
-	if which == 1 {
-		btn, what = &k.effChip, "effort"
+	var row []layout.FlexChild
+	for which, l := range lists {
+		k.chipW[which] = 0
+		if len(l) == 0 {
+			continue
+		}
+		if len(row) > 0 {
+			row = append(row, layout.Rigid(layout.Spacer{Width: 8}.Layout))
+		}
+		w := func(gtx C) D { return c.chip(gtx, th, which, t, which == 1 && len(lists[2]) > 0) }
+		if which == 0 {
+			row = append(row, layout.Flexed(1, w))
+		} else {
+			row = append(row, layout.Rigid(w))
+		}
 	}
+	return midFlex(gtx, row...)
+}
+
+// chip is the model (0), effort (1) or mode (2) chip: 36dp in a 48dp hit
+// area, its name capped at 132dp so the send button never moves; bare
+// draws the effort chip's bars without its name.
+func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab, bare bool) D {
+	k := &c.cmp
+	btn, what := []*widget.Clickable{&k.modelChip, &k.effChip, &k.modeChip}[which], chipWhat[which]
 	pk := k.pending(what)
 	pend := pk != nil
 	open := k.menu == what
 	name := ""
-	if which == 0 {
+	switch which {
+	case 0:
 		name = k.modelShown(c.currentModel(t))
 		if name == "" {
 			name = "Model"
@@ -586,7 +616,7 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 		if pend {
 			name = modelName(pk.value)
 		}
-	} else {
+	case 1:
 		name = k.effortShown(t.Effort)
 		if pend {
 			name = pk.value
@@ -594,6 +624,15 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 		if name == "" {
 			name = "effort"
 		}
+	default:
+		name = modeShort(k.modeShown(t.Mode))
+		if pend {
+			name = modeShort(pk.value)
+		}
+	}
+	level := effortLevel(name)
+	if bare {
+		name = ""
 	}
 	gtx.Constraints.Min = image.Point{}
 	d := btn.Layout(gtx, func(gtx C) D {
@@ -605,19 +644,32 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 			if pend {
 				fg = th.Readable(th.Blue, th.SurfaceSecondary)
 			}
+			gap := layout.Inset{Right: 7}
+			if name == "" {
+				gap.Right = 0
+			}
 			return midFlex(gtx,
 				layout.Rigid(func(gtx C) D {
 					switch {
 					case pend:
-						return spinner(gtx, 15, fg)
+						return gap.Layout(gtx, func(gtx C) D { return spinner(gtx, 15, fg) })
 					case which == 0:
-						return sidebar.AgentMark(gtx, model.ProviderClaude, gtx.Dp(17), th.Fg)
+						return gap.Layout(gtx, func(gtx C) D {
+							return sidebar.AgentMark(gtx, model.Provider(cmp.Or(t.Agent, string(model.ProviderClaude))), gtx.Dp(17), th.Fg)
+						})
+					case which == 1:
+						return gap.Layout(gtx, func(gtx C) D {
+							return effortGlyph(gtx, th, level, th.Readable(th.Blue, th.SurfaceSecondary))
+						})
 					}
-					return effortGlyph(gtx, th, effortLevel(name), th.Readable(th.Blue, th.SurfaceSecondary))
+					return D{}
 				}),
-				layout.Rigid(layout.Spacer{Width: 7}.Layout),
 				layout.Rigid(func(gtx C) D {
-					gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(132))
+					if name == "" {
+						return D{}
+					}
+					// why: leave the chevron and its gap their 22dp in a narrow row
+					gtx.Constraints.Max.X = max(0, min(gtx.Constraints.Max.X-gtx.Dp(22), gtx.Dp(132)))
 					return label(gtx, th, weight(th.UIFont, font.Medium), 14.5, fg, 1, name)
 				}),
 				layout.Rigid(layout.Spacer{Width: 7}.Layout),
@@ -650,14 +702,25 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 		o.Pop()
 		return D{Size: image.Pt(cd.Size.X, h)}
 	})
-	// why: the chips sit 16dp in from the screen's edge (the band's 10 and
-	// the toolbar's 6), which the menus need to open above them.
 	k.chipW[which] = d.Size.X
-	k.chipX[which] = gtx.Dp(16)
-	if which == 1 {
-		k.chipX[1] += k.chipW[0] + gtx.Dp(8)
-	}
 	return d
+}
+
+// chipWhat names each chip's setting, as picks and menus do.
+var chipWhat = [3]string{"model", "effort", "mode"}
+
+// chipX is the left edge of chip which, for its menu to open above it.
+//
+// why: the chips sit 16dp in from the screen's edge (the band's 10 and the
+// toolbar's 6), 8dp apart, the hidden ones 0 wide.
+func (k *composer) chipX(gtx C, which int) int {
+	x := gtx.Dp(16)
+	for i := range which {
+		if k.chipW[i] > 0 {
+			x += k.chipW[i] + gtx.Dp(8)
+		}
+	}
+	return x
 }
 
 // effortGlyph is five rising bars, level of them lit in col.
@@ -758,15 +821,18 @@ func (c *chatView) firePick(env chatEnv) {
 			return
 		}
 		k.note = ""
-		if p.what == "model" {
+		switch p.what {
+		case "model":
 			k.model, k.modelAt, k.pickedUntil[0] = p.value, c.currentModel(env.Tab), env.now().Add(pickHold)
-		} else {
+		case "effort":
 			k.effort, k.effortAt, k.pickedUntil[1] = p.value, env.Tab.Effort, env.now().Add(pickHold)
+		default:
+			k.mode, k.modeAt, k.pickedUntil[2] = p.value, env.Tab.Mode, env.now().Add(pickHold)
 		}
 	})
 }
 
-// menus draws the open model or effort menu over a scrim, above its chip,
+// menus draws the open model, effort or mode menu over a scrim, above its chip,
 // or the field's Paste, with the composer's top at top.
 func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	k := &c.cmp
@@ -781,17 +847,23 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	var width unit.Dp
 	which := 0
 	current := ""
+	lists := chipLists(env.Tab, env.Models, env.Efforts)
 	switch k.menu {
 	case "paste":
 		values, width = []string{"Paste"}, 160
 	case "model":
-		values, width, current = env.Models, 268, k.modelShown(c.currentModel(env.Tab))
+		values, width, current = lists[0], 268, k.modelShown(c.currentModel(env.Tab))
 		if p := k.pending("model"); p != nil {
 			current = modelName(p.value)
 		}
-	default:
-		values, width, which, current = env.Efforts, 236, 1, k.effortShown(env.Tab.Effort)
+	case "effort":
+		values, width, which, current = lists[1], 236, 1, k.effortShown(env.Tab.Effort)
 		if p := k.pending("effort"); p != nil {
+			current = p.value
+		}
+	default:
+		values, width, which, current = lists[2], 236, 2, k.modeShown(env.Tab.Mode)
+		if p := k.pending("mode"); p != nil {
 			current = p.value
 		}
 	}
@@ -830,10 +902,7 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 			if k.menu == "paste" {
 				return D{}
 			}
-			title := "Model"
-			if which == 1 {
-				title = "Effort"
-			}
+			title := []string{"Model", "Effort", "Mode"}[which]
 			return layout.Inset{Left: 12, Right: 12, Top: 4, Bottom: 6}.Layout(gtx, func(gtx C) D {
 				return label(gtx, th, weight(th.UIFont, font.SemiBold), 13, th.Muted, 1, title)
 			})
@@ -847,6 +916,8 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 			case which == 0:
 				name, note = modelName(v), modelNote(v, c.currentModel(env.Tab))
 				on = v != "default" && name == current
+			case which == 2:
+				name, on = chatin.ModeName(v), v == current
 			default:
 				on = v == current
 			}
@@ -857,7 +928,7 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 	})
 	call := m.Stop()
-	x := k.chipX[which]
+	x := k.chipX(gtx, which)
 	if k.menu == "paste" {
 		x = gtx.Dp(10)
 	}
@@ -878,7 +949,7 @@ func menuItem(gtx C, th *theme.Theme, b *widget.Clickable, which int, value, nam
 			gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(52))
 			return midFlex(gtx,
 				layout.Rigid(func(gtx C) D {
-					if which == 0 {
+					if which != 1 {
 						return D{}
 					}
 					return layout.Inset{Right: 12}.Layout(gtx, func(gtx C) D {
