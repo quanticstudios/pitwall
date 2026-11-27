@@ -370,7 +370,7 @@ func (a *App) startPair(server, code, pin string) {
 			case errors.As(err, &ue):
 				p.untrusted, p.server, p.pairCode = ue.Fingerprint, server, code
 			case err != nil:
-				p.note = sentence(err.Error())
+				p.note = sentence(phone.Why(err))
 			default:
 				*p = pairView{}
 				p.init()

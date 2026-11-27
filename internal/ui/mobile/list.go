@@ -114,6 +114,9 @@ func (a *App) listLayout(gtx C) {
 			if len(a.st.Workspaces) == 0 {
 				fillMax(gtx, th.Sidebar)
 				msg := "No tabs are open."
+				if len(a.newLinks()) > 0 {
+					msg = "No tabs are open. Tap + to start one."
+				}
 				if shown == nil || !shown.online {
 					msg = ""
 				}
@@ -148,6 +151,11 @@ func (a *App) listLayout(gtx C) {
 // first.
 func (a *App) shown() *link {
 	ls := a.sessionLinks()
+	if len(ls) == 0 && a.fleet != nil { // no tabs anywhere: the paired machines
+		for _, m := range a.fleet.Machines {
+			ls = append(ls, a.links[m.ID])
+		}
+	}
 	for _, l := range ls {
 		if !l.online {
 			return l

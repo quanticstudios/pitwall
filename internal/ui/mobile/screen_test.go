@@ -79,7 +79,7 @@ func TestScreenReads(t *testing.T) {
 	}
 	api.err = errors.New("the tab is guarded")
 	c.pressKey(env, "enter")
-	if c.scr.keyErr != "the tab is guarded" {
+	if c.scr.keyErr != "The tab is guarded" {
 		t.Fatalf("key error %q", c.scr.keyErr)
 	}
 }

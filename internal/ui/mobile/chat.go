@@ -350,6 +350,9 @@ func (c *chatView) agentLine(t remote.Tab) string {
 	if m := c.cmp.modelShown(c.currentModel(t)); m != "" {
 		parts = append(parts, m)
 	}
+	if len(parts) == 0 && !t.Chat {
+		return "Terminal" // why: a shell has no agent or state, and the line would stay blank
+	}
 	return strings.Join(parts, " · ")
 }
 

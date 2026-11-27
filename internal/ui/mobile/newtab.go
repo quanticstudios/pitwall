@@ -303,7 +303,7 @@ func (a *App) newFields() []layout.Widget {
 	ws = append(ws, head("Folder"), a.selectRow("folder", folder, where, f.opts.Home))
 	if f.typed() {
 		ws = append(ws, gap(6), func(gtx C) D {
-			return field(gtx, th, &f.path, &f.pathBox, "/home/you/project or ~/project", th.MonoFont)
+			return field(gtx, th, &f.path, &f.pathBox, "~/project or /abs/path", th.MonoFont)
 		})
 	}
 	agent := "None"

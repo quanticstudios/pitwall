@@ -84,7 +84,7 @@ func (c *chatView) readScreen(gtx C, env chatEnv) {
 			}
 			s.reading = false
 			if err != nil {
-				s.readErr = err.Error()
+				s.readErr = sentence(err.Error())
 				return
 			}
 			s.text, s.read, s.readErr = text, true, ""
@@ -108,7 +108,7 @@ func (c *chatView) pressKey(env chatEnv, key string) {
 		}
 		s.keyErr = ""
 		if err != nil {
-			s.keyErr = err.Error()
+			s.keyErr = sentence(err.Error())
 			return
 		}
 		s.next = time.Now().Add(keySettle)

@@ -146,9 +146,31 @@ instead of moving. Scrolling to the top loads earlier messages, as far back
 as the last 8 MiB of the file.
 
 A tab without a session file, a shell or an agent without hooks, shows its
-state and never its screen or scrollback. The page never shows a pane's
-screen. The Android app shows it only in a tab's Screen view, which you
-open (see [Use](#use)).
+state and never its screen or scrollback. The page and the Android app
+show a pane's screen only in its Screen view, which you open (see
+[Use](#use) and [The page's other tools](#the-pages-other-tools)).
+
+## The page's other tools
+
+The page has the app's tools in a simpler form, each shown only when the
+computer's pitwall serves it:
+
+- **Screen.** The `>_` button in a terminal tab's chat opens its Screen
+  view, with the same keys as the app's. When a menu in the agent's
+  terminal holds your queued messages, or the card says the screen shows a
+  menu, Open screen goes there. Back returns to the chat.
+- **Stop** shows beside Send while the agent works.
+- **New tab.** The + in the list's header opens New tab: Session (when
+  there are several), Folder, Agent, Worktree and First message, as in the
+  app. Each folder shows its name, then its path with `~` for home, cut in
+  the middle so its end shows. Start opens the tab and its chat; Back from
+  there returns to the list.
+- **Restart and Close tab.** An exited tab's line has Restart. The chat's
+  ⋯ holds Restart for an exited tab and Close tab, which asks for a second
+  tap.
+
+A tool the computer's pitwall is too old for says "Update pitwall on this
+computer to use this."
 
 ## Send a message
 
@@ -383,9 +405,10 @@ machines is under each.
 
 When a machine's connection drops, a red line over its sessions says when
 the app tries again (after 1 second, then 2, 4 and so on up to 15) and
+why, such as "Nothing answers there: is pitwall's phone page on?", and
 Retry tries at once; its last list stays on screen, dimmed, and the other
-machines carry on. Coming back to the foreground tries every machine at
-once.
+machines carry on. The line shows too when the machine has no tabs. Coming
+back to the foreground tries every machine at once.
 
 A terminal tab's chat has a terminal button in its header that opens the
 tab's Screen view: the screen as text, as `pitwall read --screen` prints
@@ -409,7 +432,8 @@ the session is on several machines, Machine picks the one to start on.
 
 - **Folder** lists the folders of the session's tabs, its groups and the
   tabs closed since, or Type a path, such as `~/src/shop`. The folder must
-  exist on that machine.
+  exist on that machine. Each shows its name, then its path with `~` for
+  home, cut in the middle so the end that tells two folders apart shows.
 - **Agent** lists Claude Code, Codex and Antigravity when they are on the
   machine's PATH, Terminal, then your `[[agents.preset]]` entries.
 - **Worktree** is None, or New worktree with a branch name. It shows for a
@@ -424,8 +448,14 @@ shows its chat. A worktree tab with a terminal gets a shell.
 A chat's ⋯ menu has Close tab, which asks for a second tap and ends what
 runs in the tab, and Restart for a tab whose command exited. Restart runs
 the command again in its folder, or resumes its agent's session when
-pitwall knows it, as a restart of pitwall would. A daemon older than the
-app shows neither the + nor the menu.
+pitwall knows it, as a restart of pitwall would. An exited tab also has
+Restart on the line under its chat, where its exit code shows, and as a
+pill on its row in the sidebar; each takes one tap. A failed restart says
+why on that line or over the sidebar.
+
+A daemon older than the app shows neither the +, the menu, the Screen
+button nor Stop. Any other call it does not know says "Update pitwall on
+<machine> to use this."
 
 `go run ./cmd/pitwall-phone` runs the app in a desktop window, and
 `-demo 1` pairs it with a server of made-up tabs in the same process, and

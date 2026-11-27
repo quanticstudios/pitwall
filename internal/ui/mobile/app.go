@@ -202,6 +202,8 @@ func (a *App) do(machine string, call func(ctx context.Context, c *phone.Client)
 		err := call(ctx, c)
 		if errors.Is(err, phone.ErrNotServed) {
 			err = errors.New("update pitwall on " + name + " to use this")
+		} else if err != nil && phone.Why(err) != err.Error() {
+			err = errors.New(phone.Why(err))
 		}
 		a.post(func() {
 			if errors.Is(err, phone.ErrUnpaired) && a.fleet == f {
@@ -260,7 +262,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 					if errors.Is(err, phone.ErrUnpaired) {
 						a.removeMachine(m.ID, m.Name+": "+err.Error())
 					} else if err != nil {
-						l.offline = err.Error()
+						l.offline = phone.Why(err)
 					}
 				})
 			}}
