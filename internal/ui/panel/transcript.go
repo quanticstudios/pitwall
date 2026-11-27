@@ -105,6 +105,9 @@ type Transcript struct {
 	// card names it (model.AwayNow).
 	Away    *model.Away
 	AwayNow string
+	// Headlines are the chat's turn headlines (State.Headlines), which the
+	// ToolsHeadlines view folds each finished turn to.
+	Headlines []model.Headline
 
 	list       layout.List
 	listPx     float32 // the px per sp list's offsets were laid out at
@@ -298,6 +301,7 @@ const (
 	segTodo                      // a turn's task list, its last task-list call i
 	segChanges                   // a finished turn's change card
 	segInterrupted               // a stopped turn's Interrupted line
+	segHeadline                  // a finished turn folded to its headline, see headlines.go
 )
 
 func (r *trow) isTail() bool { return r.tail != nil || r.seg == segInterrupted }
@@ -333,6 +337,7 @@ type rowsKey struct {
 	openHash      uint64
 	openLen       int
 	dir           string
+	headlines     uint64 // headlinesKey
 }
 
 // Answers returns the approvals answered since the last call, once each.
@@ -1155,6 +1160,10 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			dims = r.tail(gtx)
 		case r.seg == segInterrupted:
 			dims = d.interrupted(gtx)
+		case r.seg == segHeadline:
+			recordFold(headlineID(r.b.turn), false)
+			t.laid += r.b.hi - r.b.lo
+			dims = d.headlineRow(gtx, r)
 		case r.res != nil:
 			recordFold("res:"+r.res.id, false)
 			if r.b.kind == blockAsk {
@@ -1611,6 +1620,7 @@ func (t *Transcript) makeRowsKey(s *session.Snapshot, bk blocksKey) rowsKey {
 		openHash:     openMapHash(t.open),
 		openLen:      len(t.open),
 		dir:          t.Dir,
+		headlines:    t.headlinesKey(),
 	}
 	if n := len(s.Turns); n > 0 {
 		last := &s.Turns[n-1]
@@ -1709,6 +1719,7 @@ func (t *Transcript) buildBaseRows(gtx layout.Context, d *cdraw) {
 		t.rows[i].gap = rowGap(t.rows, i)
 		t.rows[i].rank = rowRank(t.rows, i)
 	}
+	t.headlineRows(gtx, d.s)
 	t.baseLen = len(t.rows)
 }
 

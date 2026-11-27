@@ -37,6 +37,7 @@ var toolChoices = [...]toolChoice{
 	{config.ToolsFailed, "Failed only", "Failed only", "Hide calls once they succeed"},
 	{config.ToolsNone, "No tools", "None", "Hide tool calls; keep thinking"},
 	{config.ToolsZen, "Zen", "Zen", "Only your messages and final replies"},
+	{config.ToolsHeadlines, "Headlines", "Headlines", "Each finished turn as one line; click to open"},
 }
 
 // toolsMenuMinW is the Tools dropdown's minimum inner width.

@@ -851,7 +851,7 @@ func (p *Page) appearance() []section {
 					}
 				})},
 			{label: "Tool calls in chat", desc: "Failed only hides a call once it succeeds. None hides every call and shows thinking while the agent works. Zen shows only your messages and each turn's final reply. Errors, approvals and questions always show. The chat header's Tools menu picks these.",
-				extra: "tool_calls tools hide zen failed calls commands", control: p.labeled("chat.tool_calls", config.ToolModes, []string{"All", "Failed only", "None", "Zen"}, cmp.Or(p.s.Chat.ToolCalls, config.ToolsAll), func(o string) {
+				extra: "tool_calls tools hide zen failed calls commands headlines", control: p.labeled("chat.tool_calls", config.ToolModes, []string{"All", "Failed only", "None", "Zen", "Headlines"}, cmp.Or(p.s.Chat.ToolCalls, config.ToolsAll), func(o string) {
 					if o == config.ToolsAll {
 						p.save("chat", "tool_calls", nil)
 					} else {

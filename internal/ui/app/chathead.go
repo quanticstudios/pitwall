@@ -59,17 +59,17 @@ type chatHead struct {
 	find  widget.Clickable // Find in chat
 	tools widget.Clickable // opens the [chat] tool_calls dropdown
 
-	toolsOpen     bool                // the Tools menu is open
-	toolsAt       time.Time           // when it last opened or closed, for its fade
-	toolsSel      int                 // highlighted choice in the Tools menu
-	toolsHover    int                 // choice hovered last frame, -1 for none
-	toolsAnchor   image.Rectangle     // the Tools button's rect in the chat area
-	toolsBackdrop int                 // click outside closes the menu
-	toolsPanel    int                 // swallows clicks inside the menu
-	toolsTag      int                 // key focus while open
-	toolsReq      bool                // key focus requested since opening
-	toolsFocused  bool                // toolsTag has had focus since opening
-	toolsItems    [4]widget.Clickable // one per toolChoice
+	toolsOpen     bool                               // the Tools menu is open
+	toolsAt       time.Time                          // when it last opened or closed, for its fade
+	toolsSel      int                                // highlighted choice in the Tools menu
+	toolsHover    int                                // choice hovered last frame, -1 for none
+	toolsAnchor   image.Rectangle                    // the Tools button's rect in the chat area
+	toolsBackdrop int                                // click outside closes the menu
+	toolsPanel    int                                // swallows clicks inside the menu
+	toolsTag      int                                // key focus while open
+	toolsReq      bool                               // key focus requested since opening
+	toolsFocused  bool                               // toolsTag has had focus since opening
+	toolsItems    [len(toolChoices)]widget.Clickable // one per toolChoice
 }
 
 // Tooltip timing: the first waits tipDelay, a neighbor hovered within

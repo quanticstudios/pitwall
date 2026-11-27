@@ -15,6 +15,9 @@ const (
 	ToolsFailed = "failed" // a call while it runs, and after only if it failed
 	ToolsNone   = "none"   // no calls; thinking still shows
 	ToolsZen    = "zen"    // the prompts and each turn's final reply
+	// ToolsHeadlines folds each finished turn to its headline, a click
+	// opening it with every call; the latest turn shows as all does.
+	ToolsHeadlines = "headlines"
 )
 
 // toolMode is the visibility the rows follow this frame: ToolCalls, all

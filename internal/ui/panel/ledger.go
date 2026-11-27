@@ -218,6 +218,7 @@ func (t *Transcript) buildLedgerRows(gtx layout.Context, d *cdraw) {
 		t.rows[i].gap = ledgerRowGap(t.rows, i)
 		t.rows[i].rank = rowRank(t.rows, i)
 	}
+	t.headlineRows(gtx, d.s)
 }
 
 func (t *Transcript) resRowLedger(gtx layout.Context, b block, r *resolved) {

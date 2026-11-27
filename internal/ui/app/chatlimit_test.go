@@ -242,7 +242,7 @@ func TestSetTools(t *testing.T) {
 	if toolsIndex("") != 0 || toolsIndex("bogus") != 0 {
 		t.Error("an unset or unknown mode is all")
 	}
-	for i, m := range []string{panel.ToolsAll, panel.ToolsFailed, panel.ToolsNone, panel.ToolsZen} {
+	for i, m := range []string{panel.ToolsAll, panel.ToolsFailed, panel.ToolsNone, panel.ToolsZen, panel.ToolsHeadlines} {
 		if config.ToolModes[i] != m || toolChoices[i].mode != m {
 			t.Errorf("mode %d: config %q, panel %q, choice %q", i, config.ToolModes[i], m, toolChoices[i].mode)
 		}
@@ -374,11 +374,13 @@ func TestToolsDropdown(t *testing.T) {
 		if h.toolsSel != 3 {
 			t.Fatalf("tab %v: after Down sel=%d, want 3", tab, h.toolsSel)
 		}
+		press(key.NameDownArrow) // -> 4 (Headlines)
 		press(key.NameDownArrow) // -> 0 (All, wraps)
 		if h.toolsSel != 0 {
 			t.Fatalf("tab %v: after wrap Down sel=%d, want 0", tab, h.toolsSel)
 		}
-		press(key.NameUpArrow) // -> 3 (Zen, wraps back)
+		press(key.NameUpArrow) // -> 4 (Headlines, wraps back)
+		press(key.NameUpArrow) // -> 3 (Zen)
 		if h.toolsSel != 3 {
 			t.Fatalf("tab %v: after wrap Up sel=%d, want 3", tab, h.toolsSel)
 		}

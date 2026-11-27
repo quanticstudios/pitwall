@@ -273,7 +273,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 103
+const Level = 104
+
+// HeadlineLevel is the level that added State.Headlines, the turn headlines.
+const HeadlineLevel = 104
 
 // DockLevel is the first daemon that fills State.Inbox, the chat's inbox
 // dock.
