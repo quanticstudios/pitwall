@@ -311,10 +311,10 @@ func (s *Sidebar) gapSize(gtx layout.Context, elems []elem, carried int) int {
 		case e.kind == 's' && e.id == s.drag.id:
 			top, bot = e.top, e.bot
 		case e.kind == 'a' && e.parent == s.drag.id:
-			bot = e.bot
+			bot = e.bot + subsBottom(gtx)
 		}
 	}
-	return bot - top + gtx.Dp(2)
+	return bot - top + gtx.Dp(tileGap)
 }
 
 // dragFrame updates the drop target from the pointer and returns the
@@ -392,7 +392,7 @@ func (s *Sidebar) dragFrame(gtx layout.Context, elems []elem, total int) (offset
 	default:
 		end := 0
 		if len(flow) > 0 {
-			end = flow[len(flow)-1].bot + gtx.Dp(2)
+			end = flow[len(flow)-1].bot + gtx.Dp(tileGap)
 		}
 		s.drag.toY = float32(end)
 	}

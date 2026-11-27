@@ -196,7 +196,7 @@ func TestDragSubRows(t *testing.T) {
 			t.Errorf("%s stays behind", id)
 		}
 	}
-	if got, want := h.s.gapSize(layout.Context{Metric: unit.Metric{PxPerDp: 1}}, h.s.elems, 0), last.bot-m.top+2; got != want {
+	if got, want := h.s.gapSize(layout.Context{Metric: unit.Metric{PxPerDp: 1}}, h.s.elems, 0), last.bot+int(subsBottom(layout.Context{Metric: unit.Metric{PxPerDp: 1}}))-m.top+int(tileGap); got != want {
 		t.Errorf("gap %d, want %d: the row and its sub-rows", got, want)
 	}
 	evs := h.pointer(pointer.Release, h.at("u2", 50))

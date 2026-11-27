@@ -8,7 +8,6 @@ import (
 	"slices"
 	"time"
 
-	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -42,6 +41,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	pad := gtx.Dp(8)
 	l1, l2 := rowLines(gtx, th)
 	h := rowHeight(gtx, th) + v.linesHeight(gtx, ws.ID)
+	if !ghost {
+		h += s.actsHeight(gtx, v, ws.ID)
+	}
 	subs := len(v.subsOf(ws.ID)) > 0
 	fleet := s.fleet(v, ws.ID)
 	if fleet {
@@ -49,13 +51,18 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	}
 	rect := image.Rect(0, 0, w, h)
 	rr := gtx.Dp(8)
+	// The tile takes in the sub-rows the tree placed under the row.
+	tileRect := rect
+	if r.tileH > h && !ghost {
+		tileRect.Max.Y = r.tileH
+	}
 
 	animating := model.Pulses(a) && !ghost && !anim.Reduced()
 	hovered := !ghost && r.hovered()
-	base := rowBase(th, a, isActive, hovered)
 	selected := s.selected[ws.ID] && !ghost
-	if selected && !isActive {
-		base = theme.Mix(base, th.Primary, 0.07)
+	base, ring := tileStyle(th, a, selected || isActive && !ghost)
+	if hovered {
+		base = tileHover(th, base)
 	}
 	unseen := v.unseen[ws.ID]
 	if ghost {
@@ -75,15 +82,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		base = th.SurfaceSecondary
 	} else {
 		base = r.fill(gtx, base, hovered)
-		if base != th.Sidebar {
-			paint.FillShape(gtx.Ops, base, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+		r.tile = base
+		drawTile(gtx, th, tileRect, base, ring)
+		if tileRect.Max.Y > h {
+			subsHairline(gtx, th, h, w)
 		}
-	}
-	if animating {
-		shimmer(gtx, rect, rr, base, v.t(s))
-	}
-	if selected || isActive && !ghost {
-		paint.FillShape(gtx.Ops, theme.Mix(base, th.Primary, 0.55), clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), rr-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	}
 	if cursor {
 		cursorRing(gtx, th, rect, rr)
@@ -109,32 +112,22 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	asking := s.replyable(v, ws.ID, ghost, own)
 	restart := !ghost && !answering && !planning && !asking && s.Restartable != nil && s.Restartable(ws.ID)
 	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning && !asking
-	// Left of where "…" and "×" show, hovered or not, so the buttons never
-	// move under the pointer; line 2's fold chip or group tag keeps its room.
-	keep := 2*btn - x + gtx.Dp(6)
-	if s.Touch {
-		keep = 0 // no "…" or "×" on a phone
-	}
-	answerEnd := w - gtx.Dp(12) - keep
+	acting := answering || planning || asking || restart
+	// The answers get a line of their own under the text, from the title's
+	// x to the content's right edge.
 	answerG := gtx
-	answerG.Constraints = layout.Constraints{Max: image.Pt(max(answerEnd-gtx.Dp(32)-answerRoom(gtx, v, ws.ID, subs), 0), answerHeight(gtx, th))}
-	answerW := 0
-	if answering || planning || asking {
-		answerW = answerSize(answerG, th, *own, base).X
-	} else if restart {
-		m := op.Record(gtx.Ops)
-		answerW = pillButton(nil, th, base, answerHeight(gtx, th), "Restart", th.Blue)(answerG).Size.X
-		m.Stop()
-	}
+	answerG.Constraints = layout.Constraints{Max: image.Pt(max(w-2*gtx.Dp(12)-gtx.Dp(20), 0), answerHeight(gtx, th))}
+	answerY := rowHeight(gtx, th) - gtx.Dp(8) + v.linesHeight(gtx, ws.ID) + gtx.Dp(actsGap)
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
 		left := gtx.Dp(12)
 		inner := w - 2*left
 		gtx.Constraints = layout.Exact(image.Pt(inner, l1))
 		off := op.Offset(image.Pt(left, pad)).Push(gtx.Ops)
-		nameCol := theme.Mix(base, th.Fg, 0.95)
-		if isActive || ghost || unseen != nil || model.Tier(a) == model.TierAttention {
-			nameCol = th.Fg
+		nameCol, bold := titleStyle(th, a)
+		nameFont := medium(th.UIFont)
+		if bold || isActive || ghost {
+			nameCol, nameFont = th.Fg, semibold(th.UIFont)
 		}
 		if s.hostDown(ws.ID) {
 			nameCol = th.Readable(th.Muted, base) // offline: the last state the window had
@@ -150,7 +143,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				if (s.renaming == ws.ID || s.replying == ws.ID) && !ghost {
 					return s.renameField(gtx, th)
 				}
-				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), nameCol, title)
+				return label(gtx, th, nameFont, th.Sp(theme.Body), nameCol, title)
 			}},
 		}
 		if ws.Pinned {
@@ -169,19 +162,21 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return layout.Dimensions{Size: image.Pt(d, d)}
 			}})
 		}
-		switch {
-		case a != nil && s.hostDown(ws.ID):
-			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return offlinePill(gtx, th, base) }})
-		case a != nil:
-			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
-		}
-		hrow(gtx, l1, gtx.Dp(8), items...)
-		off.Pop()
-
 		// pl-5 under the name, text-[11px] muted; the time quieter, both kept
 		// at 4.5:1 on the row.
 		muted := th.Readable(th.Muted, base)
 		quiet := th.Readable(th.TextQuiet, base)
+		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
+		inRepo := ws.Branch != ""
+		// The right column's line 1: the time, or what stands in for it.
+		if txt, col := s.timeText(v, ws, a, inRepo && merged, down, host, muted, quiet); txt != "" {
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), col, txt)
+			}})
+		}
+		hrow(gtx, l1, gtx.Dp(8), items...)
+		off.Pop()
+
 		if v.remote[ws.ID] {
 			// Under the agent's mark, soft so it never outshouts the pill.
 			sz := gtx.Dp(12)
@@ -191,7 +186,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		}
 		gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
 		off = op.Offset(image.Pt(left+gtx.Dp(20), pad+l1+gtx.Dp(4))).Push(gtx.Ops)
-		inRepo := ws.Branch != ""
 		where := ws.Branch
 		if !inRepo {
 			where = model.ShortPath(v.st.LivePath(ws))
@@ -199,7 +193,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		var line []item
 		if subs {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
-				return s.foldChip(gtx, v, ws.ID, muted, ghost, answering)
+				return s.foldChip(gtx, v, ws.ID, muted, ghost, false)
 			}})
 		}
 		// The inbox mixes groups: each row names its own.
@@ -212,7 +206,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				}
 			}
 		}
-		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
 		// A machine's line names it in the tree; a worker under a parent
 		// of another machine names its own.
 		if host != "" && !v.sectioned && !s.AllHosts || v.rootOf[ws.ID] != "" && host != s.hostOf(v.rootOf[ws.ID]) {
@@ -224,27 +217,16 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// On a desktop, Allow and Deny or the agent count leave it a few letters at most (a phone's row has room),
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if (s.Touch || !answering && !planning && !asking) && !subs && where != title {
+		if !subs && where != title {
 			// Beside the inbox's group tag it shows whole or not at all.
 			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
 		}
-		// The stats, the port chip, the PR chip and the radar mark give way,
-		// in that order, to Allow and Deny or a long time; the hover card has
-		// them all.
-		if inRepo && hasStats && (stats.Additions > 0 || stats.Deletions > 0) {
-			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, l2, gtx.Dp(4),
-					item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Green, fmt.Sprintf("+%d", stats.Additions))
-					}},
-					item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Red, fmt.Sprintf("-%d", stats.Deletions))
-					}},
-				)
-			}})
-		}
+		// The port chip, the PR chip and the radar mark give way, in that
+		// order, to Allow and Deny or a long time; the hover card has them
+		// all. The diff lives in the hover card and the board, not here.
+
 		// The first open port of the tab's block, else of a server the tab
 		// started: a dev server. On a Host it listens there, and localhost
 		// here would not reach it.
@@ -272,10 +254,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
-		case answering || planning || asking || restart: // drawn over the row below, with room for "…" and "×"
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(answerW+keep, 0)}
-			}})
 		case showMore:
 			n := 2
 			if merged {
@@ -287,44 +265,28 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(n*btn-x, 0)}
 			}})
-		case v.inbox && ws.SnoozedUntil.After(v.now):
+		case a != nil && down:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, "Wakes "+wakeText(v.now, ws.SnoozedUntil))
+				return stateWord(gtx, th, stateMark{word: "Offline", dot: th.Muted, ring: true}, base, l2, 0)
 			}})
-		case v.isDraftHeld(ws):
-			// A message waits for the user, which matters more than the time or Merged.
+		case a != nil:
+			m := markOf(th, *a)
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, "Waits: your draft")
+				return stateWord(gtx, th, m, base, l2, v.t(s))
 			}})
-		case v.tabQueueLabel(ws) != "":
-			// Queued messages say so in place of the time, quietly.
-			ql := v.tabQueueLabel(ws)
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, ql)
-			}})
-		case inRepo && merged:
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
-			}})
-		case down:
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, s.lastSeen(host, v.now))
-			}})
-		case QuietText(v.now, a) != "":
-			// A working agent that repeats an error or whose screen stays still says so in place of the time.
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, QuietText(v.now, a))
-			}})
-		default:
-			if rt := relTime(v.now, ws.UpdatedAt); rt != "" {
-				line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, rt)
-				}})
-			}
 		}
 		hrow(gtx, l2, gtx.Dp(6), line...)
 		off.Pop()
 		y := pad + l1 + gtx.Dp(4) + l2
+		if why := whyLine(a); why != "" {
+			// The reason it needs the user, on its own line in its color.
+			y += gtx.Dp(statusGap)
+			gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
+			off = op.Offset(image.Pt(left+gtx.Dp(20), y)).Push(gtx.Ops)
+			label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(markOf(th, *a).dot, base), why)
+			off.Pop()
+			y += l2
+		}
 		if p := v.program[ws.ID]; p != nil {
 			y += gtx.Dp(statusGap)
 			gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
@@ -341,6 +303,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, ws.Status)
 			off.Pop()
 			y += l2
+		}
+		if acting {
+			y += gtx.Dp(actsGap) + answerHeight(gtx, th) // drawn over the row below
 		}
 		if fleet {
 			off = op.Offset(image.Pt(left, y)).Push(gtx.Ops)
@@ -365,11 +330,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	// has no hidden hit area: a stray click there must not close the tab.
 	pos := image.Pt(w-gtx.Dp(12)+x-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
 	if answering || planning || asking {
-		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(gtx.Dp(12)+gtx.Dp(20), answerY)).Push(gtx.Ops)
 		answerArea(answerG, th, answerBtns{allow: &r.allow, deny: &r.deny, plan: &r.plan, reply: &r.reply, choices: &r.choices}, *own, base)
 		off.Pop()
 	} else if restart {
-		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(gtx.Dp(12)+gtx.Dp(20), answerY)).Push(gtx.Ops)
 		pillButton(&r.restart, th, base, answerHeight(gtx, th), "Restart", th.Blue)(answerG)
 		off.Pop()
 	}
@@ -419,6 +384,29 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		off.Pop()
 	}
 	return layout.Dimensions{Size: rect.Size()}, animating
+}
+
+// timeText is the right column's line 1 and its color: the time, or a
+// snooze's wake, a held draft, queued messages, Merged, when a down host
+// was last seen, or a working agent's quiet spell, in that order.
+func (s *Sidebar) timeText(v *view, ws model.Workspace, a *model.Activity, merged, down bool, host string, muted, quiet color.NRGBA) (string, color.NRGBA) {
+	switch {
+	case v.inbox && ws.SnoozedUntil.After(v.now):
+		return "Wakes " + wakeText(v.now, ws.SnoozedUntil), quiet
+	case v.isDraftHeld(ws):
+		// A message waits for the user, which matters more than the time or Merged.
+		return "Waits: your draft", muted
+	case v.tabQueueLabel(ws) != "":
+		return v.tabQueueLabel(ws), muted
+	case merged:
+		return "Merged", v.th.Purple
+	case down:
+		return s.lastSeen(host, v.now), quiet
+	case QuietText(v.now, a) != "":
+		// A working agent that repeats an error or whose screen stays still says so in place of the time.
+		return QuietText(v.now, a), muted
+	}
+	return relTime(v.now, ws.UpdatedAt), quiet
 }
 
 // Title is what a tab's row shows: the name the user gave it, else its
@@ -651,37 +639,6 @@ func PillText(a model.Activity) string {
 	return model.PillLabel(a)
 }
 
-// shimmer is .sidebar-working-shimmer: a 200%-wide white gradient (0, .02,
-// .04, .02, 0 at 0/40/50/60/100%) sliding from background-position -200% to
-// 200% over 3s ease-in-out, repeating.
-func shimmer(gtx layout.Context, rect image.Rectangle, r int, base color.NRGBA, t float64) {
-	defer clip.UniformRRect(rect, r).Push(gtx.Ops).Pop()
-	w := float32(rect.Dx())
-	_, p := math.Modf(t / 3)
-	e := float32(p * p * (3 - 2*p))
-	c := float32(math.Mod(float64(w*(3-4*e)), float64(2*w)))
-	// why: aide's shimmer is a white gradient in every theme.
-	white := func(a float32) color.NRGBA { return theme.Mix(base, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, a) }
-	stops := []struct{ x, a float32 }{{-1, 0}, {-0.2, 0.02}, {0, 0.04}, {0.2, 0.02}, {1, 0}}
-	for _, cx := range []float32{c - 2*w, c, c + 2*w} {
-		for i := 0; i+1 < len(stops); i++ {
-			x0, x1 := cx+stops[i].x*w, cx+stops[i+1].x*w
-			if x1 < 0 || x0 > w {
-				continue
-			}
-			area := clip.Rect{Min: image.Pt(round(x0), rect.Min.Y), Max: image.Pt(round(x1), rect.Max.Y)}.Push(gtx.Ops)
-			paint.LinearGradientOp{
-				Stop1: f32.Pt(x0, 0), Color1: white(stops[i].a),
-				Stop2: f32.Pt(x1, 0), Color2: white(stops[i+1].a),
-			}.Add(gtx.Ops)
-			paint.PaintOp{}.Add(gtx.Ops)
-			area.Pop()
-		}
-	}
-}
-
-func round(x float32) int { return int(math.Round(float64(x))) }
-
 // pulse is Tailwind's animate-pulse opacity: 1 -> .5 -> 1 every 2s.
 func pulse(t float64) float32 {
 	return float32(0.75 + 0.25*math.Cos(t*math.Pi))
@@ -703,36 +660,6 @@ func StateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
 		return th.Muted
 	}
 	return th.Green
-}
-
-// rowBase is a workspace row's opaque background: getWorkspaceBackground-
-// ClassName's state tint, or the hover fill for rows with no activity. The
-// active row is primary/14 over the sidebar whatever its state, which its
-// pill and accent bar still show.
-func rowBase(th *theme.Theme, a *model.Activity, active, hovered bool) color.NRGBA {
-	if active {
-		return theme.Mix(th.Sidebar, th.Primary, 0.14)
-	}
-	base := th.Sidebar
-	if a != nil {
-		switch a.State {
-		case model.StateError:
-			base = theme.Mix(base, th.Red, 0.03)
-		case model.StatePendingApproval, model.StateAwaitingInput:
-			base = theme.Mix(base, th.Yellow, 0.03)
-		case model.StatePlanReady:
-			base = theme.Mix(base, th.Purple, 0.15)
-		}
-	}
-	switch {
-	case hovered:
-		// A state's tint shows through the hover fill, faintly.
-		base = theme.Mix(base, th.SurfaceSecondary, 0.85)
-		if a == nil {
-			base = th.SurfaceSecondary
-		}
-	}
-	return base
 }
 
 // statusGap is the space between line 2 and a status line, in dp.

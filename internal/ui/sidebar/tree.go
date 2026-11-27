@@ -40,11 +40,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	in := 0      // a host's section's indent (HostSections)
 	var row func(id, g, root string)
 	row = func(id, g, root string) {
-		if run {
-			y += gtx.Dp(2)
-		} else {
-			y += gtx.Dp(4)
-		}
+		y += gtx.Dp(tileGap) // each tab is its own tile
 		x := in
 		if g != "" {
 			x += gtx.Dp(groupIndent)
@@ -52,7 +48,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		if root != "" {
 			x += gtx.Dp(kidIndent)
 		}
-		h := rowH + v.linesHeight(gtx, id)
+		h := rowH + v.linesHeight(gtx, id) + s.actsHeight(gtx, v, id)
 		if s.fleet(v, id) {
 			h += fleetHeight(gtx, v.th)
 		}
@@ -129,16 +125,20 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 }
 
 // placeSubs appends tab id's shown sub-rows from y, x in, in group g, to
-// out, 2dp of air after the last, and returns the y below them.
+// out, under the tile's hairline and with its bottom padding after the
+// last, and returns the y below them.
 func (s *Sidebar) placeSubs(gtx layout.Context, v *view, id, g string, x, y int, out *[]elem) int {
 	subs := s.shownSubs(v, id)
+	if len(subs) > 0 {
+		y += subsTop(gtx) // the hairline under the tab, inside its tile
+	}
 	for _, e := range subs {
 		h := subHeight(gtx, v.th, s.subAsks(v, e))
 		*out = append(*out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g, x: x, top: y, bot: y + h})
 		y += h
 	}
 	if len(subs) > 0 {
-		y += gtx.Dp(2)
+		y += subsBottom(gtx)
 	}
 	return y
 }
@@ -267,7 +267,14 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				o.Pop()
 				continue
 			}
-			vis := inView(y, ey1)
+			// A tab's tile runs down past its sub-rows: it draws while any of it shows.
+			tile := e.bot
+			if e.kind == 's' {
+				for j := i + 1; j < len(elems) && elems[j].kind == 'a' && elems[j].parent == e.id; j++ {
+					tile = elems[j].bot + subsBottom(gtx)
+				}
+			}
+			vis := inView(y, max(ey1, y+tile-e.top))
 			if !vis && s.menuWS != e.id && s.renaming != e.id && s.replying != e.id && s.reply.ws != e.id && s.hover.shown != e.id {
 				continue
 			}
@@ -290,8 +297,6 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 			rg.Constraints.Max.X = w - e.x
 			var a bool
 			if e.kind == 'a' {
-				last := i+1 == len(elems) || elems[i+1].parent != e.parent
-				subGuide(rg, v.th, e.bot-e.top, last)
 				if se, ok := v.sub(e.parent, e.id); ok {
 					_, a = s.subRowAt(rg, v, e.parent, se, false)
 				}
@@ -299,6 +304,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				if e.parent != "" {
 					workerGuide(rg, v.th, e.bot-e.top)
 				}
+				s.row(e.id).tileH = tile - e.top
 				_, a = s.workspaceRow(rg, v, byID[e.id], false, digit)
 			}
 			fade.Pop()

@@ -87,6 +87,9 @@ func sameAgent(app, agent string) bool {
 // linesHeight is what tab id's program and status lines add to its row.
 func (v *view) linesHeight(gtx layout.Context, id string) int {
 	h := statusHeight(gtx, v.th, v.status[id])
+	if whyLine(v.activity[id]) != "" {
+		h += statusHeight(gtx, v.th, "why")
+	}
 	if v.program[id] != nil {
 		_, l2 := rowLines(gtx, v.th)
 		h += gtx.Dp(statusGap) + l2

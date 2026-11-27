@@ -85,8 +85,9 @@ func TestMachineOrder(t *testing.T) {
 	}
 }
 
-// Both styles name each machine once, on its line, with its health; no
-// row wears a host chip, and the row of machines under the header is gone.
+// Both styles name each machine once, on its line, with its health and
+// tab count; no row wears a host chip, and the row of machines under the
+// header is gone.
 func TestMachineLines(t *testing.T) {
 	for _, sections := range []bool{false, true} {
 		h := machineHarness(t, sections)
@@ -107,8 +108,9 @@ func TestMachineLines(t *testing.T) {
 		if slices.Contains(got, "this machine") {
 			t.Errorf("sections=%v: the row of machines still shows: %q", sections, got)
 		}
-		if tabs := slices.Contains(got, "2 tabs"); tabs != sections {
-			t.Errorf("sections=%v: tab count shown %v: %q", sections, tabs, got)
+		// One header format: every machine counts its tabs.
+		if !slices.Contains(got, "2 tabs") {
+			t.Errorf("sections=%v: no tab count: %q", sections, got)
 		}
 	}
 }

@@ -170,7 +170,7 @@ func TestCursorKeys(t *testing.T) {
 // tab, and its ring is heavier than the shown tab's 1dp border.
 func TestCursorStyle(t *testing.T) {
 	th := theme.Dark()
-	shown := rowBase(th, nil, true, false)
+	shown, _ := tileStyle(th, nil, true)
 	if cursorFill(th, th.Sidebar, false) == shown {
 		t.Error("the cursor on another row is filled like the shown tab")
 	}

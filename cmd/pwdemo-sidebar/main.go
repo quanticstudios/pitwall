@@ -18,6 +18,10 @@
 //	-inbox         start on the inbox in place of the tree
 //	-no-shelf      keep working tabs in the inbox's Active section
 //	-settle-all    settle every agent tab, for the inbox's empty Active
+//	-mock kind     the sidebar mock's data: "tiles" (four machines) or
+//	               "ladder" (one tab per state)
+//	-shot out.png  draw offscreen at 1px per dp and write a PNG, no window
+//	-click x,y     with -shot, click there (dp) first; repeatable
 package main
 
 import (
@@ -29,6 +33,7 @@ import (
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/f32"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -60,6 +65,15 @@ func main() {
 	flag.BoolVar(&sb.Inbox, "inbox", false, "start on the inbox in place of the tree")
 	noShelf := flag.Bool("no-shelf", false, "keep working tabs in the inbox's Active section")
 	settleAll := flag.Bool("settle-all", false, "settle every agent tab")
+	mock := flag.String("mock", "", `"tiles" or "ladder": the sidebar mock's data in place of the fake state`)
+	shotPath := flag.String("shot", "", "draw offscreen at 1px per dp, write this PNG and exit")
+	var clicks []f32.Point
+	flag.Func("click", "with -shot, click at x,y (dp) before the shot; repeatable", func(v string) error {
+		var p f32.Point
+		_, err := fmt.Sscanf(v, "%f,%f", &p.X, &p.Y)
+		clicks = append(clicks, p)
+		return err
+	})
 	shared := flag.String("shared", "", `"divider" or "sections": a shared session, with acme-api and ws-trio on box and ws-deploy on gpu, which is down`)
 	flag.Parse()
 	sb.WorkingShelf, sb.Shelves = !*noShelf, true
@@ -87,6 +101,11 @@ func main() {
 		sb.Numbers = [9]bool{true, true, true, true, true, true, true, true, true}
 	}
 	st := fakeState(time.Now())
+	if *mock != "" {
+		var a string
+		st, a = mockState(&sb, *mock, time.Now())
+		*active = a
+	}
 	if *settleAll {
 		for i := range st.Workspaces {
 			st.Workspaces[i].Settled, st.Workspaces[i].SnoozedUntil = time.Now(), time.Time{}
@@ -109,6 +128,12 @@ func main() {
 			}
 		}
 		sb.HostOf = func(id string) string { return on[id] }
+	}
+	if *shotPath != "" {
+		if err := shot(th, &sb, st, *active, *shotPath, width, height, clicks); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 	go func() {
 		w := new(app.Window)

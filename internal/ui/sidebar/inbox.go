@@ -354,9 +354,9 @@ func (s *Sidebar) placeInbox(gtx layout.Context, v *view) ([]elem, int) {
 		y += h
 		for i, id := range ids {
 			if i > 0 {
-				y += gtx.Dp(2)
+				y += gtx.Dp(tileGap)
 			}
-			h := rowH + v.linesHeight(gtx, id)
+			h := rowH + v.linesHeight(gtx, id) + s.actsHeight(gtx, v, id)
 			out = append(out, elem{kind: 's', id: id, top: y, bot: y + h})
 			y = s.placeSubs(gtx, v, id, "", 0, y+h, &out)
 		}

@@ -194,12 +194,16 @@ func answerHeight(gtx layout.Context, th *theme.Theme) int {
 	return max(gtx.Dp(answerH), gtx.Sp(th.Sp(theme.Caption)*1.6))
 }
 
-// subHeight is a sub-row's height: a line of small text at 1.5, 3dp
+// subPad is the space above and below a sub-row's line, in dp: 26dp
+// rows at the default size.
+const subPad = 4
+
+// subHeight is a sub-row's height: a line of small text at 1.5, subPad
 // above and below, and with Allow and Deny a second line for them.
 func subHeight(gtx layout.Context, th *theme.Theme, answering bool) int {
-	h := gtx.Sp(th.Sp(theme.Small)*1.5) + 2*gtx.Dp(3)
+	h := gtx.Sp(th.Sp(theme.Small)*1.5) + 2*gtx.Dp(subPad)
 	if answering {
-		h += answerHeight(gtx, th) + gtx.Dp(3)
+		h += answerHeight(gtx, th) + gtx.Dp(subPad)
 	}
 	return h
 }
@@ -300,8 +304,9 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	answering := !ghost && s.subAsks(v, e)
 	w := gtx.Constraints.Max.X
 	h := subHeight(gtx, th, answering)
-	line, pad, inset := gtx.Sp(th.Sp(theme.Small)*1.5), gtx.Dp(3), gtx.Dp(8)
-	rect := image.Rect(gtx.Dp(subIndent), 0, w, h)
+	line, pad, inset := gtx.Sp(th.Sp(theme.Small)*1.5), gtx.Dp(subPad), gtx.Dp(8)
+	// Inside its tab's tile: its right column lines up with the tab's.
+	rect := image.Rect(gtx.Dp(subIndent), 0, w-gtx.Dp(4), h)
 	size := rect.Size()
 	rr := gtx.Dp(theme.RadiusControl)
 	focused := !ghost && tab == v.active && e.id() == s.Pane
@@ -309,14 +314,18 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 		focused = !ghost && e.worker.ID == v.active
 	}
 	hovered := !ghost && (r.hovered() || s.menuWS == e.id())
-	base := th.Sidebar
+	tile := s.row(tab).tile // the tab's tile, drawn just before
+	if tile.A == 0 || ghost {
+		tile = th.Sidebar
+	}
+	base := tile
 	switch {
 	case ghost, hovered:
-		base = th.SurfaceSecondary
+		base = tileHover(th, th.SurfaceSecondary)
 	case focused:
-		base = theme.Mix(th.Sidebar, th.Primary, 0.08)
+		base = theme.Mix(tile, th.Primary, 0.12)
 	case e.worker != nil && s.selected[e.worker.ID]:
-		base = theme.Mix(th.Sidebar, th.Primary, 0.07)
+		base = theme.Mix(tile, th.Primary, 0.1)
 	}
 	cursor := !ghost && s.cursorOn('a', e.id())
 	if cursor {
@@ -325,7 +334,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	if !ghost {
 		base = r.fill(gtx, base, hovered)
-		if base != th.Sidebar {
+		if base != tile {
 			paint.FillShape(gtx.Ops, base, clip.UniformRRect(image.Rectangle{Max: size}, rr).Op(gtx.Ops))
 		}
 		if cursor {
@@ -351,7 +360,13 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 			col = th.Fg
 		}
 		items := []item{
-			{w: func(gtx layout.Context) layout.Dimensions { return s.subMark(gtx, v, e, base) }},
+			{w: func(gtx layout.Context) layout.Dimensions {
+				// A 13dp mark in a 14dp slot, as the mock's worker rows.
+				o := op.Offset(image.Pt(gtx.Dp(0.5), gtx.Dp(0.5))).Push(gtx.Ops)
+				s.subMark(gtx, v, e, base)
+				o.Pop()
+				return layout.Dimensions{Size: image.Pt(gtx.Dp(14), gtx.Dp(14))}
+			}},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				if (e.worker != nil && s.renaming == e.worker.ID || s.replying == e.id()) && !ghost {
 					return s.renameField(gtx, th)
@@ -382,9 +397,11 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 			}})
 		}
 		if a != nil {
-			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
+			// Only the dot: the tab's line 2 counts their states once.
+			m := markOf(th, *a)
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return stateDot(gtx, m, base, v.t(s)) }})
 		}
-		hrow(g, line, gtx.Dp(6), items...)
+		hrow(g, line, gtx.Dp(8), items...)
 		o.Pop()
 		if answering {
 			// What it asks to do, then room for Allow and Deny.
@@ -456,30 +473,22 @@ func (s *Sidebar) subMark(gtx layout.Context, v *view, e subEntry, base color.NR
 	return drawIcon(gtx, icTerminal, gtx.Dp(12), th.Muted, 0)
 }
 
-// subGuide draws the tree line from a tab's mark down to sub-row e, h
-// tall, an elbow into the last one.
-func subGuide(gtx layout.Context, th *theme.Theme, h int, last bool) {
-	x, lw := gtx.Dp(18), max(gtx.Dp(1), 1)
-	col := theme.Mix(th.Sidebar, th.Muted, 0.35)
-	bot := h
-	if last {
-		bot = h / 2
-		paint.FillShape(gtx.Ops, col, clip.Rect{Min: image.Pt(x, bot-lw), Max: image.Pt(gtx.Dp(subIndent)-gtx.Dp(2), bot)}.Op())
-	}
-	paint.FillShape(gtx.Ops, col, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+lw, bot)}.Op())
-}
-
 // ghostSubs draws tab id's sub-rows under its lifted row and returns
 // their height.
 func (s *Sidebar) ghostSubs(gtx layout.Context, v *view, id string) int {
-	y := 0
-	for _, e := range s.shownSubs(v, id) {
+	subs := s.shownSubs(v, id)
+	if len(subs) == 0 {
+		return 0
+	}
+	subsHairline(gtx, v.th, 0, gtx.Constraints.Max.X)
+	y := subsTop(gtx)
+	for _, e := range subs {
 		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		d, _ := s.subRowAt(gtx, v, id, e, true)
 		o.Pop()
 		y += d.Size.Y
 	}
-	return y
+	return y + subsBottom(gtx)
 }
 
 // foldChip is the count on line 2 of a tab with sub-rows, after a

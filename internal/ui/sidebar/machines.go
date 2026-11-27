@@ -3,6 +3,7 @@ package sidebar
 import (
 	"cmp"
 	"image"
+	"image/color"
 	"slices"
 	"strconv"
 	"time"
@@ -152,7 +153,7 @@ func (s *Sidebar) machineGap(gtx layout.Context, first bool) int {
 	case s.HostSections:
 		return gtx.Dp(8)
 	}
-	return gtx.Dp(10)
+	return gtx.Dp(12)
 }
 
 func (s *Sidebar) machineHeight(gtx layout.Context) int {
@@ -249,7 +250,7 @@ func (s *Sidebar) machineHeader(gtx layout.Context, v *view, host string) {
 		if !plus {
 			end = w - gtx.Dp(8)
 		}
-		s.dividerLine(gtx, th, host, hi, down, end)
+		s.dividerLine(gtx, v, host, hi, end)
 	}
 	o := op.Offset(image.Pt(bx, (h-btn)/2)).Push(gtx.Ops)
 	headerButton(gtx, th, &ms.add, icPlus, btn, gtx.Dp(13), plus)
@@ -287,28 +288,15 @@ func (s *Sidebar) toggleHostColor(host string) {
 	}
 }
 
-// sectionLine is a section's header text in gtx's width: chevron, a dot
-// in the machine's color, its name, its latency and tab count (or, folded,
-// what waits on the user).
+// sectionLine is a section's header text in gtx's width: a chevron, then
+// the one machine line every header shares.
 func (s *Sidebar) sectionLine(gtx layout.Context, v *view, host string, hi HostInfo, down bool) {
 	th := v.th
 	ms := s.machine(host)
 	h := gtx.Constraints.Max.Y
-	name, nameC, dot := "This machine", th.Fg, th.Green
-	if host != "" {
-		name, nameC, dot = host, th.Readable(HostColor(th, s.Hosts, host), th.Sidebar), HostColor(th, s.Hosts, host)
-	}
-	if down {
-		nameC, dot = th.Muted, th.Red
-	}
-	note, bad := machineNote(hi, gtx.Now)
-	noteC := th.Muted
-	if bad {
-		noteC = th.Readable(th.Red, th.Sidebar)
-	}
 	folded := s.sectionFolded(v, host)
 	tabs, need := v.sectionCounts(host)
-	count, countC := strconv.Itoa(tabs)+" "+plural(tabs, "tab", "tabs"), th.Muted
+	count, countC := tabCount(tabs), th.Muted
 	if folded && need > 0 {
 		count, countC = strconv.Itoa(need)+" "+plural(need, "needs you", "need you"), th.Readable(th.Yellow, th.Sidebar)
 	}
@@ -319,68 +307,54 @@ func (s *Sidebar) sectionLine(gtx layout.Context, v *view, host string, hi HostI
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X-in, h))
 	defer op.Offset(image.Pt(in, 0)).Push(gtx.Ops).Pop()
-	items := []item{
-		{w: func(gtx layout.Context) layout.Dimensions {
-			return chevron(gtx, &ms.chev, !folded, gtx.Dp(12), th.Muted)
-		}},
-		{w: func(gtx layout.Context) layout.Dimensions {
-			d := gtx.Dp(7)
-			paint.FillShape(gtx.Ops, dot, clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
-			return layout.Dimensions{Size: image.Pt(d, d)}
-		}},
-		{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), nameC, name)
-		}},
-	}
-	if note != "" {
-		items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, th.Sp(theme.Caption), noteC, note)
-		}}, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, "·")
-		}})
-	}
-	items = append(items, item{right: note == "", w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, th.UIFont, th.Sp(theme.Caption), countC, count)
-	}})
+	items := append([]item{{w: func(gtx layout.Context) layout.Dimensions {
+		return chevron(gtx, &ms.chev, !folded, gtx.Dp(12), th.Muted)
+	}}}, machineItems(th, host, hi, gtx.Now, count, countC)...)
 	hrow(g, h, gtx.Dp(7), items...)
 }
 
-// dividerLine is a thin labelled rule: the machine's name, its health,
-// then a line to end.
-func (s *Sidebar) dividerLine(gtx layout.Context, th *theme.Theme, host string, hi HostInfo, down bool, end int) {
+// dividerLine is a machine's line: its name, its latency, and its tab
+// count at end, or in red why it is down.
+func (s *Sidebar) dividerLine(gtx layout.Context, v *view, host string, hi HostInfo, end int) {
+	th := v.th
 	h := gtx.Constraints.Max.Y
-	name, nameC := "This machine", th.Muted
-	if host != "" {
-		name, nameC = host, th.Readable(HostColor(th, s.Hosts, host), th.Sidebar)
-	}
-	if down {
-		nameC = th.Muted
-	}
-	note, bad := machineNote(hi, gtx.Now)
-	noteC := th.Muted
-	if bad {
-		noteC = th.Readable(th.Red, th.Sidebar)
-	}
+	tabs, _ := v.sectionCounts(host)
 	in := gtx.Dp(4)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(max(0, end-in), h)}
-	o := op.Offset(image.Pt(in, 0)).Push(gtx.Ops)
+	g.Constraints = layout.Exact(image.Pt(max(0, end-in), h))
+	defer op.Offset(image.Pt(in, 0)).Push(gtx.Ops).Pop()
+	hrow(g, h, gtx.Dp(7), machineItems(th, host, hi, gtx.Now, tabCount(tabs), th.Muted)...)
+}
+
+// machineItems is the line every machine header draws: the name in Fg,
+// the latency in mono Muted, and count on the right, or in its place, in
+// red, why the machine is down.
+func machineItems(th *theme.Theme, host string, hi HostInfo, now time.Time, count string, countC color.NRGBA) []item {
+	name := "This machine"
+	if host != "" {
+		name = host
+	}
+	note, bad := machineNote(hi, now)
 	items := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), nameC, name)
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Fg, name)
 	}}}
-	if note != "" {
+	if note != "" && !bad {
 		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, th.Sp(theme.Caption), noteC, note)
+			return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, note)
 		}})
 	}
-	d := hrowFit(g, h, gtx.Dp(8), items...)
-	o.Pop()
-	x0, x1 := in+d.Size.X+gtx.Dp(8), end
-	if x1 > x0 {
-		y := h / 2
-		paint.FillShape(gtx.Ops, th.BorderStrong, clip.Rect{Min: image.Pt(x0, y), Max: image.Pt(x1, y+1)}.Op())
+	if bad {
+		return append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Readable(th.Red, th.Sidebar), note)
+		}})
 	}
+	return append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, th, th.UIFont, th.Sp(theme.Caption), countC, count)
+	}})
 }
+
+// tabCount is "1 tab", "3 tabs".
+func tabCount(n int) string { return strconv.Itoa(n) + " " + plural(n, "tab", "tabs") }
 
 // sectionRule is the thin line in host's color down the left of its
 // section (HostSections), from top to bot.

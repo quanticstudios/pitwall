@@ -184,22 +184,6 @@ func TestStateColors(t *testing.T) {
 			t.Errorf("StateColor(%s) = %v, want %v", s, got, want)
 		}
 	}
-	working := &model.Activity{State: model.StateWorking}
-	if rowBase(th, working, false, true) != theme.Mix(th.Sidebar, th.SurfaceSecondary, 0.85) {
-		t.Error("a row with an agent takes the hover fill")
-	}
-	if rowBase(th, working, false, false) != th.Sidebar {
-		t.Error("a working row without hover keeps the sidebar color")
-	}
-	if done := (&model.Activity{State: model.StateCompleted}); rowBase(th, done, false, true) == th.Sidebar {
-		t.Error("a done row takes the hover fill")
-	}
-	if rowBase(th, nil, false, true) != th.SurfaceSecondary {
-		t.Error("an idle row takes the hover fill")
-	}
-	if got, want := rowBase(th, nil, true, false), theme.Mix(th.Sidebar, th.Primary, 0.14); got != want {
-		t.Errorf("active row = %v, want %v", got, want)
-	}
 }
 
 func TestParsePathArc(t *testing.T) {
