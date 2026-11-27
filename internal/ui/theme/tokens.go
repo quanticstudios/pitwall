@@ -121,3 +121,12 @@ const (
 	RadiusPopover unit.Dp = 8
 	RadiusControl unit.Dp = 6
 )
+
+// ChipRows are an inline chip's box rows and its 1 em icon's top on a text
+// line with baseline base, centred on the capitals' middle (0.35 em above
+// the baseline), which the eye lines a chip up against; pad is the room
+// above and below the em.
+func ChipRows(base, em, pad int) (top, bottom, iconY int) {
+	mid := base - em*35/100
+	return mid - em/2 - pad, mid + em - em/2 + pad, mid - em/2
+}
