@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- An Antigravity tab's / menu lists the skills in ~/.agents/skills, the shared folder skillshare and other tools fill, as agy 1.5.18 does. A skill of the same name in ~/.gemini still wins.
+
 ## v0.3.12
 
 - Zen mode keeps the agent's reports between tool calls: words of three lines or more, 240 characters or more, or a list, heading or table, also while the turn runs. Antigravity writes its findings mid-turn and then works on, so Zen hid them, and showed nothing at all of a running turn. Short narration such as "Let me check the tests" stays hidden.
