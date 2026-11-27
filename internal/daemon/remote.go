@@ -328,14 +328,36 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	if agent.StateOf(a.Provider, g) != model.StatePendingApproval {
 		return errors.New("the pane shows no permission prompt to answer")
 	}
+	if !agent.AnswersYes(a.Provider, g) {
+		return errors.New("the pane shows a menu that Allow and Deny do not answer; answer it in its tab")
+	}
 	if allow {
 		if err := sameCommand(a, asked, g); err != nil {
 			return err
 		}
 	}
 	d.noteUserKey(pane, nil)
-	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())})
+	before := screenText(g)
+	if err := d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())}); err != nil {
+		return err
+	}
+	// why: a prompt drawn in a layout pitwall misreads ignores the key; say so
+	// rather than report an answer that never landed.
+	wait := answerWait.get()
+	for end := time.Now().Add(wait); wait > 0; time.Sleep(20 * time.Millisecond) {
+		if screenText(p.Snapshot()) != before {
+			return nil
+		}
+		if time.Now().After(end) {
+			return errors.New("the prompt did not change after the key; answer it in its tab")
+		}
+	}
+	return nil
 }
+
+// answerWait is how long an answer waits for the prompt to take its key; 0
+// does not wait.
+var answerWait = newTiming(2 * time.Second)
 
 // answerNotice shows a window why its answer pressed nothing, as a GUI shows no
 // request's error, and takes that back once one lands. The phone's page gets the

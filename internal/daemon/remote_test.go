@@ -1262,3 +1262,37 @@ func TestCodexSkillEnd(t *testing.T) {
 		}
 	}
 }
+
+// Allow is refused on a menu it does not answer, and an answer whose key
+// leaves the prompt as it was reports that instead of success.
+func TestAnswerChecksTheMenu(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := func(pane string) int64 {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex(pane)].UpdatedAt.UnixNano()
+	}
+	ctx := context.Background()
+	setScreen(f.pane(1), []string{"  Folder access", "› 1. Open restricted", "  2. Back to Agent Command Center", "  enter continue · esc back"})
+	for _, tab := range d.phoneTabs() {
+		if tab.Pane == "b" && tab.Answer {
+			t.Fatal("the phone offers Allow on Codex's folder access")
+		}
+	}
+	for _, allow := range []bool{true, false} {
+		if err := d.handle(ctx, proto.Answer{Pane: "b", At: at("b"), Allow: allow}); err == nil || f.pane(1).got() != "" {
+			t.Fatalf("answered Codex's folder access (allow %v): %v %q", allow, err, f.pane(1).got())
+		}
+	}
+	answerWait.set(100 * time.Millisecond)
+	t.Cleanup(func() { answerWait.set(0) })
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at("a"), Allow: true}); err == nil || !strings.Contains(err.Error(), "did not change") {
+		t.Fatalf("a key the prompt ignored: %v", err)
+	}
+	f.pane(0).mu.Lock()
+	f.pane(0).wrote = func() { f.pane(0).screen = []string{"working"} }
+	f.pane(0).mu.Unlock()
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at("a"), Allow: true}); err != nil {
+		t.Fatalf("a key the prompt took: %v", err)
+	}
+}

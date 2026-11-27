@@ -15,5 +15,6 @@ func TestMain(m *testing.M) {
 	time.Local = time.UTC
 	replyDelay.set(0)
 	imageWait.set(0)
+	answerWait.set(0)
 	testenv.Main(m)
 }

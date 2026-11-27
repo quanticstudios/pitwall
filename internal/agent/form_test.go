@@ -667,3 +667,24 @@ func TestAskedCommand(t *testing.T) {
 		}
 	}
 }
+
+// Allow and Deny answer a menu that lists Yes first. codex-folder-access.txt
+// is Codex 0.172's first screen in an untrusted folder; claude-permission-tip.txt
+// is Claude Code 2.1.332's permission prompt with its auto mode tip.
+func TestAnswersYes(t *testing.T) {
+	for file, want := range map[string]bool{
+		"claude-permission-tip.txt":     true,
+		"claude-permission-warning.txt": true,
+		"tuios-codex-approval.txt":      true,
+		"codex-folder-access.txt":       false,
+		"claude-model-menu.txt":         false,
+	} {
+		p := model.ProviderClaude
+		if strings.Contains(file, "codex") {
+			p = model.ProviderCodex
+		}
+		if got := AnswersYes(p, screenFixture(t, file)); got != want {
+			t.Errorf("%s: AnswersYes = %v, want %v", file, got, want)
+		}
+	}
+}

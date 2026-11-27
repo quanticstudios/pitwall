@@ -107,5 +107,7 @@
   {"file": "antigravity-md-prose.txt", "provider": "antigravity", "state": ""},
   {"file": "antigravity-md-blocks.txt", "provider": "antigravity", "state": ""},
   {"file": "antigravity-md-headings.txt", "provider": "antigravity", "state": ""},
-  {"file": "antigravity-md-streaming.txt", "provider": "antigravity", "state": "working"}
+  {"file": "antigravity-md-streaming.txt", "provider": "antigravity", "state": "working"},
+  {"file": "codex-folder-access.txt", "provider": "codex", "screen": 2, "state": "pending-approval"},
+  {"file": "claude-permission-tip.txt", "provider": "claude", "screen": 2, "state": "pending-approval"}
 ]

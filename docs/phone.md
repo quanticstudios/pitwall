@@ -330,7 +330,10 @@ its repo's own icon, its favicon or logo, as in the window, or a tile with
 the repo's first letter when it has none; the computer sends the icon's
 bytes, never its path. A daemon of v0.2.6 or older sends no icons, and its
 rows show the agent's mark alone. Allow and Deny answer a permission prompt
-from its row; a tap on a row, or on Reply, opens the tab's chat. Tabs an
+from its row, one whose menu lists Yes first; another menu, such as Codex's
+Folder access screen or Claude Code's model picker, says to answer it in its
+tab. An answer the prompt does not take, so its screen stays as it was,
+shows an error instead of "Allowed.". A tap on a row, or on Reply, opens the tab's chat. Tabs an
 agent opened with `pitwall new` or `pitwall worktree new` hang under that
 agent's tab, as with `[sidebar] workers = "separate"`: the tab's row has a
 bar with a segment per worker in its state's color, and a tap on the bar
