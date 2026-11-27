@@ -142,7 +142,8 @@ as the last 8 MiB of the file.
 
 A tab without a session file, a shell or an agent without hooks, shows its
 state and never its screen or scrollback. The page never shows a pane's
-screen.
+screen. The Android app shows it only in a tab's Screen view, which you
+open (see [Use](#use)).
 
 ## Send a message
 
@@ -350,6 +351,7 @@ machines is under each.
 | A menu                   | closes the menu                              |
 | Machines, or Add machine | returns to the sidebar                       |
 | Chat, keyboard up        | hides the keyboard                           |
+| Screen view              | returns to the chat                          |
 | Chat                     | returns to the sidebar                       |
 | A markdown file          | returns to the file before, then to the chat |
 
@@ -358,6 +360,21 @@ the app tries again (after 1 second, then 2, 4 and so on up to 15) and
 Retry tries at once; its last list stays on screen, dimmed, and the other
 machines carry on. Coming back to the foreground tries every machine at
 once.
+
+A terminal tab's chat has a terminal button in its header that opens the
+tab's Screen view: the screen as text, as `pitwall read --screen` prints
+it, read again each second while the view shows. A wide screen gets a
+smaller font, down to a point, then scrolls sideways. Keys under it press
+into the tab as `pitwall send-key` does: Esc, Tab, Shift+Tab, Ctrl+C and
+Enter, the four arrows, and 1 to 9. Use them for a menu pitwall does not
+know, such as Claude Code's "Autocompact at 400k tokens?" dialog. When such
+a menu holds your queued messages, the line over the box says "waiting: a
+menu is open in the agent's terminal" with Open screen at its end. Once
+the menu closes, the messages go in. A guarded tab refuses the keys.
+
+While the agent works and the box is empty, the send button is Stop, a
+square. It interrupts the turn as the window's Stop does. For an agent in a
+terminal that is Esc, and the queue waits until you send again.
 
 `go run ./cmd/pitwall-phone` runs the app in a desktop window, and
 `-demo 1` pairs it with a server of made-up tabs in the same process, and
@@ -467,7 +484,7 @@ other one first, which forgets its pairings.
 `daemon.log` gets a line for each pairing, each opened stream, each
 answer, message and model or effort pick, with the device's name: "allow
 sent to pane …", "message of 42 bytes queued for pane …", "/model sonnet
-sent to pane …", and for each file the app reads, its size and tab, never
+sent to pane …", "key esc sent to pane …", "stop sent to pane …", and for each file the app reads, its size and tab, never
 its path, nor what a message, a reply, a reason or an answer said.
 
 The page loads only its own script and stylesheet, and puts agent text on

@@ -519,8 +519,8 @@ func (a *App) chatLayout(gtx C) {
 
 // screen names what the window shows, so a frame can tell it changed.
 type screen struct {
-	pairing, machines, manual, scanning bool
-	untrusted, chat, menu, reader       string
+	pairing, machines, manual, scanning, terminal bool
+	untrusted, chat, menu, reader                 string
 }
 
 func (a *App) screen() screen {
@@ -528,7 +528,7 @@ func (a *App) screen() screen {
 	if a.reader.v != nil {
 		reader = a.reader.v.Path()
 	}
-	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
+	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.chat.scr.open, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
 }
 
 // layoutFrame paints the background and lays the app out zoomed. It

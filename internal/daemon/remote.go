@@ -195,11 +195,20 @@ func (d *Daemon) remoteServer() *remote.Server {
 		Queue:       d.phoneQueue,
 		OpenDesktop: d.phoneOpenDesktop,
 		Question:    d.phoneQuestion,
+		Screen:      func(pane string) (string, error) { return ctlHub{d}.Read(pane, true) },
+		Key:         func(pane, k string) error { return ctlHub{d}.SendKeys(context.Background(), pane, []string{k}) },
+		Stop:        d.phoneStop,
 		Upload:      d.phoneUpload,
 		SendImage:   d.phoneSendImage,
 		Icons:       &d.phoneIcons,
 		Folder:      d.phoneFolder,
 	}
+}
+
+// phoneStop interrupts pane's agent's turn the way the window's Stop does,
+// for a chat tab and for an agent in a terminal alike.
+func (d *Daemon) phoneStop(pane string) error {
+	return chatRefusal(d.chatRequest(context.Background(), proto.ChatInterrupt{Chat: pane}))
 }
 
 // phoneFolder is a listed tab's working directory, its first agent's or

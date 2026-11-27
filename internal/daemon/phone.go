@@ -115,7 +115,7 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	for i := range tabs {
 		if tabs[i].Queued > 0 && !tabs[i].Chat {
 			if _, err := d.readyWindow(tabs[i].Pane, true); err != nil {
-				tabs[i].Hold = err.Error()
+				tabs[i].Hold, tabs[i].HoldMenu = err.Error(), errors.Is(err, errFormUp)
 				if errors.Is(err, errDraft) {
 					tabs[i].Hold = "you are typing in this tab on the desktop"
 				}
