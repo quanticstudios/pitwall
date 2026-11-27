@@ -85,6 +85,7 @@ type rolloutItem struct {
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
+		Path string `json:"path"` // a local_image's
 	} `json:"content"`
 	Summary []string `json:"summary_text"`
 	Raw     []string `json:"raw_content"`
@@ -234,7 +235,16 @@ func (r *Rollout) item(raw json.RawMessage, turn string, startMS, endMS int64) [
 	switch it.Type {
 	case "UserMessage":
 		text := strings.TrimSpace(it.text())
-		if text == "" {
+		var atts []session.Attachment
+		for _, c := range it.Content {
+			if c.Type != "local_image" {
+				continue
+			}
+			if a, ok := session.ImageFile(c.Path, "", len(atts)+1); ok {
+				atts = append(atts, a)
+			}
+		}
+		if text == "" && len(atts) == 0 {
 			return nil
 		}
 		var out []session.Event
@@ -242,7 +252,7 @@ func (r *Rollout) item(raw json.RawMessage, turn string, startMS, endMS int64) [
 			r.turn = cmp.Or(turn, it.ID)
 			out = append(out, session.Event{Type: session.EventTurnStarted, TurnID: r.turn})
 		}
-		return append(out, session.Event{Type: session.EventContent, ItemID: it.ID, Kind: session.KindUserPrompt, Text: text})
+		return append(out, session.Event{Type: session.EventContent, ItemID: it.ID, Kind: session.KindUserPrompt, Text: text, Attachments: atts})
 	case "AgentMessage":
 		text := it.text()
 		if strings.TrimSpace(text) == "" {

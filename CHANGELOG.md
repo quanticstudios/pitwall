@@ -22,6 +22,10 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- An Antigravity or Codex tab's chat shows the pictures sent with a prompt, as Claude Code's does. Both agents keep a prompt's pictures as files, which pitwall's readers skipped, so every such prompt showed as text alone. A Codex prompt that was only a picture did not show at all, and an Antigravity one showed as "(image)".
+
 ## v0.3.10
 
 - Allow and Deny, on the phone and in the sidebar, answer only a menu that lists Yes first. Codex 0.172's Folder access screen, Claude Code's folder trust dialog and its model and effort pickers also end in "esc back" or "Esc to cancel", so pitwall showed Allow on them: Allow pressed a key the screen ignored, or picked the menu's first entry, and the phone said "Allowed." The phone now says to answer those in their tab.
