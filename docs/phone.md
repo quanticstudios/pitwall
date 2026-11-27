@@ -279,7 +279,9 @@ plain-text question takes an answer through the composer. Other terminal
 forms take no typed answer through the composer, since Enter would select
 an option. Claude Code and Codex terminal questions appear inline in the
 chat with 48 dp option buttons. MultiSelect questions have toggles and Submit. Other
-takes a typed answer. Several questions advance one page at a time, then
+takes a typed answer. A Claude Code question with previews beside its
+options has no "Type something" row: a typed answer picks "Chat about
+this", which closes the question, and goes to Claude as a message. Several questions advance one page at a time, then
 show the agent's review or submit page. Each answer names the current page;
 a changed page refuses an older tap. Always and Approve plan remain on
 the sidebar. pi has no permission prompts.

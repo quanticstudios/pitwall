@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
@@ -173,6 +175,124 @@ func TestAnswerPages(t *testing.T) {
 			}
 			if tc.name == "single" && took > time.Second {
 				t.Fatalf("a single question took %v", took)
+			}
+		})
+	}
+}
+
+// fakePreviewAsk is Claude Code's preview layout on a fake pane: two
+// options, no "Type something", and "Chat about this" a Down past the
+// last option. Enter there drops the question for the prompt, where the
+// keys typed next become a message.
+type fakePreviewAsk struct {
+	p      *fakePane
+	read   int
+	cursor int // 2 is "Chat about this"
+	picked string
+	closed bool
+	sent   []string
+	typed  string
+}
+
+func newFakePreviewAsk(p *fakePane) *fakePreviewAsk {
+	a := &fakePreviewAsk{p: p}
+	p.mu.Lock()
+	p.screen = a.draw()
+	p.wrote = a.keys
+	p.mu.Unlock()
+	return a
+}
+
+func (a *fakePreviewAsk) keys() {
+	in := string(a.p.input[a.read:])
+	a.read = len(a.p.input)
+	for in != "" {
+		switch {
+		case a.closed && in[0] == '\r':
+			a.sent, a.typed = append(a.sent, a.typed), ""
+			in = in[1:]
+		case a.closed:
+			a.typed += in[:1]
+			in = in[1:]
+		case strings.HasPrefix(in, "\x1b[B"):
+			a.cursor = min(a.cursor+1, 2)
+			in = in[3:]
+		case strings.HasPrefix(in, "\x1b[A"):
+			a.cursor = max(a.cursor-1, 0)
+			in = in[3:]
+		case in[0] == '\r':
+			a.closed = true
+			if a.cursor < 2 {
+				a.picked = []string{"Split", "Stack"}[a.cursor]
+			}
+			in = in[1:]
+		default:
+			in = in[1:]
+		}
+	}
+	a.p.screen = a.draw()
+}
+
+func (a *fakePreviewAsk) draw() []string {
+	sep := strings.Repeat("─", 20) // the fake pane cuts a row at 80 bytes
+	if a.closed {
+		return []string{"● Declined to answer Claude's questions:", sep, "❯ " + a.typed, sep, "  ⏸ manual mode on · ? for shortcuts"}
+	}
+	mark := func(i int) string {
+		// why: Claude Code 2.1.332 keeps the last option's ❯ while the cursor is on "Chat about this".
+		if a.cursor == i || a.cursor == 2 && i == 1 {
+			return "❯ "
+		}
+		return "  "
+	}
+	chat := "  "
+	if a.cursor == 2 {
+		chat = "❯ "
+	}
+	return []string{sep, " ☐ Layout", "", "Which layout?", "",
+		mark(0) + "1. Split                        ┌──────────┐",
+		mark(1) + "2. Stack                        │ A | B    │",
+		"                                  └──────────┘", "",
+		"                                  Notes: press n to add notes", "",
+		sep, chat + "Chat about this", "",
+		"Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel"}
+}
+
+// TestPreviewCustomAnswer: a typed answer to a question in Claude Code's
+// preview layout goes to "Chat about this", Enter, then in as a message,
+// from the desktop's drive and the phone's; an option still picks it.
+func TestPreviewCustomAnswer(t *testing.T) {
+	qs := []session.Question{{ID: "layout", Prompt: "Which layout?", Options: []session.PromptOption{{Label: "Split"}, {Label: "Stack"}}}}
+	for _, tc := range []struct {
+		name, answer, keys, picked string
+		sent                       []string
+		phone                      bool
+	}{
+		{"custom", "a grid of four", "\x1b[B\x1b[B\ra grid of four\r", "", []string{"a grid of four"}, false},
+		{"phone custom", "a grid of four", "\x1b[B\x1b[B\ra grid of four\r", "", []string{"a grid of four"}, true},
+		{"option", "Stack", "\x1b[B\r", "Stack", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f, _ := remoteDaemon(t)
+			a := newFakePreviewAsk(f.pane(0))
+			var err error
+			if tc.phone {
+				q := agent.ReadQuestion(model.ProviderClaude, f.pane(0).Snapshot())
+				if q == nil || !q.Other || !q.Chat {
+					t.Fatalf("question %+v", q)
+				}
+				err = d.phoneQuestion("a", q.ID, -2, tc.answer)
+			} else {
+				err = d.answerPages("a", f.pane(0), qs, map[string][]string{"layout": {tc.answer}})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := gotAfter(t, f.pane(0), 0, len(tc.keys))
+			f.pane(0).mu.Lock()
+			defer f.pane(0).mu.Unlock()
+			if got != tc.keys || a.picked != tc.picked || !reflect.DeepEqual(a.sent, tc.sent) {
+				t.Fatalf("keys %q picked %q sent %q", got, a.picked, a.sent)
 			}
 		})
 	}

@@ -27,6 +27,7 @@ takes `--dry-run`.
 - A sidebar tab whose agent is back at its prompt while something it started still runs (Background), or that watches its workers (Watching), draws its ring in gray, not in Working's blue. Blue now means an agent mid-turn.
 - A sidebar tile's outline, and the selected tile's blue ring, is a crisp 1px line on all four sides. It was drawn across two pixels at half strength, so its top and bottom looked blurry and the window cut off its left and right halves.
 - An [Image #N] chip, in a sent message and in the box while you type, centres its box and icon on the middle of the line's capitals. The box hung low, with more room under the text than over it, and the icon sat about a quarter em under the text's middle.
+- A Claude Code question with option previews has no "Type something" row, and pitwall refused a typed answer to it with "is not an option and this question does not accept a custom answer". Now the desktop question card, the phone's question card and the phone page take a typed answer there: pitwall picks "Chat about this", which closes the question, and sends your text to Claude as a message.
 
 ## v0.3.11
 
