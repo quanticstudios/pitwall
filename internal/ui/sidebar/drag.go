@@ -639,7 +639,7 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 		tint := th.Primary
 		tint.A = 20 // the rows show through
 		paint.FillShape(gtx.Ops, tint, clip.UniformRRect(rect, gtx.Dp(8)).Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.7), clip.Stroke{Path: clip.UniformRRect(rect, gtx.Dp(8)).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
+		kit.Border(gtx, rect, gtx.Dp(8), gtx.Dp(1.5), theme.Mix(th.Sidebar, th.Primary, 0.7))
 	}
 	if d.ok && d.into && !v.inbox {
 		for _, e := range s.elems {
@@ -647,7 +647,7 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 				y := e.head - s.scroll + int(s.drawnOff(e))
 				rect := image.Rect(gtx.Dp(4), y, size.X-gtx.Dp(4), y+gtx.Dp(40))
 				paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.14), clip.UniformRRect(rect, gtx.Dp(8)).Op(gtx.Ops))
-				paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.7), clip.Stroke{Path: clip.UniformRRect(rect, gtx.Dp(8)).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
+				kit.Border(gtx, rect, gtx.Dp(8), gtx.Dp(1.5), theme.Mix(th.Sidebar, th.Primary, 0.7))
 			}
 		}
 	}

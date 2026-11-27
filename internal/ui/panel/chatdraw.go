@@ -17,6 +17,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/syntax"
@@ -527,7 +528,7 @@ func (d *cdraw) thumbFace(gtx layout.Context, tb thumb, w, h, n int, hover bool)
 		paint.FillShape(gtx.Ops, veil, clip.Rect(r).Op())
 	}
 	cl.Pop()
-	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(r, rad).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	kit.Border(gtx, r, rad, gtx.Dp(1), th.BorderStrong)
 	call, td := measure(gtx, func(gtx layout.Context) layout.Dimensions {
 		return d.lbl(gtx, medium(th.UIFont), th.Sp(theme.Caption), th.Fg, "#"+strconv.Itoa(n))
 	})

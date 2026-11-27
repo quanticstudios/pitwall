@@ -8,13 +8,12 @@ import (
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -42,9 +41,7 @@ func cursorFill(th *theme.Theme, base color.NRGBA, active bool) color.NRGBA {
 
 // cursorRing draws the cursor's ring in Primary just inside rect.
 func cursorRing(gtx layout.Context, th *theme.Theme, rect image.Rectangle, r int) {
-	w := gtx.Dp(cursorRingW)
-	path := clip.UniformRRect(rect.Inset(w/2), max(r-w/2, 0)).Path(gtx.Ops)
-	paint.FillShape(gtx.Ops, th.Primary, clip.Stroke{Path: path, Width: float32(w)}.Op())
+	kit.Border(gtx, rect, r, gtx.Dp(cursorRingW), th.Primary)
 }
 
 // cursor is the keyboard's place in the sidebar and in an open menu.

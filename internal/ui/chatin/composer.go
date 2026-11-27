@@ -1111,7 +1111,7 @@ func (c *Composer) chip(gtx layout.Context, th *theme.Theme, im *Image) layout.D
 		paint.Fill(gtx.Ops, th.SurfaceElevated)
 	}
 	cl.Pop()
-	paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Stroke{Path: shape.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	kit.Border(gtx, rect, r, gtx.Dp(1), th.BorderSubtle)
 	b := c.rm[im.N]
 	if b == nil {
 		b = new(widget.Clickable)

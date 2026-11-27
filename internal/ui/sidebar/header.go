@@ -13,6 +13,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -203,9 +204,9 @@ func countBadge(gtx layout.Context, th *theme.Theme, size, n int) {
 	bw := max(bh, ld.Size.X+gtx.Dp(6))
 	at := image.Pt(size-bw, 0) // why: inside the button, whose clip would cut a badge over its corner
 	paint.FillShape(gtx.Ops, th.Sidebar, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}.Inset(-gtx.Dp(1)), bh/2+gtx.Dp(1)).Op(gtx.Ops))
-	rr := clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}, bh/2)
-	paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Yellow, 0.6), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	badge := image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}
+	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(badge, bh/2).Op(gtx.Ops))
+	kit.Border(gtx, badge, bh/2, gtx.Dp(1), theme.Mix(th.Sidebar, th.Yellow, 0.6))
 	o := op.Offset(at.Add(image.Pt((bw-ld.Size.X)/2, (bh-ld.Size.Y)/2))).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	o.Pop()

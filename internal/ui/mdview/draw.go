@@ -247,7 +247,7 @@ func (d *Doc) marker(gtx gl.Context, th *theme.Theme, b *Block) {
 			sidebar.Icon(gtx, "check", s-gtx.Dp(2), th.OnPrimary)
 			t.Pop()
 		} else {
-			paint.FillShape(gtx.Ops, th.Muted, clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
+			kit.Border(gtx, r, gtx.Dp(3), gtx.Dp(1.5), th.Muted)
 		}
 		return
 	}

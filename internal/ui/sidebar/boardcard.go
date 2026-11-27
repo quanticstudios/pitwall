@@ -94,7 +94,7 @@ func (s *Sidebar) boardCard(gtx layout.Context, th *theme.Theme, st *model.State
 			paint.FillShape(gtx.Ops, acc, clip.UniformRRect(image.Rect(0, padT, gtx.Dp(3), size.Y-padT), gtx.Dp(2)).Op(gtx.Ops))
 		}
 		if s.bd.cur == card.ID {
-			paint.FillShape(gtx.Ops, th.Primary, clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), r-1).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
+			kit.Border(gtx, rect, r, gtx.Dp(1.5), th.Primary)
 		}
 		return layout.Dimensions{Size: size}
 	})

@@ -541,7 +541,7 @@ func (s *Sidebar) replySheet(gtx layout.Context, v *view, ws model.Workspace, a 
 	field := image.Rect(pad, y, pad+inner, y+fieldH)
 	rr := gtx.Dp(6)
 	paint.FillShape(gtx.Ops, th.Bg, clip.UniformRRect(field, rr).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Primary, 0.6), clip.Stroke{Path: clip.UniformRRect(field, rr).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	kit.Border(gtx, field, rr, gtx.Dp(1), theme.Mix(th.Bg, th.Primary, 0.6))
 	off = op.Offset(field.Min.Add(image.Pt(fieldPad, fieldPad))).Push(gtx.Ops)
 	if r.ed.Len() == 0 {
 		lg := gtx

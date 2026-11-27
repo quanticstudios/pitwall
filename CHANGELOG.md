@@ -28,6 +28,7 @@ takes `--dry-run`.
 - A sidebar tile's outline, and the selected tile's blue ring, is a crisp 1px line on all four sides. It was drawn across two pixels at half strength, so its top and bottom looked blurry and the window cut off its left and right halves.
 - An [Image #N] chip, in a sent message and in the box while you type, centres its box and icon on the middle of the line's capitals. The box hung low, with more room under the text than over it, and the icon sat about a quarter em under the text's middle.
 - A Claude Code question with option previews has no "Type something" row, and pitwall refused a typed answer to it with "is not an option and this question does not accept a custom answer". Now the desktop question card, the phone's question card and the phone page take a typed answer there: pitwall picks "Chat about this", which closes the question, and sends your text to Claude as a message.
+- 1px rings look the same on all four sides at scale 1: the header's count badge, the sidebar's reply field, the keyboard cursor, drop targets, the board's cards and key hints, the chat's image thumbnails, the composer's image and quote chips and their edit field, a dialog's error ring, Skillshare's checkboxes and markdown task boxes. Each was a line centred on the edge, which blurred its top and bottom over two pixels and lost the outer half of its sides. It is now one full pixel inside the edge.
 
 ## v0.3.11
 

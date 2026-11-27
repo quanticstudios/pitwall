@@ -12,6 +12,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -84,7 +85,7 @@ func (d *cdraw) toolThumb(gtx layout.Context, k string, a session.Attachment) la
 			paint.FillShape(gtx.Ops, veil, clip.Rect(r).Op())
 		}
 		cl.Pop()
-		paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(r, rad).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+		kit.Border(gtx, r, rad, gtx.Dp(1), th.BorderStrong)
 		return layout.Dimensions{Size: r.Size()}
 	})
 }
@@ -148,7 +149,7 @@ func (t *Transcript) zoomLayer(gtx layout.Context, d *cdraw, size image.Point) {
 				return widget.Image{Src: img.img, Fit: widget.Contain, Position: layout.Center}.Layout(gtx)
 			})
 			cl.Pop()
-			paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(r, rad).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+			kit.Border(gtx, r, rad, gtx.Dp(1), th.BorderStrong)
 		}
 		return layout.Dimensions{Size: size}
 	})

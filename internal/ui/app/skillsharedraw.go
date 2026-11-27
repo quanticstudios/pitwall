@@ -1137,7 +1137,7 @@ func (u *ui) ssInstallRows(gtx gl.Context, v skillshare.View) []ssW {
 						sidebar.Icon(gtx, "check", gtx.Dp(12), th.OnPrimary)
 						o.Pop()
 					} else {
-						paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: clip.UniformRRect(box, gtx.Dp(4)).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+						kit.Border(gtx, box, gtx.Dp(4), gtx.Dp(1), th.BorderStrong)
 					}
 					o := op.Offset(image.Pt(b+gtx.Dp(12), gtx.Dp(3))).Push(gtx.Ops)
 					u.ssLine(gtx, medium(th.UIFont), th.Sp(theme.Body), th.Fg, c.Name)
