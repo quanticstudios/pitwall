@@ -508,6 +508,12 @@ func (c *Client) Stop(ctx context.Context, pane string) error {
 	return c.call(ctx, "POST", "api/stop", map[string]string{"pane": pane}, nil)
 }
 
+// Queue runs action on pane's queued message id: "now" sends it, "remove"
+// drops it, "move" puts it at index, 0 first.
+func (c *Client) Queue(ctx context.Context, pane, id, action string, index int) error {
+	return c.call(ctx, "POST", "api/queue", map[string]any{"pane": pane, "id": id, "action": action, "index": index}, nil)
+}
+
 // View tells the computer the app shows pane's chat now (on), a beat it
 // repeats while it does, or that it left the foreground or the chat.
 func (c *Client) View(ctx context.Context, pane string, on bool) error {

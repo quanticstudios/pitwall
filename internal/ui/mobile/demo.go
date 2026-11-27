@@ -33,6 +33,7 @@ var DemoStates = []string{
 	"following", "scrolled", "ready", "queued", "six-lines", "sending", "not-sent",
 	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host", "screen",
 	"agy", "agy-model-menu", "agy-mode-menu", "away", "away-short",
+	"idle", "needs-you", "queued-two", "tab-menu",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -63,6 +64,9 @@ func (demoAPI) Key(ctx context.Context, pane, key string) error         { return
 func (demoAPI) Stop(ctx context.Context, pane string) error             { return nil }
 func (demoAPI) AwayDismiss(context.Context, string) error               { return nil }
 func (demoAPI) View(context.Context, string, bool) error                { return nil }
+func (demoAPI) Queue(context.Context, string, string, string, int) error {
+	return nil
+}
 
 // demoScreen is Claude Code's autocompact dialog, a menu pitwall does not
 // read, as the Screen view shows it.
@@ -175,6 +179,15 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 		env.Tab.Model, env.Tab.Effort, env.Tab.Mode = "Gemini 4 Neon", "high", "auto"
 		k.effort, c.data.Model = "", ""
 		k.menu = map[string]string{"agy-model-menu": "model", "agy-mode-menu": "mode"}[state]
+	case "idle":
+		idleTab()
+	case "tab-menu":
+		env.CanClose, c.menu.open = true, true
+	case "needs-you":
+		env.Tab.State, env.Tab.Label, env.Tab.Detail = "awaiting-input", "Input", ""
+	case "queued-two":
+		env.Tab.Queued = 2
+		env.Tab.Queue = []remote.QueueRow{{ID: "q1", Text: "Run the cart benchmarks before you commit"}, {ID: "q2", Text: "Then open a PR against main and paste the numbers in its body"}}
 	case "approval":
 		env.Tab.State, env.Tab.Label, env.Tab.Detail, env.Tab.Answer = "pending-approval", "Approval", demoRun, true
 		c.data.Entries = c.data.Entries[:6]
@@ -197,14 +210,17 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	return &c, env, focus
 }
 
-// ChatShot draws the chat in state at 412x860dp, scale px per dp, and
-// writes it to path as a PNG, with no window.
+// ShotWidth is ChatShot's width in dp; pwdemo-chat's -width sets it.
+var ShotWidth = 412
+
+// ChatShot draws the chat in state at ShotWidth x 860dp, scale px per dp,
+// and writes it to path as a PNG, with no window.
 func ChatShot(th *theme.Theme, state, path string, scale float32) error {
 	if !slices.Contains(DemoStates, state) {
 		return errors.New("no demo state " + state + "; one of " + strings.Join(DemoStates, ", "))
 	}
 	c, env, focus := demoChat(state)
-	size := image.Pt(int(412*scale), int(860*scale))
+	size := image.Pt(int(float32(ShotWidth)*scale), int(860*scale))
 	win, err := headless.NewWindow(size.X, size.Y)
 	if err != nil {
 		return err

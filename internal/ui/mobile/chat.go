@@ -48,6 +48,7 @@ type chatAPI interface {
 	Screen(ctx context.Context, pane string) (string, error)
 	Key(ctx context.Context, pane, key string) error
 	Stop(ctx context.Context, pane string) error
+	Queue(ctx context.Context, pane, id, action string, index int) error
 	CloseTab(ctx context.Context, tab string) error
 	Restart(ctx context.Context, pane string) error
 	AwayDismiss(ctx context.Context, pane string) error
@@ -110,7 +111,7 @@ type chatView struct {
 	tapped     string // a link tapped in a reply this frame
 
 	backBtn, newBtn, retry widget.Clickable
-	screenBtn, restartBtn  widget.Clickable
+	restartBtn             widget.Clickable
 	restarting             bool   // a Restart went; the band says so until the tab runs
 	lost                   string // the Screen view's tab went: the sidebar's note
 	scr                    screenView
@@ -207,9 +208,6 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	if c.backBtn.Clicked(gtx) || c.menu.gone {
 		return true
 	}
-	if c.screenBtn.Clicked(gtx) && env.CanScreen {
-		c.scr.show()
-	}
 	if c.scr.lost(env) {
 		c.lost = c.scr.lostNote()
 		return true
@@ -238,7 +236,6 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	var top int // the composer's top, which the menus open above
 	total := gtx.Constraints.Max.Y
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx C) D { return c.header(gtx, th, env) }),
 		layout.Rigid(func(gtx C) D {
 			if env.Online {
 				return D{}
@@ -246,17 +243,22 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 			return offlineLine(gtx, th, env.Offline, &c.retry, env.Retry != nil)
 		}),
 		layout.Flexed(1, func(gtx C) D {
-			if !env.Online {
-				defer paint.PushOpacity(gtx.Ops, 0.62).Pop()
-			}
-			return layout.Stack{Alignment: layout.S}.Layout(gtx,
-				layout.Expanded(func(gtx C) D { return c.log(gtx, th, env) }),
-				layout.Stacked(func(gtx C) D {
-					if !c.fresh {
-						return D{}
+			return layout.Stack{}.Layout(gtx,
+				layout.Expanded(func(gtx C) D {
+					if !env.Online {
+						defer paint.PushOpacity(gtx.Ops, 0.62).Pop()
 					}
-					return c.newPill(gtx, th)
+					return layout.Stack{Alignment: layout.S}.Layout(gtx,
+						layout.Expanded(func(gtx C) D { return c.log(gtx, th, env) }),
+						layout.Stacked(func(gtx C) D {
+							if !c.fresh {
+								return D{}
+							}
+							return c.newPill(gtx, th)
+						}),
+					)
 				}),
+				layout.Stacked(func(gtx C) D { return c.titleBar(gtx, th, env) }),
 			)
 		}),
 		layout.Rigid(func(gtx C) D {
@@ -300,78 +302,6 @@ func (c *chatView) follow(gtx C, ce chatEnv, link string) {
 	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(link))})
 }
 
-// header is Back, the tab's name, and its state pill, agent and model.
-func (c *chatView) header(gtx C, th *theme.Theme, env chatEnv) D {
-	t := env.Tab
-	name := t.Tab
-	if !env.Open {
-		name = "Tab"
-	}
-	h := gtx.Dp(64)
-	d := layout.Inset{Left: 4, Right: 12}.Layout(gtx, func(gtx C) D {
-		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, h)
-		return midFlex(gtx,
-			layout.Rigid(func(gtx C) D { return roundButton(gtx, th, &c.backBtn, icBack, 24, th.Fg) }),
-			layout.Flexed(1, func(gtx C) D {
-				return layout.Inset{Left: 4}.Layout(gtx, func(gtx C) D {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx C) D {
-							return label(gtx, th, weight(th.UIFont, font.SemiBold), 18, th.Fg, 1, name)
-						}),
-						layout.Rigid(layout.Spacer{Height: 3}.Layout),
-						layout.Rigid(func(gtx C) D {
-							if !env.Open {
-								return label(gtx, th, th.UIFont, 14, th.Muted, 1, "This tab is not open now.")
-							}
-							return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-								layout.Rigid(func(gtx C) D {
-									if t.State == "" {
-										return D{}
-									}
-									return layout.Inset{Right: 7}.Layout(gtx, func(gtx C) D { return statePill(gtx, th, t, th.Bg) })
-								}),
-								layout.Rigid(func(gtx C) D {
-									if env.Host == "" {
-										return D{}
-									}
-									return layout.Inset{Right: 7}.Layout(gtx, func(gtx C) D { return hostTag(gtx, th, env) })
-								}),
-								layout.Flexed(1, func(gtx C) D {
-									return label(gtx, th, th.UIFont, 14, th.Muted, 1, c.agentLine(t))
-								}),
-							)
-						}),
-					)
-				})
-			}),
-			layout.Rigid(func(gtx C) D {
-				if !env.Open || t.Chat || !env.CanScreen {
-					return D{}
-				}
-				return roundButton(gtx, th, &c.screenBtn, "terminal", 22, th.Fg)
-			}),
-			layout.Rigid(func(gtx C) D { return c.tabMenuButton(gtx, th, env) }),
-		)
-	})
-	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, d.Size.Y-1), Max: d.Size}.Op())
-	return d
-}
-
-// agentLine is "Claude Code · Opus 5.5": the agent, and its model by name.
-func (c *chatView) agentLine(t remote.Tab) string {
-	parts := []string{}
-	if n := agentName(t.Agent); n != "" {
-		parts = append(parts, n)
-	}
-	if m := c.cmp.modelShown(c.currentModel(t)); m != "" {
-		parts = append(parts, m)
-	}
-	if len(parts) == 0 && !t.Chat {
-		return "Terminal" // why: a shell has no agent or state, and the line would stay blank
-	}
-	return strings.Join(parts, " · ")
-}
-
 // agentName is the agent's name as the chat says it: Claude Code, not the
 // sidebar's Claude.
 func agentName(agent string) string {
@@ -383,40 +313,6 @@ func agentName(agent string) string {
 		return ""
 	}
 	return sidebar.AgentName(p)
-}
-
-// statePill is the tab's state in the sidebar's colors, with a dot while
-// it works.
-func statePill(gtx C, th *theme.Theme, t remote.Tab, base color.NRGBA) D {
-	s := model.AgentState(t.State)
-	col := sidebar.StateColor(th, s)
-	if t.Exited {
-		col = th.Muted // why: StateColor's green would read "Exited 1" as a success
-	}
-	bg, fg := th.Chip(col, base)
-	text := t.Label
-	if text == "" {
-		text = model.PillLabel(model.Activity{State: s})
-	}
-	dot := s == model.StateWorking || s == model.StateConnecting
-	h := gtx.Dp(20)
-	m := op.Record(gtx.Ops)
-	d := layout.Inset{Left: 8, Right: 8}.Layout(gtx, func(gtx C) D {
-		gtx.Constraints.Min.Y = h
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx C) D {
-				if !dot {
-					return D{}
-				}
-				return layout.Inset{Right: 5}.Layout(gtx, func(gtx C) D { return circle(gtx, fg, 6) })
-			}),
-			layout.Rigid(func(gtx C) D { return label(gtx, th, weight(th.UIFont, font.SemiBold), 12.5, fg, 1, text) }),
-		)
-	})
-	call := m.Stop()
-	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: d.Size}, d.Size.Y/2).Op(gtx.Ops))
-	call.Add(gtx.Ops)
-	return d
 }
 
 // offlineText is the offline line's words, with the seconds until the
@@ -541,12 +437,7 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 			n++
 		}
 	}
-	working, busy := c.data.Working(env.Tab)
-	if busy && env.Open {
-		n++
-	} else {
-		working = ""
-	}
+	working := "" // why: the composer's status row shows what the agent does
 	hasQuestion := env.Open && env.Tab.Question != nil
 	if hasQuestion {
 		n++
@@ -555,7 +446,7 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		in := layout.Inset{Left: 16, Right: 16, Bottom: 10}
 		if i == 0 {
-			in.Bottom = 0
+			in.Bottom, in.Top = 0, pillClear-10 // why: the floating title pill covers the top
 		}
 		return in.Layout(gtx, func(gtx C) D {
 			if hasQuestion && i == n-1 {

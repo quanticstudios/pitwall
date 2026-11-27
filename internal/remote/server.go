@@ -199,8 +199,9 @@ type Server struct {
 	// daemon refuses what its desktop chips would, as a model mid-turn.
 	Send    func(pane, text string) (id uint64, err error)
 	Command func(pane, command string) error
-	// Queue sends pane's chat's queued message id now, or removes it.
-	Queue       func(pane, id, action string) error
+	// Queue sends pane's chat's queued message id now, removes it, or
+	// moves it to index.
+	Queue       func(pane, id, action string, index int) error
 	OpenDesktop func(pane string) error
 	Question    func(pane, id string, option int, text string) error
 	// Screen is pane's screen as pitwall read --screen prints it, Key
