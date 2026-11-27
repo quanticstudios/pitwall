@@ -25,6 +25,7 @@ takes `--dry-run`.
 ## Unreleased
 
 - The phone app sends your message again when you tap Send. Since v0.3.11 the Stop check took the tap first, so nothing went out.
+- A remote machine's header in the sidebar names it in the color its machine has, the one its left rule shows and its color picker sets, not always purple.
 
 ## v0.3.14
 

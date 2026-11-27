@@ -309,7 +309,7 @@ func (s *Sidebar) sectionLine(gtx layout.Context, v *view, host string, hi HostI
 	defer op.Offset(image.Pt(in, 0)).Push(gtx.Ops).Pop()
 	items := append([]item{{w: func(gtx layout.Context) layout.Dimensions {
 		return chevron(gtx, &ms.chev, !folded, gtx.Dp(12), th.Muted)
-	}}}, machineItems(th, host, hi, gtx.Now, count, countC)...)
+	}}}, machineItems(th, s.Hosts, host, hi, gtx.Now, count, countC)...)
 	hrow(g, h, gtx.Dp(7), items...)
 }
 
@@ -323,17 +323,18 @@ func (s *Sidebar) dividerLine(gtx layout.Context, v *view, host string, hi HostI
 	g := gtx
 	g.Constraints = layout.Exact(image.Pt(max(0, end-in), h))
 	defer op.Offset(image.Pt(in, 0)).Push(gtx.Ops).Pop()
-	hrow(g, h, gtx.Dp(7), machineItems(th, host, hi, gtx.Now, tabCount(tabs), th.Muted)...)
+	hrow(g, h, gtx.Dp(7), machineItems(th, s.Hosts, host, hi, gtx.Now, tabCount(tabs), th.Muted)...)
 }
 
-// machineItems is the line every machine header draws: the name, Purple
-// for a host and Muted for this machine, the latency in mono Muted, a
+// machineItems is the line every machine header draws: the name, in the
+// host's color (HostColor, the one its rule and picker show) for a host and
+// Muted for this machine, the latency in mono Muted, a
 // hairline, and count on the right, or in its place, in red, why the
 // machine is down.
-func machineItems(th *theme.Theme, host string, hi HostInfo, now time.Time, count string, countC color.NRGBA) []item {
+func machineItems(th *theme.Theme, hosts []HostInfo, host string, hi HostInfo, now time.Time, count string, countC color.NRGBA) []item {
 	name, nameC := "This machine", th.Muted
 	if host != "" {
-		name, nameC = host, th.Purple
+		name, nameC = host, HostColor(th, hosts, host)
 	}
 	note, bad := machineNote(hi, now)
 	items := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
