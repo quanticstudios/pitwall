@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,10 @@ type Question struct {
 	Notes       bool              `json:"-"`
 	Draft       bool              `json:"-"`
 	WriteIn     bool              `json:"-"`
+	// Chat is whether Other is Claude Code's "Chat about this" row, which
+	// its preview layout offers in place of "Type something": Enter there
+	// drops the question, and the answer goes in as a message.
+	Chat bool `json:"-"`
 }
 
 // QuestionTab is one tab in a multi-question header bar.
@@ -182,6 +187,9 @@ func readClaudeQuestion(g vt.Grid) *Question {
 				q.Cursor = submitIdx
 			}
 		}
+	}
+	if !q.Other && !q.Multi && slices.ContainsFunc(rows[first:end], func(l string) bool { return strings.TrimSpace(l) == "Chat about this" }) {
+		q.Other, q.Chat, q.OtherIndex = true, true, len(q.Options)
 	}
 	if q.Cursor < 0 {
 		return nil

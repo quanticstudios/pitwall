@@ -29,8 +29,8 @@ func TestReadQuestion(t *testing.T) {
 		{"3q-step3", "Which size?", 2, false, true, false, 3, false},
 		{"3q-step3-other", "Which size?", 2, false, true, false, 3, false},
 		{"3q-review", "Review your answers", 2, false, false, false, 3, true},
-		{"preview", "Which layout?", 2, false, false, false, 1, false},
-		{"preview-opt2", "Which layout?", 2, false, false, false, 1, false},
+		{"preview", "Which layout?", 2, false, true, false, 1, false},
+		{"preview-opt2", "Which layout?", 2, false, true, false, 1, false},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			g := screenFixture(t, "claude-ask-"+tc.file+".txt")
@@ -64,6 +64,15 @@ func TestReadQuestion(t *testing.T) {
 	}
 	if q := ReadQuestion(model.ProviderClaude, screenFixture(t, "claude-ask-preview-opt2.txt")); q == nil || q.Cursor != 1 {
 		t.Fatalf("preview opt2: %+v", q)
+	}
+	// The preview layout has no "Type something": a custom answer goes
+	// through "Chat about this", the row under the options.
+	for _, file := range []string{"preview", "preview-opt2", "preview-tall", "single", "multi"} {
+		q := ReadQuestion(model.ProviderClaude, screenFixture(t, "claude-ask-"+file+".txt"))
+		chat := strings.HasPrefix(file, "preview")
+		if q == nil || q.Chat != chat || !q.Other || chat && q.OtherIndex != len(q.Options) {
+			t.Errorf("%s: chat other %+v", file, q)
+		}
 	}
 	// Multi-select checked state, Next button, and tab answered flags.
 	if q := ReadQuestion(model.ProviderClaude, screenFixture(t, "claude-ask-3q-step2-multi-checked.txt")); q == nil ||

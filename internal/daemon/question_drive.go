@@ -395,9 +395,13 @@ func (d *Daemon) answerAllPages(id string, p questionPane, prov model.Provider, 
 			if err := d.driveGoto(id, p, prov, qs, k); err != nil {
 				return err
 			}
+			q = agent.ReadQuestion(prov, p.Snapshot())
 		}
 		if err := d.driveAnswerStep(id, p, prov, qs, k, review, answers[sq.ID]); err != nil {
 			return err
+		}
+		if chatsAnswer(q, answers[sq.ID]) {
+			return nil // why: "Chat about this" dropped the questions left
 		}
 	}
 	if review {
@@ -515,6 +519,9 @@ func (d *Daemon) driveAnswerStep(id string, p questionPane, prov model.Provider,
 		}
 	}
 
+	if chatsAnswer(q, vals) {
+		return d.answerByChat(id, q, vals[0])
+	}
 	var lastID string
 	var err error
 	if q.Multi {
@@ -747,6 +754,70 @@ func (d *Daemon) moveCursor(id string, p questionPane, from, to int) error {
 func (d *Daemon) sendPaneKey(id string, _ questionPane, data []byte) error {
 	d.noteUserKey(id, nil)
 	return d.handle(context.Background(), proto.Input{Pane: id, Data: data})
+}
+
+// chatsAnswer reports whether vals answers q through "Chat about this":
+// q has no "Type something" row and vals is no option of it.
+func chatsAnswer(q *agent.Question, vals []string) bool {
+	return q != nil && q.Chat && !q.Multi && len(vals) > 0 && findOptionIndex(q.Options, vals[0]) < 0
+}
+
+// answerByChat gives text as the custom answer to Claude Code question q on
+// pane id the way a person would without a "Type something" row: Enter on
+// "Chat about this", which drops the question, then text as a message once
+// the input box is back. Callers hold sendMu.
+func (d *Daemon) answerByChat(id string, q *agent.Question, text string) error {
+	if remote.Clean(text) == "" {
+		return errors.New("type an answer for Other")
+	}
+	d.mu.Lock()
+	p := d.panes[id]
+	d.mu.Unlock()
+	if p == nil {
+		return errors.New("the agent exited")
+	}
+	if err := d.moveCursor(id, p, q.Cursor, q.OtherIndex); err != nil {
+		return err
+	}
+	if !waitGrid(p, chatFocused) {
+		return errors.New(`Claude Code did not move to "Chat about this"; stopped without guessing`)
+	}
+	if err := d.sendPaneKey(id, p, press(key.NameReturn, p.Modes())); err != nil {
+		return err
+	}
+	back := func(g vt.Grid) bool {
+		return agent.ReadQuestion(model.ProviderClaude, g) == nil && !chatFocused(g) && agent.InputReady(model.ProviderClaude, g)
+	}
+	if !waitGrid(p, back) {
+		return errors.New("Claude Code did not go back to its prompt after Chat about this")
+	}
+	if agent.Draft(model.ProviderClaude, p.Snapshot()) {
+		return errors.New("the question closed, but the input box holds a draft: send or clear it, then send your answer")
+	}
+	if err := d.typeLine(id, p, text, "type an answer for Other"); err != nil {
+		return err
+	}
+	d.recordPrompt(id)
+	return nil
+}
+
+// chatFocused reports whether Claude Code's cursor is on "Chat about this".
+func chatFocused(g vt.Grid) bool {
+	return slices.ContainsFunc(strings.Split(screenText(g), "\n"), func(l string) bool {
+		return strings.TrimSpace(l) == "❯ Chat about this"
+	})
+}
+
+// waitGrid waits up to menuWait for p's screen to satisfy ok.
+func waitGrid(p questionPane, ok func(vt.Grid) bool) bool {
+	for deadline := time.Now().Add(menuWait.get()); ; time.Sleep(20 * time.Millisecond) {
+		if ok(p.Snapshot()) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
 }
 
 func waitQuestionAfter(prov model.Provider, p questionPane, oldID string, expectMore bool) *agent.Question {

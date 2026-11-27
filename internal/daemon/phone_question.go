@@ -75,6 +75,9 @@ func (d *Daemon) phoneQuestion(pane, id string, option int, text string) error {
 		if !q.Other || remote.Clean(text) == "" {
 			return errors.New("type an answer for Other")
 		}
+		if q.Chat {
+			return d.answerByChat(pane, q, text)
+		}
 		target = q.OtherIndex
 	default:
 		if option < 0 || option >= len(q.Options) {
