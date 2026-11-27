@@ -105,6 +105,11 @@ type Transcript struct {
 	// card names it (model.AwayNow).
 	Away    *model.Away
 	AwayNow string
+	// Reports are the chat's worker cards (State.Reports), set by the
+	// window each frame. OpenReport opens a card's worker tab and reports
+	// whether it could; when it could not, the card opens in place.
+	Reports    []model.Report
+	OpenReport func(model.Report) bool
 	// Headlines are the chat's turn headlines (State.Headlines), which the
 	// ToolsHeadlines view folds each finished turn to.
 	Headlines []model.Headline
@@ -286,6 +291,8 @@ type trow struct {
 	gutterAt time.Time // Ledger: the timestamp in the gutter
 	divider  bool      // Ledger: draw a top hairline before this turn
 	inTurn   bool      // Ledger: align row inside the agent's 768 dp text column
+
+	rep *model.Report // a worker's report card
 }
 
 // rowSeg is which piece of its block a row draws.
@@ -304,7 +311,7 @@ const (
 	segHeadline                  // a finished turn folded to its headline, see headlines.go
 )
 
-func (r *trow) isTail() bool { return r.tail != nil || r.seg == segInterrupted }
+func (r *trow) isTail() bool { return r.tail != nil || r.seg == segInterrupted || r.rep != nil }
 
 type visFold struct {
 	id  string
@@ -337,6 +344,7 @@ type rowsKey struct {
 	openHash      uint64
 	openLen       int
 	dir           string
+	reports       string
 	headlines     uint64 // headlinesKey
 }
 
@@ -1156,6 +1164,8 @@ func (t *Transcript) layoutChat(gtx layout.Context, th *theme.Theme, s *session.
 			}
 		}
 		switch {
+		case r.rep != nil:
+			dims = d.reportCard(gtx, r.rep)
 		case r.tail != nil:
 			dims = r.tail(gtx)
 		case r.seg == segInterrupted:
@@ -1620,6 +1630,7 @@ func (t *Transcript) makeRowsKey(s *session.Snapshot, bk blocksKey) rowsKey {
 		openHash:     openMapHash(t.open),
 		openLen:      len(t.open),
 		dir:          t.Dir,
+		reports:      t.reportsKey(),
 		headlines:    t.headlinesKey(),
 	}
 	if n := len(s.Turns); n > 0 {
@@ -1647,7 +1658,11 @@ func (t *Transcript) buildBaseRows(gtx layout.Context, d *cdraw) {
 	for bi, b := range t.blocks {
 		lastOf[b.turn] = bi
 	}
+	reps := 0 // the next of Reports to place
 	for bi, b := range t.blocks {
+		if b.kind != blockTurn || b.lo == b.from { // never inside a turn
+			t.reportRows(d.s, &reps, b.lo)
+		}
 		// A stopped turn ends on a quiet Interrupted line.
 		if bi > 0 && t.blocks[bi-1].turn != "" && t.blocks[bi-1].turn != b.turn && stopped[t.blocks[bi-1].turn] {
 			t.rows = append(t.rows, trow{seg: segInterrupted})
@@ -1715,6 +1730,7 @@ func (t *Transcript) buildBaseRows(gtx layout.Context, d *cdraw) {
 	for ; k < len(t.done); k++ {
 		t.resRow(gtx, block{}, &t.done[k])
 	}
+	t.reportRows(d.s, &reps, len(d.s.Content))
 	for i := range t.rows {
 		t.rows[i].gap = rowGap(t.rows, i)
 		t.rows[i].rank = rowRank(t.rows, i)

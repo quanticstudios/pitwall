@@ -273,7 +273,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 104
+const Level = 105
+
+// WorkerReportLevel is the level that added State.Reports, the worker report cards.
+const WorkerReportLevel = 105
 
 // HeadlineLevel is the level that added State.Headlines, the turn headlines.
 const HeadlineLevel = 104

@@ -2206,6 +2206,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		msg := agent.LastMessage(m.Payload)
 		if !bgEnded && msg != "" && (next.State == model.StateCompleted || bgRunning) {
 			d.keepReply(p.ID, msg)
+			d.noteReport(*p, msg, now)
 		}
 		if next.State == model.StateCompleted && (bgEnded || msg != "") {
 			d.relayReview(p.ID)
@@ -3245,6 +3246,7 @@ func (d *Daemon) snapshot() model.State {
 	s.ChatQueues = d.chatQueues(s.Chats)
 	s.Drafting = maps.Clone(d.mail.drafting)
 	s.Away = maps.Clone(s.Away) // cards are replaced, never changed in place
+	s.Reports = maps.Clone(s.Reports)
 	s.DraftHeld = maps.Clone(d.mail.held)
 	s.Delivered = maps.Clone(d.mail.delivered)
 	s.Skillshare = d.o.Skillshare.Installed != nil && d.o.Skillshare.Installed()

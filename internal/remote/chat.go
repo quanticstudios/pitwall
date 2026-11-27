@@ -74,6 +74,8 @@ type Tab struct {
 	// Away is the tab's chat's Since you left card while it shows, which
 	// POST /api/away dismisses.
 	Away *model.Away `json:"away,omitempty"`
+	// Reports are the cards of the tab's workers (State.Reports).
+	Reports []model.Report `json:"reports,omitempty"`
 	// Inbox is what in this tab waits on the user (State.Inbox), which the
 	// phone's Needs you section answers.
 	Inbox []model.InboxItem `json:"inbox,omitempty"`
@@ -188,6 +190,7 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 	if a, ok := st.Away[t.Pane]; ok {
 		t.Away = &a
 	}
+	t.Reports = st.Reports[t.Pane]
 	t.Agent = string(t.Provider)
 	if !t.Chat && !exited {
 		t.Send = model.IsAgent(t.Provider) && t.Provider != model.ProviderTerminal

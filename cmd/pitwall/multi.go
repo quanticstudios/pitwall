@@ -315,6 +315,7 @@ func (m *multi) merge() {
 		st.Listening = join(st.Listening, s.Listening)
 		st.Servers = join(st.Servers, s.Servers)
 		st.Away = join(st.Away, s.Away)
+		st.Reports = join(st.Reports, s.Reports)
 		st.Inbox.Items = append(st.Inbox.Items, s.Inbox.Items...)
 		st.Inbox.Moving += s.Inbox.Moving
 		if st.Notice == "" {

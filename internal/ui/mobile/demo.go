@@ -33,7 +33,7 @@ var DemoStates = []string{
 	"following", "scrolled", "ready", "queued", "six-lines", "sending", "not-sent",
 	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host", "screen",
 	"agy", "agy-model-menu", "agy-mode-menu", "away", "away-short",
-	"idle", "needs-you", "queued-two", "tab-menu",
+	"idle", "needs-you", "queued-two", "tab-menu", "reports",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -197,6 +197,10 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 		env.Tab.Away = &model.Away{Chat: "p1", Since: now.Add(-47 * time.Minute), At: now, Replies: 2, Turns: 1,
 			Edited: []string{"cart.go", "cart_test.go"}, EditedN: 2, Commands: 3, Failed: "go test -race ./cart/...", Tests: "failed", Item: "x", Seq: map[string]int64{"away": 2, "away-short": 6}[state],
 			Status: "Add no longer races, but one test still fails under -race.", Needs: "Say whether a mutex per cart is fine, or you want a channel."}
+	case "reports":
+		idleTab()
+		c.data.Entries = c.data.Entries[:6]
+		env.Tab.Reports = demoReports(env.Now)
 	case "screen":
 		c.scr.show()
 	case "host":

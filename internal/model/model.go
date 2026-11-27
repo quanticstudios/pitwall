@@ -585,6 +585,9 @@ type State struct {
 	// Away is, per chat id, its Since you left card while it shows. The
 	// daemon fills it in; it is not saved.
 	Away map[string]Away `json:"-"`
+	// Reports are, per orchestrator chat id, its workers' cards, oldest
+	// first, a few dozen at most. The daemon fills it in; it is not saved.
+	Reports map[string][]Report `json:"-"`
 	// Headlines is, per chat id, its finished turns' headlines, oldest
 	// first. The daemon replaces a chat's list whole, and saves it.
 	Headlines map[string][]Headline `json:",omitempty"`
