@@ -281,6 +281,7 @@ type Daemon struct {
 	savePending bool
 	live        liveness
 	turns       timelog.Tracker       // each pane's running turn, for timing.jsonl
+	heads       sync.Map              // chat+turn: a headline on its way, see headline.go
 	turnCwd     map[string]string     // a running turn's hook-reported folder
 	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
 	restoring   startupRestores       // see restore.go
@@ -2330,6 +2331,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	var endWS string // a tab whose turn end to take once d.mu is free
 	if !subagent && d.o.EndTurn != nil && agent.Stopped(m.Payload) {
 		endWS = p.WorkspaceID
+	}
+	if !subagent && agent.Stopped(m.Payload) {
+		go d.headlineSoon(p.ID)
 	}
 	if !subagent && agent.PromptSubmitted(m.Payload) && !d.mail.daemonPrompt[p.ID] {
 		p.LastPromptAt, changed = now, true

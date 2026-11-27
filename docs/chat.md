@@ -272,6 +272,18 @@ replaced by `logs.Redact`:
 
 No tool calls, command output, file contents or earlier turns go with it.
 
+### Turn headlines
+
+The same setting writes each finished turn a one-line headline for the
+Headlines view under Tools. When a turn ends, pitwall asks the agent's
+cheapest model once for a line in the past tense, under about 70
+characters. It sends your message for that turn (its first 1,500
+characters), the commands and files the turn's tool calls named, and the
+agent's replies in it (their last 4,000), all redacted. A turn with no tool
+calls and a short reply gets no call. A failed or empty answer leaves the
+turn without a headline and shows no error. Headlines are saved, so they
+come back after a restart. **Off** calls no model for them either.
+
 ## Servers
 
 The **Servers** tab of the chat's side panel lists the dev servers the tab
@@ -347,6 +359,12 @@ Windows lists none.
   narration such as "Let me check the tests" stays hidden in Zen. Errors,
   approvals, questions and plans always show. In Zen, the find bar shows all
   the words between calls while it is open.
+- Headlines, the fifth choice under Tools, shows each finished turn as one
+  line: the time it started, a headline such as "Started SFT on the H100;
+  3,478 steps planned", and the agent. Click a line to open the turn in
+  place, and again to fold it. The latest turn, a turn with a question
+  waiting for you, and a turn without a headline stay open. While the find
+  bar is open, every turn shows.
 - A work log's line names at most two kinds of call, commands and edits
   before reads and searches, then counts the rest, "Ran 2 commands, read 1
   file, and performed 3 other actions". A failed call is not counted as
@@ -437,7 +455,7 @@ codex = "chat"      # or "terminal": the same for Codex panes
 antigravity = "chat" # or "terminal": New task starts agy's TUI, and agy panes show as the TUI
 layout = "column"   # or "ledger": time/agent gutter, unrolled tool rows, plan strip and floating composer
 width = "standard"  # or "comfortable" (736 dp), "full": the transcript's and composer's column
-tool_calls = "all"  # or "failed", "none", "zen": which tool calls show
+tool_calls = "all"  # or "failed", "none", "zen", "headlines": which tool calls show
 suggest_next = false # after a turn, offer a predicted next prompt; uses the agent's plan
 away_summary = "on" # or "off": a Since you left card's two lines from the agent's cheapest model
 inbox_dock = "open" # or "folded": the inbox dock lists its items, or one line with the counts

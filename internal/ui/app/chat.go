@@ -117,6 +117,7 @@ func (u *ui) chatBody(gtx gl.Context, st *model.State, ch Chatter, id string, ws
 		paneLimit(st, id, &s, gtx.Now)
 		t.Limit = u.limitResume(st, id, ws, &s)
 		t.Away, t.AwayNow = nil, ""
+		t.Headlines = st.Headlines[id]
 		if a, ok := st.Away[id]; ok {
 			t.Away = &a
 			if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == id }); i >= 0 {

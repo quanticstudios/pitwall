@@ -1120,6 +1120,9 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 		}
 	case session.EventTurnCompleted:
 		d.turnEnd(c.cfg.Workspace) // before the chat reads as ready, so later edits count as the user's
+		if e.State == session.TurnCompleted {
+			go d.headline(c.id, c.id)
+		}
 		if e.Point != "" {
 			if c.cfg.Points == nil {
 				c.cfg.Points = map[string]string{}

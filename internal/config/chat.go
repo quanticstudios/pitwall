@@ -12,7 +12,7 @@ type Chat struct {
 	Layout      string `toml:"layout" enum:"column,ledger" doc:"The desktop chat's layout: column (the default) puts replies in a reading column with folded work logs; ledger adds a time and agent gutter beside a 768 dp text column, shows each tool call as its own row, puts the plan in a strip under the header, and docks a floating composer card"`
 	FollowUp    string `toml:"follow_up" enum:"queue,steer" doc:"What the send key does while the agent works: queue (the default) holds the message above the box until the turn ends, and Ctrl+Enter (Cmd+Enter on macOS) steers instead: it sends the message into the running turn with everything queued ahead of it, as one message, where the agent takes it at its next step as it does a message typed in its terminal. steer swaps the two keys. A slash command never steers on the send key. An agent that takes nothing mid-turn queues either way"`
 	SendKey     string `toml:"send_key" enum:"enter,ctrl+enter" doc:"The composer's send key: enter sends with Enter, Shift+Enter adds a line; ctrl+enter sends with Ctrl+Enter (Cmd+Enter on macOS), Enter adds a line, and Ctrl+Shift+Enter does the other follow-up"`
-	ToolCalls   string `toml:"tool_calls" enum:"all,failed,none,zen" doc:"Which tool calls the desktop chat shows: all; failed hides a call once it succeeds; none hides every call; zen shows your messages, each turn's final reply and the agent's longer reports between calls. Errors, approvals and questions always show. The chat header's Tools button cycles it"`
+	ToolCalls   string `toml:"tool_calls" enum:"all,failed,none,zen,headlines" doc:"Which tool calls the desktop chat shows: all; failed hides a call once it succeeds; none hides every call; zen shows your messages, each turn's final reply and the agent's longer reports between calls; headlines shows each finished turn as one line from the agent's cheapest model (see away_summary), and a click opens it. Errors, approvals and questions always show. The chat header's Tools button cycles it"`
 	SuggestNext bool   `toml:"suggest_next" doc:"After a turn ends, an empty composer shows a predicted next message in muted text; Tab fills it in. Each suggestion is one extra headless run of the chat's agent on its cheapest model, billed to the agent's plan, so it is off by default. Never while the agent works, at most once per turn, never in a guarded tab"`
 	InboxDock   string `toml:"inbox_dock" enum:"open,folded" doc:"The inbox dock under the chat, which lists what waits on you in your other tabs and machines with its answers as buttons: open lists them, folded shows one line with the counts. A click on the dock's header switches it and saves the choice here"`
 	AwaySummary string `toml:"away_summary" enum:"on,off" doc:"When you come back to a chat after 5 minutes or more and its agent worked meanwhile, a Since you left card above the box says how long you were away and what the log shows. on (the default) adds two lines from the chat's agent on its cheapest model: the state of the work and what it needs from you. It sends that model your last message, its first 1,500 characters, and the agent's replies since you left, their last 6,000, with secrets redacted, once per return. off shows the facts alone and calls no model"`
@@ -24,10 +24,12 @@ const (
 	ToolsFailed = "failed"
 	ToolsNone   = "none"
 	ToolsZen    = "zen"
+	// ToolsHeadlines folds each finished turn to a one-line headline.
+	ToolsHeadlines = "headlines"
 )
 
 // ToolModes are [chat] tool_calls' values, in the order the header lists them.
-var ToolModes = []string{ToolsAll, ToolsFailed, ToolsNone, ToolsZen}
+var ToolModes = []string{ToolsAll, ToolsFailed, ToolsNone, ToolsZen, ToolsHeadlines}
 
 // Chat column widths in dp.
 const (
@@ -137,11 +139,11 @@ func resolveChat(c Chat) (ChatSettings, []issue) {
 	switch c.ToolCalls {
 	case "":
 		out.ToolCalls = ToolsAll
-	case ToolsAll, ToolsFailed, ToolsNone, ToolsZen:
+	case ToolsAll, ToolsFailed, ToolsNone, ToolsZen, ToolsHeadlines:
 		out.ToolCalls = c.ToolCalls
 	default:
 		out.ToolCalls = ToolsAll
-		issues = append(issues, issue{"chat.tool_calls", fmt.Sprintf("%q is not all, failed, none or zen; using all", c.ToolCalls)})
+		issues = append(issues, issue{"chat.tool_calls", fmt.Sprintf("%q is not all, failed, none, zen or headlines; using all", c.ToolCalls)})
 	}
 	switch c.InboxDock {
 	case "", "open":
