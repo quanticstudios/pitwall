@@ -660,7 +660,7 @@ func TestBypassMode(t *testing.T) {
 	if col != th.Readable(th.Red, th.Surface) || icon != "shield" || !strings.HasPrefix(tip, "Bypass permissions: ") {
 		t.Errorf("bypass looks %v %q %q", col, icon, tip)
 	}
-	if col, icon, _ := modeLook(th, ModeDefault); col == th.Readable(th.Red, th.Surface) || icon != "circle" {
+	if col, icon, _ := modeLook(th, ModeDefault); col == th.Readable(th.Red, th.Surface) || icon != "" { // the default mode is quiet: no icon
 		t.Errorf("default looks %v %q", col, icon)
 	}
 	cycle := func(h *harness, n int) []string {

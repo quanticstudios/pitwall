@@ -154,6 +154,9 @@ func checkClickables(t *testing.T, r *input.Router, frame func(), region image.R
 			pointers++
 			continue
 		}
+		if got == pointer.CursorGrab && s.node.Desc.Label == "Drag to reorder" { // a queued message's grip
+			continue
+		}
 		if allowDefault != nil && allowDefault(s.node) {
 			continue
 		}

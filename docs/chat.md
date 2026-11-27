@@ -69,8 +69,8 @@ turns still go to the same conversation, and the chat picks them up.
 ## The composer
 
 - **Enter** sends; **Shift+Enter** adds a line.
-- While the agent works, **Enter** queues the message above the box. It
-  shows there at once, under a line that says it goes when the turn ends.
+- While the agent works, **Enter** queues the message. It shows at once as a
+  row at the top of the box, above where you type.
   When the turn ends, everything queued goes as one prompt, a blank line
   between messages. A slash command, a `!` command, and a message you marked
   **Send separately** each go in a turn of their own, in their place. A line
@@ -85,12 +85,14 @@ turns still go to the same conversation, and the chat picks them up.
   task chats. An agent that takes nothing mid-turn, as a New task
   Antigravity chat, queues on Ctrl+Enter too and says so; nothing stops its
   turn. `[chat] follow_up = "steer"` swaps the two keys. The box's
-  placeholder names them. In a New task chat whose agent takes nothing
+  placeholder names them on one line, such as "Enter queues · Ctrl+Enter
+  steers". In a New task chat whose agent takes nothing
   mid-turn, Send now on a queued row stops the turn and sends it first, and
   its tooltip says so.
-- Point at a queued message for **Send now**, **Edit** (back into the box),
-  **Move up**, **Move down**, **Send separately** and **Remove**. More than
-  two fold into a count that opens on a click. A message that could not be
+- Drag a queued message by its grip, the six dots on its left, to change the
+  order it goes in. Point at a queued message for **Send now**, **Edit**
+  (back into the box), **Move up**, **Move down**, **Send separately** and
+  **Remove**. More than three fold into a count that opens on a click. A message that could not be
   sent stays with **Retry**.
 - The queue never goes into a question, an approval, a plan or a menu: it
   waits, and the line above it says why ("Waiting for your answer"). After
@@ -313,6 +315,10 @@ Windows lists none.
 
 - It follows the newest line while Claude writes and jumps to the end when
   you send.
+- Each turn's tool calls fold into one work log, such as "Worked for 48s ·
+  4 tools". Click it to open it.
+- While a turn runs in a terminal tab, the line at the top of the composer
+  shows the agent's own spinner row in place of "Working…", such as
 - A finished turn's work rolls up into one line above its reply: "Worked
   2m 14s" with its counts as chips, such as "6 tools", "2 files" and, in
   red, "1 test failed". Click it to show every call under it, and again to
@@ -332,8 +338,8 @@ Windows lists none.
   "Flibbertigibbeting… 11s · ↓ 789 tokens · thinking" for Claude Code,
   "Working… 5s" for Codex or "Running command… 12s" for Antigravity.
   Antigravity's thought keeps its own Thinking row, and the line says
-  "Thinking… 12s". That line shows in the Ledger layout and no longer lists
-  key hints. A compaction, which runs no turn, shows in the transcript as
+  "Thinking… 12s". That line shows in both chat layouts and lists no key
+  hints. A compaction, which runs no turn, shows in the transcript as
   "Compacting conversation… 7s · ↓ 122 tokens" until it ends.
 - Replies render as markdown: tables, lists, quotes, code blocks and diffs,
   with Copy on each block and Copy reply under the reply.

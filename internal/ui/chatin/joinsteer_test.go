@@ -145,7 +145,7 @@ func TestJoinSteerSwapped(t *testing.T) {
 	steer, ctrl := true, false
 	h.opts = func(e *Env) { e.Join, e.Steer, e.CtrlEnter = true, steer, ctrl }
 	h.snap = queueSnap(session.QueuedInput{ID: "a", Text: "one"})
-	if p := placeholder(h.env()); p != "Type to steer the running turn · Ctrl+Enter queues" {
+	if p := placeholder(h.env()); p != "Enter steers · Ctrl+Enter queues" {
 		t.Fatalf("placeholder %q", p)
 	}
 	h.typ("now")
@@ -169,7 +169,7 @@ func TestJoinSteerSwapped(t *testing.T) {
 	h.c.q = queueState{}
 	h.snap.QueuedInputs = []session.QueuedInput{{ID: "c", Text: "three"}}
 	h.frame()
-	if p := placeholder(h.env()); p != "Type to queue a follow-up · Ctrl+Shift+Enter steers it in now" {
+	if p := placeholder(h.env()); p != "Ctrl+Enter queues · Ctrl+Shift+Enter steers" {
 		t.Fatalf("placeholder %q", p)
 	}
 	if m := h.press(key.NameReturn, key.ModShortcut|key.ModShift); len(m) != 1 || !m[0].(proto.ChatSend).Join {

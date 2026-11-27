@@ -24,6 +24,11 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The chat composer is quieter. The agent's status line and the queued
+  messages sit at the top of the box. Drag a queued message by its grip to
+  change its order. The model, effort and mode pickers are smaller and
+  muted, and the placeholder names the keys on one line, such as "Enter
+  queues · Ctrl+Enter steers".
 - The chat's Tools menu has Headlines: each finished turn folds to one line, written by the agent's cheapest model when the turn ends, and a click opens it. The latest turn and one that asks you something stay open. Summaries off calls no model for them.
 - The inbox dock: under every chat, above the box, one list of what waits on you in your other tabs and machines. Approvals have Deny and Allow, questions their answers with the recommended one starred, forms open, and failed CI and stopped agents open their tab. It folds to one line, and the phone's list shows the same items at the top as Needs you.
 - The agent's reply in the chat reads at 15 sp and stops near 72 characters, in the Ledger layout too, so it stands out from the work rows around it. A report the agent writes between calls, such as Antigravity's findings, has a blue bar beside it, and short narration between calls draws smaller and muted.

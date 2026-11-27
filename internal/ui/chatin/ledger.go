@@ -142,6 +142,7 @@ func (c *Composer) ledgerCard(gtx layout.Context, th *theme.Theme, env Env) layo
 	m := op.Record(gtx.Ops)
 	c.barY = 0
 	d := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.head(gtx, th, env); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { d := c.shelf(gtx, th); c.barY += d.Size.Y; return d }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			d := c.ledgerField(gtx, th, env)
@@ -164,8 +165,11 @@ func (c *Composer) ledgerCard(gtx layout.Context, th *theme.Theme, env Env) layo
 		ring = theme.Mix(th.Surface, th.Primary, 0.5)
 	}
 	paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(rect.Inset(gtx.Dp(1)), max(0, r-gtx.Dp(1))).Op(gtx.Ops))
+	inner := clip.UniformRRect(rect.Inset(gtx.Dp(1)), max(0, r-gtx.Dp(1)))
+	paint.FillShape(gtx.Ops, th.Surface, inner.Op(gtx.Ops))
+	cl := inner.Push(gtx.Ops) // the head's rows fill to the rounded edge
 	call.Add(gtx.Ops)
+	cl.Pop()
 	return d
 }
 
@@ -384,36 +388,42 @@ func (c *Composer) ledgerPick(gtx layout.Context, th *theme.Theme, b *widget.Cli
 	gtx.Constraints.Min = image.Point{}
 	return b.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		semantic.LabelOp(label).Add(gtx.Ops)
-		h, pad := gtx.Dp(28), gtx.Dp(10)
+		h, pad := gtx.Dp(24), gtx.Dp(theme.SpaceS)
 		m := op.Record(gtx.Ops)
 		var ws []layout.Widget
 		if icon != "" {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, icon, gtx.Dp(12), col) })
 		}
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, label)
+			return text(gtx, th, th.UIFont, th.Sp(theme.Small), col, label)
 		})
 		if chevron {
 			ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-				return sidebar.Icon(gtx, "chevron-down", gtx.Dp(12), th.Muted)
+				return sidebar.Icon(gtx, "chevron-down", gtx.Dp(10), th.Muted)
 			})
 		}
 		g := gtx
 		g.Constraints.Max.X -= 2 * pad
-		d := row(g, gtx.Dp(5), h, ws...)
+		d := row(g, gtx.Dp(theme.SpaceXS), h, ws...)
 		call := m.Stop()
 		size := image.Pt(d.Size.X+2*pad, h)
 		rect := image.Rectangle{Max: size}
 		rad := h / 2
-		fill := th.SurfaceSecondary
+		// An outline only, no fill at rest: the pickers stay quiet beside the text.
+		fill := theme.Transparent
 		switch {
 		case b.Pressed():
 			fill = th.Pressed
 		case b.Hovered() || b == c.which && c.menu:
 			fill = th.Hover
 		}
+		if gtx.Focused(b) {
+			kit.FocusRing(gtx, th, rect, rad)
+		}
+		in := clip.UniformRRect(rect.Inset(gtx.Dp(1)), max(0, rad-gtx.Dp(1)))
 		paint.FillShape(gtx.Ops, th.BorderSubtle, clip.UniformRRect(rect, rad).Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect.Inset(gtx.Dp(1)), max(0, rad-gtx.Dp(1))).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.Surface, in.Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, in.Op(gtx.Ops))
 		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
@@ -647,35 +657,44 @@ func ledgerStatus(s *session.Snapshot, note string, noteOK bool) (icon, msg, ton
 	return "", "", ""
 }
 
-// ledgerStatusLine draws the quiet line under the floating card (.statusl):
-// the waiting or working state, or the agent's own spinner row.
-func (c *Composer) ledgerStatusLine(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
-	w := gtx.Constraints.Max.X
-	pad := gtx.Dp(6)
-	h := gtx.Dp(20)
-	innerW := max(0, w-2*pad)
-
-	ic, msg, tone := ledgerStatus(env.Snap, c.note, c.noteOK)
+// statusRow is the card's top line: the waiting or working state, or the
+// agent's own spinner row, such as "Nesting… 9s · ↓ 232 tokens"; nothing
+// while the agent is idle. Ledger puts the composer's note there too;
+// Column keeps it under the card.
+func (c *Composer) statusRow(gtx layout.Context, th *theme.Theme, env Env) layout.Dimensions {
+	note, ok := "", false
+	if env.Ledger {
+		note, ok = c.note, c.noteOK
+	}
+	ic, msg, tone := ledgerStatus(env.Snap, note, ok)
+	if msg == "" {
+		return layout.Dimensions{}
+	}
+	w, h := gtx.Constraints.Max.X, gtx.Dp(28)
 	col := th.Muted
 	switch tone {
 	case "yellow":
-		col = th.Readable(th.Yellow, th.Bg)
+		col = th.Readable(th.Yellow, th.Surface)
 	case "red":
-		col = th.Readable(th.Red, th.Bg)
+		col = th.Readable(th.Red, th.Surface)
 	}
-	if msg != "" && innerW > 0 {
-		lg := gtx
-		lg.Constraints = layout.Constraints{Max: image.Pt(innerW, h)}
-		o := op.Offset(image.Pt(pad, 0)).Push(gtx.Ops)
-		var ws []layout.Widget
-		if ic != "" {
-			ws = append(ws, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, ic, gtx.Dp(12), col) })
-		}
+	spinner := tone == "muted" && ic == "clock" && env.Snap.Busy()
+	lg := gtx
+	lg.Constraints = layout.Constraints{Max: image.Pt(max(0, w-2*gtx.Dp(theme.SpaceM)), h)}
+	o := op.Offset(image.Pt(gtx.Dp(theme.SpaceM), 0)).Push(gtx.Ops)
+	var ws []layout.Widget
+	switch {
+	case spinner:
 		ws = append(ws, func(gtx layout.Context) layout.Dimensions {
-			return text(gtx, th, th.UIFont, th.Sp(theme.Caption), col, msg)
+			return ring(gtx, gtx.Dp(12), 0.25, th.Border, th.Readable(th.Primary, th.Surface))
 		})
-		row(lg, gtx.Dp(6), h, ws...)
-		o.Pop()
+	case ic != "":
+		ws = append(ws, func(gtx layout.Context) layout.Dimensions { return sidebar.Icon(gtx, ic, gtx.Dp(12), col) })
 	}
+	ws = append(ws, func(gtx layout.Context) layout.Dimensions {
+		return text(gtx, th, th.UIFont, th.Sp(theme.Small), col, msg)
+	})
+	row(lg, gtx.Dp(theme.SpaceS), h, ws...)
+	o.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
