@@ -17,7 +17,7 @@
 <body>
 <div id="app">
   <section id="home" class="view">
-    <header class="bar"><h1>pitwall</h1><span id="device" class="status"></span></header>
+    <header class="bar"><h1>pitwall</h1><span id="device" class="status"></span><button id="newbtn" class="icon" aria-label="New tab" hidden>+</button></header>
     <div class="offline" hidden>Offline, reconnecting</div>
     <div class="scroll pad"><div class="wrap">
       <div id="push"></div>
@@ -30,6 +30,8 @@
       <button id="back" class="icon" aria-label="Back to tabs">‹</button>
       <div class="head"><span id="ctitle" class="title"></span><span id="cmeta" class="meta"></span></div>
       <button id="pick" class="pick" hidden aria-haspopup="dialog">Model</button>
+      <button id="scrbtn" class="icon glyph" aria-label="Screen" title="Screen" hidden>&gt;_</button>
+      <button id="tmenu" class="icon" aria-label="Tab actions" aria-haspopup="dialog" hidden>⋯</button>
     </header>
     <div class="offline" hidden>Offline, reconnecting</div>
     <div class="stage">
@@ -43,6 +45,7 @@
     </div>
     <footer class="compose"><div class="wrap">
       <div id="asks"></div>
+      <div id="hold"></div>
       <div id="queue"></div>
       <div id="attachment" hidden></div>
       <button id="attach" class="btn" type="button" hidden>Attach picture</button>
@@ -50,11 +53,48 @@
       <div id="slash" class="slash" role="listbox" aria-label="Commands" hidden></div>
       <form id="composer" class="composer">
         <textarea id="text" class="field" rows="1" enterkeyhint="send" aria-label="Message"></textarea>
+        <button id="stop" class="btn" type="button" hidden>Stop</button>
         <button id="send" class="btn primary" type="submit">Send</button>
       </form>
-      <p id="cnote" class="note" hidden></p>
+      <p id="cnote" class="note cnote" hidden></p>
     </div></footer>
   </section>
+  <section id="screen" class="view" hidden>
+    <header class="bar">
+      <button id="sback" class="icon" aria-label="Back to the chat">‹</button>
+      <div class="head"><span id="stitle" class="title"></span><span class="meta">Screen, as the terminal shows it now</span></div>
+    </header>
+    <div class="offline" hidden>Offline, reconnecting</div>
+    <div id="sbox" class="scroll pad"><pre id="stext" class="out screen">Reading the screen</pre></div>
+    <footer class="compose"><div class="wrap">
+      <p id="snote" class="note bad" hidden></p>
+      <div id="keys" class="keys"></div>
+    </div></footer>
+  </section>
+  <section id="newtab" class="view" hidden>
+    <header class="bar"><button id="nback" class="icon" aria-label="Back to tabs">‹</button><h1>New tab</h1></header>
+    <div class="scroll pad"><div class="wrap">
+      <p id="nload" class="note">Loading…</p>
+      <form id="nform" class="form" hidden>
+        <label id="nsessionl">Session<select id="nsession" class="field"></select></label>
+        <label>Folder<select id="nfolder" class="field"></select></label>
+        <input id="npath" class="field" placeholder="/home/you/project or ~/project" aria-label="Folder path" autocapitalize="off" autocomplete="off" hidden>
+        <label>Agent<select id="nagent" class="field"></select></label>
+        <label id="nworktreel">Worktree<select id="nworktree" class="field"><option value="">None</option><option value="new">New worktree</option></select></label>
+        <input id="nbranch" class="field" placeholder="Branch name" aria-label="Branch name" autocapitalize="off" autocomplete="off" hidden>
+        <label id="nbriefl">First message (optional)<textarea id="nbrief" class="field" rows="3" placeholder="What should the agent do?"></textarea></label>
+        <p id="nnote" class="note bad" hidden></p>
+        <button id="nstart" class="btn primary" type="submit">Start</button>
+      </form>
+    </div></div>
+  </section>
+</div>
+<div id="tsheet" class="scrim" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Tab actions">
+    <div id="tacts" class="acts"></div>
+    <p id="tnote" class="note" hidden></p>
+    <div class="inline"><button id="tclose" class="btn">Cancel</button></div>
+  </div>
 </div>
 <div id="sheet" class="scrim" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mhead">
