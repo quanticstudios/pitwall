@@ -4,6 +4,7 @@
 //	-state name  the state to show (default following); -list prints them
 //	-shot file   write a PNG of the state with no window, and exit
 //	-scale n     px per dp for -shot (default 2)
+//	-width n     width in dp for -shot (default 412)
 package main
 
 import (
@@ -23,6 +24,7 @@ func main() {
 	state := flag.String("state", "following", "the state to show")
 	shot := flag.String("shot", "", "write a PNG of the state here and exit")
 	scale := flag.Float64("scale", 2, "px per dp for -shot")
+	width := flag.Int("width", 412, "width in dp for -shot")
 	list := flag.Bool("list", false, "print the states and exit")
 	flag.Parse()
 	if *list {
@@ -31,6 +33,7 @@ func main() {
 	}
 	th := mobile.Theme()
 	if *shot != "" {
+		mobile.ShotWidth = *width
 		if err := mobile.ChatShot(th, *state, *shot, float32(*scale)); err != nil {
 			log.Fatal(err)
 		}

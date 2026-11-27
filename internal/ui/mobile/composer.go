@@ -1,7 +1,6 @@
 package mobile
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"image"
@@ -20,12 +19,10 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
-	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/ui/chatin"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
-	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -127,13 +124,13 @@ func placeholder(t remote.Tab) string {
 		return "Pick an answer above, or type your own"
 	}
 	if busy(t) {
-		return "Queue a message. Enter adds a line."
+		return "Queue a message"
 	}
 	name := agentName(t.Agent)
 	if name == "" {
 		name = "the agent"
 	}
-	return "Message " + name + ". Enter adds a line."
+	return "Message " + name
 }
 
 // answerable is whether the box answers what t asks: a terminal question
@@ -357,16 +354,15 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	lists := chipLists(t, env.Models, env.Efforts)
 	chips := len(lists[0])+len(lists[1])+len(lists[2]) > 0
 	focused := gtx.Focused(&k.ed)
-	hint := k.note
-	if !env.Online {
-		hint = "Sends when the connection is back. Your draft stays here."
-	}
+	hint := composerHint(k.note, env.Online, len(c.slashes.cmds) > 0)
+	status, working := c.statusLine(env)
+	rows := len(t.Queue) > 0
 	return c.cmpFrame(gtx, th, func(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx C) D {
 				bold, rest, bad := queueLine(t, c.data.Pending, k.notSent)
-				if bold == "" {
-					return D{}
+				if bold == "" || rows && !bad {
+					return D{} // why: the box lists the rows of the queue itself
 				}
 				var open *widget.Clickable
 				if t.HoldMenu && bold == "waiting:" && !t.Chat && env.CanScreen {
@@ -377,29 +373,21 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 			layout.Rigid(func(gtx C) D { return c.attachments(gtx, th, env) }),
 			layout.Rigid(func(gtx C) D {
 				return msgBox(gtx, th, focused, !env.Online, func(gtx C) D {
-					fieldW := func(gtx C) D { return k.drawField(gtx, th, placeholder(t)) }
-					sendW := func(gtx C) D { return sendButton(gtx, th, &k.send, st) }
-					if !chips {
-						return layout.Flex{Alignment: layout.End}.Layout(gtx,
-							layout.Flexed(1, func(gtx C) D {
-								return layout.Inset{Bottom: 10}.Layout(gtx, fieldW)
-							}),
-							layout.Rigid(func(gtx C) D {
-								return layout.Inset{Right: 4, Bottom: 2}.Layout(gtx, sendW)
-							}),
-						)
-					}
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(fieldW),
 						layout.Rigid(func(gtx C) D {
-							return layout.Inset{Left: 6, Right: 4, Bottom: 2}.Layout(gtx, func(gtx C) D {
-								gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(50))
-								return midFlex(gtx,
-									layout.Flexed(1, func(gtx C) D { return c.chipRow(gtx, th, t, lists) }),
-									layout.Rigid(sendW),
-								)
-							})
+							if status == "" {
+								return D{}
+							}
+							return statusRow(gtx, th, status, working)
 						}),
+						layout.Rigid(func(gtx C) D {
+							if !rows {
+								return D{}
+							}
+							return c.queueRows(gtx, th, env)
+						}),
+						layout.Rigid(func(gtx C) D { return c.fieldRow(gtx, th, env, st, chips, lists) }),
 					)
 				})
 			}),
@@ -407,8 +395,12 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 				if hint == "" {
 					return D{}
 				}
-				return layout.Inset{Left: 8, Right: 8, Top: 6}.Layout(gtx, func(gtx C) D {
-					return label(gtx, th, th.UIFont, 13.5, th.Muted, 2, hint)
+				col := th.TextQuiet
+				if k.note != "" || !env.Online {
+					col = th.Muted
+				}
+				return layout.Inset{Left: 16, Right: 16, Top: 6}.Layout(gtx, func(gtx C) D {
+					return label(gtx, th, th.UIFont, 13, col, 1, hint)
 				})
 			}),
 		)
@@ -422,6 +414,36 @@ func toggle(cur, menu string) string {
 	return menu
 }
 
+// fieldRow is the field and the send button, with the chips under the
+// field when the tab offers any.
+func (c *chatView) fieldRow(gtx C, th *theme.Theme, env chatEnv, st sendState, chips bool, lists [3][]string) D {
+	k, t := &c.cmp, env.Tab
+	fieldW := func(gtx C) D { return k.drawField(gtx, th, placeholder(t)) }
+	sendW := func(gtx C) D { return sendButton(gtx, th, &k.send, st) }
+	if !chips {
+		return layout.Flex{Alignment: layout.End}.Layout(gtx,
+			layout.Flexed(1, func(gtx C) D {
+				return layout.Inset{Bottom: 10}.Layout(gtx, fieldW)
+			}),
+			layout.Rigid(func(gtx C) D {
+				return layout.Inset{Right: 4, Bottom: 2}.Layout(gtx, sendW)
+			}),
+		)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(fieldW),
+		layout.Rigid(func(gtx C) D {
+			return layout.Inset{Left: 6, Right: 4, Bottom: 2}.Layout(gtx, func(gtx C) D {
+				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(50))
+				return midFlex(gtx,
+					layout.Flexed(1, func(gtx C) D { return c.chipRow(gtx, th, t, lists) }),
+					layout.Rigid(sendW),
+				)
+			})
+		}),
+	)
+}
+
 // cmpFrame is the composer's band: the background, a line on top, and its
 // padding.
 func (c *chatView) cmpFrame(gtx C, th *theme.Theme, w layout.Widget) D {
@@ -432,7 +454,6 @@ func (c *chatView) cmpFrame(gtx C, th *theme.Theme, w layout.Widget) D {
 	})
 	call := m.Stop()
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: d.Size}.Op())
-	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Max: image.Pt(d.Size.X, 1)}.Op())
 	call.Add(gtx.Ops)
 	return d
 }
@@ -477,7 +498,7 @@ func msgBox(gtx C, th *theme.Theme, focused, off bool, w layout.Widget) D {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	d := w(gtx)
 	call := m.Stop()
-	rect, r := image.Rectangle{Max: d.Size}, gtx.Dp(20)
+	rect, r := image.Rectangle{Max: d.Size}, gtx.Dp(18)
 	fill, ring := th.Surface, th.BorderSubtle
 	if off {
 		fill = theme.Mix(th.Bg, th.Surface, 0.55)
@@ -611,8 +632,7 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 }
 
 // chipRow is the chips lists offers, left to right: the model chip takes
-// what the others leave, and with the mode chip there the effort chip shows
-// its bars only, so the row fits a phone.
+// what the others leave.
 func (c *chatView) chipRow(gtx C, th *theme.Theme, t remote.Tab, lists [3][]string) D {
 	k := &c.cmp
 	var row []layout.FlexChild
@@ -622,9 +642,9 @@ func (c *chatView) chipRow(gtx C, th *theme.Theme, t remote.Tab, lists [3][]stri
 			continue
 		}
 		if len(row) > 0 {
-			row = append(row, layout.Rigid(layout.Spacer{Width: 8}.Layout))
+			row = append(row, layout.Rigid(layout.Spacer{Width: 2}.Layout))
 		}
-		w := func(gtx C) D { return c.chip(gtx, th, which, t, which == 1 && len(lists[2]) > 0) }
+		w := func(gtx C) D { return c.chip(gtx, th, which, t) }
 		if which == 0 {
 			row = append(row, layout.Flexed(1, w))
 		} else {
@@ -634,10 +654,10 @@ func (c *chatView) chipRow(gtx C, th *theme.Theme, t remote.Tab, lists [3][]stri
 	return midFlex(gtx, row...)
 }
 
-// chip is the model (0), effort (1) or mode (2) chip: 36dp in a 48dp hit
-// area, its name capped at 132dp so the send button never moves; bare
-// draws the effort chip's bars without its name.
-func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab, bare bool) D {
+// chip is the model (0), effort (1) or mode (2) chip: quiet text and a
+// chevron, 36dp in a 48dp hit area, filled only while pressed or open, its
+// name capped at 132dp so the send button never moves.
+func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab) D {
 	k := &c.cmp
 	btn, what := []*widget.Clickable{&k.modelChip, &k.effChip, &k.modeChip}[which], chipWhat[which]
 	pk := k.pending(what)
@@ -659,7 +679,9 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab, bare bo
 			name = pk.value
 		}
 		if name == "" {
-			name = "effort"
+			name = "Effort"
+		} else {
+			name = sentence(name)
 		}
 	default:
 		name = modeShort(k.modeShown(t.Mode))
@@ -667,73 +689,44 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int, t remote.Tab, bare bo
 			name = modeShort(pk.value)
 		}
 	}
-	level := effortLevel(name)
-	if bare {
-		name = ""
-	}
 	gtx.Constraints.Min = image.Point{}
 	d := btn.Layout(gtx, func(gtx C) D {
 		h := gtx.Dp(48)
 		m := op.Record(gtx.Ops)
-		cd := layout.Inset{Left: 9, Right: 10}.Layout(gtx, func(gtx C) D {
+		cd := layout.Inset{Left: 10, Right: 10}.Layout(gtx, func(gtx C) D {
 			gtx.Constraints.Min.Y = gtx.Dp(36)
-			fg := th.Fg
-			if pend {
-				fg = th.Readable(th.Blue, th.SurfaceSecondary)
-			}
-			gap := layout.Inset{Right: 7}
-			if name == "" {
-				gap.Right = 0
+			fg := th.Muted
+			switch {
+			case pend:
+				fg = th.Readable(th.Blue, th.Surface)
+			case open || btn.Pressed():
+				fg = th.Fg
 			}
 			return midFlex(gtx,
 				layout.Rigid(func(gtx C) D {
-					switch {
-					case pend:
-						return gap.Layout(gtx, func(gtx C) D { return spinner(gtx, 15, fg) })
-					case which == 0:
-						return gap.Layout(gtx, func(gtx C) D {
-							return sidebar.AgentMark(gtx, model.Provider(cmp.Or(t.Agent, string(model.ProviderClaude))), gtx.Dp(17), th.Fg)
-						})
-					case which == 1:
-						return gap.Layout(gtx, func(gtx C) D {
-							return effortGlyph(gtx, th, level, th.Readable(th.Blue, th.SurfaceSecondary))
-						})
-					}
-					return D{}
-				}),
-				layout.Rigid(func(gtx C) D {
-					if name == "" {
+					if !pend {
 						return D{}
 					}
-					// why: leave the chevron and its gap their 22dp in a narrow row
-					gtx.Constraints.Max.X = max(0, min(gtx.Constraints.Max.X-gtx.Dp(22), gtx.Dp(132)))
+					return layout.Inset{Right: 7}.Layout(gtx, func(gtx C) D { return spinner(gtx, 15, fg) })
+				}),
+				layout.Rigid(func(gtx C) D {
+					// why: leave the chevron and its gap their 20dp in a narrow row
+					gtx.Constraints.Max.X = max(0, min(gtx.Constraints.Max.X-gtx.Dp(20), gtx.Dp(132)))
 					return label(gtx, th, weight(th.UIFont, font.Medium), 14.5, fg, 1, name)
 				}),
-				layout.Rigid(layout.Spacer{Width: 7}.Layout),
-				layout.Rigid(func(gtx C) D {
-					col := th.Muted
-					if pend {
-						col = fg
-					}
-					return glyph(gtx, icDown, 15, col)
-				}),
+				layout.Rigid(layout.Spacer{Width: 5}.Layout),
+				layout.Rigid(func(gtx C) D { return glyph(gtx, icDown, 15, th.TextQuiet) }),
 			)
 		})
 		call := m.Stop()
 		y := (h - cd.Size.Y) / 2
 		rect := image.Rectangle{Min: image.Pt(0, y), Max: image.Pt(cd.Size.X, y+cd.Size.Y)}
-		fill, ring := th.SurfaceSecondary, th.BorderSubtle
-		switch {
-		case pend:
-			ring = theme.Mix(th.SurfaceSecondary, th.Blue, 0.55)
+		switch r := rect.Dy() / 2; {
 		case open:
-			fill, ring = theme.Mix(th.SurfaceSecondary, th.Primary, 0.12), theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
+			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Primary, 0.14), clip.UniformRRect(rect, r).Op(gtx.Ops))
 		case btn.Pressed():
-			fill, ring = th.SurfaceElevated, th.BorderStrong
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		}
-		r := rect.Dy() / 2
-		paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, r).Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
@@ -749,12 +742,12 @@ var chipWhat = [3]string{"model", "effort", "mode"}
 // chipX is the left edge of chip which, for its menu to open above it.
 //
 // why: the chips sit 16dp in from the screen's edge (the band's 10 and the
-// toolbar's 6), 8dp apart, the hidden ones 0 wide.
+// toolbar's 6), 2dp apart, the hidden ones 0 wide.
 func (k *composer) chipX(gtx C, which int) int {
 	x := gtx.Dp(16)
 	for i := range which {
 		if k.chipW[i] > 0 {
-			x += k.chipW[i] + gtx.Dp(8)
+			x += k.chipW[i] + gtx.Dp(2)
 		}
 	}
 	return x

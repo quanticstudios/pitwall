@@ -164,11 +164,11 @@ func TestSendState(t *testing.T) {
 		}
 	}
 	working := remote.Tab{Item: remote.Item{Agent: "claude", State: "working"}}
-	if placeholder(working) != "Queue a message. Enter adds a line." {
+	if placeholder(working) != "Queue a message" {
 		t.Errorf("working placeholder = %q", placeholder(working))
 	}
 	done := remote.Tab{Item: remote.Item{Agent: "codex", State: "completed"}}
-	if placeholder(done) != "Message Codex. Enter adds a line." {
+	if placeholder(done) != "Message Codex" {
 		t.Errorf("idle placeholder = %q", placeholder(done))
 	}
 	if !busy(remote.Tab{Item: remote.Item{State: "pending-approval"}}) || busy(done) {

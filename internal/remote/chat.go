@@ -50,7 +50,7 @@ type Tab struct {
 	HoldMenu bool `json:"holdMenu,omitempty"`
 	// Queue is what the tab's chat queued, in order, and QueueHold why it
 	// waits for the user although the turn ended ("" while it waits for
-	// the turn); POST /api/queue sends a row now or removes it.
+	// the turn); POST /api/queue sends a row now, moves it or removes it.
 	Queue        []QueueRow `json:"queue,omitempty"`
 	QueueHold    string     `json:"queueHold,omitempty"`
 	AllowBlocked string     `json:"allowBlocked,omitempty"`
@@ -525,21 +525,22 @@ type QueueRow struct {
 	Error string `json:"error,omitempty"`
 }
 
-// queue runs a queue row's button: Send now or Remove.
+// queue runs a queue row's button: Send now, Remove, or a move to Index.
 func (s *Server) queue(w http.ResponseWriter, r *http.Request, d Device) {
 	var req struct {
 		Pane   string `json:"pane"`
 		ID     string `json:"id"`
-		Action string `json:"action"` // now or remove
+		Action string `json:"action"` // now, remove or move
+		Index  int    `json:"index"`  // move's place in the queue, 0 first
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.Action != "now" && req.Action != "remove" || req.ID == "" || s.Queue == nil {
-		http.Error(w, "send a queued message now or remove it", http.StatusBadRequest)
+	if req.Action != "now" && req.Action != "remove" && req.Action != "move" || req.ID == "" || s.Queue == nil {
+		http.Error(w, "send a queued message now, move it or remove it", http.StatusBadRequest)
 		return
 	}
-	if err := s.Queue(req.Pane, req.ID, req.Action); err != nil {
+	if err := s.Queue(req.Pane, req.ID, req.Action, req.Index); err != nil {
 		log.Printf("remote: %q: queue %s of pane %s refused: %q", d.Name, req.Action, req.Pane, err)
 		http.Error(w, err.Error(), http.StatusConflict)
 		return

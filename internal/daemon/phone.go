@@ -745,8 +745,9 @@ func phoneRows(qs []session.QueuedInput) []remote.QueueRow {
 	return out
 }
 
-// phoneQueue runs the phone's Send now or Remove on a queued message of
-// pane's chat, a pane chat's or a chat tab's, as the window's would.
-func (d *Daemon) phoneQueue(pane, id, action string) error {
-	return chatRefusal(d.chatRequest(context.Background(), proto.ChatQueue{Chat: pane, Action: action, ID: id}))
+// phoneQueue runs the phone's Send now, Remove or move to index on a
+// queued message of pane's chat, a pane chat's or a chat tab's, as the
+// window's would.
+func (d *Daemon) phoneQueue(pane, id, action string, index int) error {
+	return chatRefusal(d.chatRequest(context.Background(), proto.ChatQueue{Chat: pane, Action: action, ID: id, Index: index}))
 }

@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- The phone's chat has a floating title pill in place of its top bar: the tab's name and its state, such as Needs you in amber or Working in blue. A tap opens the tab's menu, which now holds Screen with Restart and Close tab. The composer shows the agent's status line on top, lists queued messages with Move up and Remove, shows the model, effort and mode as quiet text, and has one hint line under it.
 - A finished turn's work rolls up into one line, "Worked 2m 14s" with chips such as "6 tools", "2 files" and a red "1 test failed". Click it to see every call. Tools starts it open; Failed only, No tools and Zen start it folded, and Failed only keeps the failed calls under it. Ledger and Column both draw it.
 - A turn's edit card has a bar of the lines added against removed, and its button reads Review. Ledger shows the card too.
 - Sidebar tiles have no outlines. A live tab fills a shade lighter than the sidebar, a finished one has no box, the selected tab is tinted blue, and a tab that needs you is tinted amber, or red on an error. A remote machine's header names it in purple and "This machine" in gray, with a hairline to the tab count. A tab with workers shows a people icon and their count beside its time, blue while one works, in place of "3 workers · 3 working", and each worker hangs off a corner connector.

@@ -15,12 +15,13 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// tabMenu is the chat header's ⋯ menu: Restart for a tab whose command
-// exited, and Close tab, which asks for a second tap.
+// tabMenu is the title pill's menu: Screen for a terminal tab, Restart
+// for a tab whose command exited, and Close tab, which asks for a second
+// tap.
 type tabMenu struct {
-	more, scrim, restart, close widget.Clickable
-	open, armed                 bool
-	gone                        bool // the tab closed from here: the chat leaves
+	more, scrim, screen, restart, close widget.Clickable
+	open, armed                         bool
+	gone                                bool // the tab closed from here: the chat leaves
 }
 
 // tabActions reports which of the menu's actions env's tab takes.
@@ -47,16 +48,8 @@ func (c *chatView) restartTab(env chatEnv) {
 	})
 }
 
-// tabMenuButton is the header's ⋯, nothing when the tab takes no action.
-func (c *chatView) tabMenuButton(gtx C, th *theme.Theme, env chatEnv) D {
-	if r, cl := tabActions(env); !r && !cl {
-		return D{}
-	}
-	return roundButton(gtx, th, &c.menu.more, "ellipsis", 22, th.Fg)
-}
-
-// toggle opens or closes the menu on a tap of ⋯; the chat calls it before
-// the header lays the button out, which takes its taps.
+// toggle opens or closes the menu on a tap of the title pill; the chat
+// calls it before the pill is laid out, which takes its taps.
 func (m *tabMenu) toggle(gtx C) {
 	if m.more.Clicked(gtx) {
 		m.open, m.armed = !m.open, false
@@ -68,11 +61,17 @@ func (m *tabMenu) toggle(gtx C) {
 func (c *chatView) tabMenuLayout(gtx C, th *theme.Theme, env chatEnv) {
 	m := &c.menu
 	restart, closes := tabActions(env)
+	screen := screenAction(env)
 	if !m.open {
 		return
 	}
-	if (!restart && !closes) || m.scrim.Clicked(gtx) {
+	if (!restart && !closes && !screen) || m.scrim.Clicked(gtx) {
 		m.open, m.armed = false, false
+		return
+	}
+	if screen && m.screen.Clicked(gtx) {
+		m.open, m.armed = false, false
+		c.scr.show()
 		return
 	}
 	t := env.Tab
@@ -105,6 +104,11 @@ func (c *chatView) tabMenuLayout(gtx C, th *theme.Theme, env chatEnv) {
 		return D{Size: gtx.Constraints.Max}
 	})
 	var rows []layout.FlexChild
+	if screen {
+		rows = append(rows, layout.Rigid(func(gtx C) D {
+			return menuItem(gtx, th, &m.screen, 0, "screen", "Screen", "The agent's terminal as it is now", false)
+		}))
+	}
 	if restart {
 		rows = append(rows, layout.Rigid(func(gtx C) D {
 			return menuItem(gtx, th, &m.restart, 0, "restart", "Restart", "Run the tab's command again", false)

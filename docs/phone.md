@@ -428,8 +428,18 @@ Retry tries at once; its last list stays on screen, dimmed, and the other
 machines carry on. The line shows too when the machine has no tabs. Coming
 back to the foreground tries every machine at once.
 
-A terminal tab's chat has a terminal button in its header that opens the
-tab's Screen view: the screen as text, as `pitwall read --screen` prints
+A chat's top is a floating pill with Back beside it. The pill shows the
+tab's name and its state: Needs you in amber while the tab waits on you,
+Working in blue, and so on. A tap on it opens the tab's menu.
+
+The message box shows the agent's status line on top while it works, such
+as "Thinking… 11s · ↓ 789 tokens". Messages waiting in the tab's queue
+list under it, oldest first, each with Move up and Remove. When the queue
+waits on you, the top line says why. The model, effort and mode under the
+field are quiet text; a tap opens each one's menu. One hint line sits
+under the box.
+
+A terminal tab's menu has Screen, which opens the tab's Screen view: the screen as text, as `pitwall read --screen` prints
 it, read again each second while the view shows. A wide screen gets a
 smaller font, down to a point, then scrolls sideways. Keys under it press
 into the tab as `pitwall send-key` does: Esc, Tab, Shift+Tab, Ctrl+C and
@@ -465,7 +475,7 @@ Start opens the tab as `pitwall new` does, or `pitwall worktree new` for a
 new worktree, with the same checks and the guard a preset asks for, and
 shows its chat. A worktree tab with a terminal gets a shell.
 
-A chat's ⋯ menu has Close tab, which asks for a second tap and ends what
+A chat's menu, under its title pill, has Close tab, which asks for a second tap and ends what
 runs in the tab, and Restart for a tab whose command exited. Restart runs
 the command again in its folder, or resumes its agent's session when
 pitwall knows it, as a restart of pitwall would. An exited tab also has

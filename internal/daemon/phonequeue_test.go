@@ -22,7 +22,19 @@ func TestPhoneQueue(t *testing.T) {
 	d.st.Panes[0].Transcript = path
 	d.st.Activities[d.activityIndex("a")].State = model.StateAwaitingInput
 	d.mu.Unlock()
-	ids := enqueue(d, "token=abc123 first", "second")
+	ids := enqueue(d, "token=abc123 first", "second", "third")
+	if st, body := do("POST", "/api/queue", `{"pane":"a","id":"`+ids[2]+`","action":"move","index":0}`); st != 200 {
+		t.Fatalf("move: %d %s", st, body)
+	}
+	d.mu.Lock()
+	moved, _, _ := d.chatQueued("a")
+	d.mu.Unlock()
+	if len(moved) != 3 || moved[0].ID != ids[2] || moved[1].ID != ids[0] {
+		t.Fatalf("queue after move: %+v", moved)
+	}
+	if st, body := do("POST", "/api/queue", `{"pane":"a","id":"`+ids[2]+`","action":"remove"}`); st != 200 {
+		t.Fatalf("remove the moved: %d %s", st, body)
+	}
 	d.chatReason("a")
 	var tab remote.Tab
 	for _, tb := range d.phoneTabs() {
