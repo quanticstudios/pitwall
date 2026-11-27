@@ -24,6 +24,7 @@ takes `--dry-run`.
 
 ## Unreleased
 
+- While the agent in a pane chat works, the chat shows the last lines of its terminal screen in a card above the composer, at the right of the chat column. Open switches to the terminal; × closes the inset for that chat.
 - The chat composer is quieter. The agent's status line and the queued
   messages sit at the top of the box. Drag a queued message by its grip to
   change its order. The model, effort and mode pickers are smaller and
