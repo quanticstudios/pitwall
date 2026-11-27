@@ -50,7 +50,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		h += fleetHeight(gtx, th)
 	}
 	rect := image.Rect(0, 0, w, h)
-	rr := gtx.Dp(8)
+	rr := gtx.Dp(tileRadius)
 	// The tile takes in the sub-rows the tree placed under the row.
 	tileRect := rect
 	if r.tileH > h && !ghost {
@@ -60,7 +60,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	animating := model.Pulses(a) && !ghost && !anim.Reduced()
 	hovered := !ghost && r.hovered()
 	selected := s.selected[ws.ID] && !ghost
-	base, ring := tileStyle(th, a, selected || isActive && !ghost)
+	base := tileStyle(th, a, selected || isActive && !ghost)
 	if hovered {
 		base = tileHover(th, base)
 	}
@@ -83,9 +83,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	} else {
 		base = r.fill(gtx, base, hovered)
 		r.tile = base
-		drawTile(gtx, th, tileRect, base, ring)
+		drawTile(gtx, th, tileRect, base)
 		if tileRect.Max.Y > h {
-			subsHairline(gtx, th, h, w)
+			subsHairline(gtx, th, base, h, w)
 		}
 	}
 	if cursor {
@@ -168,10 +168,23 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		quiet := th.Readable(th.TextQuiet, base)
 		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
 		inRepo := ws.Branch != ""
-		// The right column's line 1: the time, or what stands in for it.
+		// The right column's line 1: the time, or what stands in for it,
+		// after the worker chip of a tab with sub-rows.
+		var right []item
+		if subs {
+			n, on := v.workerChip(ws.ID)
+			right = append(right, item{w: func(gtx layout.Context) layout.Dimensions {
+				return workerChip(gtx, th, n, chipColor(th, on, base))
+			}})
+		}
 		if txt, col := s.timeText(v, ws, a, inRepo && merged, down, host, muted, quiet); txt != "" {
-			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+			right = append(right, item{w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), col, txt)
+			}})
+		}
+		if len(right) > 0 {
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return hrowFit(gtx, l1, gtx.Dp(8), right...)
 			}})
 		}
 		hrow(gtx, l1, gtx.Dp(8), items...)
@@ -193,7 +206,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		var line []item
 		if subs {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
-				return s.foldChip(gtx, v, ws.ID, muted, ghost, false)
+				return s.foldChip(gtx, v, ws.ID, muted, ghost)
 			}})
 		}
 		// The inbox mixes groups: each row names its own.
@@ -214,10 +227,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if down && own != nil && model.Tier(own) == model.TierAttention {
 			where = answerLater(host)
 		}
-		// On a desktop, Allow and Deny or the agent count leave it a few letters at most (a phone's row has room),
+		// On a desktop, Allow and Deny leave it a few letters at most (a phone's row has room),
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if !subs && where != title {
+		if where != title {
 			// Beside the inbox's group tag it shows whole or not at all.
 			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)

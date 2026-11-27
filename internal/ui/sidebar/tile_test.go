@@ -49,24 +49,26 @@ func TestStateMark(t *testing.T) {
 	}
 }
 
-// TestTileStyle: live tiles fill with Surface, finished ones only outline,
-// the selected one fills SurfaceSecondary in a Primary ring, and a tab
-// that needs the user rings amber, or red on an error. The outline of a
-// finished tile reads against the sidebar.
+// TestTileStyle: no tile has an outline. Live tiles fill a step toward
+// Fg, finished ones not at all, the selected one is tinted Primary and a
+// tab that needs the user amber, or red on an error.
 func TestTileStyle(t *testing.T) {
 	th := theme.Dark()
-	none := func(c interface{ RGBA() (r, g, b, a uint32) }) bool { _, _, _, a := c.RGBA(); return a == 0 }
 	act := func(s model.AgentState) *model.Activity { return &model.Activity{State: s} }
+	live := theme.Mix(th.Sidebar, th.Fg, 0.025)
 
-	if f, r := tileStyle(th, nil, false); f != th.Surface || !none(r) {
-		t.Errorf("idle tab = %v %v, want Surface with no ring", f, r)
+	if f := tileStyle(th, nil, false); f != live {
+		t.Errorf("idle tab = %v, want %v", f, live)
 	}
-	if f, r := tileStyle(th, act(model.StateWorking), false); f != th.Surface || !none(r) {
-		t.Errorf("working tab = %v %v", f, r)
+	if f := tileStyle(th, act(model.StateWorking), false); f != live {
+		t.Errorf("working tab = %v", f)
+	}
+	if live == th.Sidebar {
+		t.Error("a live tile does not show on the sidebar")
 	}
 	for _, s := range []model.AgentState{model.StateCompleted, model.StatePlanReady, model.StateParked} {
-		if f, r := tileStyle(th, act(s), false); f != th.Sidebar || r != finishedRing(th) {
-			t.Errorf("%s tab = %v %v, want no fill in an outline", s, f, r)
+		if f := tileStyle(th, act(s), false); f != th.Sidebar {
+			t.Errorf("%s tab = %v, want no fill", s, f)
 		}
 		if c, bold := titleStyle(th, act(s)); c == th.Fg || bold {
 			t.Errorf("%s title stays bright", s)
@@ -75,20 +77,18 @@ func TestTileStyle(t *testing.T) {
 	if c, bold := titleStyle(th, act(model.StateWorking)); c != th.Fg || !bold {
 		t.Error("a live title dims")
 	}
-	if c := theme.Contrast(finishedRing(th), th.Sidebar); c < 1.5 {
-		t.Errorf("a finished tile's outline is %.2f:1 on the sidebar, want 1.5:1 or more", c)
+	if f := tileStyle(th, act(model.StateCompleted), true); f != theme.Mix(th.Sidebar, th.Primary, 0.13) {
+		t.Errorf("selected tab = %v", f)
 	}
-	if f, r := tileStyle(th, act(model.StateCompleted), true); f != th.SurfaceSecondary || r != th.Primary {
-		t.Errorf("selected tab = %v %v", f, r)
+	amber := theme.Mix(th.Sidebar, th.Yellow, 0.10)
+	if f := tileStyle(th, act(model.StatePendingApproval), true); f != amber {
+		t.Errorf("selected approval = %v, want amber", f)
 	}
-	if _, r := tileStyle(th, act(model.StatePendingApproval), true); r != theme.Mix(th.SurfaceSecondary, th.Yellow, 0.6) {
-		t.Errorf("selected approval rings %v, want amber", r)
+	if f := tileStyle(th, act(model.StateAwaitingInput), false); f != amber {
+		t.Errorf("input = %v, want amber", f)
 	}
-	if _, r := tileStyle(th, act(model.StateAwaitingInput), false); r != theme.Mix(th.Surface, th.Yellow, 0.6) {
-		t.Errorf("input rings %v, want amber", r)
-	}
-	if _, r := tileStyle(th, act(model.StateError), false); r != theme.Mix(th.Surface, th.Red, 0.6) {
-		t.Errorf("error rings %v, want red", r)
+	if f := tileStyle(th, act(model.StateError), false); f != theme.Mix(th.Sidebar, th.Red, 0.10) {
+		t.Errorf("error = %v, want red", f)
 	}
 	if whyLine(&model.Activity{State: model.StatePendingApproval, Detail: "Run: go test\nmore"}) != "Run: go test" {
 		t.Error("an approval's reason is its detail's first line")

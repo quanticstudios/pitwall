@@ -51,6 +51,8 @@ const (
 	icFile         = "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4" // lucide file
 	icChevronRight = "M9 18l6-6-6-6"
 	icChevronDown  = "M6 9l6 6 6-6"
+	// the sidebar mock's people glyph, its 13x12 box scaled to 24
+	icPeople = "M4.8 7.57a3.69 3.69 0 1 0 7.38 0a3.69 3.69 0 1 0-7.38 0M1.85 20.31c.74-3.69 3.32-5.72 6.65-5.72c3.32 0 5.91 2.03 6.65 5.72M14.4 8.67a2.95 2.95 0 1 0 5.9 0a2.95 2.95 0 1 0-5.9 0M17.35 14.77c2.58 0 4.43 1.66 4.98 4.8"
 	// lucide file-diff and git-pull-request
 	icFileDiff       = "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM9 10h6M12 13V7M9 17h6"
 	icGitPullRequest = "M15 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0M3 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0M13 6h3a2 2 0 0 1 2 2v7M6 9v12"

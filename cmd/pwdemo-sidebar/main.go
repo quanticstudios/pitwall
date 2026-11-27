@@ -104,7 +104,11 @@ func main() {
 	if *mock != "" {
 		var a string
 		st, a = mockState(&sb, *mock, time.Now())
-		*active = a
+		set := false
+		flag.Visit(func(f *flag.Flag) { set = set || f.Name == "active" })
+		if !set { // an -active given beside -mock wins
+			*active = a
+		}
 	}
 	if *settleAll {
 		for i := range st.Workspaces {
