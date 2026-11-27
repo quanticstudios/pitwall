@@ -443,3 +443,22 @@ func (c *Client) SendImage(ctx context.Context, pane, text, image string) (uint6
 func (c *Client) OpenDesktop(ctx context.Context, pane string) error {
 	return c.call(ctx, "POST", "api/open", map[string]string{"pane": pane}, nil)
 }
+
+// Screen is pane's screen as text, as pitwall read --screen prints it.
+func (c *Client) Screen(ctx context.Context, pane string) (string, error) {
+	var out struct {
+		Text string `json:"text"`
+	}
+	err := c.call(ctx, "GET", "api/screen?"+url.Values{"pane": {pane}}.Encode(), nil, &out)
+	return out.Text, err
+}
+
+// Key presses one of remote.Keys in pane.
+func (c *Client) Key(ctx context.Context, pane, key string) error {
+	return c.call(ctx, "POST", "api/key", map[string]string{"pane": pane, "key": key}, nil)
+}
+
+// Stop interrupts pane's agent's turn.
+func (c *Client) Stop(ctx context.Context, pane string) error {
+	return c.call(ctx, "POST", "api/stop", map[string]string{"pane": pane}, nil)
+}

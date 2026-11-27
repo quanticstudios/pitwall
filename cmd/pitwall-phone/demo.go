@@ -33,6 +33,7 @@ type demo struct {
 	tabs    []remote.Tab
 	changed chan struct{}
 	next    uint64
+	menus   map[string]bool // by pane, a menu on its screen that holds its queue
 }
 
 // serveDemo serves demo variant (0 or 1, two machines' worth) at addr and
@@ -61,6 +62,9 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 		Command: d.command,
 		Answer:  d.answer,
 		Reply:   func(pane string, _ int64, text string) error { _, err := d.send(pane, text); return err },
+		Screen:  d.screen,
+		Key:     d.key,
+		Stop:    d.stop,
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -161,6 +165,73 @@ func (d *demo) answer(pane string, at int64, allow bool) error {
 	return nil
 }
 
+// screen is pane's made-up screen: the autocompact dialog while its menu
+// is up, else the agent at its prompt.
+func (d *demo) screen(pane string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	t, err := d.tab(pane)
+	if err != nil {
+		return "", err
+	}
+	if d.menus[pane] {
+		return menuScreen, nil
+	}
+	return " ▐▛███▜▌   Claude Code v2.1.330\n▝▜█████▛▘  Opus 5.5 · Claude Max\n\n> " + t.Tab + "\n\n● " + t.Label + "\n\n────────────────────────────────────────\n> \n────────────────────────────────────────\n  ⏵⏵ accept edits on (shift+tab to cycle)", nil
+}
+
+// key answers the menu with Esc, Enter or a digit, which lets the queued
+// message go in; other keys change nothing.
+func (d *demo) key(pane, key string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	t, err := d.tab(pane)
+	if err != nil {
+		return err
+	}
+	if d.menus[pane] && (key == "esc" || key == "enter" || key == "1" || key == "2") {
+		delete(d.menus, pane)
+		t.Hold, t.HoldMenu, t.Queued = "", false, 0
+		t.State, t.Label = string(model.StateWorking), "Working"
+		d.touch()
+	}
+	return nil
+}
+
+// stop ends a working tab's turn.
+func (d *demo) stop(pane string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	t, err := d.tab(pane)
+	if err != nil {
+		return err
+	}
+	if t.State == string(model.StateWorking) {
+		t.State, t.Label, t.Detail = string(model.StateCompleted), "Interrupted", ""
+		d.touch()
+	}
+	return nil
+}
+
+const menuScreen = ` ▐▛███▜▌   Claude Code v2.1.330
+▝▜█████▛▘  Opus 5.5 · Claude Max
+  ▘▘ ▝▝    ~/src/shop
+
+> Tidy the cart tests
+
+● Merged the three table tests into one and dropped the sleeps.
+
+╭──────────────────────────────────────────────────────────╮
+│ We recommend compacting earlier                          │
+│                                                          │
+│ Autocompact at 400k tokens?                              │
+│                                                          │
+│ ❯ 1. Yes, compact at 400k                                │
+│   2. No, keep the default                                │
+│                                                          │
+│ Enter to confirm · esc not now                           │
+╰──────────────────────────────────────────────────────────╯`
+
 // demoModel is the id a Claude Code turn reports for a /model name.
 func demoModel(name string) string {
 	switch name {
@@ -208,12 +279,15 @@ func (d *demo) fill(variant int) error {
 	fix.Transcript = race
 	doc := tab("doc", "demo", "", "Update the README", "claude", "completed", "Done", "docs/install", ago(12))
 	doc.Transcript = readme
+	tidy := tab("tidy", "demo", "", "Tidy the cart tests", "claude", "completed", "Done", "test/cart", ago(1))
+	tidy.Transcript, tidy.Queued = readme, 1
+	tidy.Hold, tidy.HoldMenu = "claude: a menu is open in the agent's terminal", true
 	site := tab("site", "demo", "", "Port the docs site", "claude", "parked", "Parked", "docs/site", ago(60))
 	logs := tab("logs", "demo", "", "server logs", "terminal", "", "", "main", ago(180))
 	certs := tab("certs", "infra", "", "Rotate the certs", "claude", "error", "Error", "ops/certs", ago(4))
 	certs.Detail = "x509: certificate has expired"
-	rate, pr, fix, doc, site, certs = in(rate, "api"), in(pr, "api"), in(fix, "shop"), in(doc, "docs"), in(site, "docs"), in(certs, "infra")
-	d.tabs = []remote.Tab{rate, pr, fix, doc, site, logs, certs}
+	rate, pr, fix, doc, site, certs, tidy = in(rate, "api"), in(pr, "api"), in(fix, "shop"), in(doc, "docs"), in(site, "docs"), in(certs, "infra"), in(tidy, "shop")
+	d.tabs = []remote.Tab{rate, pr, fix, tidy, doc, site, logs, certs}
 	if variant == 1 {
 		deps := tab("deps", "main", "", "Bump the deps", "codex", "working", "Working", "chore/deps", ago(0))
 		notes := tab("notes", "main", "", "Write the release notes", "claude", "awaiting-input", "Input", "docs/release", ago(3))
@@ -228,8 +302,12 @@ func (d *demo) fill(variant int) error {
 	}
 	// why: every daemon's ids are its own random ones; two demo servers in one app must not share any.
 	tag := hex.EncodeToString(binary.BigEndian.AppendUint64(nil, rand.Uint64()))[:6]
+	d.menus = map[string]bool{}
 	for i := range d.tabs {
 		d.tabs[i].ID, d.tabs[i].Pane = tag+d.tabs[i].ID, tag+d.tabs[i].Pane
+		if d.tabs[i].HoldMenu {
+			d.menus[d.tabs[i].Pane] = true
+		}
 		if d.tabs[i].Parent != "" {
 			d.tabs[i].Parent = tag + d.tabs[i].Parent
 		}

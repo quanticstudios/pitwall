@@ -419,8 +419,8 @@ func TestPhoneMidTurnHolds(t *testing.T) {
 				t.Fatalf("hold: typed %q, queue %d", got, d.phoneTabs()[0].Queued)
 			}
 			tabs := d.phoneTabs()
-			if tabs[0].Hold == "" {
-				t.Fatal("missing reason for held message")
+			if tabs[0].Hold == "" || tabs[0].HoldMenu != strings.Contains(tabs[0].Hold, "a menu is open") {
+				t.Fatalf("hold %q, menu %v", tabs[0].Hold, tabs[0].HoldMenu)
 			}
 			if tc.draft && tabs[0].Hold != "you are typing in this tab on the desktop" {
 				t.Fatalf("draft hold: %q", tabs[0].Hold)

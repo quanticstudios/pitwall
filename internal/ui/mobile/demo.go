@@ -30,7 +30,7 @@ import (
 // DemoStates are the chat states ChatDemo draws, as the design shows them.
 var DemoStates = []string{
 	"following", "scrolled", "ready", "queued", "six-lines", "sending", "not-sent",
-	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host",
+	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host", "screen",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -54,6 +54,30 @@ func (demoAPI) Input(ctx context.Context, chat, request string, answers map[stri
 func (demoAPI) Older(ctx context.Context, pane string, before int64) ([]flow.Entry, bool, error) {
 	return nil, false, nil
 }
+func (demoAPI) Screen(ctx context.Context, pane string) (string, error) { return demoScreen, nil }
+func (demoAPI) Key(ctx context.Context, pane, key string) error         { return nil }
+func (demoAPI) Stop(ctx context.Context, pane string) error             { return nil }
+
+// demoScreen is Claude Code's autocompact dialog, a menu pitwall does not
+// read, as the Screen view shows it.
+const demoScreen = ` ▐▛███▜▌   Claude Code v2.1.330
+▝▜█████▛▘  Opus 5.5 · Claude Max
+  ▘▘ ▝▝    ~/src/shop
+
+> Fix the checkout race
+
+● Found it. Add appends to c.items while Total ranges over it.
+
+╭──────────────────────────────────────────────────────────╮
+│ We recommend compacting earlier                          │
+│                                                          │
+│ Autocompact at 400k tokens?                              │
+│                                                          │
+│ ❯ 1. Yes, compact at 400k                                │
+│   2. No, keep the default                                │
+│                                                          │
+│ Enter to confirm · esc not now                           │
+╰──────────────────────────────────────────────────────────╯`
 
 const (
 	demoDraft = "Also run the cart benchmarks before you commit, and paste the numbers here"
@@ -139,6 +163,8 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	case "approval":
 		env.Tab.State, env.Tab.Label, env.Tab.Detail, env.Tab.Answer = "pending-approval", "Approval", demoRun, true
 		c.data.Entries = c.data.Entries[:6]
+	case "screen":
+		c.scr.show()
 	case "host":
 		env.Host = "box"
 		env.Hosts = []sidebar.HostInfo{{Up: true}, {Name: "box", Up: true}}

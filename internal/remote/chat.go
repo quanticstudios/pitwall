@@ -35,6 +35,9 @@ type Tab struct {
 	Picker bool   `json:"picker"` // model and effort: Claude Code in a terminal
 	Queued int    `json:"queued,omitempty"`
 	Hold   string `json:"hold,omitempty"`
+	// HoldMenu says Hold is a menu open in the agent's terminal, which the
+	// phone's Screen view clears.
+	HoldMenu bool `json:"holdMenu,omitempty"`
 	// Queue is what the tab's chat queued, in order, and QueueHold why it
 	// waits for the user although the turn ended ("" while it waits for
 	// the turn); POST /api/queue sends a row now or removes it.

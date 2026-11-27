@@ -195,8 +195,15 @@ type Server struct {
 	Queue       func(pane, id, action string) error
 	OpenDesktop func(pane string) error
 	Question    func(pane, id string, option int, text string) error
-	Upload      func(pane string, data []byte) (string, error)
-	SendImage   func(pane, text, image string) (uint64, error)
+	// Screen is pane's screen as pitwall read --screen prints it, Key
+	// presses one of Keys in pane as pitwall send-key does, refused on a
+	// guarded tab, and Stop interrupts pane's agent's turn as the window's
+	// Stop does. Nil serves none of them.
+	Screen    func(pane string) (string, error)
+	Key       func(pane, key string) error
+	Stop      func(pane string) error
+	Upload    func(pane string, data []byte) (string, error)
+	SendImage func(pane, text, image string) (uint64, error)
 	// Folder is tab's working directory and the folder, its repo's or
 	// the one it runs in, that the files the phone reads for it must be
 	// in; ok is false for no such tab. Nil serves no files.
@@ -280,6 +287,15 @@ func (s *Server) Handler() http.Handler {
 		}
 		if s.Question != nil {
 			mux.Handle("POST /api/question", sameOrigin(s.authed(s.question)))
+		}
+		if s.Screen != nil {
+			mux.Handle("GET /api/screen", sameOrigin(s.authed(s.screen)))
+		}
+		if s.Key != nil {
+			mux.Handle("POST /api/key", sameOrigin(s.authed(s.key)))
+		}
+		if s.Stop != nil {
+			mux.Handle("POST /api/stop", sameOrigin(s.authed(s.stop)))
 		}
 		if s.Upload != nil {
 			mux.Handle("POST /api/upload", sameOrigin(s.authed(s.upload)))

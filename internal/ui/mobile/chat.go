@@ -45,6 +45,9 @@ type chatAPI interface {
 	Approve(ctx context.Context, chat, request, decision, reason string) error
 	Input(ctx context.Context, chat, request string, answers map[string][]string) error
 	Older(ctx context.Context, pane string, before int64) ([]flow.Entry, bool, error)
+	Screen(ctx context.Context, pane string) (string, error)
+	Key(ctx context.Context, pane, key string) error
+	Stop(ctx context.Context, pane string) error
 }
 
 // chatEnv is what the chat screen reads from the app each frame.
@@ -94,6 +97,8 @@ type chatView struct {
 	tapped     string // a link tapped in a reply this frame
 
 	backBtn, newBtn, retry widget.Clickable
+	screenBtn              widget.Clickable
+	scr                    screenView
 	card                   cardState
 	cmp                    composer
 	slashes                slashMenu
@@ -153,6 +158,8 @@ func (c *chatView) update(t remote.Tab, now time.Time) {
 // reason to stay: Android's keyboard takes the first Back itself to hide.
 func (c *chatView) handleBack(gtx C) bool {
 	switch {
+	case c.scr.open:
+		c.scr.open = false
 	case c.cmp.menu != "":
 		c.cmp.menu = ""
 	case len(c.slashes.Rows()) > 0:
@@ -179,6 +186,13 @@ func (c *chatView) row(seq int64) *entryRow {
 func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	if c.backBtn.Clicked(gtx) {
 		return true
+	}
+	if c.screenBtn.Clicked(gtx) {
+		c.scr.show()
+	}
+	if c.scr.open {
+		c.screenLayout(gtx, th, env)
+		return false
 	}
 	if c.retry.Clicked(gtx) && env.Retry != nil {
 		env.Retry()
@@ -299,6 +313,12 @@ func (c *chatView) header(gtx C, th *theme.Theme, env chatEnv) D {
 						}),
 					)
 				})
+			}),
+			layout.Rigid(func(gtx C) D {
+				if !env.Open || t.Chat {
+					return D{}
+				}
+				return roundButton(gtx, th, &c.screenBtn, "terminal", 22, th.Fg)
 			}),
 		)
 	})

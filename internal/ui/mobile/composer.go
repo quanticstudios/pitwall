@@ -41,7 +41,9 @@ type composer struct {
 	modelChip, effChip              widget.Clickable
 	scrim                           widget.Clickable
 	items                           map[string]*widget.Clickable
-	sending                         bool         // a send is on its way
+	sending                         bool // a send is on its way
+	stopping                        bool // a Stop is on its way
+	openScreen                      widget.Clickable
 	notSent                         string       // why the last message did not go in
 	menu                            string       // "model", "effort" or "paste" while its menu is open
 	picks                           []*pick      // picks waiting for the agent to sit idle, one per setting, oldest first
@@ -80,7 +82,20 @@ const (
 	sendQueue                    // a draft and a working agent: a clock, queues
 	sendSending                  // on its way: a spinner, inert
 	sendOff                      // offline: outlined, inert
+	sendStop                     // nothing typed and the agent works: a square, interrupts the turn
 )
+
+// withStop is st with Stop in place of the quiet button while t's agent
+// works, and a spinner while that Stop is on its way.
+func withStop(st sendState, t remote.Tab, stopping bool) sendState {
+	switch {
+	case st != sendIdle || t.State != "working":
+		return st
+	case stopping:
+		return sendSending
+	}
+	return sendStop
+}
 
 // sendStateOf is the button's state for draft text.
 func sendStateOf(text string, sending, online, busy bool) sendState {
@@ -254,8 +269,15 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	if k.attachment != nil {
 		draft += "image"
 	}
-	st := sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t))
+	st := withStop(sendStateOf(draft, k.sending || k.loadingImage || k.inserts > 0, env.Online, busy(t)), t, k.stopping)
 	c.imageClicks(gtx, env)
+	if k.send.Clicked(gtx) && st == sendStop {
+		c.stopTurn(env)
+		st = sendSending
+	}
+	if k.openScreen.Clicked(gtx) {
+		c.scr.show()
+	}
 	if k.send.Clicked(gtx) && (st == sendReady || st == sendQueue) {
 		if c.answerFromBox(env, k.ed.Text(), k.attachment != nil) {
 			k.ed.SetText("")
@@ -299,7 +321,11 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 				if bold == "" {
 					return D{}
 				}
-				return strip(gtx, th, bold, rest, bad)
+				var open *widget.Clickable
+				if t.HoldMenu && bold == "waiting:" && !t.Chat {
+					open = &k.openScreen
+				}
+				return strip(gtx, th, bold, rest, bad, open)
 			}),
 			layout.Rigid(func(gtx C) D { return c.attachments(gtx, th, env) }),
 			layout.Rigid(func(gtx C) D {
@@ -368,8 +394,9 @@ func (c *chatView) cmpFrame(gtx C, th *theme.Theme, w layout.Widget) D {
 }
 
 // strip is the 34dp queued line: a clock, the count and the oldest text;
-// red with an alert when a message was not sent.
-func strip(gtx C, th *theme.Theme, bold, rest string, bad bool) D {
+// red with an alert when a message was not sent. A non-nil open puts Open
+// screen at its end.
+func strip(gtx C, th *theme.Theme, bold, rest string, bad bool, open *widget.Clickable) D {
 	col, ic := th.Readable(th.Blue, th.Bg), icClock
 	if bad {
 		col, ic = th.Readable(th.Red, th.Bg), icAlert
@@ -388,6 +415,12 @@ func strip(gtx C, th *theme.Theme, bold, rest string, bad bool) D {
 					lines = 0
 				}
 				return label(gtx, th, th.UIFont, 14, th.Muted, lines, rest)
+			}),
+			layout.Rigid(func(gtx C) D {
+				if open == nil {
+					return D{}
+				}
+				return linkButton(gtx, th, open, "Open screen")
 			}),
 		)
 	})
@@ -466,7 +499,7 @@ func fade(gtx C, col color.NRGBA, size image.Point) {
 // sendButton is the 44dp round button in a 48dp hit area: arrow-up, a
 // clock to queue, or a spinner while sending.
 func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
-	live := st == sendReady || st == sendQueue
+	live := st == sendReady || st == sendQueue || st == sendStop
 	draw := func(gtx C) D {
 		hit, s := gtx.Dp(48), gtx.Dp(44)
 		o := (hit - s) / 2
@@ -491,6 +524,11 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 			fill, fg = theme.Mix(th.Surface, th.Primary, 0.55), th.OnPrimary
 		case sendOff:
 			fg, ring = theme.Mix(th.Bg, th.TextQuiet, 0.55), th.BorderStrong
+		case sendStop:
+			fill, fg = th.Fg, th.Bg
+			if c.Pressed() {
+				fill = theme.Mix(th.Fg, th.Bg, 0.25)
+			}
 		}
 		if ring.A > 0 {
 			paint.FillShape(gtx.Ops, ring, clip.Ellipse(rect).Op(gtx.Ops))
@@ -512,6 +550,10 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 			glyph(gtx, icClock, 22, fg)
 		case sendSending:
 			spinner(gtx, 22, fg)
+		case sendStop:
+			sq, r := gtx.Dp(14), gtx.Dp(3)
+			o := (is - sq) / 2
+			paint.FillShape(gtx.Ops, fg, clip.UniformRRect(image.Rect(o, o, o+sq, o+sq), r).Op(gtx.Ops))
 		default:
 			glyph(gtx, icUp, 22, fg)
 		}
