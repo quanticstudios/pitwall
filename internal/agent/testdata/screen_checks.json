@@ -55,6 +55,7 @@
   {"file": "antigravity-model-menu.txt", "provider": "antigravity", "state": ""},
   {"file": "antigravity-settings-menu.txt", "provider": "antigravity", "state": ""},
   {"file": "antigravity-idle.txt", "provider": "antigravity", "state": ""},
+  {"file": "antigravity-footer.txt", "provider": "antigravity", "state": ""},
   {"file": "opencode-working.txt", "provider": "opencode", "state": "working"},
   {"file": "opencode-permission.txt", "provider": "opencode", "state": "pending-approval"},
   {"file": "opencode-plan.txt", "provider": "opencode", "state": "plan-ready"},

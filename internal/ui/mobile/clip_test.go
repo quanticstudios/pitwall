@@ -127,7 +127,7 @@ func TestMenuItemClick(t *testing.T) {
 	c.cmp.menu = "model"
 	c.cmp.item("model:sonnet").Click()
 	gtx := layout.Context{Ops: new(op.Ops), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(400, 800))}
-	c.menus(gtx, theme.Dark(), chatEnv{Models: []string{"sonnet"}}, 600)
+	c.menus(gtx, theme.Dark(), chatEnv{Models: []string{"sonnet"}, Tab: remote.Tab{Picker: true}}, 600)
 	if p := c.cmp.pending("model"); p == nil || p.value != "sonnet" || c.cmp.menu != "" {
 		t.Fatalf("pick %+v, menu %q", p, c.cmp.menu)
 	}

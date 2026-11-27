@@ -45,6 +45,9 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 		} else if t.Provider == model.ProviderClaude || t.Provider == model.ProviderCodex || t.Provider == model.ProviderAntigravity {
 			panes[i] = d.panes[t.Pane]
 		}
+		if t.Provider == model.ProviderAntigravity && t.Send {
+			tabs[i].Models = d.phoneAgyModels()
+		}
 		if _, screen := d.phoneSettings[t.Pane]; !t.Chat {
 			if _, live := d.liveStatusline(t.Pane); screen || live {
 				set := d.settingsOf(t.Pane)
@@ -87,6 +90,12 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 				tabs[i].Reply = false
 			}
 			tabs[i].Attach = tabs[i].Send
+			if mode := agent.ClaudeMode(g); mode != "" && tabs[i].Provider == model.ProviderClaude && tabs[i].Modes != nil { // the footer moves with Shift+Tab, which fires no hook
+				if mode == "bypassPermissions" {
+					tabs[i].Modes = remote.ModesOf(tabs[i].Provider, mode)
+				}
+				tabs[i].Mode = mode
+			}
 			m, e := agent.ClaudeSettings(g)
 			d.mu.Lock()
 			d.keepClaudeSettings(tabs[i].Pane, p, m, e)
@@ -101,6 +110,9 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 			}
 			if hasSL { // the statusline's own words beat the screen's
 				tabs[i].Model, tabs[i].Effort = cmp.Or(set.model, tabs[i].Model), cmp.Or(set.effort, tabs[i].Effort)
+			}
+			if mode, mdl, eff, ok := agent.AgyFooter(g); ok && tabs[i].Provider == model.ProviderAntigravity && tabs[i].Send {
+				tabs[i].Mode, tabs[i].Model, tabs[i].Effort = mode, mdl, eff
 			}
 		}
 	}
@@ -390,6 +402,77 @@ func (d *Daemon) paneExited(pane string) bool {
 	defer d.mu.Unlock()
 	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
 	return i >= 0 && d.st.Panes[i].Exited
+}
+
+// phoneAgyModels is agy's models for the phone's model chip, nil until
+// `agy models` answered. The first call lists them off d.mu, since that
+// can take seconds, and wakes the phone's streams once they are in.
+// Callers hold d.mu.
+func (d *Daemon) phoneAgyModels() []string {
+	d.agyListing.Do(func() {
+		go func() {
+			l := agyFamilies(agyModels())
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			d.agyList = l
+			if d.phoneTick != nil {
+				close(d.phoneTick)
+				d.phoneTick = nil
+			}
+		}()
+	})
+	return d.agyList
+}
+
+// agyFamilies are the model ids `agy models` prints in list, without the
+// effort suffix it adds to each, in its order: what agy's /model takes.
+func agyFamilies(list string) []string {
+	var out []string
+	for line := range strings.SplitSeq(list, "\n") {
+		id, _, _ := strings.Cut(strings.TrimSpace(line), "\t")
+		for _, e := range remote.Efforts {
+			if f, ok := strings.CutSuffix(id, "-"+e); ok {
+				id = f
+				break
+			}
+		}
+		if agyValue.MatchString(id) && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// phoneSet sets pane's model, effort or permission mode from the phone's
+// "/model <id>", "/effort <level>" or "/mode <mode>" as the desktop's pane
+// chat does (paneSet): Claude Code's pickers or agy's own commands, and
+// Shift+Tab until the footer reads the mode.
+func (d *Daemon) phoneSet(pane, command string) error {
+	what, value, _ := strings.Cut(strings.TrimPrefix(command, "/"), " ")
+	var m proto.ChatSet
+	switch what {
+	case "model":
+		m.Model = value
+	case "effort":
+		m.Effort = value
+	case "mode":
+		m.Mode = value
+	default:
+		return fmt.Errorf("pitwall sets only the model, the effort and the mode, not %q", command)
+	}
+	d.mu.Lock()
+	l := paneLive{p: d.panes[pane]}
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
+		l.prov = d.st.Panes[i].Provider
+	}
+	if ai := d.activityIndex(pane); l.prov == "" && ai >= 0 {
+		l.prov = d.st.Activities[ai].Provider
+	}
+	d.mu.Unlock()
+	if l.p == nil {
+		return fmt.Errorf("no running pane %s", pane)
+	}
+	return d.paneSet(pane, l, m)
 }
 
 // phoneCommand sets a Claude Code pane's model or effort for its running

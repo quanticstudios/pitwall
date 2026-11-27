@@ -181,6 +181,15 @@ func TestAgyFooter(t *testing.T) {
 			t.Errorf("%s: %q %q %q %v", c.name, mode, mdl, eff, ok)
 		}
 	}
+	b, err := os.ReadFile(filepath.Join("testdata", "antigravity-footer.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(100, 30, nil)
+	e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+	if mode, mdl, eff, ok := AgyFooter(e.Snapshot()); mode != "accept-edits" || mdl != "Gemini 3.8 Flash" || eff != "low" || !ok {
+		t.Errorf("idle screen: %q %q %q %v", mode, mdl, eff, ok)
+	}
 }
 
 func TestAntigravityTranscript(t *testing.T) {

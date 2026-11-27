@@ -251,10 +251,10 @@ func TestCurrentSettings(t *testing.T) {
 	pick := func(m, e string) {
 		c.cmp.model, c.cmp.modelAt = m, tab.Model
 		c.cmp.effort, c.cmp.effortAt = e, tab.Effort
-		c.cmp.pickedUntil = [2]time.Time{now.Add(pickHold), now.Add(pickHold)}
+		c.cmp.pickedUntil = [3]time.Time{now.Add(pickHold), now.Add(pickHold)}
 	}
 	pick("sonnet", "max")
-	if next := c.cmp.settle(c.currentModel(tab), tab.Effort, now); !next.Equal(now.Add(pickHold)) {
+	if next := c.cmp.settle(c.currentModel(tab), tab.Effort, "", now); !next.Equal(now.Add(pickHold)) {
 		t.Errorf("next redraw at %v", next)
 	}
 	if c.cmp.modelShown(c.currentModel(tab)) != "Sonnet 5.5" || c.cmp.effortShown(tab.Effort) != "max" {
@@ -263,19 +263,19 @@ func TestCurrentSettings(t *testing.T) {
 	// The session reports the pick, then the computer switches back: the
 	// chips follow the session, not the phone's last pick.
 	tab.Model, tab.Effort = "Sonnet 5.5", "max"
-	c.cmp.settle(c.currentModel(tab), tab.Effort, now)
+	c.cmp.settle(c.currentModel(tab), tab.Effort, "", now)
 	tab.Model, tab.Effort = "opus[1m]", "high"
-	c.cmp.settle(c.currentModel(tab), tab.Effort, now)
+	c.cmp.settle(c.currentModel(tab), tab.Effort, "", now)
 	if got, e := c.cmp.modelShown(c.currentModel(tab)), c.cmp.effortShown(tab.Effort); got != "Opus 5.5 1M" || e != "high" {
 		t.Fatalf("after a change on the computer: %q %q", got, e)
 	}
 	// A pick the session never reports gives way after pickHold.
 	pick("haiku", "low")
-	c.cmp.settle(c.currentModel(tab), tab.Effort, now.Add(pickHold-time.Millisecond))
+	c.cmp.settle(c.currentModel(tab), tab.Effort, "", now.Add(pickHold-time.Millisecond))
 	if c.cmp.modelShown(c.currentModel(tab)) != "Haiku 5.5" {
 		t.Fatal("pick dropped before pickHold")
 	}
-	if next := c.cmp.settle(c.currentModel(tab), tab.Effort, now.Add(pickHold)); !next.IsZero() {
+	if next := c.cmp.settle(c.currentModel(tab), tab.Effort, "", now.Add(pickHold)); !next.IsZero() {
 		t.Errorf("next redraw at %v after both dropped", next)
 	}
 	if got, e := c.cmp.modelShown(c.currentModel(tab)), c.cmp.effortShown(tab.Effort); got != "Opus 5.5 1M" || e != "high" {
@@ -337,7 +337,7 @@ func TestPickWaitsForIdle(t *testing.T) {
 		t.Errorf("after: picks %v, picking %v, chip %q", c.cmp.picks, c.cmp.picking, c.cmp.modelShown(c.data.Model))
 	}
 	// The next turn reports its own model, which the chip then follows.
-	c.cmp.settle("claude-haiku-5-5", "", time.Now())
+	c.cmp.settle("claude-haiku-5-5", "", "", time.Now())
 	if got := c.cmp.modelShown("claude-haiku-5-5"); got != "Haiku 5.5" {
 		t.Errorf("after a turn, the chip says %q", got)
 	}

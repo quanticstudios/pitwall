@@ -32,9 +32,18 @@ type Tab struct {
 	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
 	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
 	Attach bool   `json:"attach,omitempty"`
-	Picker bool   `json:"picker"` // model and effort: Claude Code in a terminal
-	Queued int    `json:"queued,omitempty"`
-	Hold   string `json:"hold,omitempty"`
+	// Picker is set for Claude Code in a terminal, for apps older than
+	// Models: they show its chips with the hello's lists.
+	Picker bool `json:"picker"`
+	// Models, Efforts and Modes are what the composer's chips offer for the
+	// tab's agent, nil for a chip it does not show; Mode is its permission
+	// mode now. A daemon older than them sends none.
+	Models  []string `json:"models,omitempty"`
+	Efforts []string `json:"efforts,omitempty"`
+	Modes   []string `json:"modes,omitempty"`
+	Mode    string   `json:"mode,omitempty"`
+	Queued  int      `json:"queued,omitempty"`
+	Hold    string   `json:"hold,omitempty"`
 	// HoldMenu says Hold is a menu open in the agent's terminal, which the
 	// phone's Screen view clears.
 	HoldMenu bool `json:"holdMenu,omitempty"`
@@ -68,6 +77,31 @@ var (
 	Models  = []string{"default", "fable", "opus", "opus[1m]", "sonnet", "haiku"}
 	Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 )
+
+// AgyEfforts and AgyModes are Antigravity CLI 1.5.13's, as its TUI takes
+// them (/effort, Shift+Tab) and its footer names them.
+var (
+	AgyEfforts = []string{"low", "medium", "high", "xhigh"}
+	AgyModes   = []string{"default", "accept-edits", "auto", "plan"}
+)
+
+// ModesOf are the permission modes the phone offers for p's pane in mode,
+// in Shift+Tab's order; nil for an agent pitwall cannot switch. Claude
+// Code reaches bypass only in a session started with it, which mode shows.
+//
+// why: no Codex: pitwall cannot set Codex's mode in a terminal (paneSet).
+func ModesOf(p model.Provider, mode string) []string {
+	switch p {
+	case model.ProviderClaude:
+		if mode == "bypassPermissions" {
+			return []string{"default", "acceptEdits", "plan", "bypassPermissions"}
+		}
+		return []string{"default", "acceptEdits", "plan"}
+	case model.ProviderAntigravity:
+		return AgyModes
+	}
+	return nil
+}
 
 // Tabs lists st's tabs as the sidebar shows them: each session in turn,
 // its tabs in sidebar order, detached and Monitor tabs left out. A tab
@@ -120,6 +154,7 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 			return t, false
 		}
 		t.Pane, t.Provider, t.Transcript, exited = p.ID, p.Provider, p.Transcript, p.Exited
+		t.Mode = p.AgentMode
 		t.Exited, t.ExitCode, t.ExitUnknown = p.Exited, p.ExitCode, p.ExitUnknown
 	}
 	if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == t.Pane }); i >= 0 {
@@ -137,12 +172,19 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 		if t.ExitUnknown {
 			t.Label = "Exited, code unknown"
 		}
-		t.Answer, t.Reply = false, false
+		t.Answer, t.Reply, t.Mode = false, false, ""
 	}
 	t.Agent = string(t.Provider)
 	if !t.Chat && !exited {
 		t.Send = model.IsAgent(t.Provider) && t.Provider != model.ProviderTerminal
 		t.Picker = t.Provider == model.ProviderClaude
+		t.Modes = ModesOf(t.Provider, t.Mode)
+		switch t.Provider {
+		case model.ProviderClaude:
+			t.Models, t.Efforts = Models, Efforts
+		case model.ProviderAntigravity:
+			t.Efforts = AgyEfforts // its models are the daemon's to list
+		}
 	}
 	return t, true
 }
@@ -462,7 +504,6 @@ func (s *Server) sendText(w http.ResponseWriter, r *http.Request, d Device) {
 	writeJSON200(w, map[string]any{"id": id})
 }
 
-// command switches a Claude Code pane's model or effort.
 // QueueRow is one queued message as the page lists it; Error says why
 // it was not sent, and it waits for Send now.
 type QueueRow struct {
@@ -494,17 +535,26 @@ func (s *Server) queue(w http.ResponseWriter, r *http.Request, d Device) {
 	writeJSON200(w, map[string]any{})
 }
 
+// command switches a pane's model, effort or permission mode to one its
+// tab offers.
 func (s *Server) command(w http.ResponseWriter, r *http.Request, d Device) {
 	var req struct {
 		Pane  string `json:"pane"`
-		What  string `json:"what"` // model or effort
+		What  string `json:"what"` // model, effort or mode
 		Value string `json:"value"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	if !slices.Contains(map[string][]string{"model": Models, "effort": Efforts}[req.What], req.Value) {
-		http.Error(w, "pick a model or an effort level the page offers", http.StatusBadRequest)
+	var offered []string
+	if s.Tabs != nil {
+		tabs := s.Tabs()
+		if i := slices.IndexFunc(tabs, func(t Tab) bool { return t.Pane == req.Pane && !t.Chat }); i >= 0 {
+			offered = map[string][]string{"model": tabs[i].Models, "effort": tabs[i].Efforts, "mode": tabs[i].Modes}[req.What]
+		}
+	}
+	if !slices.Contains(offered, req.Value) {
+		http.Error(w, "pick a model, effort or mode the page offers", http.StatusBadRequest)
 		return
 	}
 	if err := s.Command(req.Pane, "/"+req.What+" "+req.Value); err != nil {

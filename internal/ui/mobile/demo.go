@@ -31,6 +31,7 @@ import (
 var DemoStates = []string{
 	"following", "scrolled", "ready", "queued", "six-lines", "sending", "not-sent",
 	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host", "screen",
+	"agy", "agy-model-menu", "agy-mode-menu",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -101,7 +102,7 @@ func demoEntries() []flow.Entry {
 func demoTab() remote.Tab {
 	return remote.Tab{Item: remote.Item{Pane: "p1", At: 1, Tab: "Fix the checkout race", Session: "demo", Agent: "claude",
 		State: "working", Label: "Working", Detail: "Bash " + demoRun},
-		ID: "ws1", Branch: "fix/checkout-race", Send: true, Picker: true}
+		ID: "ws1", Branch: "fix/checkout-race", Send: true, Picker: true, Modes: remote.ModesOf("claude", "default"), Mode: "default"}
 }
 
 // demoChat is the chat and its env in state, and whether its field takes
@@ -160,6 +161,14 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 		env.Tab.Agent, env.Tab.Picker, env.Tab.Tab = "codex", false, "Add rate limits"
 		c.data.Model = "gpt-6.1-sol"
 		setDraft(&k.ed, "Rerun the limiter tests")
+	case "agy", "agy-model-menu", "agy-mode-menu":
+		idleTab()
+		env.Tab.Agent, env.Tab.Picker, env.Tab.Tab = "antigravity", false, "Speed up the search index"
+		env.Tab.Models = []string{"gemini-4-neon", "gemini-4-carbon", "gemini-3.8-flash", "claude-opus-5-5"}
+		env.Tab.Efforts, env.Tab.Modes = remote.AgyEfforts, remote.AgyModes
+		env.Tab.Model, env.Tab.Effort, env.Tab.Mode = "Gemini 4 Neon", "high", "auto"
+		k.effort, c.data.Model = "", ""
+		k.menu = map[string]string{"agy-model-menu": "model", "agy-mode-menu": "mode"}[state]
 	case "approval":
 		env.Tab.State, env.Tab.Label, env.Tab.Detail, env.Tab.Answer = "pending-approval", "Approval", demoRun, true
 		c.data.Entries = c.data.Entries[:6]

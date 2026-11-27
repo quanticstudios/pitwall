@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/remote"
 )
@@ -57,14 +58,15 @@ func serveDemo(addr string, variant int) (url, code string, err error) {
 			}
 			return tabs
 		},
-		Changed: d.wait,
-		Send:    d.send,
-		Command: d.command,
-		Answer:  d.answer,
-		Reply:   func(pane string, _ int64, text string) error { _, err := d.send(pane, text); return err },
-		Screen:  d.screen,
-		Key:     d.key,
-		Stop:    d.stop,
+		Changed:     d.wait,
+		ChatEntries: d.entries,
+		Send:        d.send,
+		Command:     d.command,
+		Answer:      d.answer,
+		Reply:       func(pane string, _ int64, text string) error { _, err := d.send(pane, text); return err },
+		Screen:      d.screen,
+		Key:         d.key,
+		Stop:        d.stop,
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -128,8 +130,8 @@ func (d *demo) send(pane, text string) (uint64, error) {
 	return d.next, nil
 }
 
-// command takes /model and /effort only between turns, as the daemon
-// does, with its words.
+// command takes /model, /effort and /mode only between turns, as the
+// daemon does, with its words.
 func (d *demo) command(pane, command string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -140,10 +142,34 @@ func (d *demo) command(pane, command string) error {
 	if busy(t) {
 		return errors.New("claude is working on a turn; try again when it waits at its input box")
 	}
-	if name, ok := strings.CutPrefix(command, "/model "); ok && t.Transcript != "" {
-		appendLines(t.Transcript, assistantLine(demoModel(name), "Set model to "+name+"."))
+	what, value, _ := strings.Cut(strings.TrimPrefix(command, "/"), " ")
+	switch {
+	case what == "mode":
+		t.Mode = value
+	case what == "effort":
+		t.Effort = value
+	case t.Agent == string(model.ProviderAntigravity):
+		t.Model = value
+	case t.Transcript != "":
+		appendLines(t.Transcript, assistantLine(demoModel(value), "Set model to "+value+"."))
 	}
+	d.touch()
 	return nil
+}
+
+// entries is the agy tab's chat, which the daemon reads from agy's own
+// transcript; false for the others, which the page reads itself.
+func (d *demo) entries(pane string) ([]flow.Entry, string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if t, err := d.tab(pane); err != nil || t.Agent != string(model.ProviderAntigravity) {
+		return nil, "", false
+	}
+	return []flow.Entry{
+		{Seq: 1, Kind: flow.EntryUser, Text: "Search takes two seconds on a cold start. Make the index load lazily."},
+		{Seq: 2, Kind: flow.EntryTool, Tool: "Read", Arg: "internal/search/index.go", Done: true},
+		{Seq: 3, Kind: flow.EntryAssistant, Text: "The index now loads on the first query, not at startup. A cold start takes 140 ms, and the first search 0.6 s."},
+	}, "", true
 }
 
 func (d *demo) answer(pane string, at int64, allow bool) error {
@@ -261,6 +287,9 @@ func (d *demo) fill(variant int) error {
 		t.Provider = model.Provider(agent)
 		t.Send = agent != "terminal"
 		t.Picker = agent == "claude"
+		if t.Picker {
+			t.Models, t.Efforts, t.Modes, t.Mode = remote.Models, remote.Efforts, remote.ModesOf(t.Provider, "default"), "default"
+		}
 		return t
 	}
 	repos, err := d.repos()
@@ -286,8 +315,13 @@ func (d *demo) fill(variant int) error {
 	logs := tab("logs", "demo", "", "server logs", "terminal", "", "", "main", ago(180))
 	certs := tab("certs", "infra", "", "Rotate the certs", "claude", "error", "Error", "ops/certs", ago(4))
 	certs.Detail = "x509: certificate has expired"
+	search := tab("search", "demo", "", "Speed up the search index", "antigravity", "completed", "Done", "perf/search", ago(6))
+	search.Models = []string{"gemini-4-neon", "gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash", "claude-opus-5-5", "claude-sonnet-5-5"}
+	search.Efforts, search.Modes = remote.AgyEfforts, remote.AgyModes
+	search.Mode, search.Model, search.Effort = "auto", "Gemini 4 Neon", "high"
+	search = in(search, "shop")
 	rate, pr, fix, doc, site, certs, tidy = in(rate, "api"), in(pr, "api"), in(fix, "shop"), in(doc, "docs"), in(site, "docs"), in(certs, "infra"), in(tidy, "shop")
-	d.tabs = []remote.Tab{rate, pr, fix, tidy, doc, site, logs, certs}
+	d.tabs = []remote.Tab{rate, pr, fix, search, tidy, doc, site, logs, certs}
 	if variant == 1 {
 		deps := tab("deps", "main", "", "Bump the deps", "codex", "working", "Working", "chore/deps", ago(0))
 		notes := tab("notes", "main", "", "Write the release notes", "claude", "awaiting-input", "Input", "docs/release", ago(3))
@@ -298,7 +332,7 @@ func (d *demo) fill(variant int) error {
 		lint := tab("lint", "demo", "", "Fix the lint errors", "claude", "pending-approval", "Approval", "fix/lint", ago(2))
 		lint.Parent, lint.Detail, lint.Answer = "lead", "golangci-lint run ./...", true
 		lead, tests, lint, deps, notes = in(lead, "shop"), in(tests, "shop"), in(lint, "shop"), in(deps, "api"), in(notes, "docs")
-		d.tabs = []remote.Tab{lead, tests, lint, deps, notes}
+		d.tabs = []remote.Tab{lead, tests, lint, search, deps, notes}
 	}
 	// why: every daemon's ids are its own random ones; two demo servers in one app must not share any.
 	tag := hex.EncodeToString(binary.BigEndian.AppendUint64(nil, rand.Uint64()))[:6]

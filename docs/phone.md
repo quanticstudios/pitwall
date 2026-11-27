@@ -181,7 +181,7 @@ window's composer lists for that chat. A tab with no live agent has none,
 and neither does any tab of a daemon of v0.3.7 or older, which sends no
 commands.
 
-## Model and effort
+## Model, effort and mode
 
 A Claude Code tab has a button in its header with the model its latest
 turn used. It offers the models `default`, `fable`, `opus`, `opus[1m]`,
@@ -207,8 +207,27 @@ Your pick shows until the session reports a change, or for 5 seconds if it
 never does, so a pick that did not apply and a change made on the computer
 both show as they are.
 
-Codex has no picker here: its `/model` opens a menu that pitwall cannot
-drive safely.
+An Antigravity tab has the same model and effort buttons. Its models are
+the ones `agy models` lists, which the button shows once agy answers, and
+its effort levels are `low`, `medium`, `high` and `xhigh`. pitwall types
+agy's own `/model <id>` and `/effort <level>`, as the desktop's chat does,
+and only while agy sits at its input box.
+
+A third button sets the permission mode. For Claude Code it offers
+Default, Accept edits and Plan, and Bypass permissions in a session that
+started in it. For Antigravity it offers Default, Accept edits, Auto and
+Plan. pitwall presses Shift+Tab until the agent's footer shows your pick.
+The phone sends the pick once the agent waits at its input box. If the
+footer never reaches the mode, the phone says so. The button shows the
+mode the footer reads.
+
+While the mode button is there, the effort button shows only its bars, so
+the row fits a phone. Its menu names each level.
+
+Codex has no buttons here: its `/model` opens a menu that pitwall cannot
+drive safely, and pitwall cannot set its mode in a terminal. An older
+computer sends no lists. The app then shows Claude Code's model and effort
+buttons as before, with no mode button.
 
 ## Approvals and questions
 
@@ -263,7 +282,8 @@ it does:
 - sends a message during a turn, and answers approvals and Claude Code and
   Codex questions in the chat;
 - attaches a picture from the gallery, the clipboard or the keyboard;
-- changes Claude Code's model and effort for that session only.
+- changes Claude Code's model and effort for that session only, the model
+  and effort of an Antigravity tab, and the permission mode of both.
 
 <img src="media/phone-app-list.webp" alt="The Android app's tab list: a Waiting on you row, then the demo session's tabs on two machines, box and laptop, each under a line with its name and latency; box's api group holds Add rate limits waiting for approval with Allow and Deny, and Review the PR asking for input with Reply" width="300"> <img src="media/phone-app-chat.webp" alt="The Android app's chat for Fix the checkout race on box: a failed go test call, a reply with inline code, a numbered list and a Go code block, an Edit call and a running go test call, then the message box with Opus 5.5 and effort buttons" width="300">
 
