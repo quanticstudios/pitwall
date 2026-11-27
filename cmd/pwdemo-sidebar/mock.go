@@ -47,6 +47,9 @@ func mockState(sb *sidebar.Sidebar, kind string, now time.Time) (model.State, st
 		add("build", "l-done", "Theme import", "theme-import", "/src/web-app", time.Hour, model.ProviderCodex, model.StateCompleted)
 		st.Stats["l-done"] = model.BranchStats{Additions: 212, Deletions: 40}
 		add("build", "l-parked", "Old sweep", "main", "/src/web-app", 3*time.Hour, model.ProviderClaude, model.StateParked)
+		// A tab whose command exited: Restart on its own line.
+		add("build", "l-exit", "Nightly import", "", "/src/billing", 2*time.Hour, "", "")
+		sb.Restartable = func(id string) bool { return id == "l-exit" }
 		return st, ""
 	}
 	sb.HostOf = func(id string) string { return on[id] }

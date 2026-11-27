@@ -7,9 +7,12 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
+	"gioui.org/layout"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func TestFitPills(t *testing.T) {
@@ -168,5 +171,53 @@ func TestRowChoices(t *testing.T) {
 	h.clickAt(h.findOn(func() bool { return r.reply.Hovered() }))
 	if h.s.reply.ws != "w" {
 		t.Fatal("Reply on a plain question opened no sheet")
+	}
+}
+
+// An exited tab's Restart sits on the answer line under the row's text,
+// as Reply does: the row grows by that line, the button sits as far into
+// its row as Reply does into its own (less the Input tab's reason line),
+// and a click on it is a Restart.
+func TestRestartLine(t *testing.T) {
+	h := newReplyHarness(t)
+	h.st.Workspaces = append(h.st.Workspaces, model.Workspace{ID: "ex", Name: "Nightly import"})
+	h.s.Restartable = func(id string) bool { return id == "ex" }
+	h.frame()
+	top := map[string]elem{}
+	for _, x := range h.s.elems {
+		if x.kind == 's' {
+			top[x.id] = x
+		}
+	}
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	th := theme.Dark()
+	e := top["ex"]
+	if got, want := e.bot-e.top, rowHeight(gtx, th)+actsGap+answerHeight(gtx, th); got != want {
+		t.Errorf("the exited tab's row is %d high, want %d with its answer line", got, want)
+	}
+	// first finds the top edge of a button on row r, scanning down; the
+	// list sits under the header, at most 120 below its content's top.
+	first := func(r elem, on func() bool) f32.Point {
+		for y := float32(r.top); y < float32(r.bot+120); y++ {
+			for x := float32(40); x < 120; x += 16 {
+				h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(x, y), Source: pointer.Mouse})
+				h.frame()
+				if on() {
+					return f32.Pt(x, y)
+				}
+			}
+		}
+		t.Fatal("no such button")
+		return f32.Point{}
+	}
+	reply := first(top["w"], func() bool { return h.s.row("w").reply.Hovered() })
+	restart := first(e, func() bool { return h.s.row("ex").restart.Hovered() })
+	_, l2 := rowLines(gtx, th)
+	why := float32(statusGap + l2) // the Input tab's reason line
+	if got, want := restart.Y-float32(e.top), reply.Y-float32(top["w"].top)-why; got != want {
+		t.Errorf("Restart is %.0f into its row, Reply %.0f into its own without the reason line", got, want)
+	}
+	if evs := h.clickAt(restart); !slices.Contains(evs, Event(Restart{WorkspaceID: "ex"})) {
+		t.Errorf("a click on Restart sent %v", evs)
 	}
 }
