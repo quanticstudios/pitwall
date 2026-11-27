@@ -400,6 +400,8 @@ type ui struct {
 	paneFlip    map[string]bool              // pane chats flipped from [chat] claude's view, by pane id
 	awayPanes   map[string]*awayPane         // terminal panes' Since you left cards, by pane id
 	composers   map[string]*chatin.Composer  // per chat, its send box and draft
+	dock        panel.Dock                   // the inbox dock every chat draws over its composer
+	dockInit    bool                         // dock.Open came from config
 	stashes     *stashFiles                  // the composers' stashed drafts on disk, see stash.go
 	load        chatLoad                     // the buttons of a chat that did not load
 	drawn       map[string]bool              // the chats whose composer layoutPanes drew this frame

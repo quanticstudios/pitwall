@@ -3037,6 +3037,7 @@ func (d *Daemon) changed() {
 	d.wakeTabs()
 	d.retitle()
 	d.fixOrders()
+	d.st.Inbox = inboxOf(&d.st)
 	d.st.Version++
 	d.pokePanes() // hooks, queue edits and the like change what a pane chat shows
 	select {

@@ -187,6 +187,32 @@ stops a run still going. T3 Code asks the live session instead (Claude's
 cache; a pane chat has no such session to ask, so pitwall pays for a short
 context on a cheap model instead.
 
+## The inbox dock
+
+Under the chat, above the box, the inbox dock lists what waits on you in
+your other tabs, on this computer and the machines the window shows. Its
+header counts it: **Inbox**, how many items are for you, how many are
+blocked, how many agents are moving. The tab you are in is left out; its own
+cards are in its chat.
+
+Each row names the tab, says what it wants and has its answers as buttons:
+
+- an approval has **Deny** and **Allow**;
+- a question or a plan has the answers its screen offers, up to three, the
+  agent's recommended one with a star;
+- a form, a failed CI run and an agent stopped on an error or a usage limit
+  have **Open**, which shows the tab.
+
+A click answers the same way the sidebar's row does. When pitwall cannot
+answer from the dock, such as a question with four or more answers, the
+button shows the tab and its card answers there. Four rows show at once;
+the rest scroll.
+
+A click on the header folds the dock to that one line or opens it again,
+and pitwall keeps the choice in `[chat] inbox_dock`. With nothing waiting
+it is one line with the moving count, and with no agent at work either it
+is gone.
+
 ## Since you left
 
 Come back to a tab that no window had on screen and no phone had open for
@@ -414,6 +440,7 @@ width = "standard"  # or "comfortable" (736 dp), "full": the transcript's and co
 tool_calls = "all"  # or "failed", "none", "zen": which tool calls show
 suggest_next = false # after a turn, offer a predicted next prompt; uses the agent's plan
 away_summary = "on" # or "off": a Since you left card's two lines from the agent's cheapest model
+inbox_dock = "open" # or "folded": the inbox dock lists its items, or one line with the counts
 
 [font]
 chat_code_size = 0  # code in the chat; 0 follows chat_size

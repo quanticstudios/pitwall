@@ -2,14 +2,11 @@ package mobile
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"image/color"
-	"math"
 	"strconv"
 	"time"
 
-	"gioui.org/f32"
 	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -40,10 +37,6 @@ type listView struct {
 	noteUntil time.Time
 	// restarting are the tabs whose Restart is on its way, by State id.
 	restarting map[string]bool
-	// waitFold opens and closes Waiting on you; waitOpen is whether it
-	// lists every tab or only a summary row.
-	waitFold widget.Clickable
-	waitOpen bool
 }
 
 func (l *listView) btn(id string) *widget.Clickable {
@@ -109,7 +102,7 @@ func (a *App) listLayout(gtx C) {
 		layout.Rigid(a.updateLine),
 		layout.Rigid(a.updateProgress),
 		layout.Rigid(a.offlineLine),
-		layout.Rigid(a.waiting),
+		layout.Rigid(a.inbox),
 		layout.Flexed(1, func(gtx C) D {
 			if len(a.st.Workspaces) == 0 {
 				fillMax(gtx, th.Sidebar)
@@ -458,141 +451,12 @@ func textButton(gtx C, th *theme.Theme, c *widget.Clickable, s string) D {
 	})
 }
 
-// waiting lists what waits on you in every session, most pressing first:
-// errors, approvals and questions, each with its session and state. A
-// tap opens the tab's chat. Two or more fold into one row, the most
-// pressing tab and how many more, until a tap opens the list.
-func (a *App) waiting(gtx C) D {
-	th, l := a.th, &a.list
-	type wait struct {
-		c            *widget.Clickable
-		col          color.NRGBA
-		title, right string
-		down         bool
-	}
-	var rows []wait
-	for _, act := range sidebar.Blocked(&a.st) {
-		w := a.st.Workspace(act.WorkspaceID)
-		if w == nil {
-			continue
-		}
-		where := ""
-		if s := a.st.Session(w.SessionID); s != nil {
-			where = s.Name
-		}
-		lk := a.linkOf(w.ID)
-		if a.many() && lk != nil {
-			where = lk.m.Name
-		}
-		c := a.list.btn("w:" + act.PaneID)
-		if c.Clicked(gtx) {
-			defer a.openChat(w.ID)
-		}
-		rows = append(rows, wait{c, sidebar.StateColor(th, act.State), sidebar.Title(*w), where + " · " + model.PillLabel(act), lk == nil || !lk.online})
-	}
-	if len(rows) == 0 && l.note == "" {
-		return D{}
-	}
-	for l.waitFold.Clicked(gtx) {
-		l.waitOpen = !l.waitOpen
-	}
-	fillMax(gtx, th.Sidebar) // ponytail: fills the rest too; the tree paints over it
-	var ws []layout.Widget
-	if l.note != "" {
-		ws = append(ws, func(gtx C) D {
-			return layout.Inset{Left: pad, Right: pad, Top: 6}.Layout(gtx, func(gtx C) D {
-				return small(gtx, th, th.Readable(th.Red, th.Sidebar), l.note)
-			})
-		})
-	}
-	row := func(r wait) layout.Widget {
-		return func(gtx C) D {
-			if r.down {
-				// why: a machine that is down keeps its last list, dimmed, as its rows in the tree are.
-				defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
-			}
-			return a.waitRow(gtx, r.c, r.col, r.title, r.right, 0)
-		}
-	}
-	switch {
-	case len(rows) == 1:
-		ws = append(ws, row(rows[0]))
-	case len(rows) > 1 && !l.waitOpen:
-		first := rows[0]
-		ws = append(ws, func(gtx C) D {
-			return a.waitRow(gtx, &l.waitFold, first.col, first.title, fmt.Sprintf("+%d", len(rows)-1), 1)
-		})
-	case len(rows) > 1:
-		ws = append(ws, func(gtx C) D {
-			return a.waitRow(gtx, &l.waitFold, color.NRGBA{}, "Waiting on you", strconv.Itoa(len(rows)), -1)
-		})
-		for _, r := range rows {
-			ws = append(ws, row(r))
-		}
-	}
-	ws = append(ws, func(gtx C) D {
-		return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D { return divider(gtx, th.Border) })
-	})
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rigids(ws)...)
-}
-
 func rigids(ws []layout.Widget) []layout.FlexChild {
 	out := make([]layout.FlexChild, len(ws))
 	for i, w := range ws {
 		out[i] = layout.Rigid(w)
 	}
 	return out
-}
-
-// waitRow is one of Waiting on you: a dot in the state's color, the tab,
-// and its session and state at the right, then a chevron pointing down
-// for chev 1, up for -1, none for 0.
-func (a *App) waitRow(gtx C, c *widget.Clickable, col color.NRGBA, title, right string, chev int) D {
-	th := a.th
-	h := gtx.Dp(rowH)
-	return c.Layout(gtx, func(gtx C) D {
-		size := image.Pt(gtx.Constraints.Max.X, h)
-		if c.Pressed() {
-			paint.FillShape(gtx.Ops, th.Pressed, clip.Rect{Max: size}.Op())
-		}
-		gtx.Constraints = layout.Exact(size)
-		layout.Inset{Left: pad, Right: pad}.Layout(gtx, func(gtx C) D {
-			// why: W centers its child in the row's height only while its own Min.Y holds that height.
-			return layout.W.Layout(gtx, func(gtx C) D {
-				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx C) D {
-						r := gtx.Dp(3)
-						paint.FillShape(gtx.Ops, col, clip.Ellipse(image.Rect(0, 0, 2*r, 2*r)).Op(gtx.Ops))
-						return D{Size: image.Pt(2*r+gtx.Dp(8), 2*r)}
-					}),
-					layout.Flexed(1, func(gtx C) D {
-						return label(gtx, th, weight(th.UIFont, 500), th.Sp(theme.Body), th.Fg, 1, title)
-					}),
-					layout.Rigid(func(gtx C) D {
-						return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D {
-							gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(140))
-							return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, right)
-						})
-					}),
-					layout.Rigid(func(gtx C) D {
-						if chev == 0 {
-							return D{}
-						}
-						n := gtx.Dp(14)
-						defer op.Offset(image.Pt(gtx.Dp(6), 0)).Push(gtx.Ops).Pop()
-						if chev < 0 {
-							c := f32.Pt(float32(n)/2, float32(n)/2)
-							defer op.Affine(f32.AffineId().Rotate(c, math.Pi)).Push(gtx.Ops).Pop()
-						}
-						sidebar.Icon(gtx, "chevron-down", n, th.Muted)
-						return D{Size: image.Pt(n+gtx.Dp(6), n)}
-					}),
-				)
-			})
-		})
-		return D{Size: size}
-	})
 }
 
 // menuPanel draws a menu over a scrim, under the header at the left

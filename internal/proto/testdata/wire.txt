@@ -1,4 +1,4 @@
-18.102
+18.103
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -13,6 +13,8 @@ model.Check{Name string; State model.CheckState}
 model.Clipboard{Seq uint64; Text string}
 model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Origin model.Origin; Group model.Project; PR int; ClosedAt time.Time; Gone bool; FinishedWorker bool}
 model.Form{ID string; WorkspaceID string; PaneID string; Spec string; Title string; Waits bool; OpenedAt time.Time}
+model.Inbox{Items []model.InboxItem; Moving int}
+model.InboxItem{Kind model.InboxKind; WorkspaceID string; PaneID string; At int64; Tab string; Text string; Command string; Answers []string; Form string}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool; Timebox time.Duration; Nudge string}
 model.LimitResume{PaneID string; SessionID string; Provider model.Provider; Turn time.Time; Since time.Time; Resets time.Time; Message string; Pending bool; Drafting bool}
 model.Origin{Daemon string; Session string}
@@ -29,7 +31,7 @@ model.RemoteSession{Host string; Session string; Forget []string}
 model.RemoteWorker{ID string; Host string; Parent string; Since time.Time; Lost string}
 model.Server{PID int; Name string; Ports []int; Agent bool}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool; Origin model.Origin; Workers []model.RemoteWorker}
-model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; Servers map[string][]model.Server; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form; Away map[string]model.Away}
+model.State{Version uint64; Daemon string; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; ChatQueues map[string]model.ChatQueue; Delivered map[string]uint64; Listening map[string][]int; Servers map[string][]model.Server; DevProxyPort int; Skillshare bool; Chats []model.Chat; Closed []model.ClosedTab; Starts map[string]model.TabStart; Forms []model.Form; Away map[string]model.Away; Inbox model.Inbox}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.TabStart{SessionID string; SessionName string; Parent string; ParentPane string}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}

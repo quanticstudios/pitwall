@@ -1045,3 +1045,23 @@ func TestMultiRemoteWorkers(t *testing.T) {
 		}
 	}
 }
+
+// TestMultiJoinsInboxes checks that the window's inbox dock gets every
+// host's inbox: this machine's items, then the other host's, and the
+// agents at work on both.
+func TestMultiJoinsInboxes(t *testing.T) {
+	lst := hostState("ls", "lw", "lp")
+	lst.Inbox = model.Inbox{Items: []model.InboxItem{{Kind: model.InboxApproval, WorkspaceID: "lw", PaneID: "lp"}}, Moving: 1}
+	local, _ := localBackend(t, lst)
+	rst := hostState("rs", "rw", "rp")
+	rst.Inbox = model.Inbox{Items: []model.InboxItem{{Kind: model.InboxQuestion, WorkspaceID: "rw", PaneID: "rp"}}, Moving: 2}
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(rst, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
+	in := m.State().Inbox
+	if len(in.Items) != 2 || in.Items[0].WorkspaceID != "lw" || in.Items[1].WorkspaceID != "rw" || in.Moving != 3 {
+		t.Fatalf("joined inbox %+v", in)
+	}
+}
