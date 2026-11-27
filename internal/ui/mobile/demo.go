@@ -35,6 +35,7 @@ var DemoStates = []string{
 	"agy", "agy-model-menu", "agy-mode-menu", "away", "away-short",
 	"idle", "needs-you", "queued-two", "tab-menu", "reports",
 	"long-turn", "edits", "failed", "work-open",
+	"work", "work-sheet",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -248,6 +249,10 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 			c.work(2).open = true
 			c.row(10).open = true
 		}
+	case "work", "work-sheet":
+		env.Tab.Workers = demoWorkers(env.Now)
+		env.OpenTab = func(string) bool { return true }
+		c.sheet.open = state == "work-sheet"
 	case "screen":
 		c.scr.show()
 	case "host":
@@ -344,5 +349,18 @@ func ChatDemo(w *app.Window, th *theme.Theme, state string) error {
 			}
 			e.Frame(gtx.Ops)
 		}
+	}
+}
+
+// demoWorkers are the design's five workers and a merged one.
+func demoWorkers(now time.Time) []model.Worker {
+	ago := func(m int) time.Time { return now.Add(-time.Duration(m) * time.Minute) }
+	return []model.Worker{
+		{ID: "w1", Name: "since-you-left", Group: model.WorkNeedsYou, Chip: "1 for you", Since: ago(12)},
+		{ID: "w2", Name: "crisp-borders", Group: model.WorkNeedsYou, Chip: "CI failed", Since: ago(4)},
+		{ID: "w3", Name: "question-answer", Group: model.WorkMoving, Chip: "working", Since: ago(6), Host: "box"},
+		{ID: "w4", Name: "phone-new-agent", Group: model.WorkMoving, Chip: "review", Since: ago(8)},
+		{ID: "w5", Name: "chat-spinner", Group: model.WorkMoving, Chip: "CI running", Since: ago(2)},
+		{ID: "w6", Name: "phone-polish", Group: model.WorkDone, Chip: "merged", Since: ago(41)},
 	}
 }

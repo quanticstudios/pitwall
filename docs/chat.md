@@ -311,6 +311,25 @@ calls and a short reply gets no call. A failed or empty answer leaves the
 turn without a headline and shows no error. Headlines are saved, so they
 come back after a restart. **Off** calls no model for them either.
 
+## Workers
+
+A chat whose tab started other tabs, with `pitwall new` or `pitwall worktree new`,
+shows them in a rail at its right. The rail groups them:
+
+- Needs you: the worker asks a question, wants an approval or shows a plan, or
+  its pull request failed CI or got a request for changes.
+- Blocked: the worker hit an error, repeats a failing call, waits for a usage
+  limit, or its pull request has conflicts.
+- Moving: the worker works, or its pull request waits for CI or review.
+- Done: its turn ended with no open pull request, or the pull request merged
+  or closed. The group starts folded; click its heading to show it.
+
+Each row has the worker's name, a chip that says where it is, how long it has
+been in that state, and its machine when it runs on another one. The chip
+says "unknown" for a tab with no agent state. pitwall does not count todo
+steps yet. Click a row to open the worker's tab. The x closes the rail for that
+chat until the window restarts. The rail hides in a chat narrower than 640 px.
+
 ## Servers
 
 The **Servers** tab of the chat's side panel lists the dev servers the tab

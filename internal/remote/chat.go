@@ -79,6 +79,9 @@ type Tab struct {
 	// Inbox is what in this tab waits on the user (State.Inbox), which the
 	// phone's Needs you section answers.
 	Inbox []model.InboxItem `json:"inbox,omitempty"`
+	// Workers are the tabs this one started, grouped for the chat's Work
+	// sheet (model.State.WorkRail); nil for none or from an older daemon.
+	Workers []model.Worker `json:"workers,omitempty"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`

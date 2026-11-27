@@ -89,8 +89,8 @@ type chatEnv struct {
 	// path and #fragment; nil when the computer serves no files, and then
 	// a path in a reply is plain text.
 	OpenFile func(path, frag string)
-	// OpenTab opens a worker card's tab by its id on the tab's machine,
-	// false when that tab is gone.
+	// OpenTab opens a worker's tab (a report card's or a Work sheet row's) by
+	// its id on the tab's machine, false when that tab is gone.
 	OpenTab func(tab string) bool
 }
 
@@ -125,6 +125,7 @@ type chatView struct {
 	menu                   tabMenu
 	away                   awayState
 	reps                   reportState
+	sheet                  workSheet
 	beatAt                 time.Time // the last View beat sent for this chat
 
 	// rows are the list's rows, entries with each turn's work folded,
@@ -200,6 +201,8 @@ func (c *chatView) update(t remote.Tab, now time.Time) {
 // reason to stay: Android's keyboard takes the first Back itself to hide.
 func (c *chatView) handleBack(gtx C) bool {
 	switch {
+	case c.sheet.open:
+		c.sheet.open = false
 	case c.scr.open:
 		c.scr.open = false
 	case c.menu.open:
@@ -304,6 +307,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 	c.menus(gtx, th, env, top)
 	c.slash(gtx, th, env, top)
 	c.tabMenuLayout(gtx, th, env)
+	c.workSheetLayout(gtx, th, env)
 	if l := c.tapped; l != "" {
 		c.tapped = ""
 		c.follow(gtx, env, l)
@@ -508,7 +512,7 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		in := layout.Inset{Left: 16, Right: 16, Bottom: 10}
 		if i == 0 {
-			in.Top = pillClear - 10 // why: the floating title pill covers the top
+			in.Top = topClear(env) - 10 // why: the floating title pill covers the top
 		}
 		if r := i - 1; i == 0 || !c.data.None && !c.data.Gone && r < len(c.rows) && c.rows[r].kind == rowFolded && c.data.Entries[c.rows[r].i].Kind == flow.EntryTool {
 			in.Bottom = 0 // why: a call's line is 48dp tall already
