@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.12
 
 - A sidebar tab whose agent is back at its prompt while something it started still runs (Background), or that watches its workers (Watching), draws its ring in gray, not in Working's blue. Blue now means an agent mid-turn.
 - A sidebar tile's outline, and the selected tile's blue ring, is a crisp 1px line on all four sides. It was drawn across two pixels at half strength, so its top and bottom looked blurry and the window cut off its left and right halves.
