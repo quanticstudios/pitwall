@@ -158,8 +158,10 @@ computer's pitwall serves it:
 - **Screen.** The `>_` button in a terminal tab's chat opens its Screen
   view, with the same keys as the app's. When a menu in the agent's
   terminal holds your queued messages, or the card says the screen shows a
-  menu, Open screen goes there. Back returns to the chat.
-- **Stop** shows beside Send while the agent works.
+  menu, Open screen goes there. Back returns to the chat. If the tab
+  closes while its screen shows, the page returns to the list and says so.
+- **Stop** shows beside Send while the agent works. If Stop fails, the
+  reason stays under the box until you press Stop again or the turn ends.
 - **New tab.** The + in the list's header opens New tab: Session (when
   there are several), Folder, Agent, Worktree and First message, as in the
   app. Each folder shows its name, then its path with `~` for home, cut in
@@ -419,7 +421,9 @@ Enter, the four arrows, and 1 to 9. Use them for a menu pitwall does not
 know, such as Claude Code's "Autocompact at 400k tokens?" dialog. When such
 a menu holds your queued messages, the line over the box says "waiting: a
 menu is open in the agent's terminal" with Open screen at its end. Once
-the menu closes, the messages go in. A guarded tab refuses the keys.
+the menu closes, the messages go in. A guarded tab refuses the keys. If
+the tab closes while its Screen view shows, the app returns to the
+sidebar and says "<tab> closed."
 
 While the agent works and the box is empty, the send button is Stop, a
 square. It interrupts the turn as the window's Stop does. For an agent in a
