@@ -22,7 +22,7 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
-## Unreleased
+## v0.3.11
 
 - An Antigravity or Codex tab's chat shows the pictures sent with a prompt, as Claude Code's does. Both agents keep a prompt's pictures as files, which pitwall's readers skipped, so every such prompt showed as text alone. A Codex prompt that was only a picture did not show at all, and an Antigravity one showed as "(image)".
 - The Android app has a Screen view for a terminal tab: the terminal button in the chat's header, or Open screen on the "waiting: a menu is open in the agent's terminal" line, shows the tab's screen as text, read again each second while it shows. Keys under it (Esc, Tab, Shift+Tab, Ctrl+C, Enter, the arrows and 1 to 9) press into the tab as `pitwall send-key` does, so a menu pitwall does not know, such as Claude Code's autocompact dialog, can be closed from the phone and the queued messages go in. A guarded tab refuses the keys. `daemon.log` gets a line for each key.
