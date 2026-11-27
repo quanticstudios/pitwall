@@ -474,7 +474,7 @@ func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRG
 // in col.
 func workerChip(gtx layout.Context, th *theme.Theme, n int, col color.NRGBA) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return hrowFit(gtx, gtx.Dp(13), gtx.Dp(3),
+	return hrowFit(gtx, gtx.Constraints.Max.Y, gtx.Dp(3),
 		item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icPeople, gtx.Dp(13), col, 0) }},
 		item{w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, medium(th.MonoFont), th.Sp(theme.Caption), col, strconv.Itoa(n))

@@ -68,7 +68,8 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if ghost {
 		unseen = nil
 	}
-	if unseen != nil && !isActive { // the active row's fill keeps clear of state tints
+	// The active row's fill keeps clear of state tints; a tab that needs the user is tinted already.
+	if unseen != nil && !isActive && model.Tier(a) != model.TierAttention {
 		base = theme.Mix(base, StateColor(th, unseen.State), 0.1)
 	}
 	if ws.Color != "" {
