@@ -9,7 +9,7 @@ require (
 	gioui.org/x v0.10.3
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886
-	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/charmbracelet/x/ansi v0.11.10
 	github.com/charmbracelet/x/conpty v0.2.0
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/charmbracelet/x/vt v0.0.0-20261001101533-953920dd3285
