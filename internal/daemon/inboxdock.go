@@ -30,7 +30,6 @@ func inboxOf(st *model.State) model.Inbox {
 		it := model.InboxItem{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Tab: title(a.WorkspaceID)}
 		switch a.State {
 		case model.StateWorking, model.StateConnecting:
-			in.Moving++
 			continue
 		case model.StatePendingApproval:
 			it.Kind, it.Command = model.InboxApproval, a.Command

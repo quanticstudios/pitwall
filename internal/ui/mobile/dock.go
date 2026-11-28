@@ -89,17 +89,14 @@ func oneLine(s string) string {
 }
 
 // dockRows are every paired machine's items, in pairing order, the
-// answers before failures, and how many agents work meanwhile.
-func (a *App) dockRows() (rows []dockRow, moving int) {
+// answers before failures.
+func (a *App) dockRows() (rows []dockRow) {
 	if a.fleet == nil {
-		return nil, 0
+		return nil
 	}
 	var failed []dockRow
 	for _, m := range a.fleet.Machines {
 		for _, t := range a.fleet.TabsOf(m.ID) {
-			if s := model.AgentState(t.State); s == model.StateWorking || s == model.StateConnecting {
-				moving++
-			}
 			for _, it := range tabItems(t) {
 				if it.Tab == "" {
 					it.Tab = t.Tab
@@ -112,7 +109,7 @@ func (a *App) dockRows() (rows []dockRow, moving int) {
 			}
 		}
 	}
-	return append(rows, failed...), moving
+	return append(rows, failed...)
 }
 
 // dockOptions are the question's options the phone answers from the
@@ -162,11 +159,11 @@ func (a *App) saveDockFold(folded bool) {
 }
 
 // inbox is the Needs you section at the top of the list: nothing while
-// nothing waits or works, one line while folded or only agents work.
+// nothing waits, one line while folded.
 func (a *App) inbox(gtx C) D {
 	th, l, d := a.th, &a.list, &a.dock
-	rows, moving := a.dockRows()
-	if len(rows) == 0 && moving == 0 && l.note == "" {
+	rows := a.dockRows()
+	if len(rows) == 0 && l.note == "" {
 		return D{}
 	}
 	for d.fold.Clicked(gtx) {
@@ -182,7 +179,7 @@ func (a *App) inbox(gtx C) D {
 			})
 		})
 	}
-	ws = append(ws, func(gtx C) D { return a.inboxHead(gtx, rows, moving, open) })
+	ws = append(ws, func(gtx C) D { return a.inboxHead(gtx, rows, open) })
 	if open {
 		maxH := gtx.Constraints.Max.Y * 45 / 100
 		ws = append(ws, func(gtx C) D {
@@ -200,8 +197,8 @@ func (a *App) inbox(gtx C) D {
 }
 
 // inboxHead is the section's header: Needs you and its counts, with a
-// chevron that folds it; Inbox and how many work when nothing waits.
-func (a *App) inboxHead(gtx C, rows []dockRow, moving int, open bool) D {
+// chevron that folds it; Inbox when only a note shows.
+func (a *App) inboxHead(gtx C, rows []dockRow, open bool) D {
 	th, d := a.th, &a.dock
 	var items []model.InboxItem
 	for _, r := range rows {
@@ -211,7 +208,7 @@ func (a *App) inboxHead(gtx C, rows []dockRow, moving int, open bool) D {
 	if len(rows) == 0 {
 		title = "Inbox"
 	}
-	counts := strings.Join(model.InboxHead(items, moving), " · ")
+	counts := strings.Join(model.InboxHead(items), " · ")
 	h := gtx.Dp(rowH)
 	draw := func(gtx C) D {
 		size := image.Pt(gtx.Constraints.Max.X, h)

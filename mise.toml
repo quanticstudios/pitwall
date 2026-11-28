@@ -1,5 +1,5 @@
 [tools]
-go = "1.27.1"
+go = "1.27.4"
 
 [env]
 # Gio links Vulkan only when its headers exist; this machine has none, and

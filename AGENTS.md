@@ -59,7 +59,7 @@ instead of changing it.
 
 - Read `CONTRIBUTING.md` before preparing a contribution. Send every change to
   `main` through a pull request; GitHub blocks direct pushes for everyone.
-- Go 1.27.1 via `mise.toml`. `gofmt`, `go vet ./...` and `go test ./...` pass
+- Go 1.27.4 via `mise.toml`. `gofmt`, `go vet ./...` and `go test ./...` pass
   before every commit.
 - Stdlib first. A new dependency needs a reason in the commit message.
 - One runnable test per non-trivial piece of logic. No test frameworks.

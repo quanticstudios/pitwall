@@ -26,16 +26,6 @@ conversation.
 Each pane of a split decides for itself. When claude exits, the pane shows
 the shell again.
 
-### The live screen inset
-
-While the agent works, a small card just above the composer, at the right
-edge of the chat column, shows the last lines of its terminal screen, above
-its input box. It is labelled with the agent's name and "live", and it reads
-the screen four times a second. Open switches the pane to the terminal, as
-Alt+T does. × closes it for that chat until you close the window. It hides
-when the turn ends, takes no keys, and lets the scroll wheel through to the
-chat. A chat tab whose agent runs without a terminal has no inset.
-
 ## Alt+T: the chat or the TUI
 
 Alt+T (Cmd+Option+T in the mac preset) flips the focused pane between the
@@ -203,9 +193,8 @@ context on a cheap model instead.
 
 Under the chat, above the box, the inbox dock lists what waits on you in
 your other tabs, on this computer and the machines the window shows. Its
-header counts it: **Inbox**, how many items are for you, how many are
-blocked, how many agents are moving. The tab you are in is left out; its own
-cards are in its chat.
+header counts it: **Inbox**, how many items are for you and how many are
+blocked. The tab you are in is left out; its own cards are in its chat.
 
 Each row names the tab, says what it wants and has its answers as buttons:
 
@@ -222,8 +211,7 @@ the rest scroll.
 
 A click on the header folds the dock to that one line or opens it again,
 and pitwall keeps the choice in `[chat] inbox_dock`. With nothing waiting
-it is one line with the moving count, and with no agent at work either it
-is gone.
+it is gone.
 
 ## Since you left
 

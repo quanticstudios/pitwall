@@ -32,7 +32,7 @@ func dockInbox(n int) model.Inbox {
 		{Kind: model.InboxCI, WorkspaceID: "w5", Tab: "crisp-borders", Text: "CI failed: test (ubuntu), vet"},
 		{Kind: model.InboxBlocked, WorkspaceID: "w6", PaneID: "p6", At: 5, Tab: "chat-spinner", Text: "API Error: 529 overloaded"},
 	}
-	return model.Inbox{Items: all[:min(n+1, len(all))], Moving: 3}
+	return model.Inbox{Items: all[:min(n+1, len(all))]}
 }
 
 // dockFrame draws a chat as the app does, transcript, dock, composer, w
@@ -81,9 +81,9 @@ func dockFrame(t *testing.T, th *theme.Theme, s *session.Snapshot, chatLayout st
 	return img, dh
 }
 
-// TestDockHeights checks that the dock draws nothing while nothing waits
-// and nothing moves, one line folded or with nothing to answer, and rows
-// up to four, then four and a half as the list scrolls.
+// TestDockHeights checks that the dock draws nothing while nothing waits,
+// one line folded, and rows up to four, then four and a half as the list
+// scrolls.
 func TestDockHeights(t *testing.T) {
 	th := theme.Dark()
 	s := ledgerSnapshot()
@@ -93,11 +93,11 @@ func TestDockHeights(t *testing.T) {
 		return h
 	}
 	none := height(model.Inbox{Items: dockInbox(0).Items}, true) // only here's own item
-	line := height(dockInbox(0), true)
+	line := height(dockInbox(1), false)
 	folded := height(dockInbox(6), false)
 	two := height(dockInbox(2), true)
 	six := height(dockInbox(6), true)
-	if none != 0 || line == 0 || folded != line || two <= line || six <= two || six != height(dockInbox(5), true) || six <= height(dockInbox(4), true) {
+	if none != 0 || height(dockInbox(0), true) != 0 || line == 0 || folded != line || two <= line || six <= two || six != height(dockInbox(5), true) || six <= height(dockInbox(4), true) {
 		t.Fatalf("heights: none %d, line %d, folded %d, two %d, six %d", none, line, folded, two, six)
 	}
 }
@@ -108,7 +108,7 @@ func TestDockParts(t *testing.T) {
 	if len(items) != 6 || items[0].WorkspaceID == "here" {
 		t.Fatalf("items %+v", items)
 	}
-	if got := model.InboxHead(items, 3); !slices.Equal(got, []string{"4 for you", "2 blocked", "3 moving"}) {
+	if got := model.InboxHead(items); !slices.Equal(got, []string{"4 for you", "2 blocked"}) {
 		t.Fatalf("head %v", got)
 	}
 	want := [][]string{{DockDeny, DockAllow}, {"Marker (Recommended)", "Card"}, {"Yes, auto-accept edits", "Yes, approve edits", "No, keep planning"}, {""}, {""}, {""}}
