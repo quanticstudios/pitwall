@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"strconv"
+	"strings"
 	"time"
 
 	"gioui.org/layout"
@@ -215,6 +216,9 @@ func workMeta(w model.Worker, now time.Time) string {
 // workChip is a worker's step chip: a pill with a 1dp ring, amber for a
 // worker that waits on you, red for a blocked one.
 func workChip(gtx layout.Context, th *theme.Theme, w model.Worker, base color.NRGBA) layout.Dimensions {
+	if w.Group == model.WorkMoving && (w.Chip == "working" || w.Chip == "background") {
+		return workingMark(gtx, th, w.Chip, base)
+	}
 	fg, ring := th.TextQuiet, th.BorderSubtle
 	switch w.Group {
 	case model.WorkNeedsYou:
@@ -232,6 +236,22 @@ func workChip(gtx layout.Context, th *theme.Theme, w model.Worker, base color.NR
 	rrect(gtx, image.Rectangle{Max: d.Size}, d.Size.Y/2, base, ring)
 	call.Add(gtx.Ops)
 	return d
+}
+
+// workingMark is a working worker's state as the composer's status line
+// draws it: the blue spinner and the word in blue, "Working".
+func workingMark(gtx layout.Context, th *theme.Theme, chip string, base color.NRGBA) layout.Dimensions {
+	gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+	sec := float64(gtx.Now.UnixMilli()%3_600_000) / 1000
+	fg := th.Readable(th.Blue, base)
+	name := strings.ToUpper(chip[:1]) + chip[1:]
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return spinner(gtx, gtx.Dp(11), base, th.Blue, sec) }),
+		layout.Rigid(layout.Spacer{Width: theme.SpaceXS + theme.Space2XS}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, th.UIFont, th.Sp(theme.Small), fg, name, 1)
+		}),
+	)
 }
 
 // wide is d stretched to the width a Flexed child has, so the children

@@ -26,6 +26,8 @@ takes `--dry-run`.
 
 - The chat no longer shows a live inset of the agent's terminal above the composer. It repeated the status line; Alt+T still shows the whole screen.
 - The inbox dock under the chat, and Needs you on the phone, show only while something waits on you. The "moving" count is gone: the sidebar already shows which agents work.
+- A /command or skill the agent knows, typed at the start of the chat box, shows as a purple chip, so you can tell it runs as a command.
+- The Workers rail shows a working worker as the chat's status line does, with a blue spinner and "Working", instead of a gray pill.
 
 ## v0.3.15
 

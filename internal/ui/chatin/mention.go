@@ -2,7 +2,9 @@ package chatin
 
 import (
 	"image"
+	"image/color"
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -16,8 +18,8 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -201,30 +203,62 @@ func (c *Composer) mentionChips(gtx layout.Context, th *theme.Theme) {
 	if !strings.Contains(txt, "@") {
 		return
 	}
-	bg, fg := th.Chip(th.Blue, th.Surface)
-	size := th.Sp(theme.Large)
-	var regions []widget.Region
 	for tok := range c.mention.picked {
-		mentionSpans(txt, tok, func(s, e int) {
-			regions = c.ed.Regions(s, e, regions[:0])
-			if len(regions) != 1 {
-				return
-			}
-			rg := regions[0]
-			lm := op.Record(gtx.Ops)
-			ld := text(gtx, th, th.UIFont, size, fg, tok)
-			label := lm.Stop()
-			base := rg.Bounds.Max.Y - rg.Baseline
-			ly := base - (ld.Size.Y - ld.Baseline)
-			// why: 2 dp, not the image chip's 6: the label is the text itself, so wider padding would cover the spaces around it.
-			padX, padY := gtx.Dp(theme.Space2XS), gtx.Dp(theme.Space2XS)
-			box := image.Rect(rg.Bounds.Min.X-padX, ly-padY, rg.Bounds.Min.X+ld.Size.X+padX, ly+ld.Size.Y+padY)
-			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
-			o := op.Offset(image.Pt(rg.Bounds.Min.X, ly)).Push(gtx.Ops)
-			label.Add(gtx.Ops)
-			o.Pop()
-		})
+		mentionSpans(txt, tok, func(s, e int) { c.textChip(gtx, th, th.Blue, s, e, tok) })
 	}
+}
+
+// slashChip covers the draft's leading /command with a chip when the
+// agent has that command or skill, so it reads as one and not as prose.
+func (c *Composer) slashChip(gtx layout.Context, th *theme.Theme, env Env) {
+	if env.Snap == nil {
+		return
+	}
+	txt := c.Text()
+	tok, _, _ := strings.Cut(txt, " ")
+	tok, _, _ = strings.Cut(tok, "\n")
+	if KnownSlash(tok, env.Snap.Commands) {
+		c.textChip(gtx, th, th.Purple, 0, utf8.RuneCountInString(tok), tok)
+	}
+}
+
+// KnownSlash reports whether word is "/" and the name or an alias of one
+// of cmds, ignoring case.
+func KnownSlash(word string, cmds []session.Command) bool {
+	name, ok := strings.CutPrefix(word, "/")
+	if !ok || name == "" {
+		return false
+	}
+	for _, c := range cmds {
+		if strings.EqualFold(c.Name, name) || slices.ContainsFunc(c.Aliases, func(a string) bool { return strings.EqualFold(a, name) }) {
+			return true
+		}
+	}
+	return false
+}
+
+// textChip covers the editor's runes [s, e) with a chip in col, its label
+// tok in the chip's color on the line's baseline. A span that wraps stays
+// plain text.
+func (c *Composer) textChip(gtx layout.Context, th *theme.Theme, col color.NRGBA, s, e int, tok string) {
+	regions := c.ed.Regions(s, e, nil)
+	if len(regions) != 1 {
+		return
+	}
+	bg, fg := th.Chip(col, th.Surface)
+	rg := regions[0]
+	lm := op.Record(gtx.Ops)
+	ld := text(gtx, th, th.UIFont, th.Sp(theme.Large), fg, tok)
+	label := lm.Stop()
+	base := rg.Bounds.Max.Y - rg.Baseline
+	ly := base - (ld.Size.Y - ld.Baseline)
+	// why: 2 dp, not the image chip's 6: the label is the text itself, so wider padding would cover the spaces around it.
+	padX, padY := gtx.Dp(theme.Space2XS), gtx.Dp(theme.Space2XS)
+	box := image.Rect(rg.Bounds.Min.X-padX, ly-padY, rg.Bounds.Min.X+ld.Size.X+padX, ly+ld.Size.Y+padY)
+	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(box, gtx.Dp(5)).Op(gtx.Ops))
+	o := op.Offset(image.Pt(rg.Bounds.Min.X, ly)).Push(gtx.Ops)
+	label.Add(gtx.Ops)
+	o.Pop()
 }
 
 // mentionAnchor notes where the @ sits in the card, from the editor laid

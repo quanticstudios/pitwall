@@ -9,6 +9,7 @@ import (
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 func TestMention(t *testing.T) {
@@ -151,5 +152,16 @@ func TestMentionSpansAndZeroAllocs(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("mentionSpans allocated %.1f times per run, want 0", allocs)
+	}
+}
+
+// TestKnownSlash checks which leading words get the command chip: a known
+// name or alias with its slash, in any case, and nothing else.
+func TestKnownSlash(t *testing.T) {
+	cmds := []session.Command{{Name: "fleet"}, {Name: "usage", Aliases: []string{"cost"}}}
+	for word, want := range map[string]bool{"/fleet": true, "/FLEET": true, "/cost": true, "fleet": false, "/": false, "/flee": false, "/tmp/x": false, "": false} {
+		if got := KnownSlash(word, cmds); got != want {
+			t.Errorf("KnownSlash(%q) = %v, want %v", word, got, want)
+		}
 	}
 }

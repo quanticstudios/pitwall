@@ -1180,6 +1180,7 @@ func (c *Composer) field(gtx layout.Context, th *theme.Theme, env Env) layout.Di
 		c.tokens(gtx, th)
 		c.partTokens(gtx, th)
 		c.mentionChips(gtx, th)
+		c.slashChip(gtx, th, env)
 		c.mentionAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
 		c.slash.anchorAt(&c.ed, image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM)))
 		return d

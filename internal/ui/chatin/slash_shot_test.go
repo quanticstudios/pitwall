@@ -62,6 +62,9 @@ func TestSlashShots(t *testing.T) {
 		{"slash-long.png", "/fr", 0, theme.Dark(), long, false},
 		{"slash-empty.png", "/", 0, theme.Dark(), nil, false},
 		{"slash-old.png", "/", 0, theme.Dark(), nil, true},
+		{"slash-chip.png", "/ship lets go and tackle this", 0, theme.Dark(), cmds, false},
+		{"slash-chip-light.png", "/ship lets go and tackle this", 0, lt, cmds, false},
+		{"slash-unknown.png", "/nope lets go", 0, theme.Dark(), cmds, false},
 	} {
 		shootComposer(t, filepath.Join(dir, s.name), s.th, s.cmds, s.text, s.downs, s.old)
 	}

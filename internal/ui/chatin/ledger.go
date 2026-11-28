@@ -194,6 +194,7 @@ func (c *Composer) ledgerField(gtx layout.Context, th *theme.Theme, env Env) lay
 		c.tokens(gtx, th)
 		c.partTokens(gtx, th)
 		c.mentionChips(gtx, th)
+		c.slashChip(gtx, th, env)
 		c.mentionAnchor(image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM+theme.Space2XS)))
 		c.slash.anchorAt(&c.ed, image.Pt(gtx.Dp(theme.SpaceL), c.barY+gtx.Dp(theme.SpaceM+theme.Space2XS)))
 		return d
