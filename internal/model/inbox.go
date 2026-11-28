@@ -45,6 +45,10 @@ type InboxItem struct {
 // answers first and oldest first.
 type Inbox struct {
 	Items []InboxItem
+	// Moving is always 0, which hides an older window's moving count.
+	//
+	// Deprecated: kept so the wire stays compatible; nothing reads it.
+	Moving int
 }
 
 // Recommended is label without a trailing "(Recommended)", and whether it
