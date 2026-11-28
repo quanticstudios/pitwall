@@ -25,7 +25,7 @@ git fetch upstream
 git switch -c fix/describe-the-change upstream/main
 ```
 
-Use the Go version pinned in `go.mod`, currently Go 1.27.1. If you use mise,
+Use the Go version pinned in `go.mod`, currently Go 1.27.4. If you use mise,
 run `mise install go`; `mise.toml` also selects Gio's OpenGL build. Contributors
 can build and test on Linux, macOS or Windows. GitHub runs the platform checks.
 
@@ -61,7 +61,7 @@ sh scripts/core-imports_test.sh
 
 ### macOS
 
-Install Git, Go 1.27.1 and the Xcode Command Line Tools. In your shell, run:
+Install Git, Go 1.27.4 and the Xcode Command Line Tools. In your shell, run:
 
 ```sh
 export GOFLAGS=-tags=novulkan
@@ -75,7 +75,7 @@ sh scripts/get_test.sh
 
 ### Windows
 
-Install Git and Go 1.27.1. In PowerShell, run:
+Install Git and Go 1.27.4. In PowerShell, run:
 
 ```powershell
 $env:GOFLAGS = '-tags=novulkan'
