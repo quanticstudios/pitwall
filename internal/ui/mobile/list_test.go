@@ -39,17 +39,17 @@ func inboxApp() *App {
 
 // TestInboxRows checks the section's rows across two machines: the
 // answers first in pairing order, a tab from a daemon without the inbox
-// read from its state, then the failure, and the agents at work.
+// read from its state, then the failure.
 func TestInboxRows(t *testing.T) {
 	a := inboxApp()
-	rows, moving := a.dockRows()
+	rows := a.dockRows()
 	var got []string
 	for _, r := range rows {
 		got = append(got, r.m.Name+"/"+r.it.Tab+"/"+string(r.it.Kind))
 	}
 	want := []string{"desktop/billing/approval", "desktop/since-you-left/question", "box/crisp-borders/ci"}
-	if !slices.Equal(got, want) || moving != 2 {
-		t.Fatalf("rows %v, moving %d; want %v and 2", got, moving, want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("rows %v, want %v", got, want)
 	}
 	if opts := dockOptions(rows[1]); len(opts) != 2 {
 		t.Fatalf("question options %+v", opts)
@@ -59,8 +59,8 @@ func TestInboxRows(t *testing.T) {
 	}
 }
 
-// TestInboxFolds keeps the section to one line while folded or while
-// only agents work, and none at all while nothing waits or works.
+// TestInboxFolds keeps the section to one line while folded, and none at
+// all while nothing waits, even with agents at work.
 func TestInboxFolds(t *testing.T) {
 	a := inboxApp()
 	height := func() int {
@@ -77,11 +77,7 @@ func TestInboxFolds(t *testing.T) {
 	a.updates.settings.DockFolded = false
 	a.fleet.Set("m1", nil)
 	a.fleet.Set("m2", []remote.Tab{{ID: "w4", Item: remote.Item{Pane: "p4", State: "working"}}})
-	if h := height(); h == 0 || h >= 2*int(rowH) {
-		t.Fatalf("one agent at work takes %d px; want one line", h)
-	}
-	a.fleet.Set("m2", nil)
 	if h := height(); h != 0 {
-		t.Fatalf("nothing waiting takes %d px", h)
+		t.Fatalf("one agent at work and nothing waiting takes %d px", h)
 	}
 }

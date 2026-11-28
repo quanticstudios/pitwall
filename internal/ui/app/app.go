@@ -394,7 +394,6 @@ type ui struct {
 
 	panel       sidePanel                    // the agent panel on the right while nav.panelOpen
 	transcripts map[string]*panel.Transcript // the chat tabs', by chat id, see chatTranscript
-	insets      map[string]*panel.Inset      // the chats' live screen insets, by chat id, see chatInset
 	workRails   map[string]*panel.WorkRail   // the orchestrator chats' work rails, by chat id (workrail.go)
 	chatHead    chatHead                     // the chat tab's header, or its terminal view's bar
 	paneHeads   map[string]*chatHead         // the pane chats' headers, by pane id

@@ -42,10 +42,9 @@ type InboxItem struct {
 }
 
 // Inbox is everything that waits on the user across a daemon's tabs, the
-// answers first and oldest first, and how many agents work meanwhile.
+// answers first and oldest first.
 type Inbox struct {
-	Items  []InboxItem
-	Moving int
+	Items []InboxItem
 }
 
 // Recommended is label without a trailing "(Recommended)", and whether it
@@ -58,9 +57,9 @@ func Recommended(label string) (string, bool) {
 	return s, false
 }
 
-// InboxHead is an inbox header's counts: "2 for you", "1 blocked",
-// "3 moving", each left out at zero.
-func InboxHead(items []InboxItem, moving int) []string {
+// InboxHead is an inbox header's counts: "2 for you", "1 blocked", each
+// left out at zero.
+func InboxHead(items []InboxItem) []string {
 	you, blocked := 0, 0
 	for _, it := range items {
 		if it.Kind.ForYou() {
@@ -75,9 +74,6 @@ func InboxHead(items []InboxItem, moving int) []string {
 	}
 	if blocked > 0 {
 		out = append(out, strconv.Itoa(blocked)+" blocked")
-	}
-	if moving > 0 {
-		out = append(out, strconv.Itoa(moving)+" moving")
 	}
 	return out
 }

@@ -119,7 +119,7 @@ func dockLine(it model.InboxItem) string {
 // here, and returns its height. It runs its clicks first.
 func (d *Dock) Layout(gtx layout.Context, th *theme.Theme, in model.Inbox, here string, x, w int) layout.Dimensions {
 	items := DockItems(in, here)
-	if len(items) == 0 && in.Moving == 0 || w <= 0 {
+	if len(items) == 0 || w <= 0 {
 		return layout.Dimensions{}
 	}
 	for d.fold.Clicked(gtx) {
@@ -170,7 +170,7 @@ func (d *Dock) Layout(gtx layout.Context, th *theme.Theme, in model.Inbox, here 
 		parts := []part{{w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, semibold(th.UIFont), small, th.Fg, "Inbox", 1)
 		}}}
-		for _, s := range model.InboxHead(items, in.Moving) {
+		for _, s := range model.InboxHead(items) {
 			parts = append(parts, part{gap: gtx.Dp(theme.SpaceM), w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, small, th.Muted, s, 1)
 			}})

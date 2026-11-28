@@ -22,6 +22,11 @@ Without that key or the Android SDK/NDK, tagging still succeeds and prints
 the retry command, `sh scripts/apk-release.sh vX.Y.Z`. Either release step
 takes `--dry-run`.
 
+## Unreleased
+
+- The chat no longer shows a live inset of the agent's terminal above the composer. It repeated the status line; Alt+T still shows the whole screen.
+- The inbox dock under the chat, and Needs you on the phone, show only while something waits on you. The "moving" count is gone: the sidebar already shows which agents work.
+
 ## v0.3.15
 
 - The phone app sends your message again when you tap Send. Since v0.3.11 the Stop check took the tap first, so nothing went out.

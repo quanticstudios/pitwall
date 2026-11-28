@@ -26,7 +26,7 @@ func TestInboxOneTab(t *testing.T) {
 	}
 	in := inboxOf(&st)
 	want := model.InboxItem{Kind: model.InboxApproval, WorkspaceID: "w1", PaneID: "p1", At: at.UnixNano(), Tab: "billing", Text: "wants to run go test ./...", Command: "go test ./..."}
-	if len(in.Items) != 1 || !equalItem(in.Items[0], want) || in.Moving != 0 {
+	if len(in.Items) != 1 || !equalItem(in.Items[0], want) {
 		t.Fatalf("inbox %+v", in)
 	}
 }
@@ -49,8 +49,8 @@ func TestInboxSeveralTabs(t *testing.T) {
 	}
 	in := inboxOf(&st)
 	want := []model.InboxKind{model.InboxForm, model.InboxApproval, model.InboxQuestion, model.InboxCI, model.InboxBlocked}
-	if !slices.Equal(kinds(in), want) || in.Moving != 1 {
-		t.Fatalf("kinds %v moving %d, want %v and 1", kinds(in), in.Moving, want)
+	if !slices.Equal(kinds(in), want) {
+		t.Fatalf("kinds %v, want %v", kinds(in), want)
 	}
 	if q := in.Items[2]; q.Text != "Where should the card live?" || !slices.Equal(q.Answers, []string{"Marker (Recommended)", "Card"}) {
 		t.Fatalf("question %+v", q)
@@ -79,7 +79,7 @@ func TestInboxAnsweredLeaves(t *testing.T) {
 	d.changed()
 	in := d.st.Inbox
 	d.mu.Unlock()
-	if len(in.Items) != 0 || in.Moving != 1 {
+	if len(in.Items) != 0 {
 		t.Fatalf("inbox %+v after the answer", in)
 	}
 }
