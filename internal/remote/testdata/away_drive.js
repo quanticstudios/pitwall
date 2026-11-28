@@ -1,6 +1,12 @@
 (async () => {
   const out = {};
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Drain queued scroll events across two frames, then wait on the real scroll event rather than a fixed timeout.
+  const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const scrollTo = (fn) => new Promise((r) => {
+    log.addEventListener('scroll', () => r(), { once: true });
+    fn();
+  });
   const away = {
     chat: 'c', since: '2026-11-27T09:00:00Z', at: '2026-11-27T11:14:00Z', replies: 1, turns: 1, editedN: 2, edited: ['login.go', 'login_test.go'],
     commands: 2, failed: 'go test ./auth/...', tests: 'failed', item: 'e1', seq: 2,
@@ -30,13 +36,12 @@
     entries(40);
     feed({ ...away, at: '2026-11-27T11:15:30Z' });
     log.scrollTop = log.scrollHeight;
-    await wait(100);
-    mark().scrollIntoView({ block: 'start' });
-    await wait(150);
+    await frame();
+    await scrollTo(() => mark().scrollIntoView({ block: 'start' }));
     out.readCardStays = card().children.length === 1;
-    log.scrollTop = log.scrollHeight;
-    await wait(150);
+    await scrollTo(() => { log.scrollTop = log.scrollHeight; });
     out.readThrough = card().children.length === 0 && !mark();
+    await wait(100);
     feed(undefined);
     entries(40);
     feed({ ...away, at: '2026-11-27T11:16:00Z' });
